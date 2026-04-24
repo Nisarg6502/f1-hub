@@ -5,8 +5,9 @@ matplotlib
 fastapi
 uvicorn
 fastf1
-schedule 
+schedule
 python-dotenv
-streamlit
 google-cloud-secret-manager
 google-cloud-firestore
+motor
+pymongo[srv]

@@ -51,6 +51,8 @@ const COUNTRY_TO_FLAG: Record<string, string> = {
   "Great Britain": "Great_Britain",
 };
 
+const ASSET_BASE = process.env.NEXT_PUBLIC_ASSET_BASE_URL ?? "";
+
 /**
  * Returns the URL path to the flag PNG for a given nationality string.
  * Returns null if no matching flag is found.
@@ -58,7 +60,7 @@ const COUNTRY_TO_FLAG: Record<string, string> = {
 export function getFlagPath(nationality?: string | null): string | null {
   if (!nationality) return null;
   const key = NATIONALITY_TO_FLAG[nationality];
-  return key ? `/flags/${key}.png` : null;
+  return key ? `${ASSET_BASE}/flags/${key}.png` : null;
 }
 
 /**
@@ -68,5 +70,5 @@ export function getFlagPath(nationality?: string | null): string | null {
 export function getCountryFlagPath(country?: string | null): string | null {
   if (!country) return null;
   const key = COUNTRY_TO_FLAG[country];
-  return key ? `/flags/${key}.png` : null;
+  return key ? `${ASSET_BASE}/flags/${key}.png` : null;
 }

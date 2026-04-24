@@ -75,12 +75,14 @@ function resolveDriverKey(
  * Builds the URL path to a driver's transparent PNG image.
  * Returns null if no image is available.
  */
+const ASSET_BASE = process.env.NEXT_PUBLIC_ASSET_BASE_URL ?? "";
+
 export function getDriverImagePath(
   givenName?: string | null,
   familyName?: string | null
 ): string | null {
   const key = resolveDriverKey(givenName, familyName);
-  return key ? `/drivers/${key}.png` : null;
+  return key ? `${ASSET_BASE}/drivers/${key}.png` : null;
 }
 
 /**

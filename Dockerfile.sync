@@ -1,0 +1,19 @@
+# Lightweight Python image for the data sync job
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Only need pymongo for the sync script
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir pymongo[srv]
+
+# Copy only the sync script
+COPY backend/app/data_sync.py ./data_sync.py
+
+ENV PYTHONUNBUFFERED=1
+
+# Run the sync
+CMD ["python", "data_sync.py"]
