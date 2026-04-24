@@ -1,0 +1,169 @@
+@import "tailwindcss";
+
+/* === Google Fonts (loaded in layout.tsx via next/font) === */
+
+@theme inline {
+  /* --- Kinetic Velocity Design Tokens --- */
+  --color-background: #131313;
+  --color-on-background: #e5e2e1;
+  --color-surface: #131313;
+  --color-on-surface: #e5e2e1;
+  --color-surface-dim: #131313;
+  --color-surface-bright: #3a3939;
+  --color-surface-container-lowest: #0e0e0e;
+  --color-surface-container-low: #1c1b1b;
+  --color-surface-container: #201f1f;
+  --color-surface-container-high: #2a2a2a;
+  --color-surface-container-highest: #353534;
+  --color-surface-variant: #353534;
+  --color-on-surface-variant: #b9cacb;
+  --color-primary: #e1fdff;
+  --color-on-primary: #00363a;
+  --color-primary-container: #00f2ff;
+  --color-on-primary-container: #006a71;
+  --color-primary-fixed: #74f5ff;
+  --color-primary-fixed-dim: #00dbe7;
+  --color-secondary: #ebb2ff;
+  --color-on-secondary: #520072;
+  --color-secondary-container: #b600f8;
+  --color-on-secondary-container: #fff6fc;
+  --color-tertiary: #fff5f8;
+  --color-on-tertiary: #5e0053;
+  --color-tertiary-container: #ffccee;
+  --color-on-tertiary-container: #af009d;
+  --color-error: #ffb4ab;
+  --color-on-error: #690005;
+  --color-error-container: #93000a;
+  --color-outline: #849495;
+  --color-outline-variant: #3a494b;
+  --color-inverse-surface: #e5e2e1;
+  --color-inverse-on-surface: #313030;
+  --color-inverse-primary: #00696f;
+
+  /* Font families */
+  --font-headline: "Space Grotesk", system-ui, sans-serif;
+  --font-body: "Manrope", system-ui, sans-serif;
+  --font-label: "Inter", system-ui, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #131313;
+  color: #e5e2e1;
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: #00f2ff;
+  color: #00363a;
+}
+
+/* === Shared Utility Classes === */
+
+.skew-heading {
+  transform: skewX(-12deg);
+}
+
+.glass-card {
+  background: rgba(53, 53, 52, 0.4);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(0, 242, 255, 0.1);
+}
+
+.glass-panel {
+  background: rgba(53, 53, 52, 0.4);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(132, 148, 149, 0.15);
+}
+
+.neon-glow-primary {
+  box-shadow: 0 0 15px rgba(0, 242, 255, 0.3);
+}
+
+.neon-glow-secondary {
+  box-shadow: 0 0 15px rgba(188, 19, 254, 0.3);
+}
+
+.neon-glow-pink {
+  box-shadow: 0 0 15px rgba(255, 0, 229, 0.2);
+}
+
+.neon-text-cyan {
+  text-shadow: 0 0 8px rgba(0, 242, 255, 0.6);
+}
+
+.neon-text-primary {
+  text-shadow: 0 0 10px rgba(0, 242, 255, 0.5);
+}
+
+.carbon-pattern {
+  background-color: #131313;
+  background-image: radial-gradient(#201f1f 0.5px, transparent 0.5px),
+    radial-gradient(#201f1f 0.5px, #131313 0.5px);
+  background-size: 10px 10px;
+  background-position: 0 0, 5px 5px;
+}
+
+.motion-blur-bg {
+  background: linear-gradient(
+    45deg,
+    rgba(19, 19, 19, 1) 0%,
+    rgba(28, 27, 27, 0.8) 50%,
+    rgba(19, 19, 19, 1) 100%
+  );
+  position: relative;
+  overflow: hidden;
+}
+
+.light-streak {
+  position: absolute;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #00f2ff, transparent);
+  filter: blur(4px);
+  opacity: 0.3;
+}
+
+.grid-bg {
+  background-image: linear-gradient(to right, #1a1a1a 1px, transparent 1px),
+    linear-gradient(to bottom, #1a1a1a 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.telemetry-bar {
+  background: linear-gradient(90deg, #00f2ff 0%, transparent 100%);
+}
+
+.neon-border {
+  box-shadow: 0 0 10px rgba(0, 242, 255, 0.3);
+}
+
+.neon-streak {
+  box-shadow: 0 0 15px rgba(0, 242, 255, 0.3);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: #0e0e0e;
+}
+::-webkit-scrollbar-thumb {
+  background: #00f2ff;
+  border-radius: 10px;
+}
+
+/* Material Symbols defaults */
+.material-symbols-outlined {
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+}

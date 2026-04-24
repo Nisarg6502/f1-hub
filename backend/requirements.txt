@@ -1,0 +1,12 @@
+pydantic-settings==2.1.0
+plotly
+pandas
+matplotlib
+fastapi
+uvicorn
+fastf1
+schedule 
+python-dotenv
+streamlit
+google-cloud-secret-manager
+google-cloud-firestore

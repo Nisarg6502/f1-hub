@@ -1,0 +1,22 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+.env
+f1_cache/
+backend/f1_cache/
+backend/app/f1_cache/
+
+# Node
+node_modules/
+.next/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Large asset source folders (these go to GCS, not Git)
+f1_driver_images/
+f1_2026_flags/
+stitch/
+stitch.zip
