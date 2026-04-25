@@ -1,0 +1,5 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/f1-dashboard-493015/f1-data-sync', '-f', 'Dockerfile.sync', '.']
+images:
+  - 'gcr.io/f1-dashboard-493015/f1-data-sync'
