@@ -1,4 +1,6 @@
+import Image from "next/image";
 import { getActiveSeasonYear, getSeasonRaces } from "@/lib/api";
+import { getCountryFlagPath } from "@/lib/flags";
 
 export default async function CircuitsPage() {
   const year = getActiveSeasonYear();
@@ -151,6 +153,7 @@ export default async function CircuitsPage() {
             const accent = accentColors[idx % accentColors.length];
             const icon = cardIcons[idx % cardIcons.length];
             const location = race.Circuit?.Location;
+            const flagPath = getCountryFlagPath(location?.country);
 
             return (
               <div
@@ -164,10 +167,14 @@ export default async function CircuitsPage() {
                       <span className="text-[10px] font-black font-[family-name:var(--font-label)] text-outline tracking-widest">
                         {location?.locality?.toUpperCase() ?? `ROUND ${race.round}`}
                       </span>
-                      <div className="w-8 h-5 bg-neutral-800 border border-neutral-700 flex items-center justify-center">
-                        <span className="material-symbols-outlined text-xs text-neutral-600">
-                          flag
-                        </span>
+                      <div className="w-8 h-5 bg-neutral-800 border border-neutral-700 flex items-center justify-center overflow-hidden">
+                        {flagPath ? (
+                          <Image src={flagPath} alt={location?.country ?? "Flag"} width={32} height={20} className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="material-symbols-outlined text-xs text-neutral-600">
+                            flag
+                          </span>
+                        )}
                       </div>
                     </div>
                     <h3 className="font-[family-name:var(--font-headline)] font-black text-3xl skew-heading uppercase italic tracking-tighter mb-4 group-hover:text-primary-container transition-colors line-clamp-2" title={race.Circuit?.circuitName ?? ""}>
