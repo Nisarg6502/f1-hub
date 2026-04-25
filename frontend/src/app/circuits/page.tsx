@@ -35,33 +35,9 @@ export default async function CircuitsPage() {
           {/* Main Featured Track */}
           <div className="lg:col-span-8 relative group">
             <div className="absolute -top-10 -left-10 w-64 h-64 bg-primary-container/10 blur-[120px] rounded-full" />
-            <div className="glass-panel p-8 relative overflow-hidden h-[600px] flex flex-col justify-end">
-              {/* Track Visualization */}
-              <div className="absolute inset-0 flex items-center justify-center p-12">
-                <div className="w-full h-full relative">
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    {featuredImagePath ? (
-                      <div className="relative w-full h-full flex items-center justify-center opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700">
-                         <Image 
-                           src={featuredImagePath} 
-                           alt="Featured Circuit Layout"
-                           fill
-                           className="object-contain drop-shadow-[0_0_25px_var(--primary)] group-hover:drop-shadow-[0_0_40px_var(--primary)] transition-all duration-700"
-                           priority
-                         />
-                      </div>
-                    ) : (
-                      <span className="material-symbols-outlined text-[400px] text-primary-container/40 neon-text-cyan opacity-80">
-                        route
-                      </span>
-                    )}
-                    <div className="absolute top-1/4 left-1/2 w-32 h-2 bg-secondary-container neon-glow-primary rotate-45 blur-sm opacity-60" />
-                    <div className="absolute bottom-1/3 right-1/4 w-48 h-2 bg-tertiary-container neon-glow-primary -rotate-12 blur-sm opacity-60" />
-                  </div>
-                </div>
-              </div>
-
-              <div className="relative z-10">
+            <div className="glass-panel p-8 relative overflow-hidden min-h-[600px] flex flex-col-reverse lg:flex-row items-stretch">
+              {/* Text Section - Bottom on mobile, Left on Desktop */}
+              <div className="relative z-10 w-full lg:w-5/12 flex flex-col justify-end pt-8 lg:pt-0">
                 <div className="flex items-center space-x-4 mb-4">
                   <span className="bg-tertiary-container text-on-tertiary px-3 py-1 text-[10px] font-black font-[family-name:var(--font-label)] tracking-[0.2em] uppercase">
                     FEATURED TRACK
@@ -73,10 +49,35 @@ export default async function CircuitsPage() {
                     </span>
                   )}
                 </div>
-                <h1 className="text-7xl font-black font-[family-name:var(--font-headline)] skew-heading leading-none uppercase mb-6 text-on-background tracking-tighter">
+                <h1 className="text-5xl lg:text-7xl font-black font-[family-name:var(--font-headline)] skew-heading leading-none uppercase text-on-background tracking-tighter">
                   {featured?.Circuit?.circuitName?.toUpperCase() ??
                     "WORLD CIRCUITS"}
                 </h1>
+              </div>
+
+              {/* Track Visualization - Top on mobile, Right on Desktop */}
+              <div className="relative w-full lg:w-7/12 min-h-[300px] lg:min-h-full flex items-center justify-center lg:pl-8">
+                <div className="w-full h-full min-h-[300px] relative">
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    {featuredImagePath ? (
+                      <div className="relative w-full h-full flex items-center justify-center opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700">
+                         <Image 
+                           src={featuredImagePath} 
+                           alt="Featured Circuit Layout"
+                           fill
+                           className="object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.05)] group-hover:drop-shadow-[0_0_30px_var(--primary)] transition-all duration-700"
+                           priority
+                         />
+                      </div>
+                    ) : (
+                      <span className="material-symbols-outlined text-[200px] lg:text-[400px] text-primary-container/40 neon-text-cyan opacity-80">
+                        route
+                      </span>
+                    )}
+                    <div className="absolute top-1/4 left-1/4 w-32 h-2 bg-secondary-container neon-glow-primary rotate-45 blur-sm opacity-60" />
+                    <div className="absolute bottom-1/3 right-1/4 w-48 h-2 bg-tertiary-container neon-glow-primary -rotate-12 blur-sm opacity-60" />
+                  </div>
+                </div>
               </div>
             </div>
           </div>
