@@ -1,0 +1,12 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/f1-dashboard-493015/f1-backend'
+      - '-f'
+      - 'Dockerfile.backend'
+      - '.'
+
+images:
+  - 'gcr.io/f1-dashboard-493015/f1-backend'
