@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { getActiveSeasonYear, getSeasonRaces } from "@/lib/api";
 import { getCountryFlagPath } from "@/lib/flags";
+import { getCircuitImagePath } from "@/lib/circuit-images";
 
 export default async function CircuitsPage() {
   const year = getActiveSeasonYear();
@@ -14,6 +15,7 @@ export default async function CircuitsPage() {
 
   // Use the first race as the featured track
   const featured = races[0];
+  const featuredImagePath = featured ? getCircuitImagePath(featured.Circuit?.Location?.country, featured.Circuit?.Location?.locality, featured.Circuit?.circuitName) : null;
 
   // Color accents for gallery cards
   const accentColors = [
@@ -38,9 +40,21 @@ export default async function CircuitsPage() {
               <div className="absolute inset-0 flex items-center justify-center p-12">
                 <div className="w-full h-full relative">
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="material-symbols-outlined text-[400px] text-primary-container/40 neon-text-cyan opacity-80">
-                      route
-                    </span>
+                    {featuredImagePath ? (
+                      <div className="relative w-full h-full flex items-center justify-center opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700">
+                         <Image 
+                           src={featuredImagePath} 
+                           alt="Featured Circuit Layout"
+                           fill
+                           className="object-contain drop-shadow-[0_0_25px_var(--primary)] group-hover:drop-shadow-[0_0_40px_var(--primary)] transition-all duration-700"
+                           priority
+                         />
+                      </div>
+                    ) : (
+                      <span className="material-symbols-outlined text-[400px] text-primary-container/40 neon-text-cyan opacity-80">
+                        route
+                      </span>
+                    )}
                     <div className="absolute top-1/4 left-1/2 w-32 h-2 bg-secondary-container neon-glow-primary rotate-45 blur-sm opacity-60" />
                     <div className="absolute bottom-1/3 right-1/4 w-48 h-2 bg-tertiary-container neon-glow-primary -rotate-12 blur-sm opacity-60" />
                   </div>
@@ -154,6 +168,7 @@ export default async function CircuitsPage() {
             const icon = cardIcons[idx % cardIcons.length];
             const location = race.Circuit?.Location;
             const flagPath = getCountryFlagPath(location?.country);
+            const circuitImagePath = getCircuitImagePath(location?.country, location?.locality, race.Circuit?.circuitName);
 
             return (
               <div
@@ -183,10 +198,21 @@ export default async function CircuitsPage() {
                     </h3>
                   </div>
 
-                  <div className="relative flex-1 flex items-center justify-center">
-                    <span className="material-symbols-outlined text-9xl text-white/5 absolute transition-all group-hover:scale-110 group-hover:text-primary-container/20">
-                      {icon}
-                    </span>
+                  <div className="relative flex-1 flex items-center justify-center h-40">
+                    {circuitImagePath ? (
+                      <div className="relative w-full h-full p-2 flex items-center justify-center group-hover:scale-110 transition-transform duration-700">
+                        <Image
+                          src={circuitImagePath}
+                          alt={`${race.Circuit?.circuitName} layout`}
+                          fill
+                          className="object-contain opacity-50 group-hover:opacity-100 drop-shadow-[0_0_10px_rgba(255,255,255,0.1)] group-hover:drop-shadow-[0_0_20px_var(--primary)] transition-all duration-700 invert brightness-0 dark:invert-0 dark:brightness-100"
+                        />
+                      </div>
+                    ) : (
+                      <span className="material-symbols-outlined text-9xl text-white/5 absolute transition-all group-hover:scale-110 group-hover:text-primary-container/20">
+                        {icon}
+                      </span>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
