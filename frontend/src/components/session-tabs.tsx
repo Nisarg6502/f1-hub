@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
+import { useParams } from "next/navigation";
 import type { Race, RaceResult } from "@/lib/api";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 
@@ -288,12 +290,25 @@ export default function SessionTabs({
 }
 
 function FullResultsTable({ results }: { results: RaceResult[] }) {
+  const params = useParams();
+  const season = params?.season as string | undefined;
+  const round = params?.round as string | undefined;
+
   return (
     <div className="overflow-x-auto">
       <div className="flex items-center justify-between mb-6 px-4">
         <h3 className="text-sm font-[family-name:var(--font-label)] uppercase tracking-[0.3em] font-bold text-neutral-500">
           Full Classification
         </h3>
+        {season && round && (
+          <Link
+            href={`/schedule/${season}/${round}/pitwall`}
+            className="flex items-center gap-2 bg-primary-container text-on-primary font-[family-name:var(--font-label)] text-xs uppercase tracking-widest font-bold px-4 py-2 hover:bg-primary-container/80 transition-colors active:scale-95 shadow-[0_0_15px_rgba(0,242,255,0.3)]"
+          >
+            <span className="material-symbols-outlined text-sm">analytics</span>
+            View Pitwall Analysis
+          </Link>
+        )}
       </div>
       <table className="w-full text-left border-separate border-spacing-y-2">
         <thead>

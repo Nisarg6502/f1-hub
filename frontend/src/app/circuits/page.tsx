@@ -35,9 +35,31 @@ export default async function CircuitsPage() {
           {/* Main Featured Track */}
           <div className="lg:col-span-8 relative group">
             <div className="absolute -top-10 -left-10 w-64 h-64 bg-primary-container/10 blur-[120px] rounded-full" />
-            <div className="glass-panel p-8 relative overflow-hidden min-h-[600px] flex flex-col-reverse lg:flex-row items-stretch">
-              {/* Text Section - Bottom on mobile, Left on Desktop */}
-              <div className="relative z-10 w-full lg:w-5/12 flex flex-col justify-end pt-8 lg:pt-0">
+            <div className="glass-panel relative overflow-hidden h-[500px] lg:h-[600px] flex flex-col justify-end group">
+              {/* Background Track Visualization */}
+              <div className="absolute inset-y-12 right-0 left-0 lg:left-1/4 flex items-center justify-center pointer-events-none overflow-hidden">
+                <div className="relative w-full h-full max-w-[800px]">
+                  {featuredImagePath ? (
+                    <Image 
+                      src={featuredImagePath} 
+                      alt="Featured Circuit Layout"
+                      fill
+                      className="object-contain object-right lg:object-center drop-shadow-[0_0_15px_rgba(255,255,255,0.05)] opacity-90 group-hover:opacity-100 group-hover:scale-[1.03] transition-all duration-700"
+                      priority
+                    />
+                  ) : (
+                    <span className="absolute inset-0 flex items-center justify-center material-symbols-outlined text-[300px] lg:text-[400px] text-primary-container/40 neon-text-cyan opacity-80">
+                      route
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Text Gradient Overlay for Readability */}
+              <div className="absolute inset-0 bg-gradient-to-t from-[#09090b] via-[#09090b]/60 to-transparent lg:bg-gradient-to-r lg:from-[#09090b] lg:via-[#09090b]/80 lg:to-transparent pointer-events-none" />
+
+              {/* Text Section */}
+              <div className="relative z-10 p-8 w-full lg:w-2/3 flex flex-col justify-end h-full">
                 <div className="flex items-center space-x-4 mb-4">
                   <span className="bg-tertiary-container text-on-tertiary px-3 py-1 text-[10px] font-black font-[family-name:var(--font-label)] tracking-[0.2em] uppercase">
                     FEATURED TRACK
@@ -53,31 +75,6 @@ export default async function CircuitsPage() {
                   {featured?.Circuit?.circuitName?.toUpperCase() ??
                     "WORLD CIRCUITS"}
                 </h1>
-              </div>
-
-              {/* Track Visualization - Top on mobile, Right on Desktop */}
-              <div className="relative w-full lg:w-7/12 min-h-[300px] lg:min-h-full flex items-center justify-center lg:pl-8">
-                <div className="w-full h-full min-h-[300px] relative">
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    {featuredImagePath ? (
-                      <div className="relative w-full h-full flex items-center justify-center opacity-90 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700">
-                         <Image 
-                           src={featuredImagePath} 
-                           alt="Featured Circuit Layout"
-                           fill
-                           className="object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.05)] group-hover:drop-shadow-[0_0_30px_var(--primary)] transition-all duration-700"
-                           priority
-                         />
-                      </div>
-                    ) : (
-                      <span className="material-symbols-outlined text-[200px] lg:text-[400px] text-primary-container/40 neon-text-cyan opacity-80">
-                        route
-                      </span>
-                    )}
-                    <div className="absolute top-1/4 left-1/4 w-32 h-2 bg-secondary-container neon-glow-primary rotate-45 blur-sm opacity-60" />
-                    <div className="absolute bottom-1/3 right-1/4 w-48 h-2 bg-tertiary-container neon-glow-primary -rotate-12 blur-sm opacity-60" />
-                  </div>
-                </div>
               </div>
             </div>
           </div>

@@ -2,6 +2,7 @@ import {
   getActiveSeasonYear,
   getConstructorStandings,
 } from "@/lib/api";
+import { getEngineForTeam, engineProviders } from "@/lib/engines";
 
 const teamMeta: Record<
   string,
@@ -125,6 +126,7 @@ export default async function TeamsPage() {
             const name = team.Constructor.name ?? "—";
             const meta = getTeamMeta(name);
             const nationality = team.Constructor.nationality ?? "";
+            const engine = getEngineForTeam(name);
 
             return (
               <div
@@ -138,8 +140,16 @@ export default async function TeamsPage() {
                       <h2 className="text-3xl font-[family-name:var(--font-headline)] font-black italic skew-x-[-10deg] text-on-background mb-1">
                         {name.toUpperCase()}
                       </h2>
-                      <div className="flex gap-4 font-[family-name:var(--font-label)] text-[10px] uppercase tracking-widest text-neutral-500">
+                      <div className="flex items-center gap-4 font-[family-name:var(--font-label)] text-[10px] uppercase tracking-widest text-neutral-500">
                         <span>{nationality}</span>
+                        {engine && (
+                          <span className="flex items-center gap-1 border border-outline-variant px-2 py-0.5 rounded-sm bg-surface-container-highest/50">
+                            <span className="material-symbols-outlined text-[12px] text-primary-container">
+                              {engine.icon}
+                            </span>
+                            Power: {engine.name}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="w-16 h-16 bg-white/10 p-2 rounded-lg backdrop-blur-md flex items-center justify-center">
@@ -198,6 +208,65 @@ export default async function TeamsPage() {
           })}
         </div>
       </main>
+
+      {/* Engine Providers Compiled View */}
+      <section className="px-8 pb-32">
+        <div className="max-w-7xl mx-auto">
+          <div className="mb-12">
+            <span className="text-secondary-container font-[family-name:var(--font-label)] text-xs uppercase tracking-[0.3em] block mb-2">
+              Power Units
+            </span>
+            <h2 className="text-4xl md:text-5xl font-[family-name:var(--font-headline)] font-black italic skew-x-[-10deg] tracking-tighter text-on-background">
+              ENGINE PROVIDERS
+            </h2>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {Object.values(engineProviders).map((engine) => {
+               // Find teams using this engine
+               const suppliedTeams = constructors.filter(t => getEngineForTeam(t.Constructor.name || "")?.name === engine.name);
+               const textColor = engine.color.replace('bg-', 'text-');
+               
+               return (
+                 <div key={engine.name} className="glass-panel p-6 relative overflow-hidden group">
+                   <div className={`absolute top-0 left-0 w-full h-1 ${engine.color}`} />
+                   <div className="absolute right-0 bottom-0 opacity-5 group-hover:opacity-10 group-hover:scale-110 transition-all duration-700 pointer-events-none translate-x-1/4 translate-y-1/4">
+                     <span className="material-symbols-outlined text-[150px]">
+                       {engine.icon}
+                     </span>
+                   </div>
+                   
+                   <div className="flex items-center gap-3 mb-6 relative z-10">
+                     <span className={`material-symbols-outlined text-3xl ${textColor}`}>
+                       {engine.icon}
+                     </span>
+                     <h3 className="text-2xl font-[family-name:var(--font-headline)] font-black italic skew-x-[-10deg]">
+                       {engine.name.toUpperCase()}
+                     </h3>
+                   </div>
+                   
+                   <div className="relative z-10">
+                     <p className="text-[10px] font-[family-name:var(--font-label)] uppercase tracking-widest text-neutral-500 mb-3">
+                       Supplied Teams
+                     </p>
+                     <div className="flex flex-wrap gap-2">
+                       {suppliedTeams.length > 0 ? (
+                         suppliedTeams.map(t => (
+                           <span key={t.Constructor.name} className="bg-surface-container-high px-3 py-1 text-xs font-bold font-[family-name:var(--font-headline)] italic">
+                             {t.Constructor.name?.toUpperCase()}
+                           </span>
+                         ))
+                       ) : (
+                         <span className="text-neutral-600 text-sm italic">No teams currently</span>
+                       )}
+                     </div>
+                   </div>
+                 </div>
+               );
+            })}
+          </div>
+        </div>
+      </section>
     </>
   );
 }

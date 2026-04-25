@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getCircuitInfo, getRaceResults, getSeasonRaces } from "@/lib/api";
 import SessionTabs from "@/components/session-tabs";
+import RaceSelector from "@/components/race-selector";
 
 interface PageProps {
   params: Promise<{
@@ -96,12 +97,15 @@ export default async function RaceDetailPage({ params }: PageProps) {
             {location?.locality ? ` · ${location.locality}, ${location.country}` : ""}
           </p>
         </div>
-        <Link
-          href="/schedule"
-          className="font-[family-name:var(--font-label)] text-xs uppercase tracking-widest text-primary-container border border-primary-container/30 px-6 py-3 hover:bg-primary-container/10 transition-all active:scale-95"
-        >
-          Back to Schedule
-        </Link>
+        <div className="flex flex-col sm:flex-row items-start sm:items-end gap-6">
+          <RaceSelector races={races} currentRound={String(roundNumber)} seasonYear={seasonYear} />
+          <Link
+            href="/schedule"
+            className="font-[family-name:var(--font-label)] text-xs uppercase tracking-widest text-primary-container border border-primary-container/30 px-6 hover:bg-primary-container/10 transition-all active:scale-95 h-[52px] flex items-center justify-center"
+          >
+            Back to Schedule
+          </Link>
+        </div>
       </div>
 
       {/* Circuit Info Bar (if available) */}
