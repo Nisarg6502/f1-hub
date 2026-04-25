@@ -16,7 +16,7 @@ images:
   - 'gcr.io/f1-dashboard-493015/f1-frontend'
 
 substitutions:
-  _NEXT_PUBLIC_API_BASE_URL: 'https://f1-backend-2w5wydk2ca-el.a.run.app'
+  _NEXT_PUBLIC_API_BASE_URL: 'https://f1-backend-1076575666662.asia-south1.run.app'
   _NEXT_PUBLIC_ASSET_BASE_URL: 'https://storage.googleapis.com/f1-scratch-assets'
 
 options:
