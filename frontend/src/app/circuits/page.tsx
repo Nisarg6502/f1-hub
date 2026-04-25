@@ -170,8 +170,8 @@ export default async function CircuitsPage() {
                         </span>
                       </div>
                     </div>
-                    <h3 className="font-[family-name:var(--font-headline)] font-black text-3xl skew-heading uppercase italic tracking-tighter mb-4 group-hover:text-primary-container transition-colors">
-                      {race.Circuit?.circuitName?.split(" ").slice(0, 2).join(" ").toUpperCase() ??
+                    <h3 className="font-[family-name:var(--font-headline)] font-black text-3xl skew-heading uppercase italic tracking-tighter mb-4 group-hover:text-primary-container transition-colors line-clamp-2" title={race.Circuit?.circuitName ?? ""}>
+                      {race.Circuit?.circuitName?.toUpperCase() ??
                         race.raceName.replace(" Grand Prix", "").toUpperCase()}
                     </h3>
                   </div>

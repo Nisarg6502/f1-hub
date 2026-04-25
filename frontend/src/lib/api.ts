@@ -171,7 +171,7 @@ export function getActiveSeasonYear(): number {
 // --- API helpers ---
 
 export async function getSeasonRaces(year: number) {
-  return fetchJson<{
+  const data = await fetchJson<{
     races?: Race[];
     races_list?: string[];
     total_races?: number;
@@ -179,6 +179,16 @@ export async function getSeasonRaces(year: number) {
     year,
     fields: "races,races_list,total",
   });
+
+  if (data.races) {
+    data.races.sort((a, b) => {
+      const aRound = parseInt(a.round || "0", 10);
+      const bRound = parseInt(b.round || "0", 10);
+      return aRound - bRound;
+    });
+  }
+
+  return data;
 }
 
 export async function getDriverStandings(year: number) {
