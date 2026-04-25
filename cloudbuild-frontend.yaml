@@ -1,4 +1,5 @@
 steps:
+  # 1. Build the Docker image
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
@@ -11,6 +12,27 @@ steps:
       - '--build-arg'
       - 'NEXT_PUBLIC_ASSET_BASE_URL=${_NEXT_PUBLIC_ASSET_BASE_URL}'
       - '.'
+
+  # 2. Push the Docker image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/f1-dashboard-493015/f1-frontend'
+
+  # 3. Deploy the newly pushed image to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'f1-frontend'
+      - '--image'
+      - 'gcr.io/f1-dashboard-493015/f1-frontend'
+      - '--region'
+      - 'asia-south1'
+      - '--platform'
+      - 'managed'
+      - '--quiet'
 
 images:
   - 'gcr.io/f1-dashboard-493015/f1-frontend'
