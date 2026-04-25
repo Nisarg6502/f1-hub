@@ -10,3 +10,7 @@ steps:
 
 images:
   - 'gcr.io/f1-dashboard-493015/f1-backend'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
