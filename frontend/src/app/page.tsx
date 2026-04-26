@@ -9,6 +9,7 @@ import {
 } from "@/lib/api";
 import CountdownTimer from "@/components/countdown-timer";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
+import { getCircuitImagePath } from "@/lib/circuit-images";
 
 export default async function Home() {
   const seasonYear = getActiveSeasonYear();
@@ -224,27 +225,30 @@ export default async function Home() {
           </div>
 
           {/* Track Info Card */}
-          <div className="glass-card group overflow-hidden relative p-8 transition-all hover:translate-y-[-4px] border-t-2 border-t-tertiary-container">
+          <Link 
+            href={nextRace ? `/schedule/${seasonYear}/${nextRace.round}` : "/schedule"}
+            className="glass-card group overflow-hidden relative p-8 transition-all hover:translate-y-[-4px] border-t-2 border-t-tertiary-container block"
+          >
             <p className="font-[family-name:var(--font-label)] text-[10px] tracking-[0.3em] text-tertiary-container uppercase mb-6">
-              Track Telemetry
+              Next Race Circuit
             </p>
             <div className="flex flex-col items-center justify-center flex-1">
               <div className="relative w-full aspect-square max-h-48 mb-6 flex items-center justify-center">
-                <svg
-                  className="w-full h-full stroke-tertiary-container/30 fill-none stroke-2"
-                  viewBox="0 0 100 100"
-                >
-                  <path
-                    className="drop-shadow-[0_0_8px_#ff00e5]"
-                    d="M20,80 L30,40 L60,20 L90,40 L80,70 L50,85 Z"
-                    strokeDasharray="200"
-                  />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="material-symbols-outlined text-4xl text-tertiary-container animate-pulse">
-                    location_on
-                  </span>
-                </div>
+                {(() => {
+                  const circuitImg = getCircuitImagePath(nextRaceCountry, nextRace?.Circuit?.Location?.locality, nextRace?.Circuit?.circuitName);
+                  return circuitImg ? (
+                    <Image
+                      src={circuitImg}
+                      alt="Circuit Layout"
+                      fill
+                      className="object-contain opacity-50 group-hover:opacity-100 transition-all duration-700 invert brightness-0 dark:invert-0 dark:brightness-100"
+                    />
+                  ) : (
+                    <span className="material-symbols-outlined text-4xl text-tertiary-container animate-pulse">
+                      location_on
+                    </span>
+                  );
+                })()}
               </div>
               <div className="w-full grid grid-cols-2 gap-4">
                 <div>
@@ -265,7 +269,7 @@ export default async function Home() {
                 </div>
               </div>
             </div>
-          </div>
+          </Link>
         </div>
       </section>
 

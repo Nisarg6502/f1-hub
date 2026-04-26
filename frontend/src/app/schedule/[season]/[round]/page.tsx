@@ -45,6 +45,21 @@ export default async function RaceDetailPage({ params }: PageProps) {
     isPast = !Number.isNaN(parsed.getTime()) && parsed.getTime() < Date.now();
   }
 
+  const now = new Date();
+  const upcomingRace = races
+    .map((r) => {
+      if (!r.date) return null;
+      const baseTime = r.time ?? "12:00:00Z";
+      const iso = baseTime.endsWith("Z") ? `${r.date}T${baseTime}` : `${r.date}T${baseTime}Z`;
+      const parsed = new Date(iso);
+      return { race: r, timestamp: parsed.getTime() };
+    })
+    .filter((r): r is { race: typeof races[0]; timestamp: number } => r !== null && !Number.isNaN(r.timestamp))
+    .filter((r) => r.timestamp > now.getTime())
+    .sort((a, b) => a.timestamp - b.timestamp)[0]?.race;
+
+  const isNextRace = upcomingRace?.round === String(roundNumber);
+
   // Fetch results for completed races
   let results: any[] = [];
   if (isPast) {
@@ -77,10 +92,12 @@ export default async function RaceDetailPage({ params }: PageProps) {
               className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest ${
                 isPast
                   ? "bg-neutral-800 text-neutral-400"
+                  : isNextRace
+                  ? "bg-secondary-container/20 text-secondary-container border border-secondary-container/30"
                   : "bg-primary-container/20 text-primary-container border border-primary-container/30"
               }`}
             >
-              {isPast ? "Completed" : "Upcoming"}
+              {isPast ? "Completed" : isNextRace ? "Next Race" : "Upcoming"}
             </span>
             <span className="text-neutral-500 font-[family-name:var(--font-label)] text-[10px] tracking-widest uppercase">
               Round {race.round} · {seasonYear}

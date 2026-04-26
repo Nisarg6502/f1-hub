@@ -167,7 +167,7 @@ export default function StandingsView({
                             alt={driverName}
                             width={80}
                             height={80}
-                            className="object-cover object-[center_15%] w-full h-full"
+                            className="object-cover object-top w-full h-full scale-125 translate-y-1"
                           />
                         ) : (
                           <span className="material-symbols-outlined text-neutral-600">

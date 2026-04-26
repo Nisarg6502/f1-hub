@@ -193,7 +193,7 @@ export default function SessionTabs({
                             alt={`${p2.Driver?.givenName} ${p2.Driver?.familyName}`}
                             width={40}
                             height={40}
-                            className="object-cover object-top scale-[1.8] translate-y-1"
+                            className="object-cover object-top scale-125 translate-y-1 w-full h-full"
                           />
                         </div>
                       )}
@@ -206,7 +206,7 @@ export default function SessionTabs({
                         </p>
                       </div>
                       <div className="ml-auto text-sm font-[family-name:var(--font-headline)]">
-                        {p2.Time?.time ? `+${p2.Time.time}` : p2.status ?? "—"}
+                        {p2.Time?.time ? (p2.Time.time.startsWith("+") ? p2.Time.time : `+${p2.Time.time}`) : p2.status ?? "—"}
                       </div>
                     </div>
                   )}
@@ -222,7 +222,7 @@ export default function SessionTabs({
                             alt={`${p3.Driver?.givenName} ${p3.Driver?.familyName}`}
                             width={40}
                             height={40}
-                            className="object-cover object-top scale-[1.8] translate-y-1"
+                            className="object-cover object-top scale-125 translate-y-1 w-full h-full"
                           />
                         </div>
                       )}
@@ -235,7 +235,7 @@ export default function SessionTabs({
                         </p>
                       </div>
                       <div className="ml-auto text-sm font-[family-name:var(--font-headline)]">
-                        {p3.Time?.time ? `+${p3.Time.time}` : p3.status ?? "—"}
+                        {p3.Time?.time ? (p3.Time.time.startsWith("+") ? p3.Time.time : `+${p3.Time.time}`) : p3.status ?? "—"}
                       </div>
                     </div>
                   )}
@@ -352,7 +352,7 @@ function FullResultsTable({ results }: { results: RaceResult[] }) {
                           alt={driverName}
                           width={48}
                           height={48}
-                          className="object-cover object-[center_15%] w-full h-full scale-110"
+                          className="object-cover object-top w-full h-full scale-125 translate-y-1"
                         />
                       </div>
                     ) : null}
@@ -375,7 +375,7 @@ function FullResultsTable({ results }: { results: RaceResult[] }) {
                   {isP1
                     ? r.Time?.time ?? r.status ?? "—"
                     : r.Time?.time
-                    ? `+${r.Time.time}`
+                    ? (r.Time.time.startsWith("+") ? r.Time.time : `+${r.Time.time}`)
                     : r.status ?? "—"}
                 </td>
                 <td className="px-6 py-5 text-right font-[family-name:var(--font-headline)] font-bold text-lg">
