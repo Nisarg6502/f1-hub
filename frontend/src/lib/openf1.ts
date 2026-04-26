@@ -29,3 +29,11 @@ export async function getLaps(sessionKey: number, driverNumbers: number[]) {
 export async function getRaceControl(sessionKey: number) {
   return fetchOpenF1<any[]>("/race_control", { session_key: sessionKey });
 }
+
+export async function getWeather(sessionKey: number) {
+  const weatherList = await fetchOpenF1<any[]>("/weather", { session_key: sessionKey });
+  if (!weatherList || weatherList.length === 0) return null;
+  // Return the middle of the session to get a representative weather
+  const midIdx = Math.floor(weatherList.length / 2);
+  return weatherList[midIdx];
+}

@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { getActiveSeasonYear, getSeasonRaces } from "@/lib/api";
 import { getCountryFlagPath } from "@/lib/flags";
+import RaceWeather from "@/components/race-weather";
 
 export default async function SchedulePage() {
   const year = getActiveSeasonYear();
@@ -269,16 +270,18 @@ export default async function SchedulePage() {
                           </div>
                         </div>
                         <div className="mt-4 md:mt-0 flex items-center gap-3">
-                          {/* Sprint badge */}
                           {isSprint && !isPast && (
                             <span className="px-3 py-1 bg-primary-container/20 border border-primary-container/40 text-primary-container text-[10px] font-[family-name:var(--font-label)] font-bold tracking-widest uppercase whitespace-nowrap">
                               Sprint Weekend
                             </span>
                           )}
                           {isPast ? (
-                            <span className="px-4 py-1 border border-neutral-800 text-[10px] font-[family-name:var(--font-label)] tracking-widest text-neutral-600 uppercase">
-                              Completed
-                            </span>
+                            <div className="flex items-center">
+                              <span className="px-4 py-1 border border-neutral-800 text-[10px] font-[family-name:var(--font-label)] tracking-widest text-neutral-600 uppercase">
+                                Completed
+                              </span>
+                              {race.date && <RaceWeather year={Number(race.season ?? year)} dateStr={race.date} />}
+                            </div>
                           ) : isNext ? (
                             <span className="material-symbols-outlined text-primary-container group-hover:translate-x-1 transition-transform">
                               keyboard_double_arrow_right
