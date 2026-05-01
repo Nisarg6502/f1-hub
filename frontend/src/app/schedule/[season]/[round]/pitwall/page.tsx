@@ -143,7 +143,40 @@ export default async function PitwallPage({ params }: PageProps) {
 
         {/* Main Content Area */}
         <main className="lg:col-span-9">
-          <TireStintsChart sessionKey={sessionKey} drivers={drivers} />
+          {sessionKey ? (
+            <TireStintsChart sessionKey={sessionKey} drivers={drivers} />
+          ) : (
+            <div className="glass-panel p-12 flex flex-col items-center justify-center text-center min-h-[500px]">
+              <div className="w-16 h-16 bg-orange-500/10 rounded-full flex items-center justify-center mb-6">
+                <span className="material-symbols-outlined text-orange-500 text-3xl">
+                  lock
+                </span>
+              </div>
+              <h3 className="text-2xl font-[family-name:var(--font-headline)] font-bold italic uppercase tracking-tight mb-2">
+                Telemetry Data Unavailable
+              </h3>
+              <p className="text-neutral-400 max-w-md mx-auto">
+                Real-time telemetry and strategy data for the {seasonYear} season requires a premium OpenF1 subscription.
+                Historical data is available for 2023-2025 seasons.
+              </p>
+              <div className="mt-8 flex gap-4">
+                <Link
+                  href="/schedule"
+                  className="px-6 py-2 bg-surface-container hover:bg-surface-container-high transition-colors text-xs font-bold uppercase tracking-widest"
+                >
+                  View Schedule
+                </Link>
+                <a
+                  href="https://openf1.org"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-6 py-2 bg-primary-container text-on-primary hover:bg-primary-container/80 transition-colors text-xs font-bold uppercase tracking-widest"
+                >
+                  OpenF1 Website
+                </a>
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </div>

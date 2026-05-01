@@ -59,6 +59,11 @@ export default function TireStintsChart({
         const res = await fetch(
           `https://api.openf1.org/v1/stints?session_key=${sessionKey}`
         );
+        if (res.status === 401) {
+          setError(true);
+          setLoading(false);
+          return;
+        }
         if (!res.ok) throw new Error("Failed to fetch");
         const data = await res.json();
         setStints(data);

@@ -1,12 +1,36 @@
 const OPENF1_BASE = "https://api.openf1.org/v1";
+const OPENF1_TOKEN = process.env.OPENF1_TOKEN;
 
 export async function fetchOpenF1<T>(endpoint: string, params: Record<string, string | number>): Promise<T> {
   const url = new URL(`${OPENF1_BASE}${endpoint}`);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)));
   
-  const res = await fetch(url.toString(), { cache: "no-store" });
-  if (!res.ok) throw new Error(`OpenF1 error ${res.status}`);
-  return (await res.json()) as T;
+  const headers: Record<string, string> = {};
+  if (OPENF1_TOKEN) {
+    headers["Authorization"] = `Bearer ${OPENF1_TOKEN}`;
+  }
+
+  try {
+    const res = await fetch(url.toString(), { 
+      cache: "no-store",
+      headers
+    });
+    
+    if (res.status === 401) {
+      console.warn(`OpenF1 Unauthorized (401): ${url.toString()}. This data likely requires a paid subscription for the current season.`);
+      return [] as unknown as T;
+    }
+    
+    if (!res.ok) {
+      console.error(`OpenF1 error ${res.status} for ${url.toString()}`);
+      return [] as unknown as T;
+    }
+    
+    return (await res.json()) as T;
+  } catch (err) {
+    console.error(`OpenF1 fetch error for ${url.toString()}:`, err);
+    return [] as unknown as T;
+  }
 }
 
 export async function getSessionKeyByDate(year: number, dateStr: string, sessionType: string = "Race"): Promise<number | null> {
