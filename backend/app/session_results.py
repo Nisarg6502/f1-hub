@@ -34,6 +34,45 @@ def _split_driver_name(full_name: str) -> tuple[str, str]:
     return " ".join(parts[:-1]), parts[-1]
 
 
+def _normalize_ergast_result(res: dict, session_type: str) -> dict:
+    """Normalize Ergast result format to match FastF1-like format used in session_classification."""
+    driver = res.get("Driver", {})
+    constructor = res.get("Constructor", {})
+    time_info = res.get("Time", {})
+    fastest_lap = res.get("FastestLap", {})
+    
+    normalized = {
+        "position": str(res.get("position") or ""),
+        "points": str(res.get("points") or "0"),
+        "status": str(res.get("status") or ""),
+        "Driver": {
+            "givenName": driver.get("givenName", ""),
+            "familyName": driver.get("familyName", ""),
+            "code": driver.get("code", ""),
+            "permanentNumber": driver.get("permanentNumber", ""),
+        },
+        "Constructor": {
+            "name": constructor.get("name", ""),
+        },
+        "Time": {
+            "time": time_info.get("time", ""),
+        }
+    }
+    
+    if session_type == "Q":
+        normalized.update({
+            "Q1": res.get("Q1", ""),
+            "Q2": res.get("Q2", ""),
+            "Q3": res.get("Q3", ""),
+        })
+    elif session_type == "R":
+        # Add lap time info if available
+        if fastest_lap:
+            normalized["Time"]["time"] = fastest_lap.get("Time", {}).get("time", normalized["Time"]["time"])
+
+    return normalized
+
+
 @router.get("/race_results")
 async def get_results(
     year: int = Query(..., description="Year for which to fetch results"),
@@ -81,6 +120,15 @@ async def get_qualifying_results(
     year: int = Query(..., description="Year for which to fetch qualifying results"),
     round: int = Query(..., description="Round number"),
 ):
+    db = get_db()
+    doc = await db.qualifying_results.find_one(
+        {"season": year, "round": str(round)},
+        {"_id": 0, "synced_at": 0},
+    )
+    if doc:
+        return JSONResponse(content={"race": doc.get("race", {}), "results": doc.get("results", [])})
+
+    # Fallback to live fetch
     data = _fetch_json(f"{ERGAST_BASE}/{year}/{round}/qualifying/")
     races = data.get("MRData", {}).get("RaceTable", {}).get("Races", []) if data else []
 
@@ -98,6 +146,15 @@ async def get_sprint_results(
     year: int = Query(..., description="Year for which to fetch sprint results"),
     round: int = Query(..., description="Round number"),
 ):
+    db = get_db()
+    doc = await db.sprint_results.find_one(
+        {"season": year, "round": str(round)},
+        {"_id": 0, "synced_at": 0},
+    )
+    if doc:
+        return JSONResponse(content={"race": doc.get("race", {}), "results": doc.get("results", [])})
+
+    # Fallback to live fetch
     data = _fetch_json(f"{ERGAST_BASE}/{year}/{round}/sprint/")
     races = data.get("MRData", {}).get("RaceTable", {}).get("Races", []) if data else []
 
@@ -117,6 +174,46 @@ async def get_session_classification(
     session: str = Query(..., description="Session code like FP1, FP2, FP3, SQ, Q, S"),
 ):
     session_code = session.upper()
+    db = get_db()
+
+    # 1. Try fetching from MongoDB first
+    if session_code in ["FP1", "FP2", "FP3", "SQ"]:
+        doc = await db.practice_results.find_one({"season": year, "round": str(round), "session": session_code})
+        if doc:
+            return JSONResponse(content={
+                "session": session_code,
+                "event_name": doc.get("event_name", ""),
+                "results": doc.get("results", [])
+            })
+    elif session_code == "Q":
+        doc = await db.qualifying_results.find_one({"season": year, "round": str(round)})
+        if doc:
+            results = [_normalize_ergast_result(r, "Q") for r in doc.get("results", [])]
+            return JSONResponse(content={
+                "session": session_code,
+                "event_name": doc.get("race", {}).get("raceName", ""),
+                "results": results
+            })
+    elif session_code == "S":
+        doc = await db.sprint_results.find_one({"season": year, "round": str(round)})
+        if doc:
+            results = [_normalize_ergast_result(r, "S") for r in doc.get("results", [])]
+            return JSONResponse(content={
+                "session": session_code,
+                "event_name": doc.get("race", {}).get("raceName", ""),
+                "results": results
+            })
+    elif session_code == "R":
+        doc = await db.race_results.find_one({"season": year, "round": str(round)})
+        if doc:
+            results = [_normalize_ergast_result(r, "R") for r in doc.get("results", [])]
+            return JSONResponse(content={
+                "session": session_code,
+                "event_name": doc.get("race", {}).get("raceName", ""),
+                "results": results
+            })
+
+    # 2. Fallback to live FastF1 if not in DB
     try:
         ff1_session = fastf1.get_session(year, round, session_code)
         ff1_session.load(laps=False, telemetry=False, weather=False, messages=False, livedata=False)
@@ -132,13 +229,7 @@ async def get_session_classification(
         full_name = str(row.get("FullName") or "").strip()
         given_name, family_name = _split_driver_name(full_name)
         time_value = row.get("Time")
-        if time_value is not None:
-            try:
-                time_text = str(time_value)
-            except Exception:
-                time_text = ""
-        else:
-            time_text = ""
+        time_text = str(time_value) if time_value is not None else ""
 
         normalized_results.append(
             {
