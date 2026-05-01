@@ -159,6 +159,48 @@ export interface CircuitInfo {
   };
 }
 
+export interface LiveTimingSector {
+  Completed?: boolean;
+  OverallFastest?: boolean;
+  PersonalFastest?: boolean;
+  PreviousValue?: string;
+  Status?: number;
+  Stopped?: boolean;
+  Value?: string;
+}
+
+export interface LiveTimingLine {
+  Sectors?: LiveTimingSector[];
+  bestLapTime?: string;
+  compound?: string;
+  driver?: {
+    BroadcastName?: string;
+    FullName?: string;
+    RacingNumber?: string;
+    TeamColour?: string;
+    TeamName?: string;
+    Tla?: string;
+  };
+  drs?: string;
+  gapToLeader?: string;
+  inPit?: boolean;
+  intervalToPositionAhead?: string;
+  lastLapTime?: string;
+  position?: string;
+  racingNumber?: string;
+  retired?: boolean;
+  stopped?: boolean;
+  timeDiffToFastest?: string;
+  timeDiffToPositionAhead?: string;
+  tyreAge?: number;
+}
+
+export interface LiveTimingResponse {
+  cutOffTime?: string;
+  lines?: LiveTimingLine[];
+  sessionPart?: number;
+}
+
 // --- Helpers ---
 
 const MIN_SUPPORTED_SEASON = 2018;
@@ -247,4 +289,30 @@ export async function getConstructors(year: number) {
     year,
     fields: "constructors",
   });
+}
+
+export async function getLiveTimingData() {
+  const rapidApiKey = process.env.NEXT_PUBLIC_RAPIDAPI_KEY;
+  const rapidApiHost =
+    process.env.NEXT_PUBLIC_RAPIDAPI_HOST ?? "f1-live-pulse.p.rapidapi.com";
+
+  if (!rapidApiKey) {
+    throw new Error("NEXT_PUBLIC_RAPIDAPI_KEY is not configured");
+  }
+
+  const response = await fetch(`https://${rapidApiHost}/timingData`, {
+    method: "GET",
+    headers: {
+      "X-Rapidapi-Key": rapidApiKey,
+      "X-Rapidapi-Host": rapidApiHost,
+      "Content-Type": "application/json",
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`RapidAPI error ${response.status}`);
+  }
+
+  return (await response.json()) as LiveTimingResponse;
 }

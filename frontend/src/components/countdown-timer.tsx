@@ -1,30 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { Race } from "@/lib/api";
+import type { SessionTimelineItem } from "@/lib/sessions";
 
 interface CountdownTimerProps {
-  targetRace?: Race;
+  nextSession?: SessionTimelineItem | null;
+  liveSession?: SessionTimelineItem | null;
 }
 
-function getTargetDate(race?: Race) {
-  if (!race || !race.date) return null;
-
-  const baseTime = race.time ?? "12:00:00Z";
-  const iso = baseTime.endsWith("Z")
-    ? `${race.date}T${baseTime}`
-    : `${race.date}T${baseTime}Z`;
-  const parsed = new Date(iso);
-
-  if (Number.isNaN(parsed.getTime())) {
-    return null;
-  }
-
-  return parsed;
-}
-
-export default function CountdownTimer({ targetRace }: CountdownTimerProps) {
-  const targetDate = getTargetDate(targetRace);
+export default function CountdownTimer({
+  nextSession,
+  liveSession,
+}: CountdownTimerProps) {
   const [now, setNow] = useState<Date>(() => new Date());
 
   useEffect(() => {
@@ -32,7 +19,24 @@ export default function CountdownTimer({ targetRace }: CountdownTimerProps) {
     return () => clearInterval(id);
   }, []);
 
-  if (!targetDate) {
+  if (liveSession) {
+    return (
+      <div className="space-y-3">
+        <div className="inline-flex items-center gap-2 rounded-sm bg-tertiary-container/20 px-3 py-1 font-[family-name:var(--font-label)] text-xs uppercase tracking-[0.24em] text-tertiary-container border border-tertiary-container/40">
+          <span className="h-2 w-2 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.9)] animate-pulse" />
+          Session Live
+        </div>
+        <div className="text-4xl md:text-6xl font-black font-[family-name:var(--font-headline)] italic tracking-tighter text-primary-container drop-shadow-[0_0_15px_#00f2ff]">
+          {liveSession.sessionLabel.toUpperCase()}
+        </div>
+        <div className="text-xs md:text-sm font-[family-name:var(--font-label)] tracking-[0.24em] uppercase text-on-surface-variant">
+          {liveSession.raceName}
+        </div>
+      </div>
+    );
+  }
+
+  if (!nextSession) {
     return (
       <div className="text-4xl font-bold font-[family-name:var(--font-headline)] italic tracking-tighter text-on-surface-variant">
         Awaiting schedule
@@ -40,7 +44,7 @@ export default function CountdownTimer({ targetRace }: CountdownTimerProps) {
     );
   }
 
-  const diff = targetDate.getTime() - now.getTime();
+  const diff = nextSession.startTimeMs - now.getTime();
   const clamped = Math.max(diff, 0);
 
   const totalSeconds = Math.floor(clamped / 1000);

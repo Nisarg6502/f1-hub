@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Space_Grotesk, Manrope, Inter } from "next/font/google";
 import Link from "next/link";
 import NavLinks, { MobileNav } from "@/components/nav-links";
+import LiveStatusButton from "@/components/live-status-button";
 import "./globals.css";
 
 const spaceGrotesk = Space_Grotesk({
@@ -71,9 +72,7 @@ export default function RootLayout({
                   type="text"
                 />
               </div>
-              <button className="bg-primary-container text-on-primary px-6 py-2 font-black italic skew-x-[-12deg] text-xs tracking-tighter hover:shadow-[0_0_20px_rgba(0,242,255,0.4)] transition-all active:scale-95 font-[family-name:var(--font-headline)]">
-                LIVE STATUS
-              </button>
+              <LiveStatusButton />
             </div>
           </div>
         </nav>

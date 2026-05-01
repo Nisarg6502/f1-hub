@@ -2,7 +2,6 @@ import Link from "next/link";
 import Image from "next/image";
 import {
   getActiveSeasonYear,
-  getConstructorStandings,
   getDriverStandings,
   getSeasonRaces,
   getRaceResults,
@@ -10,25 +9,28 @@ import {
 import CountdownTimer from "@/components/countdown-timer";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { getCircuitImagePath } from "@/lib/circuit-images";
+import {
+  buildSeasonSessionTimeline,
+  getCurrentLiveSession,
+  getNextSession,
+  getUpcomingSessions,
+} from "@/lib/sessions";
 
 export default async function Home() {
   const seasonYear = getActiveSeasonYear();
 
   let races: Awaited<ReturnType<typeof getSeasonRaces>>["races"] = [];
   let driverStandings: Awaited<ReturnType<typeof getDriverStandings>>["driver_standings"] = [];
-  let constructorStandings: Awaited<ReturnType<typeof getConstructorStandings>>["constructor_standings"] = [];
 
   try {
-    const [racesRes, driverStandingsRes, constructorStandingsRes] =
+    const [racesRes, driverStandingsRes] =
       await Promise.all([
         getSeasonRaces(seasonYear),
         getDriverStandings(seasonYear),
-        getConstructorStandings(seasonYear),
       ]);
 
     races = racesRes.races ?? [];
     driverStandings = driverStandingsRes.driver_standings ?? [];
-    constructorStandings = constructorStandingsRes.constructor_standings ?? [];
   } catch {
     // Backend is offline — render with empty data
   }
@@ -85,6 +87,10 @@ export default async function Home() {
     .sort((a, b) => b.timestamp - a.timestamp);
 
   const latestCompletedRace = completedRaces[0]?.race;
+  const sessionTimeline = buildSeasonSessionTimeline(races);
+  const currentLiveSession = getCurrentLiveSession(sessionTimeline, now.getTime());
+  const nextSession = getNextSession(sessionTimeline, now.getTime());
+  const upcomingSessions = getUpcomingSessions(sessionTimeline, now.getTime(), 3);
 
   // Try to get the latest race results
   let latestWinner: { name: string; team: string; raceName: string; time: string; givenName: string; familyName: string } | null = null;
@@ -110,14 +116,10 @@ export default async function Home() {
 
   const championshipLeader = driverStandings[0];
 
-  // Track info from next race
-  const trackLaps = nextRace?.Circuit ? "TBC" : "—";
-  const trackLength = nextRace?.Circuit ? "TBC" : "—";
-
   // Derive the country name for hero
   const nextRaceCountry =
     nextRace?.Circuit?.Location?.country ?? "";
-  const nextRaceName = nextRace?.raceName?.replace(" Grand Prix", "") ?? "NEXT";
+  const heroRaceName = (currentLiveSession ?? nextSession)?.raceName ?? nextRace?.raceName ?? "NEXT GRAND PRIX";
 
   return (
     <>
@@ -129,15 +131,60 @@ export default async function Home() {
 
         <div className="relative z-10 text-center">
           <h2 className="text-tertiary-container font-[family-name:var(--font-label)] text-sm md:text-base tracking-[0.4em] uppercase mb-4 opacity-80">
-            Next Destination
+            {currentLiveSession ? "Session Live" : "Next Session"}
           </h2>
           <h1 className="text-6xl md:text-9xl font-black font-[family-name:var(--font-headline)] text-on-background italic skew-x-[-12deg] tracking-tighter leading-none mb-8">
-            {nextRaceName.toUpperCase().split(" ").slice(0, -2).join(" ") || nextRaceName.toUpperCase()}{" "}
+            {heroRaceName
+              .replace(" Grand Prix", "")
+              .toUpperCase()
+              .split(" ")
+              .slice(0, -2)
+              .join(" ") || heroRaceName.replace(" Grand Prix", "").toUpperCase()}{" "}
             <span className="text-primary-container drop-shadow-[0_0_15px_#00f2ff]">
               GRAND PRIX
             </span>
           </h1>
-          <CountdownTimer targetRace={nextRace} />
+          <CountdownTimer nextSession={nextSession} liveSession={currentLiveSession} />
+          <div className="mt-8 flex justify-center">
+            <Link
+              href="/telemetry"
+              className={`inline-flex items-center gap-2 px-6 py-2 font-black italic skew-x-[-12deg] text-xs tracking-tighter transition-all active:scale-95 font-[family-name:var(--font-headline)] ${
+                currentLiveSession
+                  ? "bg-primary-container text-on-primary shadow-[0_0_22px_rgba(0,242,255,0.5)]"
+                  : "bg-surface-container border border-outline-variant/40 text-on-surface-variant hover:text-on-background hover:border-primary-container/60"
+              }`}
+            >
+              {currentLiveSession && (
+                <span className="h-2 w-2 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.9)] animate-pulse" />
+              )}
+              LIVE STATUS
+            </Link>
+          </div>
+          <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-3 max-w-4xl mx-auto">
+            {upcomingSessions.map((session) => (
+              <div
+                key={session.id}
+                className="bg-surface-container-low/70 border border-outline-variant/30 px-4 py-3 text-left"
+              >
+                <p className="font-[family-name:var(--font-label)] text-[10px] tracking-[0.2em] uppercase text-primary-container">
+                  {session.sessionLabel}
+                </p>
+                <p className="font-[family-name:var(--font-headline)] font-bold italic text-lg leading-tight">
+                  {session.raceName}
+                </p>
+                <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-on-surface-variant font-[family-name:var(--font-label)]">
+                  {new Date(session.startTimeMs).toLocaleString("en-US", {
+                    month: "short",
+                    day: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    hour12: false,
+                    timeZone: "UTC",
+                  })} UTC
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
