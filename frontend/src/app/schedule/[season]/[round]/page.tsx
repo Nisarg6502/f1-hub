@@ -4,6 +4,7 @@ import {
   getCircuitInfo,
   getQualifyingResults,
   getRaceResults,
+  getSessionClassification,
   getSeasonRaces,
   getSprintResults,
   type RaceResult,
@@ -71,6 +72,9 @@ export default async function RaceDetailPage({ params }: PageProps) {
   let results: RaceResult[] = [];
   let qualifyingResults: RaceResult[] = [];
   let sprintResults: RaceResult[] = [];
+  let fp1Results: RaceResult[] = [];
+  let fp2Results: RaceResult[] = [];
+  let fp3Results: RaceResult[] = [];
   if (isPast) {
     try {
       const res = await getRaceResults(seasonYear, roundNumber);
@@ -89,6 +93,20 @@ export default async function RaceDetailPage({ params }: PageProps) {
       sprintResults = res.results ?? [];
     } catch {
       sprintResults = [];
+    }
+    try {
+      const [fp1, fp2, fp3] = await Promise.all([
+        getSessionClassification(seasonYear, roundNumber, "FP1"),
+        getSessionClassification(seasonYear, roundNumber, "FP2"),
+        getSessionClassification(seasonYear, roundNumber, "FP3"),
+      ]);
+      fp1Results = fp1.results ?? [];
+      fp2Results = fp2.results ?? [];
+      fp3Results = fp3.results ?? [];
+    } catch {
+      fp1Results = [];
+      fp2Results = [];
+      fp3Results = [];
     }
   }
 
@@ -192,6 +210,9 @@ export default async function RaceDetailPage({ params }: PageProps) {
         results={results}
         qualifyingResults={qualifyingResults}
         sprintResults={sprintResults}
+        fp1Results={fp1Results}
+        fp2Results={fp2Results}
+        fp3Results={fp3Results}
         isPast={isPast}
       />
     </div>

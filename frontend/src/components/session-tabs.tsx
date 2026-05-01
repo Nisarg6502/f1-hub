@@ -12,6 +12,9 @@ interface SessionTabsProps {
   results: RaceResult[];
   qualifyingResults: RaceResult[];
   sprintResults: RaceResult[];
+  fp1Results: RaceResult[];
+  fp2Results: RaceResult[];
+  fp3Results: RaceResult[];
   isPast: boolean;
 }
 
@@ -71,6 +74,9 @@ export default function SessionTabs({
   results,
   qualifyingResults,
   sprintResults,
+  fp1Results,
+  fp2Results,
+  fp3Results,
   isPast,
 }: SessionTabsProps) {
   const [nowMs] = useState<number>(() => Date.now());
@@ -299,6 +305,12 @@ export default function SessionTabs({
               ? qualifyingResults
               : activeSession === "Sprint"
               ? sprintResults
+              : activeSession === "FirstPractice"
+              ? fp1Results
+              : activeSession === "SecondPractice"
+              ? fp2Results
+              : activeSession === "ThirdPractice"
+              ? fp3Results
               : []
           }
         />
@@ -512,7 +524,11 @@ function SessionInfo({
       </div>
 
       {sessionPast && sessionResults.length > 0 ? (
-        <div className="mt-8">
+        <div className="mt-8 space-y-8">
+          <SessionPodiumCards
+            sessionKey={sessionKey}
+            results={sessionResults}
+          />
           <h4 className="text-sm font-label uppercase tracking-[0.24em] text-neutral-500 mb-4">
             {label} Classification
           </h4>
@@ -531,6 +547,108 @@ function SessionInfo({
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+function SessionPodiumCards({
+  sessionKey,
+  results,
+}: {
+  sessionKey: SessionKey;
+  results: RaceResult[];
+}) {
+  const winner = results[0];
+  const p2 = results[1];
+  const p3 = results[2];
+  const heading =
+    sessionKey === "Qualifying" || sessionKey === "SprintQualifying"
+      ? "Pole Position"
+      : sessionKey === "Sprint"
+      ? "Sprint Winner"
+      : `${SESSION_LABELS[sessionKey]} Leader`;
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+      {winner && (
+        <div className="md:col-span-6 lg:col-span-4 glass-panel p-6 relative overflow-hidden group">
+          <span className="absolute -right-2 -bottom-4 font-headline font-black text-[160px] italic text-white/3 select-none pointer-events-none leading-none">
+            {winner.Driver?.permanentNumber ?? ""}
+          </span>
+          <div className="border-l-4 border-primary-container pl-4 relative z-10">
+            <span className="text-[10px] uppercase tracking-widest font-bold text-primary-container">
+              {heading}
+            </span>
+            <h2 className="text-3xl font-headline font-black italic -skew-x-12 mt-1">
+              {`${winner.Driver?.givenName ?? ""} ${winner.Driver?.familyName ?? ""}`
+                .trim()
+                .toUpperCase()}
+            </h2>
+            <p className="text-neutral-400 text-sm font-label uppercase tracking-wider mt-1">
+              {winner.Constructor?.name}
+            </p>
+          </div>
+          <div className="mt-8 flex justify-between items-end relative z-10">
+            <div>
+              <span className="block text-[10px] uppercase text-neutral-500">
+                {sessionKey === "Qualifying" || sessionKey === "SprintQualifying"
+                  ? "Best Time"
+                  : "Result"}
+              </span>
+              <span className="text-xl font-headline font-bold">
+                {winner.Q3 || winner.Q2 || winner.Q1 || winner.Time?.time || winner.status || "—"}
+              </span>
+            </div>
+          </div>
+          {hasDriverImage(winner.Driver?.givenName, winner.Driver?.familyName) && (
+            <div className="absolute bottom-0 right-0 w-[45%] h-full pointer-events-none z-[5]">
+              <Image
+                src={getDriverImagePath(winner.Driver?.givenName, winner.Driver?.familyName)!}
+                alt={`${winner.Driver?.givenName} ${winner.Driver?.familyName}`}
+                fill
+                className="object-contain object-bottom opacity-50 group-hover:opacity-80 group-hover:scale-105 transition-all duration-700 drop-shadow-[0_0_20px_rgba(0,0,0,0.8)]"
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="md:col-span-6 lg:col-span-8 grid grid-cols-1 gap-4">
+        {[p2, p3].map((driver, index) =>
+          driver ? (
+            <div
+              key={`${driver.position}-${index}`}
+              className="glass-panel p-5 flex items-center gap-4 border-l-2 border-neutral-500/50 overflow-hidden relative"
+            >
+              <div className="text-2xl font-headline font-black italic -skew-x-12 text-neutral-400">
+                {index === 0 ? "P2" : "P3"}
+              </div>
+              {hasDriverImage(driver.Driver?.givenName, driver.Driver?.familyName) && (
+                <div className="w-10 h-10 overflow-hidden bg-neutral-800/50 flex-shrink-0 relative">
+                  <Image
+                    src={getDriverImagePath(driver.Driver?.givenName, driver.Driver?.familyName)!}
+                    alt={`${driver.Driver?.givenName} ${driver.Driver?.familyName}`}
+                    width={40}
+                    height={40}
+                    className="object-cover object-top scale-125 translate-y-1 w-full h-full"
+                  />
+                </div>
+              )}
+              <div>
+                <h3 className="font-headline font-bold text-lg leading-tight uppercase">
+                  {`${driver.Driver?.givenName ?? ""} ${driver.Driver?.familyName ?? ""}`.trim()}
+                </h3>
+                <p className="text-[10px] text-neutral-500 uppercase tracking-widest">
+                  {driver.Constructor?.name}
+                </p>
+              </div>
+              <div className="ml-auto text-sm font-headline">
+                {driver.Q3 || driver.Q2 || driver.Q1 || driver.Time?.time || driver.status || "—"}
+              </div>
+            </div>
+          ) : null
+        )}
+      </div>
     </div>
   );
 }
@@ -589,6 +707,17 @@ function SessionResultsTable({
                 <td className="px-6 py-4">
                   <div className="flex items-center gap-3">
                     <div className={`w-1 h-8 ${teamBar}`} />
+                    {hasDriverImage(givenName, familyName) && (
+                      <div className="w-8 h-8 rounded-full overflow-hidden bg-neutral-800/50 flex-shrink-0 relative">
+                        <Image
+                          src={getDriverImagePath(givenName, familyName)!}
+                          alt={driverName}
+                          width={40}
+                          height={40}
+                          className="object-cover object-top w-full h-full scale-125 translate-y-1"
+                        />
+                      </div>
+                    )}
                     <div className="text-sm font-bold uppercase tracking-wide">
                       {r.Driver?.code
                         ? `${r.Driver.code.charAt(0)}. ${r.Driver.familyName}`

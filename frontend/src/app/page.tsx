@@ -8,6 +8,7 @@ import {
 } from "@/lib/api";
 import CountdownTimer from "@/components/countdown-timer";
 import SessionCountdownCards from "@/components/session-countdown-cards";
+import LocalDateTime from "@/components/local-datetime";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { getCircuitImagePath } from "@/lib/circuit-images";
 import {
@@ -149,13 +150,7 @@ export default async function Home() {
           {nextWeekendSession && (
             <p className="mt-4 text-xs uppercase tracking-[0.2em] text-on-surface-variant font-label">
               Next session: {nextWeekendSession.sessionLabel} ·{" "}
-              {new Date(nextWeekendSession.startTimeMs).toLocaleString(undefined, {
-                month: "short",
-                day: "2-digit",
-                hour: "2-digit",
-                minute: "2-digit",
-                hour12: false,
-              })}
+              <LocalDateTime timestampMs={nextWeekendSession.startTimeMs} />
             </p>
           )}
           <SessionCountdownCards sessions={miniSessionCards} />
@@ -173,10 +168,10 @@ export default async function Home() {
             </span>
 
             <div className="relative z-10 p-8 flex flex-col justify-between min-h-[320px]">
+              <p className="font-[family-name:var(--font-label)] text-[10px] tracking-[0.3em] text-primary-container uppercase mb-4">
+                Championship Leader
+              </p>
               <div>
-                <p className="font-[family-name:var(--font-label)] text-[10px] tracking-[0.3em] text-primary-container uppercase mb-4">
-                  Championship Leader
-                </p>
                 <h3 className="text-3xl font-black font-[family-name:var(--font-headline)] italic skew-x-[-12deg] tracking-tighter uppercase">
                   {championshipLeader
                     ? `${championshipLeader.Driver.givenName} ${championshipLeader.Driver.familyName}`

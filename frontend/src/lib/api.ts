@@ -285,6 +285,22 @@ export async function getSprintResults(year: number, round: number) {
   });
 }
 
+export async function getSessionClassification(
+  year: number,
+  round: number,
+  session: "FP1" | "FP2" | "FP3" | "SQ" | "Q" | "S"
+) {
+  return fetchJson<{
+    session?: string;
+    event_name?: string;
+    results?: RaceResult[];
+  }>("/api/session_classification", {
+    year,
+    round,
+    session,
+  });
+}
+
 export async function getCircuitInfo(year: number, eventName: string) {
   return fetchJson<CircuitInfo>("/api/circuit_info", {
     year,
