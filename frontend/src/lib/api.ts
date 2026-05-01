@@ -128,6 +128,9 @@ export interface RaceResult {
     Time?: { time?: string };
     AverageSpeed?: { speed?: string; units?: string };
   };
+  Q1?: string;
+  Q2?: string;
+  Q3?: string;
 }
 
 export interface CircuitInfo {
@@ -259,6 +262,26 @@ export async function getRaceResults(year: number, round: number) {
     year,
     round,
     fields: "race,results",
+  });
+}
+
+export async function getQualifyingResults(year: number, round: number) {
+  return fetchJson<{
+    race?: Race;
+    results?: RaceResult[];
+  }>("/api/qualifying_results", {
+    year,
+    round,
+  });
+}
+
+export async function getSprintResults(year: number, round: number) {
+  return fetchJson<{
+    race?: Race;
+    results?: RaceResult[];
+  }>("/api/sprint_results", {
+    year,
+    round,
   });
 }
 

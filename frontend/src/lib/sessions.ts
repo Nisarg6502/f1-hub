@@ -47,6 +47,10 @@ function parseSessionTimestamp(date?: string, time?: string): number | null {
   return Number.isNaN(timestamp) ? null : timestamp;
 }
 
+export function parseDateTimeToMs(date?: string, time?: string): number | null {
+  return parseSessionTimestamp(date, time);
+}
+
 export function buildSeasonSessionTimeline(races: Race[]): SessionTimelineItem[] {
   const sessions: SessionTimelineItem[] = [];
 
@@ -77,6 +81,11 @@ export function buildSeasonSessionTimeline(races: Race[]): SessionTimelineItem[]
   });
 
   return sessions.sort((a, b) => a.startTimeMs - b.startTimeMs);
+}
+
+export function buildRaceSessionTimeline(race?: Race): SessionTimelineItem[] {
+  if (!race) return [];
+  return buildSeasonSessionTimeline([race]);
 }
 
 export function getCurrentLiveSession(

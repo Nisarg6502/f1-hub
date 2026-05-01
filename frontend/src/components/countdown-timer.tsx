@@ -1,17 +1,30 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { SessionTimelineItem } from "@/lib/sessions";
+import type { Race } from "@/lib/api";
 
 interface CountdownTimerProps {
-  nextSession?: SessionTimelineItem | null;
-  liveSession?: SessionTimelineItem | null;
+  targetRace?: Race;
 }
 
-export default function CountdownTimer({
-  nextSession,
-  liveSession,
-}: CountdownTimerProps) {
+function getTargetDate(race?: Race) {
+  if (!race || !race.date) return null;
+
+  const baseTime = race.time ?? "12:00:00Z";
+  const iso = baseTime.endsWith("Z")
+    ? `${race.date}T${baseTime}`
+    : `${race.date}T${baseTime}Z`;
+  const parsed = new Date(iso);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed;
+}
+
+export default function CountdownTimer({ targetRace }: CountdownTimerProps) {
+  const targetDate = getTargetDate(targetRace);
   const [now, setNow] = useState<Date>(() => new Date());
 
   useEffect(() => {
@@ -19,32 +32,15 @@ export default function CountdownTimer({
     return () => clearInterval(id);
   }, []);
 
-  if (liveSession) {
+  if (!targetDate) {
     return (
-      <div className="space-y-3">
-        <div className="inline-flex items-center gap-2 rounded-sm bg-tertiary-container/20 px-3 py-1 font-[family-name:var(--font-label)] text-xs uppercase tracking-[0.24em] text-tertiary-container border border-tertiary-container/40">
-          <span className="h-2 w-2 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.9)] animate-pulse" />
-          Session Live
-        </div>
-        <div className="text-4xl md:text-6xl font-black font-[family-name:var(--font-headline)] italic tracking-tighter text-primary-container drop-shadow-[0_0_15px_#00f2ff]">
-          {liveSession.sessionLabel.toUpperCase()}
-        </div>
-        <div className="text-xs md:text-sm font-[family-name:var(--font-label)] tracking-[0.24em] uppercase text-on-surface-variant">
-          {liveSession.raceName}
-        </div>
-      </div>
-    );
-  }
-
-  if (!nextSession) {
-    return (
-      <div className="text-4xl font-bold font-[family-name:var(--font-headline)] italic tracking-tighter text-on-surface-variant">
+      <div className="text-4xl font-bold font-headline italic tracking-tighter text-on-surface-variant">
         Awaiting schedule
       </div>
     );
   }
 
-  const diff = nextSession.startTimeMs - now.getTime();
+  const diff = targetDate.getTime() - now.getTime();
   const clamped = Math.max(diff, 0);
 
   const totalSeconds = Math.floor(clamped / 1000);
@@ -61,7 +57,7 @@ export default function CountdownTimer({
   ];
 
   return (
-    <div className="flex gap-4 md:gap-8 justify-center items-center font-[family-name:var(--font-headline)]">
+    <div className="flex gap-4 md:gap-8 justify-center items-center font-headline">
       {segments.map((seg, i) => (
         <div key={seg.label} className="flex items-center gap-4 md:gap-8">
           <div className="flex flex-col items-center">
@@ -75,7 +71,7 @@ export default function CountdownTimer({
               {String(seg.value).padStart(2, "0")}
             </span>
             <span
-              className={`text-xs font-[family-name:var(--font-label)] tracking-widest ${
+              className={`text-xs font-label tracking-widest ${
                 seg.highlight
                   ? "text-secondary-container"
                   : "text-primary-container"

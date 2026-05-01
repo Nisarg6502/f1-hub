@@ -10,6 +10,8 @@ import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 interface SessionTabsProps {
   race: Race;
   results: RaceResult[];
+  qualifyingResults: RaceResult[];
+  sprintResults: RaceResult[];
   isPast: boolean;
 }
 
@@ -42,6 +44,8 @@ const SESSION_ICONS: Record<SessionKey, string> = {
   FirstPractice: "tune",
 };
 
+type RaceSessionData = { date?: string; time?: string };
+
 const teamColorMap: Record<string, string> = {
   "red bull": "bg-blue-600",
   mclaren: "bg-orange-500",
@@ -65,8 +69,11 @@ function getTeamBarColor(teamName?: string) {
 export default function SessionTabs({
   race,
   results,
+  qualifyingResults,
+  sprintResults,
   isPast,
 }: SessionTabsProps) {
+  const [nowMs] = useState<number>(() => Date.now());
   // Figure out which sessions exist
   const availableSessions: SessionKey[] = [];
 
@@ -83,9 +90,9 @@ export default function SessionTabs({
     "FirstPractice",
   ];
 
-  const raceAny = race as any;
+  const raceSessions = race as Race & Partial<Record<SessionKey, RaceSessionData>>;
   for (const key of sessionKeys) {
-    const sessionData = raceAny[key];
+    const sessionData = raceSessions[key];
     if (sessionData?.date) {
       availableSessions.push(key);
     }
@@ -276,14 +283,25 @@ export default function SessionTabs({
               <FullResultsTable results={results} />
             </>
           ) : (
-            <UpcomingSessionTimings race={race} />
+            <UpcomingSessionTimings race={race} nowMs={nowMs} />
           )}
         </>
       )}
 
       {/* Non-Race Session Content */}
       {activeSession !== "Race" && (
-        <SessionInfo race={race} sessionKey={activeSession} isPast={isPast} />
+        <SessionInfo
+          race={race}
+          sessionKey={activeSession}
+          nowMs={nowMs}
+          sessionResults={
+            activeSession === "Qualifying" || activeSession === "SprintQualifying"
+              ? qualifyingResults
+              : activeSession === "Sprint"
+              ? sprintResults
+              : []
+          }
+        />
       )}
     </div>
   );
@@ -397,14 +415,16 @@ function FullResultsTable({ results }: { results: RaceResult[] }) {
 function SessionInfo({
   race,
   sessionKey,
-  isPast,
+  nowMs,
+  sessionResults,
 }: {
   race: Race;
   sessionKey: SessionKey;
-  isPast: boolean;
+  nowMs: number;
+  sessionResults: RaceResult[];
 }) {
-  const raceAny = race as any;
-  const sessionData = raceAny[sessionKey];
+  const raceSessions = race as Race & Partial<Record<SessionKey, RaceSessionData>>;
+  const sessionData = raceSessions[sessionKey];
   const label = SESSION_LABELS[sessionKey];
 
   if (!sessionData?.date) {
@@ -429,7 +449,7 @@ function SessionInfo({
       : `${sessionData.date}T${sessionData.time ?? "12:00:00Z"}`
   );
 
-  const sessionPast = dt.getTime() < Date.now();
+  const sessionPast = dt.getTime() < nowMs;
 
   return (
     <div className="glass-panel p-8">
@@ -491,11 +511,23 @@ function SessionInfo({
         </div>
       </div>
 
-      {sessionPast && (
+      {sessionPast && sessionResults.length > 0 ? (
+        <div className="mt-8">
+          <h4 className="text-sm font-label uppercase tracking-[0.24em] text-neutral-500 mb-4">
+            {label} Classification
+          </h4>
+          <SessionResultsTable
+            sessionKey={sessionKey}
+            results={sessionResults}
+          />
+        </div>
+      ) : null}
+
+      {sessionPast && sessionResults.length === 0 && (
         <div className="mt-6 p-4 bg-surface-container-low border-l-2 border-neutral-600">
           <p className="text-neutral-500 text-sm">
-            Detailed session results for {label} are available from the official
-            FIA data feed. Check back for more granular analysis.
+            Detailed classification for {label} is not available in the current
+            backend data feed.
           </p>
         </div>
       )}
@@ -503,7 +535,108 @@ function SessionInfo({
   );
 }
 
-function UpcomingSessionTimings({ race }: { race: Race }) {
+function SessionResultsTable({
+  sessionKey,
+  results,
+}: {
+  sessionKey: SessionKey;
+  results: RaceResult[];
+}) {
+  const isQualifying =
+    sessionKey === "Qualifying" || sessionKey === "SprintQualifying";
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left border-separate border-spacing-y-2">
+        <thead>
+          <tr className="text-[10px] uppercase tracking-[0.2em] text-neutral-500 font-bold">
+            <th className="px-6 py-4">Pos</th>
+            <th className="px-6 py-4">Driver</th>
+            <th className="px-6 py-4">Team</th>
+            {isQualifying ? (
+              <>
+                <th className="px-6 py-4">Q1</th>
+                <th className="px-6 py-4">Q2</th>
+                <th className="px-6 py-4">Q3</th>
+              </>
+            ) : (
+              <>
+                <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4 text-right">Points</th>
+              </>
+            )}
+          </tr>
+        </thead>
+        <tbody className="font-label">
+          {results.map((r, idx) => {
+            const givenName = r.Driver?.givenName ?? "";
+            const familyName = r.Driver?.familyName ?? "";
+            const driverName = `${givenName} ${familyName}`.trim();
+            const teamBar = getTeamBarColor(r.Constructor?.name);
+            const isP1 = idx === 0;
+            return (
+              <tr
+                key={`${sessionKey}-${r.position}-${driverName}-${idx}`}
+                className="glass-panel"
+              >
+                <td
+                  className={`px-6 py-4 font-headline font-black italic -skew-x-12 text-xl ${
+                    isP1 ? "text-primary-container" : "text-neutral-500"
+                  }`}
+                >
+                  {String(r.position ?? idx + 1).padStart(2, "0")}
+                </td>
+                <td className="px-6 py-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-1 h-8 ${teamBar}`} />
+                    <div className="text-sm font-bold uppercase tracking-wide">
+                      {r.Driver?.code
+                        ? `${r.Driver.code.charAt(0)}. ${r.Driver.familyName}`
+                        : driverName}
+                    </div>
+                  </div>
+                </td>
+                <td className="px-6 py-4 text-xs text-neutral-300 font-bold uppercase tracking-widest">
+                  {r.Constructor?.name}
+                </td>
+                {isQualifying ? (
+                  <>
+                    <td className="px-6 py-4 text-sm font-headline text-neutral-300">
+                      {r.Q1 ?? "—"}
+                    </td>
+                    <td className="px-6 py-4 text-sm font-headline text-neutral-300">
+                      {r.Q2 ?? "—"}
+                    </td>
+                    <td className="px-6 py-4 text-sm font-headline text-neutral-300">
+                      {r.Q3 ?? "—"}
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td className="px-6 py-4 text-sm font-headline text-neutral-300">
+                      {r.Time?.time ?? r.status ?? "—"}
+                    </td>
+                    <td className="px-6 py-4 text-right font-headline font-bold text-lg">
+                      {r.points ?? "—"}
+                    </td>
+                  </>
+                )}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function UpcomingSessionTimings({
+  race,
+  nowMs,
+}: {
+  race: Race;
+  nowMs: number;
+}) {
   const sessions: { key: string; label: string; icon: string }[] = [
     { key: "FirstPractice", label: "Free Practice 1", icon: "tune" },
     { key: "SecondPractice", label: "Free Practice 2", icon: "build" },
@@ -513,7 +646,7 @@ function UpcomingSessionTimings({ race }: { race: Race }) {
     { key: "Qualifying", label: "Qualifying", icon: "timer" },
   ];
 
-  const raceAny = race as any;
+  const raceSessions = race as Race & Partial<Record<SessionKey, RaceSessionData>>;
 
   // Build the race session as well
   const raceDate = race.date
@@ -532,7 +665,7 @@ function UpcomingSessionTimings({ race }: { race: Race }) {
 
       <div className="grid gap-3">
         {sessions.map(({ key, label, icon }) => {
-          const sessionData = raceAny[key];
+          const sessionData = raceSessions[key as SessionKey];
           if (!sessionData?.date) return null;
 
           const dt = new Date(
@@ -540,7 +673,7 @@ function UpcomingSessionTimings({ race }: { race: Race }) {
               ? `${sessionData.date}T${sessionData.time}`
               : `${sessionData.date}T${sessionData.time ?? "12:00:00Z"}`
           );
-          const sessionPast = dt.getTime() < Date.now();
+          const sessionPast = dt.getTime() < nowMs;
 
           return (
             <div

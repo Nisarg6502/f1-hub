@@ -1,6 +1,13 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getCircuitInfo, getRaceResults, getSeasonRaces } from "@/lib/api";
+import {
+  getCircuitInfo,
+  getQualifyingResults,
+  getRaceResults,
+  getSeasonRaces,
+  getSprintResults,
+  type RaceResult,
+} from "@/lib/api";
 import SessionTabs from "@/components/session-tabs";
 import RaceSelector from "@/components/race-selector";
 
@@ -35,6 +42,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
   }
 
   // Determine if race is past
+  const now = new Date();
   let isPast = false;
   if (race.date) {
     const baseTime = race.time ?? "12:00:00Z";
@@ -42,10 +50,9 @@ export default async function RaceDetailPage({ params }: PageProps) {
       ? `${race.date}T${baseTime}`
       : `${race.date}T${baseTime}Z`;
     const parsed = new Date(iso);
-    isPast = !Number.isNaN(parsed.getTime()) && parsed.getTime() < Date.now();
+    isPast = !Number.isNaN(parsed.getTime()) && parsed.getTime() < now.getTime();
   }
 
-  const now = new Date();
   const upcomingRace = races
     .map((r) => {
       if (!r.date) return null;
@@ -61,13 +68,27 @@ export default async function RaceDetailPage({ params }: PageProps) {
   const isNextRace = upcomingRace?.round === String(roundNumber);
 
   // Fetch results for completed races
-  let results: any[] = [];
+  let results: RaceResult[] = [];
+  let qualifyingResults: RaceResult[] = [];
+  let sprintResults: RaceResult[] = [];
   if (isPast) {
     try {
       const res = await getRaceResults(seasonYear, roundNumber);
       results = res.results ?? [];
     } catch {
       // no results
+    }
+    try {
+      const res = await getQualifyingResults(seasonYear, roundNumber);
+      qualifyingResults = res.results ?? [];
+    } catch {
+      qualifyingResults = [];
+    }
+    try {
+      const res = await getSprintResults(seasonYear, roundNumber);
+      sprintResults = res.results ?? [];
+    } catch {
+      sprintResults = [];
     }
   }
 
@@ -166,7 +187,13 @@ export default async function RaceDetailPage({ params }: PageProps) {
       )}
 
       {/* Session Tabs + Content */}
-      <SessionTabs race={race} results={results} isPast={isPast} />
+      <SessionTabs
+        race={race}
+        results={results}
+        qualifyingResults={qualifyingResults}
+        sprintResults={sprintResults}
+        isPast={isPast}
+      />
     </div>
   );
 }
