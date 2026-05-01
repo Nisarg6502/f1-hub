@@ -1,0 +1,52 @@
+steps:
+  # 1. Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/f1-dashboard-493015/f1-frontend'
+      - '-f'
+      - 'Dockerfile.frontend'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_API_BASE_URL=${_NEXT_PUBLIC_API_BASE_URL}'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_ASSET_BASE_URL=${_NEXT_PUBLIC_ASSET_BASE_URL}'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_RAPIDAPI_KEY=${_NEXT_PUBLIC_RAPIDAPI_KEY}'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_RAPIDAPI_HOST=${_NEXT_PUBLIC_RAPIDAPI_HOST}'
+      - '.'
+
+  # 2. Push the Docker image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/f1-dashboard-493015/f1-frontend'
+
+  # 3. Deploy the newly pushed image to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'f1-frontend'
+      - '--image'
+      - 'gcr.io/f1-dashboard-493015/f1-frontend'
+      - '--region'
+      - 'asia-south1'
+      - '--platform'
+      - 'managed'
+      - '--quiet'
+
+images:
+  - 'gcr.io/f1-dashboard-493015/f1-frontend'
+
+substitutions:
+  _NEXT_PUBLIC_API_BASE_URL: 'https://f1-backend-1076575666662.asia-south1.run.app'
+  _NEXT_PUBLIC_ASSET_BASE_URL: 'https://storage.googleapis.com/f1-scratch-assets'
+  _NEXT_PUBLIC_RAPIDAPI_KEY: '${_RAPIDAPI_KEY}'
+  _NEXT_PUBLIC_RAPIDAPI_HOST: 'f1-live-pulse.p.rapidapi.com'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
