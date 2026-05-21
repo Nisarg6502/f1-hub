@@ -138,6 +138,25 @@ async def get_qualifying_results(
     race_data = races[0]
     results = race_data.get("QualifyingResults", [])
     race = {k: v for k, v in race_data.items() if k != "QualifyingResults"}
+
+    # Cache in MongoDB so subsequent requests are instant
+    if results:
+        import datetime
+        try:
+            await db.qualifying_results.update_one(
+                {"season": year, "round": str(round)},
+                {"$set": {
+                    "season": year,
+                    "round": str(round),
+                    "race": race,
+                    "results": results,
+                    "synced_at": datetime.datetime.utcnow().isoformat(),
+                }},
+                upsert=True,
+            )
+        except Exception as db_err:
+            print(f"Failed to cache qualifying results fallback in DB: {db_err}")
+
     return JSONResponse(content={"race": race, "results": results})
 
 
@@ -164,6 +183,25 @@ async def get_sprint_results(
     race_data = races[0]
     results = race_data.get("SprintResults", [])
     race = {k: v for k, v in race_data.items() if k != "SprintResults"}
+
+    # Cache in MongoDB so subsequent requests are instant
+    if results:
+        import datetime
+        try:
+            await db.sprint_results.update_one(
+                {"season": year, "round": str(round)},
+                {"$set": {
+                    "season": year,
+                    "round": str(round),
+                    "race": race,
+                    "results": results,
+                    "synced_at": datetime.datetime.utcnow().isoformat(),
+                }},
+                upsert=True,
+            )
+        except Exception as db_err:
+            print(f"Failed to cache sprint results fallback in DB: {db_err}")
+
     return JSONResponse(content={"race": race, "results": results})
 
 
@@ -253,6 +291,62 @@ async def get_session_classification(
                 "Q3": str(row.get("Q3") or "") if row.get("Q3") is not None else "",
             }
         )
+
+    # Save to MongoDB so subsequent requests are instant
+    if normalized_results:
+        import datetime
+        try:
+            if session_code in ["FP1", "FP2", "FP3", "SQ"]:
+                await db.practice_results.update_one(
+                    {"season": year, "round": str(round), "session": session_code},
+                    {"$set": {
+                        "season": year,
+                        "round": str(round),
+                        "session": session_code,
+                        "event_name": getattr(ff1_session.event, "EventName", ""),
+                        "results": normalized_results,
+                        "synced_at": datetime.datetime.utcnow().isoformat(),
+                    }},
+                    upsert=True,
+                )
+            elif session_code == "Q":
+                await db.qualifying_results.update_one(
+                    {"season": year, "round": str(round)},
+                    {"$set": {
+                        "season": year,
+                        "round": str(round),
+                        "race": {"raceName": getattr(ff1_session.event, "EventName", "Qualifying")},
+                        "results": normalized_results,
+                        "synced_at": datetime.datetime.utcnow().isoformat(),
+                    }},
+                    upsert=True,
+                )
+            elif session_code == "S":
+                await db.sprint_results.update_one(
+                    {"season": year, "round": str(round)},
+                    {"$set": {
+                        "season": year,
+                        "round": str(round),
+                        "race": {"raceName": getattr(ff1_session.event, "EventName", "Sprint")},
+                        "results": normalized_results,
+                        "synced_at": datetime.datetime.utcnow().isoformat(),
+                    }},
+                    upsert=True,
+                )
+            elif session_code == "R":
+                await db.race_results.update_one(
+                    {"season": year, "round": str(round)},
+                    {"$set": {
+                        "season": year,
+                        "round": str(round),
+                        "race": {"raceName": getattr(ff1_session.event, "EventName", "Race")},
+                        "results": normalized_results,
+                        "synced_at": datetime.datetime.utcnow().isoformat(),
+                    }},
+                    upsert=True,
+                )
+        except Exception as db_err:
+            print(f"Failed to cache session results in DB: {db_err}")
 
     return JSONResponse(
         content={

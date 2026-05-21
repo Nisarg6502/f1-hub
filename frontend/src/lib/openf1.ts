@@ -12,7 +12,7 @@ export async function fetchOpenF1<T>(endpoint: string, params: Record<string, st
 
   try {
     const res = await fetch(url.toString(), { 
-      cache: "no-store",
+      next: { revalidate: 300 }, // Default revalidation: 5 minutes
       headers
     });
     

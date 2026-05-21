@@ -3,7 +3,11 @@ const API_BASE_URL =
 
 type SearchParams = Record<string, string | number | boolean | undefined>;
 
-async function fetchJson<T>(path: string, params?: SearchParams): Promise<T> {
+async function fetchJson<T>(
+  path: string,
+  params?: SearchParams,
+  options?: RequestInit
+): Promise<T> {
   const url = new URL(path, API_BASE_URL);
 
   if (params) {
@@ -14,7 +18,8 @@ async function fetchJson<T>(path: string, params?: SearchParams): Promise<T> {
   }
 
   const res = await fetch(url.toString(), {
-    cache: "no-store",
+    next: { revalidate: 300 }, // Default revalidation: 5 minutes (300 seconds)
+    ...options,
   });
 
   if (!res.ok) {
@@ -223,6 +228,8 @@ export async function getSeasonRaces(year: number) {
   }>("/api/races", {
     year,
     fields: "races,races_list,total",
+  }, {
+    next: { revalidate: 86400 }, // Cache for 1 day
   });
 
   if (data.races) {
@@ -242,6 +249,8 @@ export async function getDriverStandings(year: number) {
   }>("/api/driverstandings", {
     year,
     fields: "standings",
+  }, {
+    next: { revalidate: 3600 }, // Cache for 1 hour
   });
 }
 
@@ -251,6 +260,8 @@ export async function getConstructorStandings(year: number) {
   }>("/api/constructorstandings", {
     year,
     fields: "standings",
+  }, {
+    next: { revalidate: 3600 }, // Cache for 1 hour
   });
 }
 
@@ -262,6 +273,8 @@ export async function getRaceResults(year: number, round: number) {
     year,
     round,
     fields: "race,results",
+  }, {
+    next: { revalidate: 3600 }, // Cache for 1 hour
   });
 }
 
@@ -272,6 +285,8 @@ export async function getQualifyingResults(year: number, round: number) {
   }>("/api/qualifying_results", {
     year,
     round,
+  }, {
+    next: { revalidate: 3600 }, // Cache for 1 hour
   });
 }
 
@@ -282,6 +297,8 @@ export async function getSprintResults(year: number, round: number) {
   }>("/api/sprint_results", {
     year,
     round,
+  }, {
+    next: { revalidate: 3600 }, // Cache for 1 hour
   });
 }
 
@@ -298,6 +315,8 @@ export async function getSessionClassification(
     year,
     round,
     session,
+  }, {
+    next: { revalidate: 3600 }, // Cache for 1 hour
   });
 }
 
@@ -305,6 +324,8 @@ export async function getCircuitInfo(year: number, eventName: string) {
   return fetchJson<CircuitInfo>("/api/circuit_info", {
     year,
     event_name: eventName,
+  }, {
+    next: { revalidate: 86400 }, // Cache for 1 day
   });
 }
 
@@ -316,6 +337,8 @@ export async function getDrivers(year: number) {
   }>("/api/drivers", {
     year,
     fields: "drivers",
+  }, {
+    next: { revalidate: 86400 }, // Cache for 1 day
   });
 }
 
@@ -327,6 +350,8 @@ export async function getConstructors(year: number) {
   }>("/api/constructors", {
     year,
     fields: "constructors",
+  }, {
+    next: { revalidate: 86400 }, // Cache for 1 day
   });
 }
 
