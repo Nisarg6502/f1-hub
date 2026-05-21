@@ -257,9 +257,9 @@ async def get_session_classification(
         ff1_session.load(laps=False, telemetry=False, weather=False, messages=False, livedata=False)
         results_df = ff1_session.results
     except Exception as e:
+        print(f"FastF1 session load failed for {year} R{round} {session_code}: {e}")
         return JSONResponse(
-            status_code=502,
-            content={"error": "Failed to load session classification", "message": str(e), "results": []},
+            content={"session": session_code, "event_name": "", "results": [], "error": str(e)},
         )
 
     normalized_results = []
@@ -355,3 +355,87 @@ async def get_session_classification(
             "results": normalized_results,
         }
     )
+
+
+@router.get("/race_weather")
+async def get_race_weather(
+    year: int = Query(..., description="Season year"),
+    round: int = Query(..., description="Round number"),
+):
+    """Return cached weather data for a race, with OpenF1 fallback."""
+    db = get_db()
+
+    # 1. Try from MongoDB cache first
+    doc = await db.weather_cache.find_one(
+        {"season": year, "round": str(round)},
+        {"_id": 0, "synced_at": 0},
+    )
+    if doc:
+        return JSONResponse(content={"weather": doc})
+
+    # 2. Fallback: try fetching from the races collection for the date
+    race_doc = await db.races.find_one(
+        {"season": year, "round": str(round)},
+        {"date": 1, "_id": 0},
+    )
+    if not race_doc or not race_doc.get("date"):
+        return JSONResponse(content={"weather": None})
+
+    race_date = race_doc["date"]
+
+    # 3. Try OpenF1 live
+    try:
+        sessions_url = f"https://api.openf1.org/v1/sessions?year={year}&session_type=Race"
+        req = Request(sessions_url, headers={"User-Agent": USER_AGENT})
+        with urlopen(req, timeout=10) as resp:
+            sessions_data = json.loads(resp.read().decode("utf-8"))
+
+        session = None
+        for s in sessions_data:
+            if s.get("date_start", "").startswith(race_date):
+                session = s
+                break
+
+        if not session or not session.get("session_key"):
+            return JSONResponse(content={"weather": None})
+
+        weather_url = f"https://api.openf1.org/v1/weather?session_key={session['session_key']}"
+        req2 = Request(weather_url, headers={"User-Agent": USER_AGENT})
+        with urlopen(req2, timeout=10) as resp2:
+            weather_data = json.loads(resp2.read().decode("utf-8"))
+
+        if not weather_data or len(weather_data) == 0:
+            return JSONResponse(content={"weather": None})
+
+        mid_idx = len(weather_data) // 2
+        weather = weather_data[mid_idx]
+
+        # Cache for future use
+        import datetime
+        weather_doc = {
+            "season": year,
+            "round": str(round),
+            "date": race_date,
+            "air_temperature": weather.get("air_temperature"),
+            "track_temperature": weather.get("track_temperature"),
+            "wind_speed": weather.get("wind_speed"),
+            "wind_direction": weather.get("wind_direction"),
+            "rainfall": weather.get("rainfall", 0),
+            "humidity": weather.get("humidity"),
+            "pressure": weather.get("pressure"),
+            "synced_at": datetime.datetime.utcnow().isoformat(),
+        }
+        try:
+            await db.weather_cache.update_one(
+                {"season": year, "round": str(round)},
+                {"$set": weather_doc},
+                upsert=True,
+            )
+        except Exception:
+            pass
+
+        return JSONResponse(content={"weather": weather_doc})
+
+    except Exception as e:
+        print(f"Failed to fetch weather from OpenF1 for {year} R{round}: {e}")
+        return JSONResponse(content={"weather": None})

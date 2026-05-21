@@ -353,6 +353,92 @@ def sync_practice_results(db, year: int):
     print(f"  Synced {synced_count} practice/SQ sessions for {year}")
 
 
+def sync_weather(db, year: int):
+    """Sync weather data from OpenF1 for completed races."""
+    print(f"Syncing weather data for {year}...")
+    races = list(db.races.find({"season": year}, {"round": 1, "date": 1, "time": 1, "_id": 0}))
+    synced_count = 0
+    now = datetime.datetime.utcnow()
+
+    for race in races:
+        round_num = race.get("round")
+        race_date = race.get("date")
+        if not round_num or not race_date:
+            continue
+
+        # Only sync completed races
+        race_time = race.get("time", "12:00:00Z")
+        try:
+            iso = f"{race_date}T{race_time}" if race_time.endswith("Z") else f"{race_date}T{race_time}Z"
+            race_dt = datetime.datetime.fromisoformat(iso.replace("Z", "+00:00"))
+            if race_dt > now.replace(tzinfo=datetime.timezone.utc):
+                continue
+        except Exception:
+            continue
+
+        # Skip if already synced
+        existing = db.weather_cache.find_one({"season": year, "round": str(round_num)})
+        if existing:
+            continue
+
+        # Fetch from OpenF1
+        try:
+            # First get the session key
+            sessions_data = fetch_json(
+                f"https://api.openf1.org/v1/sessions?year={year}&session_type=Race"
+            )
+            if not sessions_data:
+                continue
+
+            session = None
+            for s in sessions_data:
+                if s.get("date_start", "").startswith(race_date):
+                    session = s
+                    break
+            if not session:
+                continue
+
+            session_key = session.get("session_key")
+            if not session_key:
+                continue
+
+            weather_data = fetch_json(
+                f"https://api.openf1.org/v1/weather?session_key={session_key}"
+            )
+            if not weather_data or len(weather_data) == 0:
+                continue
+
+            # Get mid-session representative weather
+            mid_idx = len(weather_data) // 2
+            weather = weather_data[mid_idx]
+
+            db.weather_cache.update_one(
+                {"season": year, "round": str(round_num)},
+                {"$set": {
+                    "season": year,
+                    "round": str(round_num),
+                    "date": race_date,
+                    "air_temperature": weather.get("air_temperature"),
+                    "track_temperature": weather.get("track_temperature"),
+                    "wind_speed": weather.get("wind_speed"),
+                    "wind_direction": weather.get("wind_direction"),
+                    "rainfall": weather.get("rainfall", 0),
+                    "humidity": weather.get("humidity"),
+                    "pressure": weather.get("pressure"),
+                    "synced_at": datetime.datetime.utcnow().isoformat(),
+                }},
+                upsert=True,
+            )
+            synced_count += 1
+        except Exception as e:
+            print(f"  Failed to sync weather for round {round_num}: {e}")
+            continue
+
+        time.sleep(0.5)
+
+    print(f"  Synced weather for {synced_count} races in {year}")
+
+
 def create_indexes(db):
     """Create indexes for efficient querying."""
     print("Creating indexes...")
@@ -365,6 +451,7 @@ def create_indexes(db):
     db.qualifying_results.create_index([("season", 1), ("round", 1)], unique=True)
     db.sprint_results.create_index([("season", 1), ("round", 1)], unique=True)
     db.practice_results.create_index([("season", 1), ("round", 1), ("session", 1)], unique=True)
+    db.weather_cache.create_index([("season", 1), ("round", 1)], unique=True)
     print("  Indexes created.")
 
 
@@ -397,6 +484,7 @@ def main():
         sync_qualifying_results(db, year)
         sync_sprint_results(db, year)
         sync_practice_results(db, year)
+        sync_weather(db, year)
 
     client.close()
     print(f"\n=== Sync Complete ===")

@@ -75,6 +75,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
   let fp1Results: RaceResult[] = [];
   let fp2Results: RaceResult[] = [];
   let fp3Results: RaceResult[] = [];
+  let sprintQualiResults: RaceResult[] = [];
   if (isPast) {
     try {
       const res = await getRaceResults(seasonYear, roundNumber);
@@ -94,20 +95,17 @@ export default async function RaceDetailPage({ params }: PageProps) {
     } catch {
       sprintResults = [];
     }
-    try {
-      const [fp1, fp2, fp3] = await Promise.all([
-        getSessionClassification(seasonYear, roundNumber, "FP1"),
-        getSessionClassification(seasonYear, roundNumber, "FP2"),
-        getSessionClassification(seasonYear, roundNumber, "FP3"),
-      ]);
-      fp1Results = fp1.results ?? [];
-      fp2Results = fp2.results ?? [];
-      fp3Results = fp3.results ?? [];
-    } catch {
-      fp1Results = [];
-      fp2Results = [];
-      fp3Results = [];
-    }
+    // Fetch each practice/SQ session independently so one failure doesn't wipe all results
+    const [fp1Res, fp2Res, fp3Res, sqRes] = await Promise.allSettled([
+      getSessionClassification(seasonYear, roundNumber, "FP1"),
+      getSessionClassification(seasonYear, roundNumber, "FP2"),
+      getSessionClassification(seasonYear, roundNumber, "FP3"),
+      getSessionClassification(seasonYear, roundNumber, "SQ"),
+    ]);
+    fp1Results = fp1Res.status === "fulfilled" ? fp1Res.value.results ?? [] : [];
+    fp2Results = fp2Res.status === "fulfilled" ? fp2Res.value.results ?? [] : [];
+    fp3Results = fp3Res.status === "fulfilled" ? fp3Res.value.results ?? [] : [];
+    sprintQualiResults = sqRes.status === "fulfilled" ? sqRes.value.results ?? [] : [];
   }
 
   // Fetch circuit info
@@ -210,6 +208,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
         results={results}
         qualifyingResults={qualifyingResults}
         sprintResults={sprintResults}
+        sprintQualiResults={sprintQualiResults}
         fp1Results={fp1Results}
         fp2Results={fp2Results}
         fp3Results={fp3Results}

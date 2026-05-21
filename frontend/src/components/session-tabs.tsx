@@ -12,6 +12,7 @@ interface SessionTabsProps {
   results: RaceResult[];
   qualifyingResults: RaceResult[];
   sprintResults: RaceResult[];
+  sprintQualiResults: RaceResult[];
   fp1Results: RaceResult[];
   fp2Results: RaceResult[];
   fp3Results: RaceResult[];
@@ -74,6 +75,7 @@ export default function SessionTabs({
   results,
   qualifyingResults,
   sprintResults,
+  sprintQualiResults,
   fp1Results,
   fp2Results,
   fp3Results,
@@ -288,6 +290,19 @@ export default function SessionTabs({
               {/* Full Results Table */}
               <FullResultsTable results={results} />
             </>
+          ) : isPast ? (
+            <div className="glass-panel p-12 text-center">
+              <span className="material-symbols-outlined text-5xl text-neutral-600 mb-4">
+                hourglass_empty
+              </span>
+              <h3 className="text-2xl font-[family-name:var(--font-headline)] font-bold italic uppercase text-neutral-400 mt-4">
+                Results Pending
+              </h3>
+              <p className="text-neutral-500 text-sm mt-3 max-w-md mx-auto">
+                This race has been completed but results are not yet available in the data feed.
+                Results are typically synced within a few hours after the race ends.
+              </p>
+            </div>
           ) : (
             <UpcomingSessionTimings race={race} nowMs={nowMs} />
           )}
@@ -301,8 +316,10 @@ export default function SessionTabs({
           sessionKey={activeSession}
           nowMs={nowMs}
           sessionResults={
-            activeSession === "Qualifying" || activeSession === "SprintQualifying"
+            activeSession === "Qualifying"
               ? qualifyingResults
+              : activeSession === "SprintQualifying"
+              ? sprintQualiResults
               : activeSession === "Sprint"
               ? sprintResults
               : activeSession === "FirstPractice"

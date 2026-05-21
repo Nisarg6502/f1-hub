@@ -280,7 +280,7 @@ export default async function SchedulePage() {
                               <span className="px-4 py-1 border border-neutral-800 text-[10px] font-[family-name:var(--font-label)] tracking-widest text-neutral-600 uppercase">
                                 Completed
                               </span>
-                              {race.date && <RaceWeather year={Number(race.season ?? year)} dateStr={race.date} />}
+                              {race.date && <RaceWeather year={Number(race.season ?? year)} round={Number(race.round)} dateStr={race.date} />}
                             </div>
                           ) : isNext ? (
                             <span className="material-symbols-outlined text-primary-container group-hover:translate-x-1 transition-transform">

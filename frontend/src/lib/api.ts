@@ -380,3 +380,26 @@ export async function getLiveTimingData() {
 
   return (await response.json()) as LiveTimingResponse;
 }
+
+export async function getRaceWeather(year: number, round: number) {
+  try {
+    return await fetchJson<{
+      weather?: {
+        air_temperature?: number;
+        track_temperature?: number;
+        wind_speed?: number;
+        wind_direction?: number;
+        rainfall?: number;
+        humidity?: number;
+        pressure?: number;
+      } | null;
+    }>("/api/race_weather", {
+      year,
+      round,
+    }, {
+      next: { revalidate: 3600 }, // Cache for 1 hour
+    });
+  } catch {
+    return { weather: null };
+  }
+}
