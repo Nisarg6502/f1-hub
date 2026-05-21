@@ -39,3 +39,16 @@ async def get_races(
         result["races"] = races_full_data
 
     return JSONResponse(content=result)
+
+
+@router.get("/circuit_details")
+async def get_circuit_details():
+    """Return detailed circuit information for all rounds from the database."""
+    db = get_db()
+    cursor = db.circuit_details.find(
+        {},
+        {"_id": 0},
+    ).sort("round", 1)
+
+    details = await cursor.to_list(length=100)
+    return JSONResponse(content={"circuit_details": details})

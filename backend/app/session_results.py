@@ -34,6 +34,34 @@ def _split_driver_name(full_name: str) -> tuple[str, str]:
     return " ".join(parts[:-1]), parts[-1]
 
 
+def _safe_str(value, fallback: str = "") -> str:
+    """Safely convert a pandas/python value to string, handling NaN, NaT, None."""
+    import pandas as pd
+    if value is None:
+        return fallback
+    if isinstance(value, float) and pd.isna(value):
+        return fallback
+    try:
+        if pd.isna(value):
+            return fallback
+    except (TypeError, ValueError):
+        pass
+    # Convert Timedelta to a readable string
+    if isinstance(value, pd.Timedelta):
+        total_seconds = value.total_seconds()
+        if total_seconds <= 0:
+            return fallback
+        minutes, remainder = divmod(total_seconds, 60)
+        seconds = remainder
+        if minutes > 0:
+            return f"{int(minutes)}:{seconds:06.3f}"
+        return f"{seconds:.3f}"
+    s = str(value).strip()
+    if s.lower() in ("nan", "nat", "none", ""):
+        return fallback
+    return s
+
+
 def _normalize_ergast_result(res: dict, session_type: str) -> dict:
     """Normalize Ergast result format to match FastF1-like format used in session_classification."""
     driver = res.get("Driver", {})

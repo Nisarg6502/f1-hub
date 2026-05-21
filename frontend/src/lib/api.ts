@@ -403,3 +403,33 @@ export async function getRaceWeather(year: number, round: number) {
     return { weather: null };
   }
 }
+
+export interface TrackInformation {
+  first_grand_prix: number | string;
+  circuit_length_km: number;
+  number_of_laps: number;
+  race_distance_km: number;
+  lap_record: string;
+  number_of_corners: number;
+  drs_zones: number;
+}
+
+export interface CircuitDetail {
+  round: number;
+  country: string;
+  circuit_name: string;
+  grand_prix: string;
+  date: string;
+  track_information: TrackInformation;
+}
+
+export async function getCircuitDetails(): Promise<CircuitDetail[]> {
+  try {
+    const res = await fetchJson<{ circuit_details: CircuitDetail[] }>("/api/circuit_details", undefined, {
+      next: { revalidate: 3600 },
+    });
+    return res.circuit_details ?? [];
+  } catch {
+    return [];
+  }
+}
