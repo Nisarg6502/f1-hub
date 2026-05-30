@@ -15,11 +15,18 @@ import datetime
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 
+import pandas as pd
 import fastf1
 from pymongo import MongoClient
 
-MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
-DB_NAME = os.getenv("MONGODB_DB_NAME", "f1_scratch")
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
+MONGODB_URI = os.getenv("MONGODB_URI") or os.getenv("mongodburi") or "mongodb://localhost:27017"
+DB_NAME = os.getenv("MONGODB_DB_NAME") or os.getenv("mongodb_db_name") or "f1_scratch"
 
 ERGAST_BASE = "https://api.jolpi.ca/ergast/f1"
 USER_AGENT = "f1-scratch-sync/1.0"
@@ -28,6 +35,33 @@ USER_AGENT = "f1-scratch-sync/1.0"
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "f1_cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 fastf1.Cache.enable_cache(CACHE_DIR)
+
+
+def _safe_str(value, fallback: str = "") -> str:
+    """Safely convert a pandas/python value to string, handling NaN, NaT, None."""
+    import pandas as pd
+    if value is None:
+        return fallback
+    try:
+        # Check for pd.isna (handles float nan, np.nan, pd.NA, pd.NaT safely for scalars)
+        if pd.api.types.is_scalar(value) and pd.isna(value):
+            return fallback
+    except Exception:
+        pass
+    # Convert Timedelta to a readable string
+    if isinstance(value, pd.Timedelta):
+        total_seconds = value.total_seconds()
+        if total_seconds <= 0:
+            return fallback
+        minutes, remainder = divmod(total_seconds, 60)
+        seconds = remainder
+        if minutes > 0:
+            return f"{int(minutes)}:{seconds:06.3f}"
+        return f"{seconds:.3f}"
+    s = str(value).strip()
+    if s.lower() in ("nan", "nat", "none", "", "<na>", "null"):
+        return fallback
+    return s
 
 
 def fetch_json(url: str, max_retries: int = 3) -> dict | None:
@@ -310,27 +344,27 @@ def sync_practice_results(db, year: int):
 
                 normalized_results = []
                 for _, row in results_df.iterrows():
-                    full_name = str(row.get("FullName") or "").strip()
+                    full_name = _safe_str(row.get("FullName"))
                     given_name, family_name = _split_driver_name(full_name)
                     normalized_results.append({
-                        "position": str(row.get("Position") or ""),
-                        "points": str(row.get("Points") or ""),
-                        "status": str(row.get("Status") or ""),
+                        "position": _safe_str(row.get("Position")),
+                        "points": _safe_str(row.get("Points"), "0"),
+                        "status": _safe_str(row.get("Status")),
                         "Driver": {
                             "givenName": given_name,
                             "familyName": family_name,
-                            "code": str(row.get("Abbreviation") or ""),
-                            "permanentNumber": str(row.get("DriverNumber") or ""),
+                            "code": _safe_str(row.get("Abbreviation")),
+                            "permanentNumber": _safe_str(row.get("DriverNumber")),
                         },
                         "Constructor": {
-                            "name": str(row.get("TeamName") or ""),
+                            "name": _safe_str(row.get("TeamName")),
                         },
                         "Time": {
-                            "time": str(row.get("Time") or ""),
+                            "time": _safe_str(row.get("Time")),
                         },
-                        "Q1": str(row.get("Q1") or "") if row.get("Q1") is not None else "",
-                        "Q2": str(row.get("Q2") or "") if row.get("Q2") is not None else "",
-                        "Q3": str(row.get("Q3") or "") if row.get("Q3") is not None else "",
+                        "Q1": _safe_str(row.get("Q1")),
+                        "Q2": _safe_str(row.get("Q2")),
+                        "Q3": _safe_str(row.get("Q3")),
                     })
 
                 db.practice_results.update_one(

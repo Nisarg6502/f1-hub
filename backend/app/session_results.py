@@ -5,6 +5,7 @@ from urllib.error import URLError, HTTPError
 import json
 import os
 import fastf1
+import datetime
 
 from .db import get_db
 
@@ -39,12 +40,10 @@ def _safe_str(value, fallback: str = "") -> str:
     import pandas as pd
     if value is None:
         return fallback
-    if isinstance(value, float) and pd.isna(value):
-        return fallback
     try:
-        if pd.isna(value):
+        if pd.api.types.is_scalar(value) and pd.isna(value):
             return fallback
-    except (TypeError, ValueError):
+    except Exception:
         pass
     # Convert Timedelta to a readable string
     if isinstance(value, pd.Timedelta):
@@ -57,9 +56,96 @@ def _safe_str(value, fallback: str = "") -> str:
             return f"{int(minutes)}:{seconds:06.3f}"
         return f"{seconds:.3f}"
     s = str(value).strip()
-    if s.lower() in ("nan", "nat", "none", ""):
+    if s.lower() in ("nan", "nat", "none", "", "<na>", "null"):
         return fallback
     return s
+
+
+def _sanitize_result(result: dict) -> dict:
+    """Clean one session result row before returning or caching it."""
+    cleaned = dict(result or {})
+
+    for key in ("number", "position", "positionText", "grid", "laps", "status", "Q1", "Q2", "Q3"):
+        if key in cleaned:
+            cleaned[key] = _safe_str(cleaned.get(key))
+
+    if "points" in cleaned:
+        cleaned["points"] = _safe_str(cleaned.get("points"), "0")
+
+    driver = dict(cleaned.get("Driver") or {})
+    if driver:
+        cleaned["Driver"] = {
+            **driver,
+            "givenName": _safe_str(driver.get("givenName")),
+            "familyName": _safe_str(driver.get("familyName")),
+            "code": _safe_str(driver.get("code")),
+            "permanentNumber": _safe_str(driver.get("permanentNumber")),
+        }
+
+    constructor = dict(cleaned.get("Constructor") or {})
+    if constructor:
+        cleaned["Constructor"] = {
+            **constructor,
+            "name": _safe_str(constructor.get("name")),
+        }
+
+    time_info = dict(cleaned.get("Time") or {})
+    if time_info or "Time" in cleaned:
+        cleaned["Time"] = {
+            **time_info,
+            "time": _safe_str(time_info.get("time")),
+        }
+        if "millis" in time_info:
+            cleaned["Time"]["millis"] = _safe_str(time_info.get("millis"))
+
+    fastest_lap = dict(cleaned.get("FastestLap") or {})
+    if fastest_lap:
+        fastest_time = dict(fastest_lap.get("Time") or {})
+        cleaned["FastestLap"] = {
+            **fastest_lap,
+            "rank": _safe_str(fastest_lap.get("rank")),
+            "lap": _safe_str(fastest_lap.get("lap")),
+            "Time": {
+                **fastest_time,
+                "time": _safe_str(fastest_time.get("time")),
+            },
+        }
+
+    return cleaned
+
+
+def _sanitize_results(results: list[dict]) -> list[dict]:
+    return [_sanitize_result(result) for result in (results or [])]
+
+
+def _fastf1_results_to_api(results_df) -> list[dict]:
+    normalized_results = []
+    for _, row in results_df.iterrows():
+        full_name = _safe_str(row.get("FullName"))
+        given_name, family_name = _split_driver_name(full_name)
+        normalized_results.append(
+            _sanitize_result({
+                "position": _safe_str(row.get("Position")),
+                "points": _safe_str(row.get("Points"), "0"),
+                "status": _safe_str(row.get("Status")),
+                "Driver": {
+                    "givenName": given_name,
+                    "familyName": family_name,
+                    "code": _safe_str(row.get("Abbreviation")),
+                    "permanentNumber": _safe_str(row.get("DriverNumber")),
+                },
+                "Constructor": {
+                    "name": _safe_str(row.get("TeamName")),
+                },
+                "Time": {
+                    "time": _safe_str(row.get("Time")),
+                },
+                "Q1": _safe_str(row.get("Q1")),
+                "Q2": _safe_str(row.get("Q2")),
+                "Q3": _safe_str(row.get("Q3")),
+            })
+        )
+    return normalized_results
 
 
 def _normalize_ergast_result(res: dict, session_type: str) -> dict:
@@ -98,7 +184,7 @@ def _normalize_ergast_result(res: dict, session_type: str) -> dict:
         if fastest_lap:
             normalized["Time"]["time"] = fastest_lap.get("Time", {}).get("time", normalized["Time"]["time"])
 
-    return normalized
+    return _sanitize_result(normalized)
 
 
 @router.get("/race_results")
@@ -119,7 +205,57 @@ async def get_results(
     )
 
     selected_race = doc.get("race", {}) if doc else {}
-    results_for_race = doc.get("results", []) if doc else []
+    results_for_race = _sanitize_results(doc.get("results", [])) if doc else []
+
+    if not results_for_race and round is not None:
+        data = _fetch_json(f"{ERGAST_BASE}/{year}/{round}/results/")
+        races = data.get("MRData", {}).get("RaceTable", {}).get("Races", []) if data else []
+        if races:
+            race_data = races[0]
+            selected_race = {k: v for k, v in race_data.items() if k != "Results"}
+            results_for_race = _sanitize_results(race_data.get("Results", []))
+            if results_for_race:
+                try:
+                    await db.race_results.update_one(
+                        {"season": year, "round": str(round)},
+                        {"$set": {
+                            "season": year,
+                            "round": str(round),
+                            "race": selected_race,
+                            "results": results_for_race,
+                            "synced_at": datetime.datetime.utcnow().isoformat(),
+                        }},
+                        upsert=True,
+                    )
+                except Exception as db_err:
+                    print(f"Failed to cache race results fallback in DB: {db_err}")
+
+    if not results_for_race and round is not None:
+        try:
+            ff1_session = fastf1.get_session(year, round, "R")
+            ff1_session.load(laps=False, telemetry=False, weather=False, messages=False, livedata=False)
+            results_df = ff1_session.results
+            if not results_df.empty:
+                results_for_race = _fastf1_results_to_api(results_df)
+                if not selected_race:
+                    selected_race = {"raceName": getattr(ff1_session.event, "EventName", "Race")}
+                try:
+                    await db.race_results.update_one(
+                        {"season": year, "round": str(round)},
+                        {"$set": {
+                            "season": year,
+                            "round": str(round),
+                            "race": selected_race,
+                            "results": results_for_race,
+                            "synced_at": datetime.datetime.utcnow().isoformat(),
+                        }},
+                        upsert=True,
+                    )
+                except Exception as db_err:
+                    print(f"Failed to cache race results FastF1 fallback in DB: {db_err}")
+        except Exception:
+            pass
+
     drivers_list = [
         (f"{res.get('Driver', {}).get('givenName', '')} {res.get('Driver', {}).get('familyName', '')}").strip()
         if res.get('Driver') else res.get('driverId', '')
@@ -154,7 +290,7 @@ async def get_qualifying_results(
         {"_id": 0, "synced_at": 0},
     )
     if doc:
-        return JSONResponse(content={"race": doc.get("race", {}), "results": doc.get("results", [])})
+        return JSONResponse(content={"race": doc.get("race", {}), "results": _sanitize_results(doc.get("results", []))})
 
     # Fallback to live fetch
     data = _fetch_json(f"{ERGAST_BASE}/{year}/{round}/qualifying/")
@@ -164,7 +300,7 @@ async def get_qualifying_results(
         return JSONResponse(content={"race": {}, "results": []})
 
     race_data = races[0]
-    results = race_data.get("QualifyingResults", [])
+    results = _sanitize_results(race_data.get("QualifyingResults", []))
     race = {k: v for k, v in race_data.items() if k != "QualifyingResults"}
 
     # Cache in MongoDB so subsequent requests are instant
@@ -199,7 +335,7 @@ async def get_sprint_results(
         {"_id": 0, "synced_at": 0},
     )
     if doc:
-        return JSONResponse(content={"race": doc.get("race", {}), "results": doc.get("results", [])})
+        return JSONResponse(content={"race": doc.get("race", {}), "results": _sanitize_results(doc.get("results", []))})
 
     # Fallback to live fetch
     data = _fetch_json(f"{ERGAST_BASE}/{year}/{round}/sprint/")
@@ -208,9 +344,24 @@ async def get_sprint_results(
     if not races:
         return JSONResponse(content={"race": {}, "results": []})
 
-    race_data = races[0]
-    results = race_data.get("SprintResults", [])
+    race_data = races[0] if races else {}
+    results = _sanitize_results(race_data.get("SprintResults", []))
     race = {k: v for k, v in race_data.items() if k != "SprintResults"}
+
+    if not results:
+        try:
+            ff1_session = fastf1.get_session(year, round, "S")
+            ff1_session.load(laps=False, telemetry=False, weather=False, messages=False, livedata=False)
+            results_df = ff1_session.results
+            if not results_df.empty:
+                results = _fastf1_results_to_api(results_df)
+                if not race:
+                    race = {"raceName": getattr(ff1_session.event, "EventName", "Sprint")}
+        except Exception:
+            pass
+
+    if not results:
+        return JSONResponse(content={"race": {}, "results": []})
 
     # Cache in MongoDB so subsequent requests are instant
     if results:
@@ -249,7 +400,7 @@ async def get_session_classification(
             return JSONResponse(content={
                 "session": session_code,
                 "event_name": doc.get("event_name", ""),
-                "results": doc.get("results", [])
+                "results": _sanitize_results(doc.get("results", []))
             })
     elif session_code == "Q":
         doc = await db.qualifying_results.find_one({"season": year, "round": str(round)})
@@ -290,35 +441,7 @@ async def get_session_classification(
             content={"session": session_code, "event_name": "", "results": [], "error": str(e)},
         )
 
-    normalized_results = []
-    for _, row in results_df.iterrows():
-        full_name = str(row.get("FullName") or "").strip()
-        given_name, family_name = _split_driver_name(full_name)
-        time_value = row.get("Time")
-        time_text = str(time_value) if time_value is not None else ""
-
-        normalized_results.append(
-            {
-                "position": str(row.get("Position") or ""),
-                "points": str(row.get("Points") or ""),
-                "status": str(row.get("Status") or ""),
-                "Driver": {
-                    "givenName": given_name,
-                    "familyName": family_name,
-                    "code": str(row.get("Abbreviation") or ""),
-                    "permanentNumber": str(row.get("DriverNumber") or ""),
-                },
-                "Constructor": {
-                    "name": str(row.get("TeamName") or ""),
-                },
-                "Time": {
-                    "time": time_text,
-                },
-                "Q1": str(row.get("Q1") or "") if row.get("Q1") is not None else "",
-                "Q2": str(row.get("Q2") or "") if row.get("Q2") is not None else "",
-                "Q3": str(row.get("Q3") or "") if row.get("Q3") is not None else "",
-            }
-        )
+    normalized_results = _fastf1_results_to_api(results_df)
 
     # Save to MongoDB so subsequent requests are instant
     if normalized_results:
