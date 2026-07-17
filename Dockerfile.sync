@@ -1,4 +1,4 @@
-# Lightweight Python image for the data sync job
+# Data sync job — runs as a Cloud Run Job on an hourly schedule.
 FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
@@ -9,10 +9,11 @@ WORKDIR /app
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy only the sync script
-COPY backend/app/data_sync.py ./data_sync.py
+# The sync shares result-normalization code with the API, so it needs the whole
+# package rather than just data_sync.py.
+COPY backend/app ./app
 
 ENV PYTHONUNBUFFERED=1
+ENV FASTF1_CACHE_DIR=/tmp/f1_cache
 
-# Run the sync
-CMD ["python", "data_sync.py"]
+CMD ["python", "-m", "app.data_sync"]

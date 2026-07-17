@@ -6,49 +6,49 @@ from .db import get_db
 router = APIRouter(prefix="/api")
 
 
+def _round_key(document: dict) -> int:
+    """Sort key for a round.
+
+    Ergast stores `round` as a string, so sorting in Mongo puts "10" before "2".
+    """
+    try:
+        return int(document.get("round", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
 @router.get("/races")
 async def get_races(
-    year: int = Query(..., description="Year for which to fetch the races"),
-    fields: str | None = Query(None, description="comma-separated fields: total,races,races_list"),
+    year: int = Query(..., description="Season year"),
+    fields: str | None = Query(None, description="comma-separated: total,races,races_list"),
 ):
     db = get_db()
-    races_cursor = db.races.find(
-        {"season": year},
-        {"_id": 0, "synced_at": 0},
-    ).sort("round", 1)
+    races = await db.races.find({"season": year}, {"_id": 0, "synced_at": 0}).to_list(length=100)
+    races.sort(key=_round_key)
 
-    races_full_data = await races_cursor.to_list(length=100)
-
-    # Convert round to int for sorting if stored as string
-    races_count = len(races_full_data)
-    races_list = [r.get("raceName", "") for r in races_full_data]
-
-    requested = {p.strip() for p in (fields or "").split(",") if p.strip()} if fields else set()
-
-    result = {}
-
-    # If no fields are requested, act as if all were requested
+    requested = {p.strip() for p in (fields or "").split(",") if p.strip()}
     if not requested:
         requested = {"total", "races_list", "races"}
 
+    result = {}
     if "total" in requested:
-        result["total_races"] = races_count
+        result["total_races"] = len(races)
     if "races_list" in requested:
-        result["races_list"] = races_list
+        result["races_list"] = [race.get("raceName", "") for race in races]
     if "races" in requested:
-        result["races"] = races_full_data
+        result["races"] = races
 
     return JSONResponse(content=result)
 
 
 @router.get("/circuit_details")
-async def get_circuit_details():
-    """Return detailed circuit information for all rounds from the database."""
+async def get_circuit_details(
+    year: int | None = Query(None, description="Season year; defaults to all seasons"),
+):
+    """Track-DNA details per round, as rendered by the circuits page."""
     db = get_db()
-    cursor = db.circuit_details.find(
-        {},
-        {"_id": 0},
-    ).sort("round", 1)
+    query = {"season": year} if year is not None else {}
+    details = await db.circuit_details.find(query, {"_id": 0, "synced_at": 0}).to_list(length=100)
+    details.sort(key=_round_key)
 
-    details = await cursor.to_list(length=100)
     return JSONResponse(content={"circuit_details": details})
