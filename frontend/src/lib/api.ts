@@ -141,26 +141,11 @@ export interface RaceResult {
 export interface CircuitInfo {
   year: number;
   event_name: string;
-  circuit_name: string | null;
   country: string | null;
   city: string | null;
-  track_length_km: number | null;
-  total_race_length_km: number | null;
   total_laps: number | null;
   num_corners: number;
-  num_drs_zones: number;
-  corners: Array<{
-    Number: number;
-    Name: string | null;
-    Type: string | null;
-    Distance: number;
-  }>;
-  drs_zones: Array<{
-    Zone: number;
-    Start: number;
-    End: number;
-  }>;
-  track_record: {
+  fastest_lap: {
     time: string | null;
     driver: string | null;
     year: number | null;
@@ -404,30 +389,32 @@ export async function getRaceWeather(year: number, round: number) {
   }
 }
 
+// Every field is optional: the sync only stores what FastF1 actually reports
+// for a given event, and the modal omits whatever is missing.
 export interface TrackInformation {
-  first_grand_prix: number | string;
-  circuit_length_km: number;
-  number_of_laps: number;
-  race_distance_km: number;
-  lap_record: string;
-  number_of_corners: number;
-  drs_zones: number;
+  first_grand_prix?: number | string | null;
+  number_of_laps?: number | null;
+  number_of_corners?: number | null;
+  lap_record?: string | null;
 }
 
 export interface CircuitDetail {
   round: number;
+  season?: number;
   country: string;
   circuit_name: string;
   grand_prix: string;
   date: string;
-  track_information: TrackInformation;
+  track_information?: TrackInformation;
 }
 
-export async function getCircuitDetails(): Promise<CircuitDetail[]> {
+export async function getCircuitDetails(year?: number): Promise<CircuitDetail[]> {
   try {
-    const res = await fetchJson<{ circuit_details: CircuitDetail[] }>("/api/circuit_details", undefined, {
-      next: { revalidate: 3600 },
-    });
+    const res = await fetchJson<{ circuit_details: CircuitDetail[] }>(
+      "/api/circuit_details",
+      { year },
+      { next: { revalidate: 3600 } }
+    );
     return res.circuit_details ?? [];
   } catch {
     return [];

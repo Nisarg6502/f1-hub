@@ -19,10 +19,12 @@ export default function CircuitDetailsModal({
   isOpen,
   onClose,
 }: CircuitDetailsModalProps) {
-  const [mounted, setMounted] = useState(false);
+  // Mount at the closed state for one frame so the open transition animates.
+  const [entered, setEntered] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
+    const id = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(id);
   }, []);
 
   // Handle escape key
@@ -42,16 +44,25 @@ export default function CircuitDetailsModal({
     };
   }, [isOpen, onClose]);
 
-  if (!mounted) return null;
-
   const info = circuit.track_information;
+  const visible = isOpen && entered;
+
+  // Only render the stats this circuit actually has data for. A zero here means
+  // "not reported" rather than a real measurement, so it is treated as absent.
+  const stats = [
+    { label: "First Grand Prix", icon: "calendar_today", value: info?.first_grand_prix },
+    { label: "Number of Laps", icon: "change_history", value: info?.number_of_laps },
+    { label: "Corners", icon: "turn_right", value: info?.number_of_corners },
+  ].filter((stat): stat is { label: string; icon: string; value: string | number } =>
+    Boolean(stat.value)
+  );
 
   return (
     <>
       {/* Backdrop */}
       <div
         className={`fixed inset-0 z-50 bg-background/80 backdrop-blur-sm transition-all duration-500 ${
-          isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+          visible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
         }`}
         onClick={onClose}
       />
@@ -62,7 +73,7 @@ export default function CircuitDetailsModal({
       >
         <div
           className={`relative w-full max-w-6xl max-h-full bg-surface-container-low border border-outline-variant overflow-y-auto overflow-x-hidden pointer-events-auto transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] shadow-[0_0_100px_rgba(0,0,0,0.5)] ${
-            isOpen
+            visible
               ? "opacity-100 scale-100 translate-y-0"
               : "opacity-0 scale-95 translate-y-8"
           }`}
@@ -137,96 +148,39 @@ export default function CircuitDetailsModal({
               </h3>
 
               <div className="grid grid-cols-2 gap-x-8 gap-y-10">
-                {/* Length */}
-                <div className="group">
-                  <p className="text-[10px] text-outline font-[family-name:var(--font-label)] uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[14px] text-primary-container">
-                      straighten
-                    </span>
-                    Circuit Length
-                  </p>
-                  <p className="text-3xl font-black font-[family-name:var(--font-headline)] skew-heading italic text-on-surface">
-                    {info.circuit_length_km} <span className="text-lg text-neutral-500">km</span>
-                  </p>
-                </div>
+                {stats.map((stat) => (
+                  <div key={stat.label} className="group">
+                    <p className="text-[10px] text-outline font-[family-name:var(--font-label)] uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[14px] text-primary-container">
+                        {stat.icon}
+                      </span>
+                      {stat.label}
+                    </p>
+                    <p className="text-3xl font-black font-[family-name:var(--font-headline)] skew-heading italic text-on-surface">
+                      {stat.value}
+                    </p>
+                  </div>
+                ))}
 
-                {/* Race Distance */}
-                <div className="group">
-                  <p className="text-[10px] text-outline font-[family-name:var(--font-label)] uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[14px] text-primary-container">
-                      route
-                    </span>
-                    Race Distance
-                  </p>
-                  <p className="text-3xl font-black font-[family-name:var(--font-headline)] skew-heading italic text-on-surface">
-                    {info.race_distance_km} <span className="text-lg text-neutral-500">km</span>
-                  </p>
-                </div>
+                {info?.lap_record && (
+                  <div className="col-span-2 group mt-4 bg-surface-container-low p-6 border-l-2 border-primary-container">
+                    <p className="text-[10px] text-outline font-[family-name:var(--font-label)] uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
+                      <span className="material-symbols-outlined text-[14px] text-primary-container">
+                        timer
+                      </span>
+                      Fastest Lap
+                    </p>
+                    <p className="text-2xl lg:text-3xl font-black font-[family-name:var(--font-headline)] skew-heading italic text-on-surface">
+                      {info.lap_record}
+                    </p>
+                  </div>
+                )}
 
-                {/* Laps */}
-                <div className="group">
-                  <p className="text-[10px] text-outline font-[family-name:var(--font-label)] uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[14px] text-primary-container">
-                      change_history
-                    </span>
-                    Number of Laps
+                {stats.length === 0 && !info?.lap_record && (
+                  <p className="col-span-2 text-sm text-neutral-500">
+                    No track data recorded for this circuit yet.
                   </p>
-                  <p className="text-3xl font-black font-[family-name:var(--font-headline)] skew-heading italic text-on-surface">
-                    {info.number_of_laps}
-                  </p>
-                </div>
-
-                {/* First GP */}
-                <div className="group">
-                  <p className="text-[10px] text-outline font-[family-name:var(--font-label)] uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[14px] text-primary-container">
-                      calendar_today
-                    </span>
-                    First Grand Prix
-                  </p>
-                  <p className="text-3xl font-black font-[family-name:var(--font-headline)] skew-heading italic text-on-surface">
-                    {info.first_grand_prix}
-                  </p>
-                </div>
-
-                {/* Corners */}
-                <div className="group">
-                  <p className="text-[10px] text-outline font-[family-name:var(--font-label)] uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[14px] text-primary-container">
-                      turn_right
-                    </span>
-                    Corners
-                  </p>
-                  <p className="text-3xl font-black font-[family-name:var(--font-headline)] skew-heading italic text-on-surface">
-                    {info.number_of_corners}
-                  </p>
-                </div>
-
-                {/* DRS Zones */}
-                <div className="group">
-                  <p className="text-[10px] text-outline font-[family-name:var(--font-label)] uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[14px] text-primary-container">
-                      speed
-                    </span>
-                    DRS Zones
-                  </p>
-                  <p className="text-3xl font-black font-[family-name:var(--font-headline)] skew-heading italic text-on-surface">
-                    {info.drs_zones}
-                  </p>
-                </div>
-
-                {/* Lap Record (Full width) */}
-                <div className="col-span-2 group mt-4 bg-surface-container-low p-6 border-l-2 border-primary-container">
-                  <p className="text-[10px] text-outline font-[family-name:var(--font-label)] uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
-                    <span className="material-symbols-outlined text-[14px] text-primary-container">
-                      timer
-                    </span>
-                    Lap Record
-                  </p>
-                  <p className="text-2xl lg:text-3xl font-black font-[family-name:var(--font-headline)] skew-heading italic text-on-surface">
-                    {info.lap_record}
-                  </p>
-                </div>
+                )}
               </div>
             </div>
           </div>

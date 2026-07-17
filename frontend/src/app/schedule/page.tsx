@@ -4,6 +4,10 @@ import { getActiveSeasonYear, getSeasonRaces } from "@/lib/api";
 import { getCountryFlagPath } from "@/lib/flags";
 import RaceWeather from "@/components/race-weather";
 
+// Rendered per request: this page splits the calendar into past and upcoming
+// against the current time, which a prerender cannot keep correct.
+export const dynamic = "force-dynamic";
+
 export default async function SchedulePage() {
   const year = getActiveSeasonYear();
   let races: Awaited<ReturnType<typeof getSeasonRaces>>["races"] = [];

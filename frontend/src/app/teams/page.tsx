@@ -4,6 +4,9 @@ import {
 } from "@/lib/api";
 import { getEngineForTeam, engineProviders } from "@/lib/engines";
 
+// Constructor standings change after every race; render per request.
+export const dynamic = "force-dynamic";
+
 const teamMeta: Record<
   string,
   { color: string; glow: string; gradient: string }

@@ -6,6 +6,9 @@ import {
 } from "@/lib/driver-images";
 import { getFlagPath } from "@/lib/flags";
 
+// Driver standings change after every race; render per request.
+export const dynamic = "force-dynamic";
+
 const teamColors: Record<string, { border: string; bar: string; glow: string }> = {
   "Red Bull": { border: "border-blue-600", bar: "bg-blue-600", glow: "hover:shadow-[0_0_30px_rgba(37,99,235,0.15)]" },
   McLaren: { border: "border-orange-500", bar: "bg-orange-500", glow: "hover:shadow-[0_0_30px_rgba(249,115,22,0.15)]" },
