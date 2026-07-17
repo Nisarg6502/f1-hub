@@ -206,24 +206,56 @@ def session_total_laps(session) -> int | None:
     return int(total) if total else None
 
 
-def classification_from_laps(session) -> list[dict]:
-    """Rank drivers by their fastest lap of the session.
+def _legal_timed_laps(session):
+    """Laps with a time that still counts, or None if there are none.
 
-    This is how a practice or sprint-qualifying classification is produced:
-    FastF1 leaves those sessions' `Position` and `Time` columns empty, so the
-    only source of truth is the laps themselves.
+    A lap deleted for track limits keeps its `LapTime`, so it has to be excluded
+    explicitly or a driver gets credited with a lap that never counted. The
+    `Deleted` flag is only populated when the session was loaded with
+    `messages=True` — see `load_session`.
     """
     laps = _loaded(session, "laps")
     if laps is None or laps.empty or "LapTime" not in laps.columns:
+        return None
+
+    timed = laps.dropna(subset=["LapTime"])
+    if "Deleted" in timed.columns:
+        timed = timed[~timed["Deleted"].fillna(False).astype(bool)]
+
+    return None if timed.empty else timed
+
+
+def best_lap_by_driver(session) -> dict[str, str]:
+    """Each driver's fastest legal lap, keyed by tla and already formatted.
+
+    FastF1 leaves `Time` empty for practice and sprint qualifying even when it
+    knows the classification, so the times have to come from the laps.
+    """
+    timed = _legal_timed_laps(session)
+    if timed is None:
+        return {}
+
+    fastest = timed.groupby("Driver")["LapTime"].min()
+    return {safe_str(code): safe_str(lap_time) for code, lap_time in fastest.items()}
+
+
+def classification_from_laps(session) -> list[dict]:
+    """Rank drivers by their fastest legal lap of the session.
+
+    The fallback for when FastF1 reports no classification at all: order is
+    inferred from the laps themselves. Where FastF1 does report positions they
+    are preferred, because they encode elimination rules this cannot — see
+    `load_session`.
+    """
+    timed_laps = _legal_timed_laps(session)
+    if timed_laps is None:
         return []
 
-    timed_laps = laps.dropna(subset=["LapTime"])
-    if timed_laps.empty:
-        return []
-
+    # Stable sort so that when two drivers set identical times, whoever set it
+    # first keeps the place — the laps frame is already in chronological order.
     fastest_per_driver = timed_laps.loc[
         timed_laps.groupby("Driver")["LapTime"].idxmin()
-    ].sort_values("LapTime")
+    ].sort_values("LapTime", kind="stable")
 
     driver_meta = {}
     results_df = _loaded(session, "results")
@@ -286,11 +318,26 @@ def load_session(year: int, round_number: int, session_code: str):
         laps=needs_laps,
         telemetry=False,
         weather=False,
-        messages=False,
+        # Race control messages are what mark laps as deleted. Without them the
+        # Deleted flag is silently False everywhere and a lap chopped for track
+        # limits would be ranked as if it counted.
+        messages=needs_laps,
     )
 
     results = results_to_api(_loaded(session, "results"))
-    if not has_classification(results) and needs_laps:
-        results = classification_from_laps(session)
+
+    if needs_laps:
+        if has_classification(results):
+            # FastF1 knows the order for these sessions once race control
+            # messages are loaded, and that order is authoritative: it encodes
+            # rules a fastest-lap ranking cannot, such as sprint-qualifying
+            # segment eliminations, and it keeps drivers who set no legal lap.
+            # Only `Time` is missing, so fill it from the laps.
+            best_laps = best_lap_by_driver(session)
+            for row in results:
+                if not row["Time"]["time"]:
+                    row["Time"]["time"] = best_laps.get(row["Driver"]["code"], "")
+        else:
+            results = classification_from_laps(session)
 
     return safe_str(getattr(session.event, "EventName", "")), results

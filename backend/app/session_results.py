@@ -69,14 +69,28 @@ def _normalize_ergast_result(result: dict, session_type: str) -> dict:
     return sanitize_result(normalized)
 
 
-async def _cache_results(collection, key: dict, race: dict, results: list[dict]) -> None:
-    """Upsert freshly fetched results so the next request is served from Mongo."""
+async def _cache_results(
+    collection, key: dict, race: dict, results: list[dict], source: str
+) -> None:
+    """Upsert freshly fetched results so the next request is served from Mongo.
+
+    `source` records which upstream the rows came from. Ergast carries fields
+    the FastF1 fallback cannot (grid, laps, status, positionText, FastestLap,
+    nationalities), so the sync uses this marker to replace a FastF1 stopgap
+    once Ergast catches up, rather than treating any non-empty document as done.
+    """
     if not results:
         return
     try:
         await collection.update_one(
             key,
-            {"$set": {**key, "race": race, "results": results, "synced_at": _utcnow_iso()}},
+            {"$set": {
+                **key,
+                "race": race,
+                "results": results,
+                "source": source,
+                "synced_at": _utcnow_iso(),
+            }},
             upsert=True,
         )
     except Exception as error:
@@ -114,17 +128,19 @@ async def get_race_results(
     if not results and round is not None:
         race, results = _fetch_ergast_session(year, round, "results", "Results")
         await _cache_results(
-            db.race_results, {"season": year, "round": str(round)}, race, results
+            db.race_results, {"season": year, "round": str(round)}, race, results, "ergast"
         )
 
     if not results and round is not None:
-        # Ergast lags the chequered flag by a few hours; FastF1 usually has it sooner.
+        # Ergast lags the chequered flag by a few hours; FastF1 usually has it
+        # sooner. This shape is thinner than Ergast's, so it is marked as such
+        # and the sync replaces it once Ergast has the round.
         try:
             event_name, results = load_session(year, round, "R")
             if results and not race:
                 race = {"raceName": event_name}
             await _cache_results(
-                db.race_results, {"season": year, "round": str(round)}, race, results
+                db.race_results, {"season": year, "round": str(round)}, race, results, "fastf1"
             )
         except Exception as error:
             print(f"FastF1 race fallback failed for {year} R{round}: {error}")
@@ -169,17 +185,19 @@ async def get_qualifying_results(
         )
 
     race, results = _fetch_ergast_session(year, round, "qualifying", "QualifyingResults")
+    source = "ergast"
 
     if not results:
         try:
             event_name, results = load_session(year, round, "Q")
             if results and not race:
                 race = {"raceName": event_name}
+            source = "fastf1"
         except Exception as error:
             print(f"FastF1 qualifying fallback failed for {year} R{round}: {error}")
 
     await _cache_results(
-        db.qualifying_results, {"season": year, "round": str(round)}, race, results
+        db.qualifying_results, {"season": year, "round": str(round)}, race, results, source
     )
     return JSONResponse(content={"race": race, "results": results})
 
@@ -202,12 +220,14 @@ async def get_sprint_results(
         )
 
     race, results = _fetch_ergast_session(year, round, "sprint", "SprintResults")
+    source = "ergast"
 
     if not results:
         try:
             event_name, results = load_session(year, round, "S")
             if results and not race:
                 race = {"raceName": event_name}
+            source = "fastf1"
         except Exception as error:
             print(f"FastF1 sprint fallback failed for {year} R{round}: {error}")
 
@@ -215,7 +235,7 @@ async def get_sprint_results(
         return JSONResponse(content={"race": {}, "results": []})
 
     await _cache_results(
-        db.sprint_results, {"season": year, "round": str(round)}, race, results
+        db.sprint_results, {"season": year, "round": str(round)}, race, results, source
     )
     return JSONResponse(content={"race": race, "results": results})
 
@@ -251,7 +271,9 @@ async def get_session_classification(
     elif session_code in ergast_backed:
         collection, _ = ergast_backed[session_code]
         doc = await collection.find_one({"season": year, "round": str(round)})
-        if doc:
+        # Same guard as practice: an unclassified document is refetched rather
+        # than served forever.
+        if doc and has_classification(doc.get("results")):
             return JSONResponse(
                 content={
                     "session": session_code,
@@ -298,6 +320,7 @@ async def get_session_classification(
                 {"season": year, "round": str(round)},
                 {"raceName": event_name},
                 results,
+                "fastf1",
             )
 
     return JSONResponse(

@@ -156,29 +156,63 @@ def _sync_entry_list(db, year: int, path: str, table: str, key: str, collection)
 # --- Per-round data (only for completed rounds we haven't stored yet) ---
 
 
-def _completed_rounds(db, year: int) -> list[dict]:
-    """Races whose start time has passed, oldest first."""
-    now = _utcnow()
+def _round_key(race: dict) -> int:
+    try:
+        return int(race.get("round", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+# A grand prix runs roughly two hours. Anything derived from the finished race —
+# its fastest lap, its mid-race weather — must wait for the flag, or the value
+# gets computed from a partial session and then cached as if it were final.
+RACE_DURATION_HOURS = 4
+
+
+def _completed_rounds(db, year: int, *, settled: bool = False) -> list[dict]:
+    """Races whose start time has passed, oldest first.
+
+    `settled=True` additionally waits for the race to be over, for callers that
+    summarise the whole session rather than read a results table that simply
+    isn't published yet.
+    """
+    cutoff = _utcnow()
+    if settled:
+        cutoff -= datetime.timedelta(hours=RACE_DURATION_HOURS)
+
     races = list(db.races.find({"season": year}, {"_id": 0, "synced_at": 0}))
-    completed = []
-    for race in races:
-        start = _session_start(race.get("date"), race.get("time"))
-        if start and start < now:
-            completed.append(race)
-    return sorted(completed, key=lambda r: int(r.get("round", 0)))
+    started = [
+        race
+        for race in races
+        if (start := _session_start(race.get("date"), race.get("time"))) and start < cutoff
+    ]
+    return sorted(started, key=_round_key)
 
 
-def _already_stored(collection, query: dict, *, classified: bool = False) -> bool:
+def _already_stored(
+    collection,
+    query: dict,
+    *,
+    classified: bool = False,
+    source: str | None = None,
+) -> bool:
     """True if this session is already stored and worth keeping.
 
-    `classified=True` additionally rejects rows without positions, so practice
-    entries written before the classification was derived from laps get
-    refetched rather than skipped forever.
+    `classified=True` rejects rows without positions, so practice entries
+    written before the classification was derived from laps get refetched
+    rather than skipped forever.
+
+    `source="ergast"` rejects documents that came from somewhere else. The
+    FastF1 fallback in the API writes a thinner shape (no grid, laps, status or
+    FastestLap), so without this a stopgap written minutes after the flag would
+    never be replaced once Ergast published the full result.
     """
     if FORCE_RESYNC:
         return False
-    doc = collection.find_one(query, {"_id": 1, "results": 1})
+    doc = collection.find_one(query, {"_id": 1, "results": 1, "source": 1})
     if not doc or not doc.get("results"):
+        return False
+    if source is not None and doc.get("source") != source:
         return False
     return has_classification(doc["results"]) if classified else True
 
@@ -198,7 +232,9 @@ def sync_session_results(db, year: int, races: list[dict]) -> None:
             # A sprint only exists on sprint weekends; don't ask for the rest.
             if label == "sprint" and not race.get("Sprint"):
                 continue
-            if _already_stored(collection, {"season": year, "round": str(round_number)}):
+            if _already_stored(
+                collection, {"season": year, "round": str(round_number)}, source="ergast"
+            ):
                 continue
 
             data = fetch_json(f"{ERGAST_BASE}/{year}/{round_number}/{path}/")
@@ -218,6 +254,7 @@ def sync_session_results(db, year: int, races: list[dict]) -> None:
                     "round": str(round_number),
                     "race": {k: v for k, v in race_data.items() if k != key},
                     "results": results,
+                    "source": "ergast",
                     "synced_at": _utcnow_iso(),
                 }},
                 upsert=True,
@@ -449,13 +486,16 @@ def main() -> int:
         _sync_entry_list(db, year, "drivers", "DriverTable", "Drivers", db.drivers)
         _sync_entry_list(db, year, "constructors", "ConstructorTable", "Constructors", db.constructors)
 
-        races = _completed_rounds(db, year)
-        print(f"  {len(races)} completed round(s) to consider")
+        started = _completed_rounds(db, year)
+        # circuit_details and weather summarise the finished race and are cached
+        # without re-checking, so they must not be built from a race in progress.
+        finished = _completed_rounds(db, year, settled=True)
+        print(f"  {len(started)} started round(s), {len(finished)} finished")
 
-        sync_session_results(db, year, races)
-        sync_practice_results(db, year, races)
-        sync_circuit_details(db, year, races)
-        sync_weather(db, year, races)
+        sync_session_results(db, year, started)
+        sync_practice_results(db, year, started)
+        sync_circuit_details(db, year, finished)
+        sync_weather(db, year, finished)
 
     client.close()
     print("\n=== sync complete ===")

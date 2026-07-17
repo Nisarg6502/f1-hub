@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import json
 import math
 import sys
@@ -23,7 +24,7 @@ if "motor.motor_asyncio" not in sys.modules:
     sys.modules["motor"] = motor_module
     sys.modules["motor.motor_asyncio"] = motor_asyncio_module
 
-from app import f1_results, session_results
+from app import data_sync, f1_results, session_results
 
 
 class FakeCollection:
@@ -52,6 +53,10 @@ class FakeSession:
     def __init__(self, laps, results):
         self.laps = laps
         self.results = results
+        self.event = type("E", (), {"EventName": ""})()
+
+    def load(self, **kwargs):
+        pass
 
 
 class SafeStrTests(unittest.TestCase):
@@ -162,6 +167,7 @@ class ClassificationFromLapsTests(unittest.TestCase):
                 pd.NaT,                                   # in-lap, ignored
                 pd.NaT,                                   # LEC set no time
             ],
+            "Deleted": [False, False, False, False, False],
             "Team": ["Ferrari", "Ferrari", "Red Bull", "Red Bull", "Ferrari"],
             "DriverNumber": ["44", "44", "1", "1", "16"],
         })
@@ -198,6 +204,202 @@ class ClassificationFromLapsTests(unittest.TestCase):
     def test_returns_empty_when_there_are_no_laps(self):
         empty = FakeSession(pd.DataFrame(), pd.DataFrame())
         self.assertEqual(f1_results.classification_from_laps(empty), [])
+
+    def test_deleted_laps_are_not_ranked(self):
+        # A lap chopped for track limits keeps its LapTime, so filtering on
+        # LapTime alone would rank a driver on a lap that never counted.
+        laps = pd.DataFrame({
+            "Driver": ["VER", "VER", "HAM"],
+            "LapTime": [
+                pd.Timedelta("0 days 00:01:28.000000"),  # deleted
+                pd.Timedelta("0 days 00:01:30.000000"),  # VER's real best
+                pd.Timedelta("0 days 00:01:29.000000"),
+            ],
+            "Deleted": [True, False, False],
+            "Team": ["Red Bull", "Red Bull", "Ferrari"],
+            "DriverNumber": ["1", "1", "44"],
+        })
+        results = pd.DataFrame({
+            "Abbreviation": ["VER", "HAM"],
+            "FullName": ["Max Verstappen", "Lewis Hamilton"],
+            "TeamName": ["Red Bull Racing", "Ferrari"],
+            "DriverNumber": ["1", "44"],
+        })
+
+        classification = f1_results.classification_from_laps(FakeSession(laps, results))
+
+        self.assertEqual(
+            [(r["position"], r["Driver"]["code"], r["Time"]["time"]) for r in classification],
+            [("1", "HAM", "1:29.000"), ("2", "VER", "1:30.000")],
+        )
+
+    def test_a_driver_whose_only_lap_was_deleted_is_excluded(self):
+        laps = pd.DataFrame({
+            "Driver": ["VER", "HAM"],
+            "LapTime": [
+                pd.Timedelta("0 days 00:01:28.000000"),
+                pd.Timedelta("0 days 00:01:29.000000"),
+            ],
+            "Deleted": [True, False],
+            "Team": ["Red Bull", "Ferrari"],
+            "DriverNumber": ["1", "44"],
+        })
+        results = pd.DataFrame({
+            "Abbreviation": ["VER", "HAM"],
+            "FullName": ["Max Verstappen", "Lewis Hamilton"],
+            "TeamName": ["Red Bull Racing", "Ferrari"],
+            "DriverNumber": ["1", "44"],
+        })
+
+        classification = f1_results.classification_from_laps(FakeSession(laps, results))
+
+        self.assertEqual([r["Driver"]["code"] for r in classification], ["HAM"])
+
+    def test_tied_times_keep_the_lap_set_first(self):
+        # The laps frame is chronological, so a stable sort implements the rule
+        # that whoever set the time first takes the place.
+        same = pd.Timedelta("0 days 00:01:29.000000")
+        laps = pd.DataFrame({
+            "Driver": ["HAM", "VER"],
+            "LapTime": [same, same],
+            "Deleted": [False, False],
+            "Team": ["Ferrari", "Red Bull"],
+            "DriverNumber": ["44", "1"],
+        })
+        results = pd.DataFrame({
+            "Abbreviation": ["HAM", "VER"],
+            "FullName": ["Lewis Hamilton", "Max Verstappen"],
+            "TeamName": ["Ferrari", "Red Bull Racing"],
+            "DriverNumber": ["44", "1"],
+        })
+
+        classification = f1_results.classification_from_laps(FakeSession(laps, results))
+
+        self.assertEqual([r["Driver"]["code"] for r in classification], ["HAM", "VER"])
+
+    def test_works_when_the_deleted_column_is_absent(self):
+        laps = pd.DataFrame({
+            "Driver": ["HAM"],
+            "LapTime": [pd.Timedelta("0 days 00:01:29.000000")],
+            "Team": ["Ferrari"],
+            "DriverNumber": ["44"],
+        })
+        results = pd.DataFrame({
+            "Abbreviation": ["HAM"],
+            "FullName": ["Lewis Hamilton"],
+            "TeamName": ["Ferrari"],
+            "DriverNumber": ["44"],
+        })
+
+        classification = f1_results.classification_from_laps(FakeSession(laps, results))
+
+        self.assertEqual([r["Driver"]["code"] for r in classification], ["HAM"])
+
+
+class BestLapByDriverTests(unittest.TestCase):
+    def test_returns_each_drivers_fastest_legal_lap(self):
+        laps = pd.DataFrame({
+            "Driver": ["HAM", "HAM", "VER"],
+            "LapTime": [
+                pd.Timedelta("0 days 00:01:30.000000"),
+                pd.Timedelta("0 days 00:01:29.000000"),
+                pd.Timedelta("0 days 00:01:28.500000"),
+            ],
+            "Deleted": [False, False, False],
+        })
+        best = f1_results.best_lap_by_driver(FakeSession(laps, pd.DataFrame()))
+        self.assertEqual(best, {"HAM": "1:29.000", "VER": "1:28.500"})
+
+    def test_ignores_deleted_laps(self):
+        laps = pd.DataFrame({
+            "Driver": ["VER", "VER"],
+            "LapTime": [
+                pd.Timedelta("0 days 00:01:28.000000"),  # deleted
+                pd.Timedelta("0 days 00:01:30.000000"),
+            ],
+            "Deleted": [True, False],
+        })
+        best = f1_results.best_lap_by_driver(FakeSession(laps, pd.DataFrame()))
+        self.assertEqual(best, {"VER": "1:30.000"})
+
+
+class LoadSessionMergeTests(unittest.TestCase):
+    """The behaviour of load_session when FastF1 reports positions but no times.
+
+    This is sprint qualifying and, on some sessions, practice: FastF1 knows the
+    classification once messages are loaded but leaves the Time column empty.
+    """
+
+    def _patch_load(self, results_df, laps_df, event_name="British Grand Prix"):
+        session = FakeSession(laps_df, results_df)
+        session.event = type("E", (), {"EventName": event_name})()
+
+        def fake_get_session(year, rnd, code):
+            return session
+
+        return patch.object(f1_results.fastf1, "get_session", fake_get_session)
+
+    def test_keeps_fastf1_order_and_fills_times_from_laps(self):
+        # STR is classified last with no legal lap; the leaders' blank Time is
+        # filled from their fastest lap.
+        results_df = pd.DataFrame({
+            "Position": [1.0, 2.0, 22.0],
+            "Points": [0.0, 0.0, 0.0],
+            "Status": ["", "", ""],
+            "Abbreviation": ["HAM", "ANT", "STR"],
+            "FullName": ["Lewis Hamilton", "Kimi Antonelli", "Lance Stroll"],
+            "TeamName": ["Ferrari", "Mercedes", "Aston Martin"],
+            "DriverNumber": ["44", "12", "18"],
+            "Time": [pd.NaT, pd.NaT, pd.NaT],
+            "Q1": [pd.NaT, pd.NaT, pd.NaT],
+            "Q2": [pd.NaT, pd.NaT, pd.NaT],
+            "Q3": [pd.NaT, pd.NaT, pd.NaT],
+        })
+        laps_df = pd.DataFrame({
+            "Driver": ["HAM", "ANT", "STR"],
+            "LapTime": [
+                pd.Timedelta("0 days 00:01:28.376000"),
+                pd.Timedelta("0 days 00:01:28.387000"),
+                pd.Timedelta("0 days 00:01:33.438000"),  # deleted
+            ],
+            "Deleted": [False, False, True],
+        })
+
+        with self._patch_load(results_df, laps_df):
+            _, results = f1_results.load_session(2026, 9, "SQ")
+
+        self.assertEqual([r["Driver"]["code"] for r in results], ["HAM", "ANT", "STR"])
+        self.assertEqual(results[0]["Time"]["time"], "1:28.376")
+        # STR keeps his classified position but has no legal time to show.
+        self.assertEqual(results[2]["position"], "22")
+        self.assertEqual(results[2]["Time"]["time"], "")
+
+    def test_falls_back_to_lap_ranking_when_fastf1_has_no_positions(self):
+        results_df = pd.DataFrame({
+            "Position": [float("nan"), float("nan")],
+            "Abbreviation": ["HAM", "VER"],
+            "FullName": ["Lewis Hamilton", "Max Verstappen"],
+            "TeamName": ["Ferrari", "Red Bull Racing"],
+            "DriverNumber": ["44", "1"],
+            "Time": [pd.NaT, pd.NaT],
+        })
+        laps_df = pd.DataFrame({
+            "Driver": ["HAM", "VER"],
+            "LapTime": [
+                pd.Timedelta("0 days 00:01:30.000000"),
+                pd.Timedelta("0 days 00:01:29.000000"),  # faster
+            ],
+            "Deleted": [False, False],
+            "Team": ["Ferrari", "Red Bull"],
+            "DriverNumber": ["44", "1"],
+        })
+
+        with self._patch_load(results_df, laps_df):
+            _, results = f1_results.load_session(2026, 9, "FP1")
+
+        # VER set the faster lap, so the derived order leads with him.
+        self.assertEqual([r["Driver"]["code"] for r in results], ["VER", "HAM"])
+        self.assertEqual(results[0]["Time"]["time"], "1:29.000")
 
 
 class RaceResultsTests(unittest.TestCase):
@@ -291,6 +493,119 @@ class SessionClassificationTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(json.loads(response.body)["results"], [])
+
+
+class SyncCollection:
+    """Minimal stand-in for a pymongo (synchronous) collection."""
+
+    def __init__(self, docs=None):
+        self.docs = list(docs or [])
+
+    def find_one(self, query, projection=None):
+        for doc in self.docs:
+            if all(doc.get(k) == v for k, v in query.items()):
+                return doc
+        return None
+
+    def find(self, query, projection=None):
+        return [
+            doc for doc in self.docs
+            if all(doc.get(k) == v for k, v in query.items())
+        ]
+
+
+class AlreadyStoredTests(unittest.TestCase):
+    def test_false_when_nothing_is_stored(self):
+        self.assertFalse(data_sync._already_stored(SyncCollection(), {"round": "1"}))
+
+    def test_false_when_the_document_has_no_results(self):
+        collection = SyncCollection([{"round": "1", "results": []}])
+        self.assertFalse(data_sync._already_stored(collection, {"round": "1"}))
+
+    def test_true_for_a_stored_document(self):
+        collection = SyncCollection([{"round": "1", "results": [{"position": "1"}]}])
+        self.assertTrue(data_sync._already_stored(collection, {"round": "1"}))
+
+    def test_unclassified_rows_are_not_treated_as_stored(self):
+        collection = SyncCollection([{"round": "1", "results": [{"position": ""}]}])
+        self.assertFalse(
+            data_sync._already_stored(collection, {"round": "1"}, classified=True)
+        )
+
+    def test_a_fastf1_stopgap_does_not_block_the_ergast_result(self):
+        # The API's FastF1 fallback writes a thinner shape when Ergast lags the
+        # flag. Skipping on mere non-emptiness would make that permanent.
+        collection = SyncCollection([
+            {"round": "1", "results": [{"position": "1"}], "source": "fastf1"}
+        ])
+        self.assertFalse(
+            data_sync._already_stored(collection, {"round": "1"}, source="ergast")
+        )
+
+    def test_an_ergast_document_is_kept(self):
+        collection = SyncCollection([
+            {"round": "1", "results": [{"position": "1"}], "source": "ergast"}
+        ])
+        self.assertTrue(
+            data_sync._already_stored(collection, {"round": "1"}, source="ergast")
+        )
+
+    def test_a_document_predating_the_source_marker_is_refetched_once(self):
+        collection = SyncCollection([{"round": "1", "results": [{"position": "1"}]}])
+        self.assertFalse(
+            data_sync._already_stored(collection, {"round": "1"}, source="ergast")
+        )
+
+
+class CompletedRoundsTests(unittest.TestCase):
+    class FakeDb:
+        def __init__(self, races):
+            self.races = SyncCollection(races)
+
+    def _db(self, races):
+        return self.FakeDb(races)
+
+    def test_orders_rounds_numerically(self):
+        # Ergast stores round as a string, so a lexicographic sort puts 10 first.
+        db = self._db([
+            {"season": 2026, "round": "10", "date": "2026-01-01", "time": "12:00:00Z"},
+            {"season": 2026, "round": "2", "date": "2026-01-01", "time": "12:00:00Z"},
+        ])
+        rounds = [r["round"] for r in data_sync._completed_rounds(db, 2026)]
+        self.assertEqual(rounds, ["2", "10"])
+
+    def test_a_garbage_round_does_not_crash_the_sync(self):
+        db = self._db([
+            {"season": 2026, "round": None, "date": "2026-01-01", "time": "12:00:00Z"},
+            {"season": 2026, "round": "1", "date": "2026-01-01", "time": "12:00:00Z"},
+        ])
+        self.assertEqual(len(data_sync._completed_rounds(db, 2026)), 2)
+
+    def test_future_races_are_excluded(self):
+        future = (data_sync._utcnow() + datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+        db = self._db([{"season": 2026, "round": "1", "date": future, "time": "12:00:00Z"}])
+        self.assertEqual(data_sync._completed_rounds(db, 2026), [])
+
+    def test_a_race_in_progress_counts_as_started_but_not_settled(self):
+        # Its results table simply isn't published yet, but summarising the
+        # session now would cache a fastest lap from a half-run race.
+        start = data_sync._utcnow() - datetime.timedelta(hours=1)
+        db = self._db([{
+            "season": 2026, "round": "1",
+            "date": start.strftime("%Y-%m-%d"),
+            "time": start.strftime("%H:%M:%SZ"),
+        }])
+        self.assertEqual(len(data_sync._completed_rounds(db, 2026)), 1)
+        self.assertEqual(data_sync._completed_rounds(db, 2026, settled=True), [])
+
+    def test_a_finished_race_is_settled(self):
+        start = data_sync._utcnow() - datetime.timedelta(hours=6)
+        db = self._db([{
+            "season": 2026, "round": "1",
+            "date": start.strftime("%Y-%m-%d"),
+            "time": start.strftime("%H:%M:%SZ"),
+        }])
+        self.assertEqual(len(data_sync._completed_rounds(db, 2026, settled=True)), 1)
 
 
 if __name__ == "__main__":
