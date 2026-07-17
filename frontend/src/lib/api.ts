@@ -85,23 +85,6 @@ export interface ConstructorStanding {
   };
 }
 
-export interface DriverInfo {
-  driverId: string;
-  givenName: string;
-  familyName: string;
-  code?: string;
-  permanentNumber?: string;
-  nationality?: string;
-  dateOfBirth?: string;
-}
-
-export interface ConstructorInfo {
-  constructorId: string;
-  name: string;
-  nationality?: string;
-  url?: string;
-}
-
 export interface RaceResult {
   number?: string;
   position?: string;
@@ -314,31 +297,6 @@ export async function getCircuitInfo(year: number, eventName: string) {
   });
 }
 
-export async function getDrivers(year: number) {
-  return fetchJson<{
-    drivers?: DriverInfo[];
-    drivers_list?: string[];
-    total_drivers?: number;
-  }>("/api/drivers", {
-    year,
-    fields: "drivers",
-  }, {
-    next: { revalidate: 86400 }, // Cache for 1 day
-  });
-}
-
-export async function getConstructors(year: number) {
-  return fetchJson<{
-    constructors?: ConstructorInfo[];
-    constructors_list?: string[];
-    total_constructors?: number;
-  }>("/api/constructors", {
-    year,
-    fields: "constructors",
-  }, {
-    next: { revalidate: 86400 }, // Cache for 1 day
-  });
-}
 
 export async function getLiveTimingData() {
   const rapidApiKey = process.env.NEXT_PUBLIC_RAPIDAPI_KEY;

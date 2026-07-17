@@ -4,7 +4,6 @@ from fastapi.middleware.cors import CORSMiddleware
 # import routers from local modules
 from . import races
 from . import championship_standings
-from . import participants
 from . import session_results
 from . import circuit_info
 
@@ -22,7 +21,6 @@ app.add_middleware(
 # include routers defined in each module
 app.include_router(races.router)
 app.include_router(championship_standings.router)
-app.include_router(participants.router)
 app.include_router(session_results.router)
 app.include_router(circuit_info.router)
 
