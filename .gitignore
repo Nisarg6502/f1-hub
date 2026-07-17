@@ -10,10 +10,14 @@ backend/app/f1_cache/
 # Node
 node_modules/
 .next/
+*.tsbuildinfo
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Local working notes, not for the repo
+specs.md
 
 # Large asset source folders (these go to GCS, not Git)
 f1_driver_images/
