@@ -19,6 +19,10 @@ interface PageProps {
   }>;
 }
 
+// Rendered per request: whether a round counts as completed depends on the
+// current time, and results land during the weekend itself.
+export const dynamic = "force-dynamic";
+
 export default async function RaceDetailPage({ params }: PageProps) {
   const { season, round } = await params;
   const seasonYear = Number(season);
@@ -119,6 +123,21 @@ export default async function RaceDetailPage({ params }: PageProps) {
   const circuit = race.Circuit;
   const location = circuit?.Location;
 
+  const circuitStats: Array<{ label: string; value: string | number }> = (
+    [
+      { label: "Laps", value: circuitInfo?.total_laps ?? null },
+      { label: "Corners", value: circuitInfo?.num_corners || null },
+      {
+        label: "Fastest Lap",
+        value: circuitInfo?.fastest_lap?.time
+          ? `${circuitInfo.fastest_lap.time}${
+              circuitInfo.fastest_lap.driver ? ` (${circuitInfo.fastest_lap.driver})` : ""
+            }`
+          : null,
+      },
+    ] as Array<{ label: string; value: string | number | null }>
+  ).flatMap((stat) => (stat.value === null ? [] : [{ ...stat, value: stat.value }]));
+
   return (
     <div className="px-6 lg:px-12 max-w-[1600px] mx-auto pt-4 pb-20">
       {/* Header */}
@@ -162,43 +181,19 @@ export default async function RaceDetailPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Circuit Info Bar (if available) */}
-      {circuitInfo && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
-          <div className="bg-surface-container p-4">
-            <p className="text-[10px] text-neutral-500 uppercase tracking-widest">
-              Track Length
-            </p>
-            <p className="font-[family-name:var(--font-headline)] font-bold text-lg italic">
-              {circuitInfo.track_length_km
-                ? `${circuitInfo.track_length_km.toFixed(3)} km`
-                : "TBC"}
-            </p>
-          </div>
-          <div className="bg-surface-container p-4">
-            <p className="text-[10px] text-neutral-500 uppercase tracking-widest">
-              Laps
-            </p>
-            <p className="font-[family-name:var(--font-headline)] font-bold text-lg italic">
-              {circuitInfo.total_laps ?? "TBC"}
-            </p>
-          </div>
-          <div className="bg-surface-container p-4">
-            <p className="text-[10px] text-neutral-500 uppercase tracking-widest">
-              Corners
-            </p>
-            <p className="font-[family-name:var(--font-headline)] font-bold text-lg italic">
-              {circuitInfo.num_corners}
-            </p>
-          </div>
-          <div className="bg-surface-container p-4">
-            <p className="text-[10px] text-neutral-500 uppercase tracking-widest">
-              DRS Zones
-            </p>
-            <p className="font-[family-name:var(--font-headline)] font-bold text-lg italic">
-              {circuitInfo.num_drs_zones}
-            </p>
-          </div>
+      {/* Circuit info bar — only the stats FastF1 reports for this event */}
+      {circuitStats.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-8">
+          {circuitStats.map((stat) => (
+            <div key={stat.label} className="bg-surface-container p-4">
+              <p className="text-[10px] text-neutral-500 uppercase tracking-widest">
+                {stat.label}
+              </p>
+              <p className="font-[family-name:var(--font-headline)] font-bold text-lg italic">
+                {stat.value}
+              </p>
+            </div>
+          ))}
         </div>
       )}
 

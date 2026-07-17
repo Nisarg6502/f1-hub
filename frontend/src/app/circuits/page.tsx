@@ -1,8 +1,11 @@
 import Image from "next/image";
 import { getActiveSeasonYear, getSeasonRaces, getCircuitDetails } from "@/lib/api";
-import { getCountryFlagPath } from "@/lib/flags";
 import { getCircuitImagePath } from "@/lib/circuit-images";
 import CircuitsGallery from "@/components/circuits-gallery";
+
+// Circuit details are filled in by the sync job as the season runs, so this
+// page must not be pinned to a build-time snapshot.
+export const dynamic = "force-dynamic";
 
 export default async function CircuitsPage() {
   const year = getActiveSeasonYear();
@@ -12,7 +15,7 @@ export default async function CircuitsPage() {
   try {
     const [racesRes, details] = await Promise.all([
       getSeasonRaces(year),
-      getCircuitDetails()
+      getCircuitDetails(year)
     ]);
     races = racesRes.races ?? [];
     circuitDetails = details ?? [];
@@ -23,16 +26,6 @@ export default async function CircuitsPage() {
   // Use the first race as the featured track
   const featured = races[0];
   const featuredImagePath = featured ? getCircuitImagePath(featured.Circuit?.Location?.country, featured.Circuit?.Location?.locality, featured.Circuit?.circuitName) : null;
-
-  // Color accents for gallery cards
-  const accentColors = [
-    "bg-secondary-container",
-    "bg-primary-container",
-    "bg-tertiary-container",
-    "bg-secondary-container",
-  ];
-
-  const cardIcons = ["polyline", "conversion_path", "gesture", "directions_run", "route", "fork_right", "alt_route", "moving"];
 
   return (
     <>

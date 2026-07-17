@@ -16,6 +16,12 @@ import {
   getNextSession,
 } from "@/lib/sessions";
 
+// Rendered per request. This page picks the next race by comparing the schedule
+// against the current time, so a prerender goes stale the moment its target
+// race is run — and on Cloud Run a cold container serves the build-time HTML,
+// which is how the countdown ends up frozen at zero.
+export const dynamic = "force-dynamic";
+
 export default async function Home() {
   const seasonYear = getActiveSeasonYear();
 

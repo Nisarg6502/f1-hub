@@ -5,6 +5,10 @@ import {
 } from "@/lib/api";
 import StandingsView from "@/components/standings-view";
 
+// Standings change after every race; render per request rather than serving a
+// prerender captured at build time.
+export const dynamic = "force-dynamic";
+
 export default async function StandingsPage() {
   const year = getActiveSeasonYear();
 

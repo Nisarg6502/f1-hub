@@ -405,8 +405,8 @@ function FullResultsTable({ results }: { results: RaceResult[] }) {
                     ) : null}
                     <div>
                       <div className="text-sm font-bold uppercase tracking-wide">
-                        {r.Driver?.code
-                          ? `${r.Driver.code.charAt(0)}. ${r.Driver.familyName}`
+                        {givenName && familyName
+                          ? `${givenName.charAt(0)}. ${familyName}`
                           : driverName}
                       </div>
                       <div className="text-[10px] text-neutral-500 uppercase">
@@ -670,6 +670,13 @@ function SessionPodiumCards({
   );
 }
 
+const LAP_TIMED_SESSIONS: SessionKey[] = [
+  "FirstPractice",
+  "SecondPractice",
+  "ThirdPractice",
+  "SprintQualifying",
+];
+
 function SessionResultsTable({
   sessionKey,
   results,
@@ -677,8 +684,14 @@ function SessionResultsTable({
   sessionKey: SessionKey;
   results: RaceResult[];
 }) {
-  const isQualifying =
-    sessionKey === "Qualifying" || sessionKey === "SprintQualifying";
+  // Only qualifying reports per-segment times. Sprint qualifying is classified
+  // from lap times, so it gets a single best-lap column instead of three empty
+  // ones, as do the practice sessions.
+  const hasSegmentTimes = results.some((r) => r.Q1 || r.Q2 || r.Q3);
+  const showSegments =
+    (sessionKey === "Qualifying" || sessionKey === "SprintQualifying") &&
+    hasSegmentTimes;
+  const showBestLap = !showSegments && LAP_TIMED_SESSIONS.includes(sessionKey);
 
   return (
     <div className="overflow-x-auto">
@@ -688,12 +701,14 @@ function SessionResultsTable({
             <th className="px-6 py-4">Pos</th>
             <th className="px-6 py-4">Driver</th>
             <th className="px-6 py-4">Team</th>
-            {isQualifying ? (
+            {showSegments ? (
               <>
                 <th className="px-6 py-4">Q1</th>
                 <th className="px-6 py-4">Q2</th>
                 <th className="px-6 py-4">Q3</th>
               </>
+            ) : showBestLap ? (
+              <th className="px-6 py-4">Best Lap</th>
             ) : (
               <>
                 <th className="px-6 py-4">Status</th>
@@ -736,8 +751,8 @@ function SessionResultsTable({
                       </div>
                     )}
                     <div className="text-sm font-bold uppercase tracking-wide">
-                      {r.Driver?.code
-                        ? `${r.Driver.code.charAt(0)}. ${r.Driver.familyName}`
+                      {givenName && familyName
+                        ? `${givenName.charAt(0)}. ${familyName}`
                         : driverName}
                     </div>
                   </div>
@@ -745,25 +760,29 @@ function SessionResultsTable({
                 <td className="px-6 py-4 text-xs text-neutral-300 font-bold uppercase tracking-widest">
                   {r.Constructor?.name}
                 </td>
-                {isQualifying ? (
+                {showSegments ? (
                   <>
                     <td className="px-6 py-4 text-sm font-headline text-neutral-300">
-                      {r.Q1 ?? "—"}
+                      {r.Q1 || "—"}
                     </td>
                     <td className="px-6 py-4 text-sm font-headline text-neutral-300">
-                      {r.Q2 ?? "—"}
+                      {r.Q2 || "—"}
                     </td>
                     <td className="px-6 py-4 text-sm font-headline text-neutral-300">
-                      {r.Q3 ?? "—"}
+                      {r.Q3 || "—"}
                     </td>
                   </>
+                ) : showBestLap ? (
+                  <td className="px-6 py-4 text-sm font-headline text-neutral-300">
+                    {r.Time?.time || "—"}
+                  </td>
                 ) : (
                   <>
                     <td className="px-6 py-4 text-sm font-headline text-neutral-300">
-                      {r.Time?.time ?? r.status ?? "—"}
+                      {r.Time?.time || r.status || "—"}
                     </td>
                     <td className="px-6 py-4 text-right font-headline font-bold text-lg">
-                      {r.points ?? "—"}
+                      {r.points || "—"}
                     </td>
                   </>
                 )}

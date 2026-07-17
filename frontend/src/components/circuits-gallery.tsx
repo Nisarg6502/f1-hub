@@ -144,13 +144,15 @@ export default function CircuitsGallery({ races, circuitDetails }: CircuitsGalle
         })}
       </div>
 
-      <CircuitDetailsModal
-        isOpen={!!selectedCircuit}
-        onClose={() => setSelectedCircuit(null)}
-        circuit={selectedCircuit?.detail!}
-        circuitImagePath={selectedCircuit?.circuitImagePath ?? null}
-        flagPath={selectedCircuit?.flagPath ?? null}
-      />
+      {selectedCircuit && (
+        <CircuitDetailsModal
+          isOpen
+          onClose={() => setSelectedCircuit(null)}
+          circuit={selectedCircuit.detail}
+          circuitImagePath={selectedCircuit.circuitImagePath}
+          flagPath={selectedCircuit.flagPath}
+        />
+      )}
     </>
   );
 }
