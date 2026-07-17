@@ -44,7 +44,14 @@ images:
 substitutions:
   _NEXT_PUBLIC_API_BASE_URL: 'https://f1-backend-1076575666662.asia-south1.run.app'
   _NEXT_PUBLIC_ASSET_BASE_URL: 'https://storage.googleapis.com/f1-scratch-assets'
-  _NEXT_PUBLIC_RAPIDAPI_KEY: '${_RAPIDAPI_KEY}'
+  # The RapidAPI key is kept out of the repo. Provide it at build time:
+  #   gcloud builds submit --config=cloudbuild-frontend.yaml \
+  #     --substitutions=_NEXT_PUBLIC_RAPIDAPI_KEY=<key>
+  # Left empty by default; without it the /telemetry live-timing feature is
+  # simply unavailable, which is preferable to a failed build. (Note this value
+  # is baked into the client bundle, so it is not truly secret — rotate the key
+  # if it leaks and consider proxying the call server-side.)
+  _NEXT_PUBLIC_RAPIDAPI_KEY: ''
   _NEXT_PUBLIC_RAPIDAPI_HOST: 'f1-live-pulse.p.rapidapi.com'
 
 options:
