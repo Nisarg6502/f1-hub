@@ -18,6 +18,9 @@ COPY backend/app ./app
 # Disable output buffering (useful for logs in Cloud Run)
 ENV PYTHONUNBUFFERED=1
 
+# FastF1 needs a writable cache dir; only /tmp is writable on Cloud Run.
+ENV FASTF1_CACHE_DIR=/tmp/f1_cache
+
 # Expose port (default for FastAPI/uvicorn)
 EXPOSE 8000
 
