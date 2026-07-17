@@ -11,4 +11,5 @@ __all__ = [
     "participants",
     "session_results",
     "championship_standings",
+    "circuit_info",
 ]
