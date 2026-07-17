@@ -8,7 +8,6 @@ by different tools (uvicorn, pytest, etc.).
 __all__ = [
     "main",
     "races",
-    "participants",
     "session_results",
     "championship_standings",
     "circuit_info",

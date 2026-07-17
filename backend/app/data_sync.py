@@ -138,21 +138,6 @@ def _sync_standings(db, year: int, path: str, key: str, collection, label: str) 
     print(f"    synced {len(standings)} {label}")
 
 
-def _sync_entry_list(db, year: int, path: str, table: str, key: str, collection) -> None:
-    print(f"  {key.lower()}...")
-    entries = _ergast_table(fetch_json(f"{ERGAST_BASE}/{year}/{path}/"), table, key)
-    if not entries:
-        print(f"    no {key.lower()} returned")
-        return
-
-    collection.update_one(
-        {"season": year},
-        {"$set": {"season": year, key.lower(): entries, "synced_at": _utcnow_iso()}},
-        upsert=True,
-    )
-    print(f"    synced {len(entries)} {key.lower()}")
-
-
 # --- Per-round data (only for completed rounds we haven't stored yet) ---
 
 
@@ -444,8 +429,6 @@ def create_indexes(db) -> None:
     db.races.create_index([("season", 1), ("round", 1)], unique=True)
     db.driver_standings.create_index([("season", 1)], unique=True)
     db.constructor_standings.create_index([("season", 1)], unique=True)
-    db.drivers.create_index([("season", 1)], unique=True)
-    db.constructors.create_index([("season", 1)], unique=True)
     db.race_results.create_index([("season", 1), ("round", 1)], unique=True)
     db.qualifying_results.create_index([("season", 1), ("round", 1)], unique=True)
     db.sprint_results.create_index([("season", 1), ("round", 1)], unique=True)
@@ -483,8 +466,6 @@ def main() -> int:
         sync_races(db, year)
         _sync_standings(db, year, "driverstandings", "DriverStandings", db.driver_standings, "driver standings")
         _sync_standings(db, year, "constructorstandings", "ConstructorStandings", db.constructor_standings, "constructor standings")
-        _sync_entry_list(db, year, "drivers", "DriverTable", "Drivers", db.drivers)
-        _sync_entry_list(db, year, "constructors", "ConstructorTable", "Constructors", db.constructors)
 
         started = _completed_rounds(db, year)
         # circuit_details and weather summarise the finished race and are cached
