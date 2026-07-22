@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getRaceResults, getSeasonRaces } from "@/lib/api";
 import { getSessionKeyByDate } from "@/lib/openf1";
+import { getTeamColor } from "@/lib/team-colors";
 import TireStintsChart from "@/components/tire-stints-chart";
 
 interface PageProps {
@@ -9,26 +10,6 @@ interface PageProps {
     season: string;
     round: string;
   }>;
-}
-
-const teamColorMap: Record<string, string> = {
-  "red bull": "#1e41ff",
-  mclaren: "#ff8000",
-  ferrari: "#dc0000",
-  mercedes: "#27f4d2",
-  "aston martin": "#229971",
-  alpine: "#ff87bc",
-  williams: "#005aff",
-  rb: "#6692ff",
-  sauber: "#52e252",
-  haas: "#b6babd",
-};
-
-function getTeamColor(teamName?: string) {
-  if (!teamName) return "#ffffff";
-  const lower = teamName.toLowerCase();
-  const match = Object.keys(teamColorMap).find((k) => lower.includes(k));
-  return match ? teamColorMap[match] : "#ffffff";
 }
 
 export default async function PitwallPage({ params }: PageProps) {
@@ -60,119 +41,95 @@ export default async function PitwallPage({ params }: PageProps) {
       code: r.Driver!.code ?? "",
       givenName: r.Driver!.givenName ?? "",
       familyName: r.Driver!.familyName ?? "",
-      teamColor: getTeamColor(r.Constructor?.name),
+      teamColor: getTeamColor(r.Constructor?.name).hex,
     }));
 
   // 3. Get OpenF1 Session Key
   const sessionKey = await getSessionKeyByDate(seasonYear, race.date);
 
   return (
-    <div className="px-6 lg:px-12 max-w-[1920px] mx-auto pt-4 pb-20">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-6">
-        <div className="space-y-2">
-          <div className="flex items-center gap-3 mb-4">
-            <span className="material-symbols-outlined text-primary-container text-4xl neon-text-cyan">
-              analytics
-            </span>
-            <span className="text-primary-container font-[family-name:var(--font-label)] text-xs tracking-widest uppercase font-bold">
-              Telemetry Lab
-            </span>
-          </div>
-          <h1 className="text-5xl lg:text-7xl font-black font-[family-name:var(--font-headline)] italic skew-x-[-12deg] uppercase tracking-tighter leading-none">
-            PITWALL <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary-container to-secondary-container">STRATEGY</span>
+    <div className="px-6 md:px-10 pt-8 pb-16">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-6">
+        <div>
+          <span className="font-bold text-xs tracking-[0.18em] uppercase text-[#FF7A3D]">
+            Telemetry lab
+          </span>
+          <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[56px] tracking-[-1.5px] leading-none mt-2">
+            Pitwall <span className="apex-flame-text">Strategy</span>
           </h1>
-          <p className="text-neutral-500 font-[family-name:var(--font-label)] tracking-widest text-sm uppercase">
+          <p className="font-semibold text-[13px] text-warm-400 mt-2">
             {race.raceName} · Round {race.round}
           </p>
         </div>
         <Link
           href={`/schedule/${season}/${round}`}
-          className="font-[family-name:var(--font-label)] text-xs uppercase tracking-widest text-neutral-400 hover:text-white flex items-center gap-2 transition-colors"
+          className="font-bold text-xs px-5 h-[46px] rounded-[11px] apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-colors active:scale-95"
         >
-          <span className="material-symbols-outlined text-sm">arrow_back</span>
-          Back to Race
+          ← Back to race
         </Link>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
         {/* Sidebar */}
-        <aside className="lg:col-span-3 space-y-4">
-          <h3 className="font-[family-name:var(--font-label)] text-xs font-bold text-neutral-500 tracking-widest uppercase mb-6">
-            Analysis Modules
+        <aside>
+          <h3 className="font-bold text-[11px] tracking-[0.18em] uppercase text-warm-500 mb-4">
+            Analysis modules
           </h3>
-          <nav className="flex flex-col space-y-2">
-            <button className="flex items-center justify-between p-5 bg-surface-container-high border-l-4 border-primary-container text-primary-container group transition-all duration-300 w-full text-left">
-              <div className="flex items-center gap-3">
-                <span className="material-symbols-outlined">donut_large</span>
-                <span className="font-[family-name:var(--font-headline)] font-bold text-xl italic tracking-tight">
-                  Tire Stints
-                </span>
-              </div>
-              <span className="material-symbols-outlined">chevron_right</span>
-            </button>
-            <button
-              disabled
-              className="flex items-center justify-between p-5 bg-surface-container opacity-50 cursor-not-allowed group transition-all duration-300 w-full text-left"
-            >
-              <div className="flex items-center gap-3">
-                <span className="material-symbols-outlined">query_stats</span>
-                <span className="font-[family-name:var(--font-headline)] font-bold text-xl italic tracking-tight">
-                  Lap Telemetry
-                </span>
-              </div>
-              <span className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold border border-neutral-700 px-2 py-1">
-                Soon
+          <nav className="flex flex-col gap-2.5">
+            <button className="flex items-center justify-between px-5 py-4 rounded-2xl border border-[rgba(255,90,31,0.35)] bg-[rgba(255,90,31,0.1)] text-[#FFAE6A] w-full text-left transition-colors">
+              <span className="font-bold text-[15px]">Tire Stints</span>
+              <span className="material-symbols-outlined text-lg">
+                chevron_right
               </span>
             </button>
-            <button
-              disabled
-              className="flex items-center justify-between p-5 bg-surface-container opacity-50 cursor-not-allowed group transition-all duration-300 w-full text-left"
-            >
-              <div className="flex items-center gap-3">
-                <span className="material-symbols-outlined">flag</span>
-                <span className="font-[family-name:var(--font-headline)] font-bold text-xl italic tracking-tight">
-                  Race Control
+            {["Lap Telemetry", "Race Control"].map((label) => (
+              <button
+                key={label}
+                disabled
+                className="flex items-center justify-between px-5 py-4 rounded-2xl apex-glass-soft opacity-50 cursor-not-allowed w-full text-left"
+              >
+                <span className="font-bold text-[15px]">{label}</span>
+                <span className="text-[10px] uppercase tracking-[0.1em] text-warm-500 font-bold rounded-md bg-[rgba(245,235,222,0.06)] px-2 py-1">
+                  Soon
                 </span>
-              </div>
-              <span className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold border border-neutral-700 px-2 py-1">
-                Soon
-              </span>
-            </button>
+              </button>
+            ))}
           </nav>
         </aside>
 
         {/* Main Content Area */}
-        <main className="lg:col-span-9">
+        <main>
           {sessionKey ? (
             <TireStintsChart sessionKey={sessionKey} drivers={drivers} />
           ) : (
-            <div className="glass-panel p-12 flex flex-col items-center justify-center text-center min-h-[500px]">
-              <div className="w-16 h-16 bg-orange-500/10 rounded-full flex items-center justify-center mb-6">
-                <span className="material-symbols-outlined text-orange-500 text-3xl">
+            <div className="apex-glass-soft rounded-2xl p-12 flex flex-col items-center justify-center text-center min-h-[500px]">
+              <div className="w-14 h-14 rounded-[14px] bg-[rgba(255,90,31,0.1)] border border-[rgba(255,90,31,0.25)] flex items-center justify-center mb-5">
+                <span className="material-symbols-outlined text-[#FF7A3D] text-2xl">
                   lock
                 </span>
               </div>
-              <h3 className="text-2xl font-[family-name:var(--font-headline)] font-bold italic uppercase tracking-tight mb-2">
-                Telemetry Data Unavailable
+              <h3 className="font-[family-name:var(--font-headline)] font-bold text-2xl mb-2">
+                Telemetry data unavailable
               </h3>
-              <p className="text-neutral-400 max-w-md mx-auto">
-                Real-time telemetry and strategy data for the {seasonYear} season requires a premium OpenF1 subscription.
-                Historical data is available for 2023-2025 seasons.
+              <p className="font-medium text-sm text-warm-400 max-w-md mx-auto">
+                Detailed stint & strategy data for the {seasonYear} season
+                requires a premium OpenF1 subscription. Historical data is
+                available for the 2023–2025 seasons.
               </p>
-              <div className="mt-8 flex gap-4">
+              <div className="mt-7 flex gap-3">
                 <Link
                   href="/schedule"
-                  className="px-6 py-2 bg-surface-container hover:bg-surface-container-high transition-colors text-xs font-bold uppercase tracking-widest"
+                  className="font-bold text-xs uppercase tracking-[0.1em] px-6 py-2.5 rounded-[11px] apex-glass-soft hover:border-[rgba(255,138,61,0.5)] transition-colors"
                 >
-                  View Schedule
+                  View schedule
                 </Link>
                 <a
                   href="https://openf1.org"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-6 py-2 bg-primary-container text-on-primary hover:bg-primary-container/80 transition-colors text-xs font-bold uppercase tracking-widest"
+                  className="font-bold text-xs uppercase tracking-[0.1em] px-6 py-2.5 rounded-[11px] bg-[rgba(255,90,31,0.16)] text-[#FFAE6A] hover:bg-[rgba(255,90,31,0.24)] transition-colors"
                 >
-                  OpenF1 Website
+                  OpenF1 website
                 </a>
               </div>
             </div>

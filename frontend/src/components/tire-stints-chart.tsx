@@ -122,7 +122,7 @@ export default function TireStintsChart({
     if (active && payload && payload.length) {
       const driverData = payload[0].payload;
       return (
-        <div className="bg-surface-container-highest border border-neutral-700 p-4 shadow-xl">
+        <div className="rounded-xl bg-[rgba(26,22,19,0.95)] border border-white/10 p-4 shadow-xl">
           <p className="font-[family-name:var(--font-headline)] font-bold text-lg mb-2">
             {driverData.fullName}
           </p>
@@ -137,9 +137,9 @@ export default function TireStintsChart({
                     className="w-3 h-3 rounded-full"
                     style={{ backgroundColor: COMPOUND_COLORS[compound] || COMPOUND_COLORS.UNKNOWN }}
                   />
-                  <span className="text-neutral-300">Stint {idx + 1}:</span>
-                  <span className="font-bold">{len} Laps</span>
-                  <span className="text-xs text-neutral-500">({compound})</span>
+                  <span className="text-warm-300">Stint {idx + 1}:</span>
+                  <span className="font-bold tabular-nums">{len} laps</span>
+                  <span className="text-xs text-warm-500">({compound})</span>
                 </div>
               );
             })}
@@ -153,42 +153,46 @@ export default function TireStintsChart({
   return (
     <div className="flex flex-col h-full gap-6">
       {/* Controls */}
-      <div className="flex items-center justify-between glass-panel p-4">
+      <div className="flex flex-wrap items-center justify-between gap-4 apex-glass-soft rounded-2xl p-4">
         <div className="flex items-center gap-4">
-          <span className="text-sm font-[family-name:var(--font-label)] uppercase tracking-widest text-neutral-400 font-bold">
-            Compare Drivers
+          <span className="text-xs uppercase tracking-[0.12em] text-warm-400 font-bold">
+            Compare drivers
           </span>
           <div className="relative">
             <button
               onClick={() => setDropdownOpen(!dropdownOpen)}
-              className="flex items-center justify-between w-64 bg-surface-container-high border border-neutral-700 px-4 py-2 text-sm hover:border-primary-container transition-colors"
+              className="flex items-center justify-between w-64 rounded-[10px] bg-[rgba(245,235,222,0.06)] border border-white/10 px-4 py-2 text-sm hover:border-[rgba(255,138,61,0.5)] transition-colors"
             >
-              <span className="truncate">
-                {selectedDrivers.length} Drivers Selected
+              <span className="truncate font-semibold">
+                {selectedDrivers.length} drivers selected
               </span>
-              <ChevronsUpDown className="w-4 h-4 text-neutral-500" />
+              <ChevronsUpDown className="w-4 h-4 text-warm-400" />
             </button>
             {dropdownOpen && (
-              <div className="absolute top-full left-0 mt-1 w-64 bg-surface-container-high border border-neutral-700 shadow-2xl z-50 max-h-64 overflow-y-auto">
+              <div className="absolute top-full left-0 mt-1.5 w-64 rounded-xl bg-[rgba(26,22,19,0.98)] border border-white/10 shadow-2xl z-50 max-h-64 overflow-y-auto p-1">
                 {drivers.map((driver) => {
                   const isSelected = selectedDrivers.includes(driver.number);
                   return (
                     <div
                       key={driver.number}
                       onClick={() => toggleDriver(driver.number)}
-                      className={`flex items-center px-4 py-2 cursor-pointer hover:bg-surface-container-highest transition-colors ${
-                        isSelected ? "text-primary-container bg-primary-container/5" : "text-neutral-300"
+                      className={`flex items-center px-3 py-2 rounded-lg cursor-pointer hover:bg-white/[0.05] transition-colors ${
+                        isSelected ? "text-[#FFAE6A]" : "text-warm-300"
                       }`}
                     >
-                      <div className="w-4 h-4 border border-neutral-600 mr-3 flex items-center justify-center">
+                      <div className="w-4 h-4 rounded border border-warm-600 mr-3 flex items-center justify-center">
                         {isSelected && <Check className="w-3 h-3" />}
                       </div>
                       <div
-                        className="w-1 h-4 mr-2"
+                        className="w-1 h-4 mr-2 rounded-full"
                         style={{ backgroundColor: driver.teamColor }}
                       />
-                      <span className="font-bold mr-2 w-6">{driver.number}</span>
-                      <span>{driver.code || driver.familyName}</span>
+                      <span className="font-bold mr-2 w-6 tabular-nums">
+                        {driver.number}
+                      </span>
+                      <span className="font-semibold">
+                        {driver.code || driver.familyName}
+                      </span>
                     </div>
                   );
                 })}
@@ -196,8 +200,8 @@ export default function TireStintsChart({
             )}
           </div>
         </div>
-        
-        <div className="flex items-center gap-4 text-xs font-[family-name:var(--font-label)] uppercase tracking-widest font-bold">
+
+        <div className="flex flex-wrap items-center gap-3.5 text-[11px] uppercase tracking-[0.1em] font-bold text-warm-300">
           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#FF3333]" /> Soft</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#FFE700]" /> Medium</div>
           <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-[#F0F0F0]" /> Hard</div>
@@ -207,22 +211,24 @@ export default function TireStintsChart({
       </div>
 
       {/* Chart Area */}
-      <div className="glass-panel flex-grow p-6 relative min-h-[500px]">
+      <div className="apex-glass-soft rounded-2xl flex-grow p-6 relative min-h-[500px]">
         {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-surface-container/50 backdrop-blur-sm z-10">
-            <div className="w-12 h-12 border-4 border-primary-container border-t-transparent rounded-full animate-spin" />
+          <div className="absolute inset-0 flex items-center justify-center bg-[rgba(10,9,8,0.5)] backdrop-blur-sm z-10 rounded-2xl">
+            <div className="w-12 h-12 border-4 border-[#FF5A1F] border-t-transparent rounded-full animate-spin" />
           </div>
         )}
-        
+
         {error && !loading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-surface-container/50 backdrop-blur-sm z-10 text-neutral-400">
-            <AlertCircle className="w-12 h-12 mb-4 text-orange-500" />
-            <p className="text-lg">No stint data available for this session.</p>
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[rgba(10,9,8,0.5)] backdrop-blur-sm z-10 text-warm-400 rounded-2xl">
+            <AlertCircle className="w-12 h-12 mb-4 text-[#FF7A3D]" />
+            <p className="text-lg font-medium">
+              No stint data available for this session.
+            </p>
           </div>
         )}
 
         {activeDrivers.length === 0 ? (
-          <div className="absolute inset-0 flex items-center justify-center text-neutral-500 italic">
+          <div className="absolute inset-0 flex items-center justify-center text-warm-500 font-medium">
             Select at least one driver to view stints.
           </div>
         ) : (
@@ -232,19 +238,19 @@ export default function TireStintsChart({
               layout="vertical"
               margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="#333" horizontal={false} />
-              <XAxis 
-                type="number" 
-                stroke="#666" 
-                tick={{ fill: "#888", fontSize: 12 }} 
+              <CartesianGrid strokeDasharray="3 3" stroke="#2a231d" horizontal={false} />
+              <XAxis
+                type="number"
+                stroke="#5c554b"
+                tick={{ fill: "#8f867a", fontSize: 12 }}
                 domain={[0, 'dataMax']}
-                label={{ value: 'Lap Number', position: 'bottom', fill: '#666', fontSize: 12, dy: 10 }}
+                label={{ value: 'Lap number', position: 'bottom', fill: '#6f665b', fontSize: 12, dy: 10 }}
               />
-              <YAxis 
-                type="category" 
-                dataKey="name" 
-                stroke="#666" 
-                tick={{ fill: "#eee", fontSize: 14, fontWeight: "bold" }}
+              <YAxis
+                type="category"
+                dataKey="name"
+                stroke="#5c554b"
+                tick={{ fill: "#f6f1ea", fontSize: 14, fontWeight: "bold" }}
                 width={60}
               />
               <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} content={<CustomTooltip />} />

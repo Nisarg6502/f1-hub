@@ -22,16 +22,17 @@ function getTyreDotColor(compound?: string) {
   if (normalized === "HARD") return "bg-white";
   if (normalized === "INTERMEDIATE") return "bg-green-500";
   if (normalized === "WET") return "bg-blue-500";
-  return "bg-neutral-500";
+  return "bg-warm-500";
 }
 
+// F1 timing convention: purple = overall fastest, green = personal best.
 function getSectorColor(
   sector: NonNullable<LiveTimingLine["Sectors"]>[number] | undefined
 ) {
-  if (!sector) return "bg-neutral-700";
-  if (sector.OverallFastest) return "bg-secondary-container";
-  if (sector.PersonalFastest) return "bg-primary-container";
-  return "bg-tertiary-container/70";
+  if (!sector) return "bg-[#2a231d]";
+  if (sector.OverallFastest) return "bg-[#b14fff]";
+  if (sector.PersonalFastest) return "bg-[#4ade80]";
+  return "bg-[#FF7A3D]/70";
 }
 
 export default function TelemetryPage() {
@@ -118,35 +119,35 @@ export default function TelemetryPage() {
   }, [liveSession]);
 
   return (
-    <div className="max-w-[1600px] mx-auto px-6 space-y-6">
-      <header className="glass-card p-6 flex flex-wrap items-center justify-between gap-4 border-t-2 border-t-primary-container">
-        <div>
-          <p className="font-[family-name:var(--font-label)] text-[10px] tracking-[0.24em] uppercase text-on-surface-variant">
-            Kinetic Velocity
+    <div className="px-6 md:px-10 pt-10 pb-16 space-y-5">
+      <header className="apex-glass apex-sheen rounded-[20px] p-6 flex flex-wrap items-center justify-between gap-4">
+        <div className="relative">
+          <p className="font-bold text-[11px] tracking-[0.18em] uppercase text-[#FF7A3D]">
+            APEX Live
           </p>
-          <h1 className="text-3xl md:text-4xl font-black italic skew-x-[-12deg] tracking-tighter font-[family-name:var(--font-headline)]">
+          <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-3xl md:text-4xl tracking-[-1px] mt-1">
             Live Timing
           </h1>
-          <p className="mt-2 text-xs uppercase tracking-[0.2em] text-on-surface-variant font-[family-name:var(--font-label)]">
+          <p className="mt-2 font-semibold text-xs text-warm-400">
             {liveSession
               ? `${liveSession.raceName} · ${liveSession.sessionLabel}`
               : "No session currently live"}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="relative flex items-center gap-3">
           {liveSession ? (
-            <span className="inline-flex items-center gap-2 bg-tertiary-container/20 border border-tertiary-container/40 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.22em] text-tertiary-container">
+            <span className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] bg-[rgba(255,90,31,0.16)] text-[#FFAE6A]">
               <span className="h-2 w-2 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.9)] animate-pulse" />
               Live
             </span>
           ) : (
-            <span className="inline-flex items-center gap-2 bg-surface-container-low border border-outline-variant/40 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.22em] text-on-surface-variant">
+            <span className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] bg-[rgba(245,235,222,0.06)] text-warm-300">
               Standby
             </span>
           )}
           <Link
             href="/schedule"
-            className="px-4 py-2 text-[10px] uppercase tracking-[0.2em] border border-outline-variant/40 text-on-surface-variant hover:text-on-surface hover:border-primary-container/40"
+            className="font-bold text-[11px] uppercase tracking-[0.1em] px-4 py-2 rounded-[10px] apex-glass-soft hover:border-[rgba(255,138,61,0.5)] transition-colors"
           >
             Schedule
           </Link>
@@ -154,13 +155,13 @@ export default function TelemetryPage() {
       </header>
 
       {!liveSession && (
-        <section className="bg-surface-container-low border border-outline-variant/30 p-6">
-          <p className="text-sm text-on-surface-variant">
-            Live timing API polling is paused because no session is currently active.
+        <section className="apex-glass-soft rounded-2xl p-6">
+          <p className="font-medium text-sm text-warm-300">
+            Live timing polling is paused because no session is currently active.
           </p>
           {nextSession && (
-            <p className="mt-3 text-xs uppercase tracking-[0.2em] text-primary-container font-[family-name:var(--font-label)]">
-              Next Session: {nextSession.raceName} · {nextSession.sessionLabel} ·{" "}
+            <p className="mt-3 font-semibold text-xs uppercase tracking-[0.12em] text-[#FFAE6A]">
+              Next session: {nextSession.raceName} · {nextSession.sessionLabel} ·{" "}
               {new Date(nextSession.startTimeMs).toLocaleString("en-US", {
                 month: "short",
                 day: "2-digit",
@@ -174,8 +175,8 @@ export default function TelemetryPage() {
       )}
 
       {liveSession && (
-        <section className="bg-surface-container-low border border-outline-variant/30 overflow-hidden">
-          <div className="grid grid-cols-[42px_44px_90px_1fr_1fr_110px_140px_90px_74px] gap-2 px-4 py-3 bg-surface-container text-[10px] tracking-[0.2em] uppercase font-[family-name:var(--font-label)] text-on-surface-variant">
+        <section className="apex-glass-soft rounded-2xl overflow-hidden">
+          <div className="grid grid-cols-[42px_44px_90px_1fr_1fr_110px_140px_90px_74px] gap-2 px-4 py-3.5 text-[10px] tracking-[0.12em] uppercase font-bold text-warm-500 border-b border-white/[0.07]">
             <div className="text-center">Pos</div>
             <div className="text-center">No</div>
             <div>Driver</div>
@@ -187,27 +188,31 @@ export default function TelemetryPage() {
             <div className="text-center">Status</div>
           </div>
 
-          <div className="max-h-[70vh] overflow-y-auto p-2 space-y-[2px]">
+          <div className="max-h-[70vh] overflow-y-auto">
             {isLoadingTiming && timingRows.length === 0 && (
-              <div className="p-4 text-sm text-on-surface-variant">Loading live timing feed...</div>
+              <div className="p-4 font-medium text-sm text-warm-400">
+                Loading live timing feed…
+              </div>
             )}
             {timingError && (
-              <div className="p-4 text-sm text-red-400">
+              <div className="p-4 font-medium text-sm text-[#ff9b8a]">
                 {timingError}
               </div>
             )}
             {!isLoadingTiming && !timingError && timingRows.length === 0 && (
-              <div className="p-4 text-sm text-on-surface-variant">No timing rows available yet.</div>
+              <div className="p-4 font-medium text-sm text-warm-400">
+                No timing rows available yet.
+              </div>
             )}
             {timingRows.map((line, index) => (
               <div
                 key={`${line.racingNumber ?? index}-${line.position ?? index}`}
-                className="grid grid-cols-[42px_44px_90px_1fr_1fr_110px_140px_90px_74px] gap-2 px-3 py-2 bg-surface-container-high items-center"
+                className="grid grid-cols-[42px_44px_90px_1fr_1fr_110px_140px_90px_74px] gap-2 px-4 py-2.5 items-center border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors"
               >
-                <div className="text-center font-bold italic font-[family-name:var(--font-headline)]">
+                <div className="text-center font-extrabold tabular-nums">
                   {line.position ?? "—"}
                 </div>
-                <div className="text-center text-on-surface-variant">
+                <div className="text-center text-warm-400 tabular-nums">
                   {line.racingNumber ?? line.driver?.RacingNumber ?? "—"}
                 </div>
                 <div
@@ -220,30 +225,36 @@ export default function TelemetryPage() {
                 >
                   {line.driver?.Tla ?? line.driver?.BroadcastName ?? "—"}
                 </div>
-                <div className="text-right text-on-surface-variant tabular-nums">
+                <div className="text-right text-warm-300 tabular-nums">
                   {line.gapToLeader || line.timeDiffToFastest || "LEADER"}
                 </div>
-                <div className="text-right text-on-surface-variant tabular-nums">
-                  {line.intervalToPositionAhead || line.timeDiffToPositionAhead || "—"}
+                <div className="text-right text-warm-300 tabular-nums">
+                  {line.intervalToPositionAhead ||
+                    line.timeDiffToPositionAhead ||
+                    "—"}
                 </div>
-                <div className="text-right tabular-nums text-on-surface">
+                <div className="text-right tabular-nums text-on-background">
                   {line.lastLapTime || "—"}
                 </div>
                 <div className="flex justify-center gap-1">
                   {[0, 1, 2].map((sectorIdx) => (
                     <span
                       key={sectorIdx}
-                      className={`h-2 w-9 ${getSectorColor(line.Sectors?.[sectorIdx])}`}
+                      className={`h-2 w-9 rounded-[2px] ${getSectorColor(
+                        line.Sectors?.[sectorIdx]
+                      )}`}
                     />
                   ))}
                 </div>
-                <div className="flex items-center justify-center gap-2 text-xs">
+                <div className="flex items-center justify-center gap-2 text-xs tabular-nums">
                   <span
-                    className={`h-2.5 w-2.5 rounded-full ${getTyreDotColor(line.compound)}`}
+                    className={`h-2.5 w-2.5 rounded-full ${getTyreDotColor(
+                      line.compound
+                    )}`}
                   />
                   <span>{line.tyreAge ?? "—"}</span>
                 </div>
-                <div className="text-center text-[11px]">
+                <div className="text-center text-[11px] font-semibold text-warm-300">
                   {line.inPit ? "PIT" : line.drs === "active" ? "DRS" : "RUN"}
                 </div>
               </div>
