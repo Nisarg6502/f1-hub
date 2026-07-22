@@ -138,58 +138,66 @@ export default async function RaceDetailPage({ params }: PageProps) {
     ] as Array<{ label: string; value: string | number | null }>
   ).flatMap((stat) => (stat.value === null ? [] : [{ ...stat, value: stat.value }]));
 
+  const statusBadge = isPast
+    ? { label: "Completed", bg: "rgba(255,255,255,0.06)", color: "#a89e90" }
+    : isNextRace
+    ? { label: "Next race", bg: "rgba(255,90,31,0.16)", color: "#FFAE6A" }
+    : { label: "Upcoming", bg: "rgba(245,235,222,0.06)", color: "#c9c0b4" };
+
   return (
-    <div className="px-6 lg:px-12 max-w-[1600px] mx-auto pt-4 pb-20">
+    <div className="px-6 md:px-10 pt-8 pb-16">
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-6">
-        <div className="space-y-2">
-          <div className="flex items-center gap-3">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-7 gap-6">
+        <div>
+          <div className="flex items-center gap-3 mb-3">
             <span
-              className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest ${
-                isPast
-                  ? "bg-neutral-800 text-neutral-400"
-                  : isNextRace
-                  ? "bg-secondary-container/20 text-secondary-container border border-secondary-container/30"
-                  : "bg-primary-container/20 text-primary-container border border-primary-container/30"
-              }`}
+              className="font-bold text-[10px] tracking-[0.1em] uppercase px-3 py-1.5 rounded-lg"
+              style={{ background: statusBadge.bg, color: statusBadge.color }}
             >
-              {isPast ? "Completed" : isNextRace ? "Next Race" : "Upcoming"}
+              {statusBadge.label}
             </span>
-            <span className="text-neutral-500 font-[family-name:var(--font-label)] text-[10px] tracking-widest uppercase">
+            <span className="font-semibold text-xs text-warm-400">
               Round {race.round} · {seasonYear}
             </span>
           </div>
-          <h1 className="text-5xl lg:text-7xl font-black font-[family-name:var(--font-headline)] italic skew-x-[-12deg] uppercase tracking-tighter leading-none">
+          <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[56px] tracking-[-1.5px] leading-none">
             {race.raceName.replace(" Grand Prix", "")}{" "}
-            <span className="text-primary-container neon-text-primary">
-              GP
-            </span>
+            <span className="apex-flame-text">GP</span>
           </h1>
-          <p className="text-neutral-500 font-[family-name:var(--font-label)] tracking-widest text-sm uppercase">
+          <p className="font-semibold text-[13px] text-warm-400 mt-2">
             {circuit?.circuitName}
-            {location?.locality ? ` · ${location.locality}, ${location.country}` : ""}
+            {location?.locality
+              ? ` · ${location.locality}, ${location.country}`
+              : ""}
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row items-start sm:items-end gap-6">
-          <RaceSelector races={races} currentRound={String(roundNumber)} seasonYear={seasonYear} />
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <RaceSelector
+            races={races}
+            currentRound={String(roundNumber)}
+            seasonYear={seasonYear}
+          />
           <Link
             href="/schedule"
-            className="font-[family-name:var(--font-label)] text-xs uppercase tracking-widest text-primary-container border border-primary-container/30 px-6 hover:bg-primary-container/10 transition-all active:scale-95 h-[52px] flex items-center justify-center"
+            className="font-bold text-xs px-5 h-[46px] rounded-[11px] apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-colors active:scale-95"
           >
-            Back to Schedule
+            ← Back to schedule
           </Link>
         </div>
       </div>
 
       {/* Circuit info bar — only the stats FastF1 reports for this event */}
       {circuitStats.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3.5 mb-6">
           {circuitStats.map((stat) => (
-            <div key={stat.label} className="bg-surface-container p-4">
-              <p className="text-[10px] text-neutral-500 uppercase tracking-widest">
+            <div
+              key={stat.label}
+              className="apex-glass-soft rounded-[14px] px-[22px] py-[18px]"
+            >
+              <p className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-500">
                 {stat.label}
               </p>
-              <p className="font-[family-name:var(--font-headline)] font-bold text-lg italic">
+              <p className="font-[family-name:var(--font-headline)] font-bold text-lg mt-1 tabular-nums">
                 {stat.value}
               </p>
             </div>

@@ -1,90 +1,16 @@
-import {
-  getActiveSeasonYear,
-  getConstructorStandings,
-} from "@/lib/api";
-import { getEngineForTeam, engineProviders } from "@/lib/engines";
+import { getActiveSeasonYear, getConstructorStandings } from "@/lib/api";
+import { getEngineForTeam } from "@/lib/engines";
+import { getTeamColor } from "@/lib/team-colors";
+import TiltCard from "@/components/tilt-card";
 
 // Constructor standings change after every race; render per request.
 export const dynamic = "force-dynamic";
 
-const teamMeta: Record<
-  string,
-  { color: string; glow: string; gradient: string }
-> = {
-  "Red Bull": {
-    color: "border-blue-600",
-    glow: "hover:shadow-[0_0_40px_rgba(37,99,235,0.2)]",
-    gradient: "rgba(37,99,235,0.15)",
-  },
-  Ferrari: {
-    color: "border-red-600",
-    glow: "hover:shadow-[0_0_40px_rgba(220,38,38,0.2)]",
-    gradient: "rgba(220,38,38,0.15)",
-  },
-  Mercedes: {
-    color: "border-teal-500",
-    glow: "hover:shadow-[0_0_40px_rgba(20,184,166,0.2)]",
-    gradient: "rgba(20,184,166,0.15)",
-  },
-  McLaren: {
-    color: "border-orange-500",
-    glow: "hover:shadow-[0_0_40px_rgba(249,115,22,0.2)]",
-    gradient: "rgba(249,115,22,0.15)",
-  },
-  "Aston Martin": {
-    color: "border-green-600",
-    glow: "hover:shadow-[0_0_40px_rgba(22,163,74,0.2)]",
-    gradient: "rgba(22,163,74,0.15)",
-  },
-  Alpine: {
-    color: "border-pink-500",
-    glow: "hover:shadow-[0_0_40px_rgba(236,72,153,0.2)]",
-    gradient: "rgba(236,72,153,0.15)",
-  },
-  Williams: {
-    color: "border-blue-400",
-    glow: "hover:shadow-[0_0_40px_rgba(96,165,250,0.2)]",
-    gradient: "rgba(96,165,250,0.15)",
-  },
-  RB: {
-    color: "border-blue-500",
-    glow: "hover:shadow-[0_0_40px_rgba(59,130,246,0.2)]",
-    gradient: "rgba(59,130,246,0.15)",
-  },
-  Sauber: {
-    color: "border-green-500",
-    glow: "hover:shadow-[0_0_40px_rgba(34,197,94,0.2)]",
-    gradient: "rgba(34,197,94,0.15)",
-  },
-  Haas: {
-    color: "border-neutral-400",
-    glow: "hover:shadow-[0_0_40px_rgba(163,163,163,0.2)]",
-    gradient: "rgba(163,163,163,0.15)",
-  },
-};
-
-function getTeamMeta(name?: string) {
-  if (!name)
-    return {
-      color: "border-primary-container",
-      glow: "",
-      gradient: "rgba(0,242,255,0.15)",
-    };
-  const key = Object.keys(teamMeta).find((k) =>
-    name.toLowerCase().includes(k.toLowerCase())
-  );
-  return key
-    ? teamMeta[key]
-    : {
-        color: "border-primary-container",
-        glow: "",
-        gradient: "rgba(0,242,255,0.15)",
-      };
-}
-
 export default async function TeamsPage() {
   const year = getActiveSeasonYear();
-  let constructors: Awaited<ReturnType<typeof getConstructorStandings>>["constructor_standings"] = [];
+  let constructors: Awaited<
+    ReturnType<typeof getConstructorStandings>
+  >["constructor_standings"] = [];
   try {
     const res = await getConstructorStandings(year);
     constructors = res.constructor_standings ?? [];
@@ -92,184 +18,139 @@ export default async function TeamsPage() {
     // Backend offline
   }
 
+  const list = constructors ?? [];
+
+  // Group constructors by their power-unit supplier
+  const engineGroups = new Map<string, string[]>();
+  for (const t of list) {
+    const name = t.Constructor.name ?? "";
+    const engine = getEngineForTeam(name);
+    if (!engine) continue;
+    const arr = engineGroups.get(engine.name) ?? [];
+    arr.push(name);
+    engineGroups.set(engine.name, arr);
+  }
+
   return (
-    <>
-      {/* Hero Section */}
-      <header className="relative pt-8 pb-16 px-8 overflow-hidden">
-        <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-secondary-container/10 blur-[120px] rounded-full -translate-y-1/2 translate-x-1/4" />
-        <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-primary-container/5 blur-[100px] rounded-full translate-y-1/2 -translate-x-1/4" />
-        <div className="max-w-7xl mx-auto relative">
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
-            <div>
-              <span className="text-primary-container font-[family-name:var(--font-label)] text-xs uppercase tracking-[0.3em] block mb-4">
-                Constructor Standings {year}
-              </span>
-              <h1 className="text-6xl md:text-8xl font-[family-name:var(--font-headline)] font-black italic skew-x-[-10deg] tracking-tighter leading-none text-on-background">
-                TEAMS &amp;{" "}
-                <br />
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary-container to-secondary-container">
-                  CHASSIS
-                </span>
-              </h1>
-            </div>
-            <div className="bg-surface-container-low p-6 border-l-4 border-primary-container skew-x-[-5deg]">
-              <p className="text-neutral-400 max-w-xs skew-x-[5deg]">
-                Explore the engineering marvels and technical powerhouses
-                defining the peak of automotive performance this season.
-              </p>
-            </div>
-          </div>
+    <div className="px-6 md:px-10 pt-11 pb-16">
+      {/* Header */}
+      <div className="mb-7">
+        <span className="font-bold text-xs tracking-[0.18em] uppercase text-[#FF7A3D]">
+          Constructor standings {year}
+        </span>
+        <div className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[52px] tracking-[-1.5px] mt-2">
+          Teams &amp; Chassis
         </div>
-      </header>
+      </div>
 
-      {/* Teams Grid */}
-      <main className="px-8 pb-32">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12">
-          {constructors.map((team) => {
-            const name = team.Constructor.name ?? "—";
-            const meta = getTeamMeta(name);
-            const nationality = team.Constructor.nationality ?? "";
-            const engine = getEngineForTeam(name);
+      {list.length === 0 && (
+        <div className="apex-glass-soft rounded-2xl px-6 py-12 text-center font-medium text-warm-400">
+          Constructor standings are unavailable right now.
+        </div>
+      )}
 
-            return (
+      {/* Team cards */}
+      <div className="grid md:grid-cols-2 gap-4 mb-10 [perspective:1400px]">
+        {list.map((team, idx) => {
+          const name = team.Constructor.name ?? "—";
+          const color = getTeamColor(name);
+          const engine = getEngineForTeam(name);
+          const mono = name.slice(0, 2).toUpperCase();
+
+          return (
+            <TiltCard
+              key={name || idx}
+              className="apex-glass rounded-[20px] overflow-hidden p-[26px] min-h-[200px]"
+              strength={5}
+            >
+              {/* corner wash + blurred blob */}
               <div
-                key={name}
-                className={`group relative bg-surface-container-lowest glass-card rounded-xl overflow-hidden ${meta.color} border-t-2 transition-all ${meta.glow}`}
-              >
-                <div className="p-8">
-                  {/* Team Header */}
-                  <div className="flex justify-between items-start mb-12">
-                    <div>
-                      <h2 className="text-3xl font-[family-name:var(--font-headline)] font-black italic skew-x-[-10deg] text-on-background mb-1">
-                        {name.toUpperCase()}
-                      </h2>
-                      <div className="flex items-center gap-4 font-[family-name:var(--font-label)] text-[10px] uppercase tracking-widest text-neutral-500">
-                        <span>{nationality}</span>
-                        {engine && (
-                          <span className="flex items-center gap-1 border border-outline-variant px-2 py-0.5 rounded-sm bg-surface-container-highest/50">
-                            <span className="material-symbols-outlined text-[12px] text-primary-container">
-                              {engine.icon}
-                            </span>
-                            Power: {engine.name}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="w-16 h-16 bg-white/10 p-2 rounded-lg backdrop-blur-md flex items-center justify-center">
-                      <span className="material-symbols-outlined text-3xl text-on-surface">
-                        directions_car
-                      </span>
-                    </div>
-                  </div>
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                  background: `radial-gradient(140% 90% at 100% 0%, ${color.hex}22, transparent 60%)`,
+                }}
+              />
+              <div
+                className="absolute -right-10 -top-5 w-[200px] h-[200px] rounded-full blur-[30px] opacity-[0.16] pointer-events-none"
+                style={{ background: color.hex }}
+              />
 
-                  {/* Car Render Placeholder */}
-                  <div className="relative h-48 mb-8">
-                    <div
-                      className="absolute inset-0 rounded-lg"
-                      style={{
-                        background: `radial-gradient(circle at center, ${meta.gradient}, transparent)`,
-                      }}
-                    />
-                    <div className="w-full h-full flex items-center justify-center relative z-10">
-                      <span className="material-symbols-outlined text-[120px] text-neutral-800 group-hover:text-neutral-700 transition-colors group-hover:scale-105 duration-700">
-                        directions_car
-                      </span>
-                    </div>
+              <div className="relative flex items-start justify-between">
+                <div className="min-w-0">
+                  <div className="font-[family-name:var(--font-headline)] font-extrabold text-2xl md:text-[28px] tracking-[-0.5px] truncate">
+                    {name}
                   </div>
+                  <div className="flex flex-wrap items-center gap-2.5 mt-2">
+                    <span className="font-semibold text-[11px] tracking-[0.08em] uppercase text-warm-400">
+                      {team.Constructor.nationality}
+                    </span>
+                    {engine && (
+                      <span className="font-semibold text-[10px] tracking-[0.04em] uppercase px-2.5 py-[5px] rounded-[7px] bg-[rgba(245,235,222,0.06)] text-warm-200">
+                        Power · {engine.name}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div
+                  className="w-[54px] h-[54px] rounded-[14px] flex items-center justify-center font-[family-name:var(--font-headline)] font-extrabold text-xl flex-none"
+                  style={{ background: color.hex, color: "#0a0908" }}
+                >
+                  {mono}
+                </div>
+              </div>
 
-                  {/* Stats */}
-                  <div className="grid grid-cols-2 gap-8 items-end">
-                    <div className="space-y-4">
-                      <div className="flex items-center gap-3">
-                        <div className="font-[family-name:var(--font-label)] text-[10px] uppercase tracking-tighter text-neutral-400">
-                          Position: P{team.position}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 text-right">
-                      <div>
-                        <span className="block font-[family-name:var(--font-label)] text-[10px] text-neutral-500 uppercase">
-                          Wins
-                        </span>
-                        <span className="font-[family-name:var(--font-headline)] font-bold text-2xl italic">
-                          {team.wins}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="block font-[family-name:var(--font-label)] text-[10px] text-neutral-500 uppercase">
-                          Season Pts
-                        </span>
-                        <span className="font-[family-name:var(--font-headline)] font-bold text-2xl text-on-background italic">
-                          {team.points}
-                        </span>
-                      </div>
-                    </div>
+              <div className="relative mt-8 flex items-end justify-between">
+                <div>
+                  <div className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500">
+                    Position
+                  </div>
+                  <div className="font-[family-name:var(--font-headline)] font-extrabold text-xl text-[#FFAE6A]">
+                    P{team.position}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500">
+                    Wins
+                  </div>
+                  <div className="font-extrabold text-[22px] tabular-nums">
+                    {team.wins}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500">
+                    Season pts
+                  </div>
+                  <div className="font-extrabold text-[22px] tabular-nums">
+                    {team.points}
                   </div>
                 </div>
               </div>
-            );
-          })}
-        </div>
-      </main>
+            </TiltCard>
+          );
+        })}
+      </div>
 
-      {/* Engine Providers Compiled View */}
-      <section className="px-8 pb-32">
-        <div className="max-w-7xl mx-auto">
-          <div className="mb-12">
-            <span className="text-secondary-container font-[family-name:var(--font-label)] text-xs uppercase tracking-[0.3em] block mb-2">
-              Power Units
-            </span>
-            <h2 className="text-4xl md:text-5xl font-[family-name:var(--font-headline)] font-black italic skew-x-[-10deg] tracking-tighter text-on-background">
-              ENGINE PROVIDERS
-            </h2>
+      {/* Power units */}
+      {engineGroups.size > 0 && (
+        <>
+          <div className="font-[family-name:var(--font-headline)] font-bold text-[19px] mb-4">
+            Power units
           </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {Object.values(engineProviders).map((engine) => {
-               // Find teams using this engine
-               const suppliedTeams = constructors.filter(t => getEngineForTeam(t.Constructor.name || "")?.name === engine.name);
-               const textColor = engine.color.replace('bg-', 'text-');
-               
-               return (
-                 <div key={engine.name} className="glass-panel p-6 relative overflow-hidden group">
-                   <div className={`absolute top-0 left-0 w-full h-1 ${engine.color}`} />
-                   <div className="absolute right-0 bottom-0 opacity-5 group-hover:opacity-10 group-hover:scale-110 transition-all duration-700 pointer-events-none translate-x-1/4 translate-y-1/4">
-                     <span className="material-symbols-outlined text-[150px]">
-                       {engine.icon}
-                     </span>
-                   </div>
-                   
-                   <div className="flex items-center gap-3 mb-6 relative z-10">
-                     <span className={`material-symbols-outlined text-3xl ${textColor}`}>
-                       {engine.icon}
-                     </span>
-                     <h3 className="text-2xl font-[family-name:var(--font-headline)] font-black italic skew-x-[-10deg]">
-                       {engine.name.toUpperCase()}
-                     </h3>
-                   </div>
-                   
-                   <div className="relative z-10">
-                     <p className="text-[10px] font-[family-name:var(--font-label)] uppercase tracking-widest text-neutral-500 mb-3">
-                       Supplied Teams
-                     </p>
-                     <div className="flex flex-wrap gap-2">
-                       {suppliedTeams.length > 0 ? (
-                         suppliedTeams.map(t => (
-                           <span key={t.Constructor.name} className="bg-surface-container-high px-3 py-1 text-xs font-bold font-[family-name:var(--font-headline)] italic">
-                             {t.Constructor.name?.toUpperCase()}
-                           </span>
-                         ))
-                       ) : (
-                         <span className="text-neutral-600 text-sm italic">No teams currently</span>
-                       )}
-                     </div>
-                   </div>
-                 </div>
-               );
-            })}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+            {[...engineGroups.entries()].map(([engineName, teams]) => (
+              <div
+                key={engineName}
+                className="apex-glass-soft rounded-[14px] px-5 py-[18px]"
+              >
+                <div className="font-bold text-sm">{engineName}</div>
+                <div className="font-medium text-xs text-warm-400 mt-1.5">
+                  {teams.join(" · ")}
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
-      </section>
-    </>
+        </>
+      )}
+    </div>
   );
 }

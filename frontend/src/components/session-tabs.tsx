@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { Race, RaceResult } from "@/lib/api";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
+import { getTeamColor } from "@/lib/team-colors";
 
 interface SessionTabsProps {
   race: Race;
@@ -38,36 +39,13 @@ const SESSION_LABELS: Record<SessionKey, string> = {
   FirstPractice: "FP1",
 };
 
-const SESSION_ICONS: Record<SessionKey, string> = {
-  Race: "flag",
-  Qualifying: "timer",
-  Sprint: "bolt",
-  SprintQualifying: "speed",
-  ThirdPractice: "construction",
-  SecondPractice: "build",
-  FirstPractice: "tune",
-};
-
 type RaceSessionData = { date?: string; time?: string };
 
-const teamColorMap: Record<string, string> = {
-  "red bull": "bg-blue-600",
-  mclaren: "bg-orange-500",
-  ferrari: "bg-red-600",
-  mercedes: "bg-teal-500",
-  "aston martin": "bg-green-600",
-  alpine: "bg-pink-500",
-  williams: "bg-blue-400",
-  rb: "bg-blue-500",
-  sauber: "bg-green-500",
-  haas: "bg-neutral-400",
-};
-
-function getTeamBarColor(teamName?: string) {
-  if (!teamName) return "bg-neutral-500";
-  const lower = teamName.toLowerCase();
-  const match = Object.keys(teamColorMap).find((k) => lower.includes(k));
-  return match ? teamColorMap[match] : "bg-neutral-500";
+function fmtInterval(r: RaceResult, isLeader: boolean) {
+  if (isLeader) return r.Time?.time ?? r.status ?? "—";
+  if (r.Time?.time)
+    return r.Time.time.startsWith("+") ? r.Time.time : `+${r.Time.time}`;
+  return r.status ?? "—";
 }
 
 export default function SessionTabs({
@@ -82,13 +60,8 @@ export default function SessionTabs({
   isPast,
 }: SessionTabsProps) {
   const [nowMs] = useState<number>(() => Date.now());
-  // Figure out which sessions exist
-  const availableSessions: SessionKey[] = [];
 
-  // Always add Race first
-  availableSessions.push("Race");
-
-  // Check for other sessions based on race data
+  const availableSessions: SessionKey[] = ["Race"];
   const sessionKeys: SessionKey[] = [
     "Qualifying",
     "Sprint",
@@ -97,13 +70,10 @@ export default function SessionTabs({
     "SecondPractice",
     "FirstPractice",
   ];
-
-  const raceSessions = race as Race & Partial<Record<SessionKey, RaceSessionData>>;
+  const raceSessions = race as Race &
+    Partial<Record<SessionKey, RaceSessionData>>;
   for (const key of sessionKeys) {
-    const sessionData = raceSessions[key];
-    if (sessionData?.date) {
-      availableSessions.push(key);
-    }
+    if (raceSessions[key]?.date) availableSessions.push(key);
   }
 
   const [activeSession, setActiveSession] = useState<SessionKey>("Race");
@@ -116,30 +86,20 @@ export default function SessionTabs({
   return (
     <div>
       {/* Session Tabs */}
-      <div className="flex flex-wrap gap-2 mb-8 border-b border-outline-variant/20 pb-4">
+      <div className="flex flex-wrap gap-2 mb-5">
         {availableSessions.map((key) => {
-          const isActive = activeSession === key;
-          const icon = SESSION_ICONS[key];
-          const label = SESSION_LABELS[key];
-
+          const active = activeSession === key;
           return (
             <button
               key={key}
               onClick={() => setActiveSession(key)}
-              className={`flex items-center gap-2 px-5 py-3 skew-x-[-10deg] transition-all text-sm font-[family-name:var(--font-headline)] font-bold uppercase tracking-tight ${
-                isActive
-                  ? key === "Race"
-                    ? "bg-primary-container text-on-primary"
-                    : "bg-surface-container-highest text-primary-container border-b-2 border-primary-container"
-                  : "text-neutral-500 hover:text-neutral-200 hover:bg-surface-container-low"
+              className={`text-xs px-[18px] py-2.5 rounded-[10px] transition-colors ${
+                active
+                  ? "font-bold bg-[rgba(255,90,31,0.18)] text-[#FFAE6A]"
+                  : "font-semibold text-warm-300 hover:text-on-background"
               }`}
             >
-              <span className="skew-x-[10deg] flex items-center gap-2">
-                <span className="material-symbols-outlined text-base">
-                  {icon}
-                </span>
-                {label}
-              </span>
+              {SESSION_LABELS[key]}
             </button>
           );
         })}
@@ -150,166 +110,40 @@ export default function SessionTabs({
         <>
           {isPast && results.length > 0 ? (
             <>
-              {/* Podium Highlights */}
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-12">
-                {winner && (
-                  <div className="md:col-span-6 lg:col-span-4 glass-panel p-6 relative overflow-hidden group">
-                    {/* Background number */}
-                    <span className="absolute -right-2 -bottom-4 font-[family-name:var(--font-headline)] font-black text-[160px] italic text-white/[0.03] select-none pointer-events-none leading-none">
-                      {winner.number ?? ""}
-                    </span>
-
-                    <div className="border-l-4 border-primary-container pl-4 relative z-10">
-                      <span className="text-[10px] uppercase tracking-widest font-bold text-primary-container">
-                        Race Winner
-                      </span>
-                      <h2 className="text-3xl font-[family-name:var(--font-headline)] font-black italic skew-x-[-12deg] mt-1">
-                        {`${winner.Driver?.givenName ?? ""} ${winner.Driver?.familyName ?? ""}`.trim().toUpperCase()}
-                      </h2>
-                      <p className="text-neutral-400 text-sm font-[family-name:var(--font-label)] uppercase tracking-wider mt-1">
-                        {winner.Constructor?.name}
-                      </p>
-                    </div>
-                    <div className="mt-8 flex justify-between items-end relative z-10">
-                      <div>
-                        <span className="block text-[10px] uppercase text-neutral-500">
-                          Total Time
-                        </span>
-                        <span className="text-xl font-[family-name:var(--font-headline)] font-bold">
-                          {winner.Time?.time ?? "—"}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Driver image overlay */}
-                    {hasDriverImage(winner.Driver?.givenName, winner.Driver?.familyName) && (
-                      <div className="absolute bottom-0 right-0 w-[45%] h-full pointer-events-none z-[5]">
-                        <Image
-                          src={getDriverImagePath(winner.Driver?.givenName, winner.Driver?.familyName)!}
-                          alt={`${winner.Driver?.givenName} ${winner.Driver?.familyName}`}
-                          fill
-                          className="object-contain object-bottom opacity-50 group-hover:opacity-80 group-hover:scale-105 transition-all duration-700 drop-shadow-[0_0_20px_rgba(0,0,0,0.8)]"
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="md:col-span-6 lg:col-span-4 flex flex-col gap-4">
-                  {p2 && (
-                    <div className="glass-panel p-5 flex items-center gap-4 border-l-2 border-neutral-400 overflow-hidden relative">
-                      <div className="text-2xl font-[family-name:var(--font-headline)] font-black italic skew-x-[-12deg] text-neutral-400">
-                        P2
-                      </div>
-                      {hasDriverImage(p2.Driver?.givenName, p2.Driver?.familyName) && (
-                        <div className="w-10 h-10 overflow-hidden bg-neutral-800/50 flex-shrink-0 relative">
-                          <Image
-                            src={getDriverImagePath(p2.Driver?.givenName, p2.Driver?.familyName)!}
-                            alt={`${p2.Driver?.givenName} ${p2.Driver?.familyName}`}
-                            width={40}
-                            height={40}
-                            className="object-cover object-top scale-125 translate-y-1 w-full h-full"
-                          />
-                        </div>
-                      )}
-                      <div>
-                        <h3 className="font-[family-name:var(--font-headline)] font-bold text-lg leading-tight uppercase">
-                          {`${p2.Driver?.givenName ?? ""} ${p2.Driver?.familyName ?? ""}`.trim()}
-                        </h3>
-                        <p className="text-[10px] text-neutral-500 uppercase tracking-widest">
-                          {p2.Constructor?.name}
-                        </p>
-                      </div>
-                      <div className="ml-auto text-sm font-[family-name:var(--font-headline)]">
-                        {p2.Time?.time ? (p2.Time.time.startsWith("+") ? p2.Time.time : `+${p2.Time.time}`) : p2.status ?? "—"}
-                      </div>
-                    </div>
-                  )}
-                  {p3 && (
-                    <div className="glass-panel p-5 flex items-center gap-4 border-l-2 border-orange-500/50 overflow-hidden relative">
-                      <div className="text-2xl font-[family-name:var(--font-headline)] font-black italic skew-x-[-12deg] text-orange-500/70">
-                        P3
-                      </div>
-                      {hasDriverImage(p3.Driver?.givenName, p3.Driver?.familyName) && (
-                        <div className="w-10 h-10 overflow-hidden bg-neutral-800/50 flex-shrink-0 relative">
-                          <Image
-                            src={getDriverImagePath(p3.Driver?.givenName, p3.Driver?.familyName)!}
-                            alt={`${p3.Driver?.givenName} ${p3.Driver?.familyName}`}
-                            width={40}
-                            height={40}
-                            className="object-cover object-top scale-125 translate-y-1 w-full h-full"
-                          />
-                        </div>
-                      )}
-                      <div>
-                        <h3 className="font-[family-name:var(--font-headline)] font-bold text-lg leading-tight uppercase">
-                          {`${p3.Driver?.givenName ?? ""} ${p3.Driver?.familyName ?? ""}`.trim()}
-                        </h3>
-                        <p className="text-[10px] text-neutral-500 uppercase tracking-widest">
-                          {p3.Constructor?.name}
-                        </p>
-                      </div>
-                      <div className="ml-auto text-sm font-[family-name:var(--font-headline)]">
-                        {p3.Time?.time ? (p3.Time.time.startsWith("+") ? p3.Time.time : `+${p3.Time.time}`) : p3.status ?? "—"}
-                      </div>
-                    </div>
-                  )}
+              {/* Podium */}
+              <div className="grid md:grid-cols-[1.3fr_1fr_1fr] gap-3.5 mb-6">
+                {winner && <WinnerCard r={winner} />}
+                <div className="flex flex-col gap-3.5">
+                  {p2 && <RunnerRow r={p2} pos="P2" />}
+                  {p3 && <RunnerRow r={p3} pos="P3" />}
                 </div>
-
-                {fastestLapResult && (
-                  <div className="md:col-span-12 lg:col-span-4 glass-panel p-6 border-t-2 border-secondary-container relative overflow-hidden bg-gradient-to-br from-surface-container-low to-secondary-container/5">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <span className="inline-flex items-center gap-2 text-[10px] uppercase tracking-widest font-bold text-secondary-container mb-2">
-                          <span className="material-symbols-outlined text-sm">
-                            speed
-                          </span>
-                          Fastest Lap
-                        </span>
-                        <h2 className="text-3xl font-[family-name:var(--font-headline)] font-black italic skew-x-[-12deg]">
-                          {`${fastestLapResult.Driver?.givenName ?? ""} ${fastestLapResult.Driver?.familyName ?? ""}`.trim().toUpperCase()}
-                        </h2>
-                        <p className="text-neutral-400 text-sm font-[family-name:var(--font-label)] uppercase tracking-wider mt-1">
-                          {fastestLapResult.Constructor?.name}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <span className="block text-4xl font-[family-name:var(--font-headline)] font-black text-secondary-container italic">
-                          {fastestLapResult.FastestLap?.Time?.time ?? "—"}
-                        </span>
-                        <span className="text-[10px] uppercase text-neutral-500 font-bold">
-                          Lap {fastestLapResult.FastestLap?.lap ?? "—"}/
-                          {fastestLapResult.laps ?? "—"}
-                        </span>
-                      </div>
-                    </div>
+                {fastestLapResult ? (
+                  <FastestLapCard r={fastestLapResult} />
+                ) : (
+                  <div className="apex-glass-soft rounded-2xl p-[22px] flex flex-col justify-center">
+                    <span className="font-bold text-[11px] tracking-[0.12em] uppercase text-warm-400">
+                      Fastest lap
+                    </span>
+                    <span className="font-medium text-sm text-warm-400 mt-2">
+                      Not reported for this session.
+                    </span>
                   </div>
                 )}
               </div>
-
-              {/* Full Results Table */}
               <FullResultsTable results={results} />
             </>
           ) : isPast ? (
-            <div className="glass-panel p-12 text-center">
-              <span className="material-symbols-outlined text-5xl text-neutral-600 mb-4">
-                hourglass_empty
-              </span>
-              <h3 className="text-2xl font-[family-name:var(--font-headline)] font-bold italic uppercase text-neutral-400 mt-4">
-                Results Pending
-              </h3>
-              <p className="text-neutral-500 text-sm mt-3 max-w-md mx-auto">
-                This race has been completed but results are not yet available in the data feed.
-                Results are typically synced within a few hours after the race ends.
-              </p>
-            </div>
+            <EmptyState
+              title="Results pending"
+              body="This race has finished but results are not yet in the data feed. They usually sync within a few hours of the chequered flag."
+            />
           ) : (
             <UpcomingSessionTimings race={race} nowMs={nowMs} />
           )}
         </>
       )}
 
-      {/* Non-Race Session Content */}
+      {/* Non-Race Sessions */}
       {activeSession !== "Race" && (
         <SessionInfo
           race={race}
@@ -336,335 +170,200 @@ export default function SessionTabs({
   );
 }
 
+/* ---------------------------- podium pieces ---------------------------- */
+
+function WinnerCard({ r }: { r: RaceResult }) {
+  const given = r.Driver?.givenName;
+  const family = r.Driver?.familyName;
+  const color = getTeamColor(r.Constructor?.name);
+  const hasImg = hasDriverImage(given, family);
+  const img = hasImg ? getDriverImagePath(given, family) : null;
+
+  return (
+    <div className="apex-glass apex-sheen rounded-[18px] p-[22px] overflow-hidden relative">
+      <div
+        className="absolute left-0 top-0 bottom-0 w-[5px]"
+        style={{ background: color.hex, boxShadow: `0 0 16px ${color.glow}` }}
+      />
+      {img ? (
+        <div className="absolute top-5 right-4 bottom-5 w-[34%] pointer-events-none">
+          <Image
+            src={img}
+            alt={`${given} ${family}`}
+            fill
+            sizes="200px"
+            className="object-contain object-bottom drop-shadow-[0_10px_28px_rgba(0,0,0,0.7)]"
+          />
+        </div>
+      ) : (
+        <div
+          className="absolute top-5 right-5 bottom-5 w-[90px] rounded-xl flex items-end justify-center pb-2.5 apex-hatch"
+          style={{ borderColor: color.hex }}
+        >
+          <span className="font-semibold text-[8px] text-warm-500">
+            // WINNER
+          </span>
+        </div>
+      )}
+      <div className="relative max-w-[62%]">
+        <span className="font-bold text-[11px] tracking-[0.12em] uppercase text-[#FF7A3D]">
+          Race winner
+        </span>
+        <div className="font-[family-name:var(--font-headline)] font-bold text-2xl mt-3 mb-0.5">
+          {`${given ?? ""} ${family ?? ""}`.trim() || "—"}
+        </div>
+        <div className="font-semibold text-xs text-warm-400">
+          {r.Constructor?.name}
+        </div>
+        <div className="mt-5">
+          <div className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500">
+            Total time
+          </div>
+          <div className="font-extrabold text-[22px] tabular-nums mt-0.5">
+            {r.Time?.time ?? r.status ?? "—"}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RunnerRow({ r, pos }: { r: RaceResult; pos: string }) {
+  const color = getTeamColor(r.Constructor?.name);
+  return (
+    <div className="flex-1 apex-glass-soft rounded-2xl px-5 py-[18px] flex items-center gap-3.5">
+      <span className="font-extrabold text-xl text-warm-200">{pos}</span>
+      <span
+        className="w-1 h-[30px] rounded-[3px]"
+        style={{ background: color.hex }}
+      />
+      <div className="flex-1 min-w-0">
+        <div className="font-bold text-[15px] truncate">
+          {`${r.Driver?.givenName ?? ""} ${r.Driver?.familyName ?? ""}`.trim()}
+        </div>
+        <div className="font-semibold text-[11px] uppercase text-warm-400 truncate">
+          {r.Constructor?.name}
+        </div>
+      </div>
+      <span className="font-bold text-sm tabular-nums text-warm-300">
+        {fmtInterval(r, false)}
+      </span>
+    </div>
+  );
+}
+
+function FastestLapCard({ r }: { r: RaceResult }) {
+  return (
+    <div className="apex-glass-soft rounded-2xl p-[22px]">
+      <span className="font-bold text-[11px] tracking-[0.12em] uppercase text-[#FF7A3D]">
+        Fastest lap
+      </span>
+      <div className="font-extrabold text-3xl tabular-nums my-3.5 mb-1 text-[#FFAE6A]">
+        {r.FastestLap?.Time?.time ?? "—"}
+      </div>
+      <div className="font-bold text-[15px]">
+        {`${r.Driver?.givenName ?? ""} ${r.Driver?.familyName ?? ""}`.trim()}
+      </div>
+      <div className="font-semibold text-[11px] text-warm-400 mt-0.5">
+        {r.Constructor?.name} · Lap {r.FastestLap?.lap ?? "—"} /{" "}
+        {r.laps ?? "—"}
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------- results tables --------------------------- */
+
+function ResultRow({
+  children,
+  cols,
+}: {
+  children: React.ReactNode;
+  cols: string;
+}) {
+  return (
+    <div
+      className={`grid ${cols} gap-3 px-4 sm:px-[22px] py-[13px] items-center border-b border-white/[0.04] transition-colors hover:bg-white/[0.03]`}
+    >
+      {children}
+    </div>
+  );
+}
+
 function FullResultsTable({ results }: { results: RaceResult[] }) {
   const params = useParams();
   const season = params?.season as string | undefined;
   const round = params?.round as string | undefined;
+  const cols =
+    "grid-cols-[44px_1fr_90px] sm:grid-cols-[60px_1fr_140px_120px_60px]";
 
   return (
-    <div className="overflow-x-auto">
-      <div className="flex items-center justify-between mb-6 px-4">
-        <h3 className="text-sm font-[family-name:var(--font-label)] uppercase tracking-[0.3em] font-bold text-neutral-500">
-          Full Classification
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-bold text-[11px] tracking-[0.18em] uppercase text-warm-400">
+          Full classification
         </h3>
         {season && round && (
           <Link
             href={`/schedule/${season}/${round}/pitwall`}
-            className="flex items-center gap-2 bg-primary-container text-on-primary font-[family-name:var(--font-label)] text-xs uppercase tracking-widest font-bold px-4 py-2 hover:bg-primary-container/80 transition-colors active:scale-95 shadow-[0_0_15px_rgba(0,242,255,0.3)]"
+            className="font-bold text-[11px] tracking-[0.08em] uppercase px-4 py-2 rounded-[10px] bg-[rgba(255,90,31,0.16)] text-[#FFAE6A] hover:bg-[rgba(255,90,31,0.24)] transition-colors active:scale-95"
           >
-            <span className="material-symbols-outlined text-sm">analytics</span>
-            View Pitwall Analysis
+            Pitwall analysis
           </Link>
         )}
       </div>
-      <table className="w-full text-left border-separate border-spacing-y-2">
-        <thead>
-          <tr className="text-[10px] uppercase tracking-[0.2em] text-neutral-500 font-bold">
-            <th className="px-6 py-4">Pos</th>
-            <th className="px-6 py-4">Driver</th>
-            <th className="px-6 py-4">Team</th>
-            <th className="px-6 py-4">Interval / Gap</th>
-            <th className="px-6 py-4 text-right">Points</th>
-          </tr>
-        </thead>
-        <tbody className="font-[family-name:var(--font-label)]">
-          {results.map((r, idx) => {
-            const givenName = r.Driver?.givenName ?? "";
-            const familyName = r.Driver?.familyName ?? "";
-            const driverName = `${givenName} ${familyName}`.trim();
-            const teamBar = getTeamBarColor(r.Constructor?.name);
-            const isP1 = idx === 0;
-            const hasImg = hasDriverImage(givenName, familyName);
-            const imgPath = getDriverImagePath(givenName, familyName);
-
-            return (
-              <tr
-                key={`${r.position}-${driverName}`}
-                className="glass-panel group hover:bg-surface-container-highest/60 transition-colors"
-              >
-                <td
-                  className={`px-6 py-5 font-[family-name:var(--font-headline)] font-black italic skew-x-[-12deg] text-xl ${
-                    isP1 ? "text-primary-container" : "text-neutral-500"
-                  }`}
-                >
-                  {String(r.position ?? idx + 1).padStart(2, "0")}
-                </td>
-                <td className="px-6 py-5">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-1 h-8 ${teamBar}`} />
-                    {hasImg && imgPath ? (
-                      <div className="w-8 h-8 rounded-full overflow-hidden bg-neutral-800/50 flex-shrink-0 relative">
-                        <Image
-                          src={imgPath}
-                          alt={driverName}
-                          width={48}
-                          height={48}
-                          className="object-cover object-top w-full h-full scale-125 translate-y-1"
-                        />
-                      </div>
-                    ) : null}
-                    <div>
-                      <div className="text-sm font-bold uppercase tracking-wide">
-                        {givenName && familyName
-                          ? `${givenName.charAt(0)}. ${familyName}`
-                          : driverName}
-                      </div>
-                      <div className="text-[10px] text-neutral-500 uppercase">
-                        {r.Driver?.nationality}
-                      </div>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-6 py-5 text-xs text-neutral-300 font-bold uppercase tracking-widest">
-                  {r.Constructor?.name}
-                </td>
-                <td className="px-6 py-5 text-sm font-[family-name:var(--font-headline)] text-neutral-400">
-                  {isP1
-                    ? r.Time?.time ?? r.status ?? "—"
-                    : r.Time?.time
-                    ? (r.Time.time.startsWith("+") ? r.Time.time : `+${r.Time.time}`)
-                    : r.status ?? "—"}
-                </td>
-                <td className="px-6 py-5 text-right font-[family-name:var(--font-headline)] font-bold text-lg">
-                  {isP1 ? (
-                    <span className="text-primary-container">{r.points}</span>
-                  ) : (
-                    r.points
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function SessionInfo({
-  race,
-  sessionKey,
-  nowMs,
-  sessionResults,
-}: {
-  race: Race;
-  sessionKey: SessionKey;
-  nowMs: number;
-  sessionResults: RaceResult[];
-}) {
-  const raceSessions = race as Race & Partial<Record<SessionKey, RaceSessionData>>;
-  const sessionData = raceSessions[sessionKey];
-  const label = SESSION_LABELS[sessionKey];
-
-  if (!sessionData?.date) {
-    return (
-      <div className="glass-panel p-12 text-center">
-        <span className="material-symbols-outlined text-4xl text-neutral-700 mb-4">
-          event_busy
-        </span>
-        <h3 className="text-xl font-[family-name:var(--font-headline)] font-bold italic uppercase text-neutral-500">
-          {label} Not Scheduled
-        </h3>
-        <p className="text-neutral-600 text-sm mt-2">
-          This session is not part of this event&apos;s weekend format.
-        </p>
-      </div>
-    );
-  }
-
-  const dt = new Date(
-    sessionData.time && sessionData.time.endsWith("Z")
-      ? `${sessionData.date}T${sessionData.time}`
-      : `${sessionData.date}T${sessionData.time ?? "12:00:00Z"}`
-  );
-
-  const sessionPast = dt.getTime() < nowMs;
-
-  return (
-    <div className="glass-panel p-8">
-      <div className="flex items-center gap-4 mb-6">
-        <span className="material-symbols-outlined text-primary-container text-3xl">
-          {SESSION_ICONS[sessionKey]}
-        </span>
-        <div>
-          <h3 className="text-2xl font-[family-name:var(--font-headline)] font-bold italic uppercase tracking-tight">
-            {label}
-          </h3>
-          <p className="text-neutral-500 font-[family-name:var(--font-label)] text-xs uppercase tracking-widest">
-            {race.raceName}
-          </p>
-        </div>
-        <span
-          className={`ml-auto px-4 py-1 text-[10px] font-bold uppercase tracking-widest ${
-            sessionPast
-              ? "bg-neutral-800 text-neutral-500"
-              : "bg-primary-container/20 text-primary-container border border-primary-container/30"
-          }`}
+      <div className="apex-glass-soft rounded-2xl overflow-hidden">
+        <div
+          className={`grid ${cols} gap-3 px-4 sm:px-[22px] py-3.5 font-bold text-[10px] tracking-[0.12em] uppercase text-warm-500 border-b border-white/[0.07]`}
         >
-          {sessionPast ? "Completed" : "Upcoming"}
-        </span>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-surface-container p-5">
-          <p className="text-[10px] text-neutral-500 uppercase tracking-widest mb-2">
-            Date
-          </p>
-          <p className="font-[family-name:var(--font-headline)] font-bold text-xl italic">
-            {dt.toLocaleDateString(undefined, {
-              weekday: "long",
-              month: "long",
-              day: "2-digit",
-            })}
-          </p>
+          <span>Pos</span>
+          <span>Driver</span>
+          <span className="hidden sm:block">Team</span>
+          <span className="text-right sm:text-left">Interval</span>
+          <span className="hidden sm:block text-right">Pts</span>
         </div>
-        <div className="bg-surface-container p-5">
-          <p className="text-[10px] text-neutral-500 uppercase tracking-widest mb-2">
-            Local Start Time
-          </p>
-          <p className="font-[family-name:var(--font-headline)] font-bold text-xl italic text-primary-container">
-            {dt.toLocaleTimeString(undefined, {
-              hour: "2-digit",
-              minute: "2-digit",
-              timeZoneName: "short",
-            })}
-          </p>
-        </div>
-        <div className="bg-surface-container p-5">
-          <p className="text-[10px] text-neutral-500 uppercase tracking-widest mb-2">
-            Circuit
-          </p>
-          <p className="font-[family-name:var(--font-headline)] font-bold text-xl italic">
-            {race.Circuit?.circuitName ?? "TBC"}
-          </p>
-        </div>
-      </div>
-
-      {sessionPast && sessionResults.length > 0 ? (
-        <div className="mt-8 space-y-8">
-          <SessionPodiumCards
-            sessionKey={sessionKey}
-            results={sessionResults}
-          />
-          <h4 className="text-sm font-label uppercase tracking-[0.24em] text-neutral-500 mb-4">
-            {label} Classification
-          </h4>
-          <SessionResultsTable
-            sessionKey={sessionKey}
-            results={sessionResults}
-          />
-        </div>
-      ) : null}
-
-      {sessionPast && sessionResults.length === 0 && (
-        <div className="mt-6 p-4 bg-surface-container-low border-l-2 border-neutral-600">
-          <p className="text-neutral-500 text-sm">
-            Detailed classification for {label} is not available in the current
-            backend data feed.
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SessionPodiumCards({
-  sessionKey,
-  results,
-}: {
-  sessionKey: SessionKey;
-  results: RaceResult[];
-}) {
-  const winner = results[0];
-  const p2 = results[1];
-  const p3 = results[2];
-  const heading =
-    sessionKey === "Qualifying" || sessionKey === "SprintQualifying"
-      ? "Pole Position"
-      : sessionKey === "Sprint"
-      ? "Sprint Winner"
-      : `${SESSION_LABELS[sessionKey]} Leader`;
-
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-      {winner && (
-        <div className="md:col-span-6 lg:col-span-4 glass-panel p-6 relative overflow-hidden group">
-          <span className="absolute -right-2 -bottom-4 font-headline font-black text-[160px] italic text-white/3 select-none pointer-events-none leading-none">
-            {winner.Driver?.permanentNumber ?? ""}
-          </span>
-          <div className="border-l-4 border-primary-container pl-4 relative z-10">
-            <span className="text-[10px] uppercase tracking-widest font-bold text-primary-container">
-              {heading}
-            </span>
-            <h2 className="text-3xl font-headline font-black italic -skew-x-12 mt-1">
-              {`${winner.Driver?.givenName ?? ""} ${winner.Driver?.familyName ?? ""}`
-                .trim()
-                .toUpperCase()}
-            </h2>
-            <p className="text-neutral-400 text-sm font-label uppercase tracking-wider mt-1">
-              {winner.Constructor?.name}
-            </p>
-          </div>
-          <div className="mt-8 flex justify-between items-end relative z-10">
-            <div>
-              <span className="block text-[10px] uppercase text-neutral-500">
-                {sessionKey === "Qualifying" || sessionKey === "SprintQualifying"
-                  ? "Best Time"
-                  : "Result"}
+        {results.map((r, idx) => {
+          const given = r.Driver?.givenName ?? "";
+          const family = r.Driver?.familyName ?? "";
+          const color = getTeamColor(r.Constructor?.name);
+          const isP1 = idx === 0;
+          const gap = fmtInterval(r, isP1);
+          const dnf = /dnf|dns|dsq|ret/i.test(gap);
+          return (
+            <ResultRow key={`${r.position}-${given}${family}-${idx}`} cols={cols}>
+              <span
+                className="font-extrabold text-[15px] tabular-nums"
+                style={{ color: isP1 ? "#FFAE6A" : "#8f867a" }}
+              >
+                {String(r.position ?? idx + 1).padStart(2, "0")}
               </span>
-              <span className="text-xl font-headline font-bold">
-                {winner.Q3 || winner.Q2 || winner.Q1 || winner.Time?.time || winner.status || "—"}
+              <div className="flex items-center gap-3 min-w-0">
+                <span
+                  className="w-[3px] h-6 rounded-[2px] flex-none"
+                  style={{ background: color.hex }}
+                />
+                <span className="font-bold text-sm truncate">
+                  {given && family ? `${given} ${family}` : "—"}
+                </span>
+              </div>
+              <span className="hidden sm:block font-semibold text-xs uppercase text-warm-300 truncate">
+                {r.Constructor?.name}
               </span>
-            </div>
-          </div>
-          {hasDriverImage(winner.Driver?.givenName, winner.Driver?.familyName) && (
-            <div className="absolute bottom-0 right-0 w-[45%] h-full pointer-events-none z-[5]">
-              <Image
-                src={getDriverImagePath(winner.Driver?.givenName, winner.Driver?.familyName)!}
-                alt={`${winner.Driver?.givenName} ${winner.Driver?.familyName}`}
-                fill
-                className="object-contain object-bottom opacity-50 group-hover:opacity-80 group-hover:scale-105 transition-all duration-700 drop-shadow-[0_0_20px_rgba(0,0,0,0.8)]"
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="md:col-span-6 lg:col-span-8 grid grid-cols-1 gap-4">
-        {[p2, p3].map((driver, index) =>
-          driver ? (
-            <div
-              key={`${driver.position}-${index}`}
-              className="glass-panel p-5 flex items-center gap-4 border-l-2 border-neutral-500/50 overflow-hidden relative"
-            >
-              <div className="text-2xl font-headline font-black italic -skew-x-12 text-neutral-400">
-                {index === 0 ? "P2" : "P3"}
-              </div>
-              {hasDriverImage(driver.Driver?.givenName, driver.Driver?.familyName) && (
-                <div className="w-10 h-10 overflow-hidden bg-neutral-800/50 flex-shrink-0 relative">
-                  <Image
-                    src={getDriverImagePath(driver.Driver?.givenName, driver.Driver?.familyName)!}
-                    alt={`${driver.Driver?.givenName} ${driver.Driver?.familyName}`}
-                    width={40}
-                    height={40}
-                    className="object-cover object-top scale-125 translate-y-1 w-full h-full"
-                  />
-                </div>
-              )}
-              <div>
-                <h3 className="font-headline font-bold text-lg leading-tight uppercase">
-                  {`${driver.Driver?.givenName ?? ""} ${driver.Driver?.familyName ?? ""}`.trim()}
-                </h3>
-                <p className="text-[10px] text-neutral-500 uppercase tracking-widest">
-                  {driver.Constructor?.name}
-                </p>
-              </div>
-              <div className="ml-auto text-sm font-headline">
-                {driver.Q3 || driver.Q2 || driver.Q1 || driver.Time?.time || driver.status || "—"}
-              </div>
-            </div>
-          ) : null
-        )}
+              <span
+                className="font-semibold text-[13px] tabular-nums text-right sm:text-left"
+                style={{ color: dnf ? "#c98a8a" : "#c9c0b4" }}
+              >
+                {gap}
+              </span>
+              <span
+                className="hidden sm:block text-right font-extrabold text-[15px] tabular-nums"
+                style={{ color: Number(r.points) > 0 ? "#f6f1ea" : "#6f665b" }}
+              >
+                {r.points ?? "0"}
+              </span>
+            </ResultRow>
+          );
+        })}
       </div>
     </div>
   );
@@ -684,113 +383,205 @@ function SessionResultsTable({
   sessionKey: SessionKey;
   results: RaceResult[];
 }) {
-  // Only qualifying reports per-segment times. Sprint qualifying is classified
-  // from lap times, so it gets a single best-lap column instead of three empty
-  // ones, as do the practice sessions.
   const hasSegmentTimes = results.some((r) => r.Q1 || r.Q2 || r.Q3);
   const showSegments =
     (sessionKey === "Qualifying" || sessionKey === "SprintQualifying") &&
     hasSegmentTimes;
   const showBestLap = !showSegments && LAP_TIMED_SESSIONS.includes(sessionKey);
 
+  const cols = showSegments
+    ? "grid-cols-[44px_1fr_80px_80px_80px] sm:grid-cols-[60px_1fr_140px_90px_90px_90px]"
+    : "grid-cols-[44px_1fr_100px] sm:grid-cols-[60px_1fr_140px_120px]";
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left border-separate border-spacing-y-2">
-        <thead>
-          <tr className="text-[10px] uppercase tracking-[0.2em] text-neutral-500 font-bold">
-            <th className="px-6 py-4">Pos</th>
-            <th className="px-6 py-4">Driver</th>
-            <th className="px-6 py-4">Team</th>
+    <div className="apex-glass-soft rounded-2xl overflow-hidden">
+      <div
+        className={`grid ${cols} gap-3 px-4 sm:px-[22px] py-3.5 font-bold text-[10px] tracking-[0.12em] uppercase text-warm-500 border-b border-white/[0.07]`}
+      >
+        <span>Pos</span>
+        <span>Driver</span>
+        <span className="hidden sm:block">Team</span>
+        {showSegments ? (
+          <>
+            <span className="text-right sm:text-left">Q1</span>
+            <span className="text-right sm:text-left">Q2</span>
+            <span className="text-right sm:text-left">Q3</span>
+          </>
+        ) : showBestLap ? (
+          <span className="text-right sm:text-left">Best lap</span>
+        ) : (
+          <span className="text-right sm:text-left">Time / status</span>
+        )}
+      </div>
+      {results.map((r, idx) => {
+        const given = r.Driver?.givenName ?? "";
+        const family = r.Driver?.familyName ?? "";
+        const color = getTeamColor(r.Constructor?.name);
+        const isP1 = idx === 0;
+        return (
+          <ResultRow
+            key={`${sessionKey}-${r.position}-${given}${family}-${idx}`}
+            cols={cols}
+          >
+            <span
+              className="font-extrabold text-[15px] tabular-nums"
+              style={{ color: isP1 ? "#FFAE6A" : "#8f867a" }}
+            >
+              {String(r.position ?? idx + 1).padStart(2, "0")}
+            </span>
+            <div className="flex items-center gap-3 min-w-0">
+              <span
+                className="w-[3px] h-6 rounded-[2px] flex-none"
+                style={{ background: color.hex }}
+              />
+              <span className="font-bold text-sm truncate">
+                {given && family ? `${given} ${family}` : "—"}
+              </span>
+            </div>
+            <span className="hidden sm:block font-semibold text-xs uppercase text-warm-300 truncate">
+              {r.Constructor?.name}
+            </span>
             {showSegments ? (
               <>
-                <th className="px-6 py-4">Q1</th>
-                <th className="px-6 py-4">Q2</th>
-                <th className="px-6 py-4">Q3</th>
+                <span className="font-semibold text-[13px] tabular-nums text-right sm:text-left text-warm-200">
+                  {r.Q1 || "—"}
+                </span>
+                <span className="font-semibold text-[13px] tabular-nums text-right sm:text-left text-warm-200">
+                  {r.Q2 || "—"}
+                </span>
+                <span className="font-semibold text-[13px] tabular-nums text-right sm:text-left text-[#FFAE6A]">
+                  {r.Q3 || "—"}
+                </span>
               </>
             ) : showBestLap ? (
-              <th className="px-6 py-4">Best Lap</th>
+              <span className="font-semibold text-[13px] tabular-nums text-right sm:text-left text-[#FFAE6A]">
+                {r.Time?.time || "—"}
+              </span>
             ) : (
-              <>
-                <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4 text-right">Points</th>
-              </>
+              <span className="font-semibold text-[13px] tabular-nums text-right sm:text-left text-warm-200">
+                {r.Time?.time || r.status || "—"}
+              </span>
             )}
-          </tr>
-        </thead>
-        <tbody className="font-label">
-          {results.map((r, idx) => {
-            const givenName = r.Driver?.givenName ?? "";
-            const familyName = r.Driver?.familyName ?? "";
-            const driverName = `${givenName} ${familyName}`.trim();
-            const teamBar = getTeamBarColor(r.Constructor?.name);
-            const isP1 = idx === 0;
-            return (
-              <tr
-                key={`${sessionKey}-${r.position}-${driverName}-${idx}`}
-                className="glass-panel"
-              >
-                <td
-                  className={`px-6 py-4 font-headline font-black italic -skew-x-12 text-xl ${
-                    isP1 ? "text-primary-container" : "text-neutral-500"
-                  }`}
-                >
-                  {String(r.position ?? idx + 1).padStart(2, "0")}
-                </td>
-                <td className="px-6 py-4">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-1 h-8 ${teamBar}`} />
-                    {hasDriverImage(givenName, familyName) && (
-                      <div className="w-8 h-8 rounded-full overflow-hidden bg-neutral-800/50 flex-shrink-0 relative">
-                        <Image
-                          src={getDriverImagePath(givenName, familyName)!}
-                          alt={driverName}
-                          width={40}
-                          height={40}
-                          className="object-cover object-top w-full h-full scale-125 translate-y-1"
-                        />
-                      </div>
-                    )}
-                    <div className="text-sm font-bold uppercase tracking-wide">
-                      {givenName && familyName
-                        ? `${givenName.charAt(0)}. ${familyName}`
-                        : driverName}
-                    </div>
-                  </div>
-                </td>
-                <td className="px-6 py-4 text-xs text-neutral-300 font-bold uppercase tracking-widest">
-                  {r.Constructor?.name}
-                </td>
-                {showSegments ? (
-                  <>
-                    <td className="px-6 py-4 text-sm font-headline text-neutral-300">
-                      {r.Q1 || "—"}
-                    </td>
-                    <td className="px-6 py-4 text-sm font-headline text-neutral-300">
-                      {r.Q2 || "—"}
-                    </td>
-                    <td className="px-6 py-4 text-sm font-headline text-neutral-300">
-                      {r.Q3 || "—"}
-                    </td>
-                  </>
-                ) : showBestLap ? (
-                  <td className="px-6 py-4 text-sm font-headline text-neutral-300">
-                    {r.Time?.time || "—"}
-                  </td>
-                ) : (
-                  <>
-                    <td className="px-6 py-4 text-sm font-headline text-neutral-300">
-                      {r.Time?.time || r.status || "—"}
-                    </td>
-                    <td className="px-6 py-4 text-right font-headline font-bold text-lg">
-                      {r.points || "—"}
-                    </td>
-                  </>
-                )}
-              </tr>
-            );
+          </ResultRow>
+        );
+      })}
+    </div>
+  );
+}
+
+/* --------------------------- session detail --------------------------- */
+
+function SessionInfo({
+  race,
+  sessionKey,
+  nowMs,
+  sessionResults,
+}: {
+  race: Race;
+  sessionKey: SessionKey;
+  nowMs: number;
+  sessionResults: RaceResult[];
+}) {
+  const raceSessions = race as Race &
+    Partial<Record<SessionKey, RaceSessionData>>;
+  const sessionData = raceSessions[sessionKey];
+  const label = SESSION_LABELS[sessionKey];
+
+  if (!sessionData?.date) {
+    return (
+      <EmptyState
+        title={`${label} not scheduled`}
+        body="This session is not part of this event's weekend format."
+      />
+    );
+  }
+
+  const dt = new Date(
+    sessionData.time && sessionData.time.endsWith("Z")
+      ? `${sessionData.date}T${sessionData.time}`
+      : `${sessionData.date}T${sessionData.time ?? "12:00:00Z"}`
+  );
+  const sessionPast = dt.getTime() < nowMs;
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-4">
+        <h3 className="font-[family-name:var(--font-headline)] font-bold text-2xl">
+          {label}
+        </h3>
+        <span
+          className="ml-auto font-bold text-[10px] tracking-[0.1em] uppercase px-3 py-1.5 rounded-lg"
+          style={
+            sessionPast
+              ? { background: "rgba(245,235,222,0.06)", color: "#8f867a" }
+              : { background: "rgba(255,90,31,0.16)", color: "#FFAE6A" }
+          }
+        >
+          {sessionPast ? "Completed" : "Upcoming"}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 mb-6">
+        <InfoTile
+          label="Date"
+          value={dt.toLocaleDateString(undefined, {
+            weekday: "long",
+            month: "long",
+            day: "2-digit",
           })}
-        </tbody>
-      </table>
+        />
+        <InfoTile
+          label="Local start time"
+          value={dt.toLocaleTimeString(undefined, {
+            hour: "2-digit",
+            minute: "2-digit",
+            timeZoneName: "short",
+          })}
+          accent
+        />
+        <InfoTile label="Circuit" value={race.Circuit?.circuitName ?? "TBC"} />
+      </div>
+
+      {sessionPast && sessionResults.length > 0 ? (
+        <div className="space-y-4">
+          <h4 className="font-bold text-[11px] tracking-[0.18em] uppercase text-warm-400">
+            {label} classification
+          </h4>
+          <SessionResultsTable sessionKey={sessionKey} results={sessionResults} />
+        </div>
+      ) : sessionPast ? (
+        <div className="apex-glass-soft rounded-xl px-5 py-4 border-l-2 border-warm-600">
+          <p className="font-medium text-sm text-warm-400">
+            Detailed classification for {label} is not available in the data
+            feed.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function InfoTile({
+  label,
+  value,
+  accent = false,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className="apex-glass-soft rounded-[14px] px-[22px] py-[18px]">
+      <p className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-500">
+        {label}
+      </p>
+      <p
+        className={`font-[family-name:var(--font-headline)] font-bold text-lg mt-1 ${
+          accent ? "text-[#FFAE6A]" : ""
+        }`}
+      >
+        {value}
+      </p>
     </div>
   );
 }
@@ -802,18 +593,18 @@ function UpcomingSessionTimings({
   race: Race;
   nowMs: number;
 }) {
-  const sessions: { key: string; label: string; icon: string }[] = [
-    { key: "FirstPractice", label: "Free Practice 1", icon: "tune" },
-    { key: "SecondPractice", label: "Free Practice 2", icon: "build" },
-    { key: "ThirdPractice", label: "Free Practice 3", icon: "construction" },
-    { key: "SprintQualifying", label: "Sprint Qualifying", icon: "speed" },
-    { key: "Sprint", label: "Sprint Race", icon: "bolt" },
-    { key: "Qualifying", label: "Qualifying", icon: "timer" },
+  const sessions: { key: string; label: string }[] = [
+    { key: "FirstPractice", label: "Free Practice 1" },
+    { key: "SecondPractice", label: "Free Practice 2" },
+    { key: "ThirdPractice", label: "Free Practice 3" },
+    { key: "SprintQualifying", label: "Sprint Qualifying" },
+    { key: "Sprint", label: "Sprint Race" },
+    { key: "Qualifying", label: "Qualifying" },
   ];
 
-  const raceSessions = race as Race & Partial<Record<SessionKey, RaceSessionData>>;
+  const raceSessions = race as Race &
+    Partial<Record<SessionKey, RaceSessionData>>;
 
-  // Build the race session as well
   const raceDate = race.date
     ? new Date(
         race.time && race.time.endsWith("Z")
@@ -822,107 +613,91 @@ function UpcomingSessionTimings({
       )
     : null;
 
+  const rows: {
+    label: string;
+    dt: Date;
+    past: boolean;
+    isRace?: boolean;
+  }[] = [];
+  for (const { key, label } of sessions) {
+    const sd = raceSessions[key as SessionKey];
+    if (!sd?.date) continue;
+    const dt = new Date(
+      sd.time && sd.time.endsWith("Z")
+        ? `${sd.date}T${sd.time}`
+        : `${sd.date}T${sd.time ?? "12:00:00Z"}`
+    );
+    rows.push({ label, dt, past: dt.getTime() < nowMs });
+  }
+  if (raceDate)
+    rows.push({
+      label: "Race",
+      dt: raceDate,
+      past: raceDate.getTime() < nowMs,
+      isRace: true,
+    });
+
   return (
-    <div className="space-y-4">
-      <h3 className="text-xl font-[family-name:var(--font-headline)] font-bold italic uppercase tracking-tight mb-6">
-        Weekend Schedule
+    <div>
+      <h3 className="font-[family-name:var(--font-headline)] font-bold text-xl mb-4">
+        Weekend schedule
       </h3>
-
-      <div className="grid gap-3">
-        {sessions.map(({ key, label, icon }) => {
-          const sessionData = raceSessions[key as SessionKey];
-          if (!sessionData?.date) return null;
-
-          const dt = new Date(
-            sessionData.time && sessionData.time.endsWith("Z")
-              ? `${sessionData.date}T${sessionData.time}`
-              : `${sessionData.date}T${sessionData.time ?? "12:00:00Z"}`
-          );
-          const sessionPast = dt.getTime() < nowMs;
-
-          return (
-            <div
-              key={key}
-              className={`flex items-center justify-between p-5 transition-all ${
-                sessionPast
-                  ? "bg-surface-container-lowest/50 opacity-50"
-                  : "glass-panel border-l-4 border-primary-container"
-              }`}
-            >
-              <div className="flex items-center gap-4">
-                <span
-                  className={`material-symbols-outlined text-xl ${
-                    sessionPast ? "text-neutral-600" : "text-primary-container"
-                  }`}
-                >
-                  {icon}
-                </span>
-                <div>
-                  <h4 className="font-[family-name:var(--font-headline)] font-bold text-lg uppercase tracking-tight">
-                    {label}
-                  </h4>
-                  <p className="text-neutral-500 text-xs">
-                    {dt.toLocaleDateString(undefined, {
-                      weekday: "short",
-                      month: "short",
-                      day: "2-digit",
-                    })}
-                  </p>
-                </div>
-              </div>
-              <div className="text-right">
-                <p
-                  className={`font-[family-name:var(--font-headline)] font-bold text-xl italic ${
-                    sessionPast ? "text-neutral-600" : "text-primary-container"
-                  }`}
-                >
-                  {dt.toLocaleTimeString(undefined, {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </p>
-                <p className="text-[10px] text-neutral-500 uppercase tracking-widest">
-                  {sessionPast ? "Completed" : "Local Time"}
-                </p>
-              </div>
-            </div>
-          );
-        })}
-
-        {/* Race session itself */}
-        {raceDate && (
-          <div className="flex items-center justify-between p-5 bg-primary-container/10 border-l-4 border-primary-container glass-panel">
-            <div className="flex items-center gap-4">
-              <span className="material-symbols-outlined text-xl text-primary-container">
-                flag
-              </span>
-              <div>
-                <h4 className="font-[family-name:var(--font-headline)] font-bold text-lg uppercase tracking-tight">
-                  Race
-                </h4>
-                <p className="text-neutral-500 text-xs">
-                  {raceDate.toLocaleDateString(undefined, {
-                    weekday: "short",
-                    month: "short",
-                    day: "2-digit",
-                  })}
-                </p>
-              </div>
+      <div className="flex flex-col gap-3">
+        {rows.map((s) => (
+          <div
+            key={s.label}
+            className="flex items-center justify-between px-5 py-4 rounded-2xl border"
+            style={{
+              background: s.isRace
+                ? "rgba(255,90,31,0.1)"
+                : "rgba(40,32,26,0.3)",
+              borderColor: s.isRace
+                ? "rgba(255,90,31,0.4)"
+                : "rgba(255,255,255,0.07)",
+              opacity: s.past ? 0.55 : 1,
+            }}
+          >
+            <div>
+              <h4 className="font-bold text-[15px]">{s.label}</h4>
+              <p className="font-medium text-xs text-warm-500 mt-0.5">
+                {s.dt.toLocaleDateString(undefined, {
+                  weekday: "short",
+                  month: "short",
+                  day: "2-digit",
+                })}
+              </p>
             </div>
             <div className="text-right">
-              <p className="font-[family-name:var(--font-headline)] font-bold text-2xl italic text-primary-container">
-                {raceDate.toLocaleTimeString(undefined, {
+              <p
+                className={`font-[family-name:var(--font-headline)] font-bold text-xl tabular-nums ${
+                  s.isRace ? "text-[#FFAE6A]" : ""
+                }`}
+              >
+                {s.dt.toLocaleTimeString(undefined, {
                   hour: "2-digit",
                   minute: "2-digit",
                 })}
               </p>
-              <p className="text-[10px] text-primary-container uppercase tracking-widest font-bold">
-                Lights Out
+              <p className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500">
+                {s.past ? "Completed" : s.isRace ? "Lights out" : "Local time"}
               </p>
             </div>
           </div>
-        )}
+        ))}
       </div>
+    </div>
+  );
+}
+
+function EmptyState({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="apex-glass-soft rounded-2xl px-6 py-14 text-center">
+      <div className="font-[family-name:var(--font-headline)] font-bold text-xl">
+        {title}
+      </div>
+      <p className="font-medium text-sm text-warm-400 mt-2 max-w-md mx-auto">
+        {body}
+      </p>
     </div>
   );
 }
