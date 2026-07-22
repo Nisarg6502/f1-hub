@@ -104,7 +104,7 @@ export default function CircuitDetailsModal({
             <button
               onClick={onClose}
               aria-label="Close"
-              className="w-[34px] h-[34px] rounded-[10px] bg-[rgba(245,235,222,0.08)] flex items-center justify-center text-warm-200 text-lg hover:bg-[rgba(245,235,222,0.14)] transition-colors flex-none"
+              className="w-[34px] h-[34px] rounded-[10px] bg-[rgba(245,235,222,0.08)] flex items-center justify-center text-warm-200 text-lg hover:bg-[rgba(245,235,222,0.14)] transition-[background-color,transform] duration-150 active:scale-90 flex-none"
             >
               ×
             </button>

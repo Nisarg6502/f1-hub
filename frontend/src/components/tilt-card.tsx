@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { MouseEvent, ReactNode } from "react";
+import type { CSSProperties, MouseEvent, ReactNode } from "react";
 
 interface TiltCardProps {
   href?: string;
@@ -13,6 +13,8 @@ interface TiltCardProps {
   glare?: boolean;
   glareSize?: number;
   ariaLabel?: string;
+  /** merged with the card's own transition style, e.g. for a stagger animationDelay */
+  style?: CSSProperties;
 }
 
 /**
@@ -29,13 +31,19 @@ export default function TiltCard({
   glare = true,
   glareSize = 220,
   ariaLabel,
+  style: styleProp,
 }: TiltCardProps) {
+  // Asymmetric timing, not a single uniform easing: while the cursor is
+  // moving, the tilt should feel tightly coupled to it (fast, linear). On
+  // leave, it settles back to flat with a slower, strong ease-out — the
+  // same "snap to cursor, ease back to rest" feel as Apple's Dynamic Island.
   const onMove = (e: MouseEvent<HTMLElement>) => {
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
     const el = e.currentTarget;
     const r = el.getBoundingClientRect();
     const px = (e.clientX - r.left) / r.width;
     const py = (e.clientY - r.top) / r.height;
+    el.style.transition = "transform 90ms linear";
     el.style.transform = `perspective(1000px) rotateX(${
       -(py - 0.5) * strength
     }deg) rotateY(${(px - 0.5) * strength}deg) translateY(-5px)`;
@@ -46,6 +54,7 @@ export default function TiltCard({
 
   const onLeave = (e: MouseEvent<HTMLElement>) => {
     const el = e.currentTarget;
+    el.style.transition = "transform 500ms var(--ease-out-apex)";
     el.style.transform = "";
     el.style.setProperty("--glare", "0");
   };
@@ -61,7 +70,10 @@ export default function TiltCard({
     />
   ) : null;
 
-  const style = { transition: "transform 0.22s ease" } as const;
+  const style: CSSProperties = {
+    transition: "transform 500ms var(--ease-out-apex)",
+    ...styleProp,
+  };
 
   if (href) {
     return (

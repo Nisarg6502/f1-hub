@@ -63,11 +63,12 @@ export default function CircuitsGallery({
                 detail &&
                 setSelected({ detail, circuitImagePath, flagPath })
               }
-              className={`text-left rounded-2xl overflow-hidden apex-glass-soft transition-all duration-200 ${
+              className={`text-left rounded-2xl overflow-hidden apex-glass-soft transition-[transform,border-color] duration-200 anim-rise ${
                 detail
-                  ? "cursor-pointer hover:-translate-y-1.5 hover:border-[rgba(255,138,61,0.4)]"
+                  ? "cursor-pointer hover:-translate-y-1.5 hover:border-[rgba(255,138,61,0.4)] active:scale-[0.98] active:translate-y-0"
                   : "cursor-default"
               }`}
+              style={{ animationDelay: `${Math.min(idx * 25, 300)}ms` }}
             >
               <div className="h-[3px]" style={{ background: color }} />
               <div className="p-[18px]">

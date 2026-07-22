@@ -60,7 +60,8 @@ export default async function TeamsPage() {
           return (
             <TiltCard
               key={name || idx}
-              className="apex-glass rounded-[20px] overflow-hidden p-[26px] min-h-[200px]"
+              className="apex-glass rounded-[20px] overflow-hidden p-[26px] min-h-[200px] anim-rise"
+              style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }}
               strength={5}
             >
               {/* corner wash + blurred blob */}

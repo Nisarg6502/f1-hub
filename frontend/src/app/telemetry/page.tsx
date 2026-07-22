@@ -147,7 +147,7 @@ export default function TelemetryPage() {
           )}
           <Link
             href="/schedule"
-            className="font-bold text-[11px] uppercase tracking-[0.1em] px-4 py-2 rounded-[10px] apex-glass-soft hover:border-[rgba(255,138,61,0.5)] transition-colors"
+            className="font-bold text-[11px] uppercase tracking-[0.1em] px-4 py-2 rounded-[10px] apex-glass-soft hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
           >
             Schedule
           </Link>

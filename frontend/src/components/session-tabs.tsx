@@ -93,7 +93,7 @@ export default function SessionTabs({
             <button
               key={key}
               onClick={() => setActiveSession(key)}
-              className={`text-xs px-[18px] py-2.5 rounded-[10px] transition-colors ${
+              className={`text-xs px-[18px] py-2.5 rounded-[10px] transition-[background-color,color,transform] duration-150 active:scale-[0.97] ${
                 active
                   ? "font-bold bg-[rgba(255,90,31,0.18)] text-[#FFAE6A]"
                   : "font-semibold text-warm-300 hover:text-on-background"
@@ -306,7 +306,7 @@ function FullResultsTable({ results }: { results: RaceResult[] }) {
         {season && round && (
           <Link
             href={`/schedule/${season}/${round}/pitwall`}
-            className="font-bold text-[11px] tracking-[0.08em] uppercase px-4 py-2 rounded-[10px] bg-[rgba(255,90,31,0.16)] text-[#FFAE6A] hover:bg-[rgba(255,90,31,0.24)] transition-colors active:scale-95"
+            className="font-bold text-[11px] tracking-[0.08em] uppercase px-4 py-2 rounded-[10px] bg-[rgba(255,90,31,0.16)] text-[#FFAE6A] hover:bg-[rgba(255,90,31,0.24)] transition-[background-color,transform] duration-150 active:scale-95"
           >
             Pitwall analysis
           </Link>

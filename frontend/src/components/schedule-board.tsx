@@ -84,7 +84,7 @@ export default function ScheduleBoard({
               <button
                 key={key}
                 onClick={() => setPhase(key)}
-                className={`flex-1 text-center text-xs py-2.5 rounded-[9px] transition-colors ${
+                className={`flex-1 text-center text-xs py-2.5 rounded-[9px] transition-[background-color,color,transform] duration-150 active:scale-[0.97] ${
                   phase === key
                     ? "font-bold bg-[rgba(255,90,31,0.18)] text-[#FFAE6A]"
                     : "font-semibold text-warm-300 hover:text-on-background"
@@ -135,13 +135,13 @@ export default function ScheduleBoard({
                 : "No upcoming rounds."}
             </div>
           )}
-          {shown.map((r) => {
+          {shown.map((r, i) => {
             const badge = badgeFor(r);
             return (
               <Link
                 key={`${r.round}-${r.name}`}
                 href={`/schedule/${r.season}/${r.round}`}
-                className="grid grid-cols-[84px_1fr_auto] sm:grid-cols-[96px_40px_1fr_auto] gap-3 sm:gap-5 items-center px-4 sm:px-[22px] py-5 rounded-2xl border transition-colors hover:border-[rgba(255,138,61,0.4)]"
+                className="grid grid-cols-[84px_1fr_auto] sm:grid-cols-[96px_40px_1fr_auto] gap-3 sm:gap-5 items-center px-4 sm:px-[22px] py-5 rounded-2xl border transition-[border-color,background-color,transform] duration-150 hover:border-[rgba(255,138,61,0.4)] active:scale-[0.99] anim-rise"
                 style={{
                   background:
                     r.status === "next"
@@ -153,8 +153,11 @@ export default function ScheduleBoard({
                     r.status === "next"
                       ? "rgba(255,90,31,0.45)"
                       : "rgba(255,255,255,0.07)",
-                  opacity: r.status === "completed" ? 0.62 : 1,
-                }}
+                  // riseIn's "to" keyframe reads this instead of a hardcoded 1,
+                  // so completed rows settle at their dimmed opacity.
+                  ["--rise-opacity" as string]: r.status === "completed" ? 0.62 : 1,
+                  animationDelay: `${Math.min(i * 30, 300)}ms`,
+                } as React.CSSProperties}
               >
                 <div>
                   <div className="font-semibold text-[10px] tracking-[0.08em] uppercase text-warm-500">

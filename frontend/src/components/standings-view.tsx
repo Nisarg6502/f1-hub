@@ -42,7 +42,7 @@ export default function StandingsView({
             <button
               key={key}
               onClick={() => setTab(key)}
-              className={`text-xs px-5 py-[9px] rounded-lg transition-colors ${
+              className={`text-xs px-5 py-[9px] rounded-lg transition-[background-color,color,transform] duration-150 active:scale-[0.97] ${
                 tab === key
                   ? "font-bold bg-[rgba(255,90,31,0.18)] text-[#FFAE6A]"
                   : "font-semibold text-warm-300 hover:text-on-background"
@@ -69,7 +69,7 @@ export default function StandingsView({
               return (
                 <div
                   key={name || i}
-                  className="grid grid-cols-[40px_1fr_auto] sm:grid-cols-[44px_1fr_70px_90px] gap-3 sm:gap-4 items-center px-4 sm:px-5 py-[14px] rounded-[14px] border transition-colors"
+                  className="grid grid-cols-[40px_1fr_auto] sm:grid-cols-[44px_1fr_70px_90px] gap-3 sm:gap-4 items-center px-4 sm:px-5 py-[14px] rounded-[14px] border transition-colors anim-rise"
                   style={{
                     background: leader
                       ? "rgba(255,90,31,0.12)"
@@ -77,6 +77,7 @@ export default function StandingsView({
                     borderColor: leader
                       ? "rgba(255,90,31,0.4)"
                       : "rgba(255,255,255,0.07)",
+                    animationDelay: `${Math.min(i * 30, 300)}ms`,
                   }}
                 >
                   <span
@@ -179,7 +180,7 @@ export default function StandingsView({
             return (
               <div
                 key={name || i}
-                className="relative px-5 sm:px-6 py-5 rounded-2xl overflow-hidden border"
+                className="relative px-5 sm:px-6 py-5 rounded-2xl overflow-hidden border anim-rise"
                 style={{
                   background: leader
                     ? "rgba(255,90,31,0.1)"
@@ -187,6 +188,7 @@ export default function StandingsView({
                   borderColor: leader
                     ? "rgba(255,90,31,0.35)"
                     : "rgba(255,255,255,0.07)",
+                  animationDelay: `${Math.min(i * 30, 300)}ms`,
                 }}
               >
                 <div className="grid grid-cols-[40px_1fr_auto] sm:grid-cols-[44px_1fr_80px_100px] gap-3 sm:gap-4 items-center">
