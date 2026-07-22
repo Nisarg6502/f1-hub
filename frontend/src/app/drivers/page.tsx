@@ -57,7 +57,8 @@ export default async function DriversPage() {
           return (
             <TiltCard
               key={`${given} ${family}` || idx}
-              className="apex-glass rounded-[18px] overflow-hidden p-5 min-h-[280px]"
+              className="apex-glass rounded-[18px] overflow-hidden p-5 min-h-[280px] anim-rise"
+              style={{ animationDelay: `${Math.min(idx * 25, 300)}ms` }}
               strength={6}
             >
               {/* team accent */}

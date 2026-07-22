@@ -63,7 +63,7 @@ export default async function PitwallPage({ params }: PageProps) {
         </div>
         <Link
           href={`/schedule/${season}/${round}`}
-          className="font-bold text-xs px-5 h-[46px] rounded-[11px] apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-colors active:scale-95"
+          className="font-bold text-xs px-5 h-[46px] rounded-[11px] apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
         >
           ← Back to race
         </Link>

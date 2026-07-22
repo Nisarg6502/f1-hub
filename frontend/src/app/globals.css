@@ -67,7 +67,7 @@
   --font-label: "Hanken Grotesk", system-ui, sans-serif;
 
   /* Motion */
-  --ease-out-apex: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-out-apex: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-modal: cubic-bezier(0.2, 0.9, 0.2, 1);
 }
 
@@ -185,7 +185,10 @@ input::placeholder {
     transform: translateY(20px) scale(0.985);
   }
   to {
-    opacity: 1;
+    /* Defaults to fully opaque; elements that rest at a dimmed opacity
+       (e.g. completed schedule rows) set --rise-opacity so the animation's
+       fill-forwards end state doesn't clobber it back to 1. */
+    opacity: var(--rise-opacity, 1);
     transform: none;
   }
 }
