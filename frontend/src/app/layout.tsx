@@ -1,35 +1,28 @@
 import type { Metadata } from "next";
-import { Space_Grotesk, Manrope, Inter } from "next/font/google";
+import { Bricolage_Grotesque, Hanken_Grotesk } from "next/font/google";
 import Link from "next/link";
 import NavLinks, { MobileNav } from "@/components/nav-links";
-import LiveStatusButton from "@/components/live-status-button";
 import "./globals.css";
 
-const spaceGrotesk = Space_Grotesk({
+const bricolage = Bricolage_Grotesque({
   subsets: ["latin"],
   variable: "--font-headline",
-  weight: ["300", "400", "500", "600", "700"],
+  weight: ["600", "700", "800"],
+  display: "swap",
 });
 
-const manrope = Manrope({
+const hanken = Hanken_Grotesk({
   subsets: ["latin"],
   variable: "--font-body",
-  weight: ["200", "300", "400", "500", "600", "700", "800"],
-});
-
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-label",
-  weight: ["100", "200", "300", "400", "500", "600", "700", "800", "900"],
+  weight: ["400", "500", "600", "700", "800"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "KINETIC VELOCITY | F1 Hub",
+  title: "APEX | 2026 F1 Season Hub",
   description:
-    "The ultimate telemetry and driver insights hub for high-performance motorsports enthusiasts.",
+    "APEX — a warm, high-clarity home for the 2026 Formula 1 season: schedule, standings, drivers, teams and circuits.",
 };
-
-
 
 export default function RootLayout({
   children,
@@ -45,111 +38,119 @@ export default function RootLayout({
         />
       </head>
       <body
-        className={`${spaceGrotesk.variable} ${manrope.variable} ${inter.variable} bg-background text-on-background font-[family-name:var(--font-body)] antialiased`}
+        className={`${bricolage.variable} ${hanken.variable} bg-background text-on-background font-[family-name:var(--font-body)] antialiased`}
       >
+        {/* Liquid-glass displacement filters referenced by .apex-glass* via url(#liquid) */}
+        <svg
+          width="0"
+          height="0"
+          style={{ position: "absolute" }}
+          aria-hidden="true"
+        >
+          <defs>
+            <filter id="liquid" x="0%" y="0%" width="100%" height="100%">
+              <feTurbulence
+                type="fractalNoise"
+                baseFrequency="0.009 0.013"
+                numOctaves={2}
+                seed={12}
+                result="n"
+              />
+              <feGaussianBlur in="n" stdDeviation="1.1" result="nb" />
+              <feDisplacementMap
+                in="SourceGraphic"
+                in2="nb"
+                scale={15}
+                xChannelSelector="R"
+                yChannelSelector="G"
+              />
+            </filter>
+            <filter id="liquidStrong" x="0%" y="0%" width="100%" height="100%">
+              <feTurbulence
+                type="fractalNoise"
+                baseFrequency="0.011 0.015"
+                numOctaves={2}
+                seed={4}
+                result="n"
+              />
+              <feGaussianBlur in="n" stdDeviation="1.3" result="nb" />
+              <feDisplacementMap
+                in="SourceGraphic"
+                in2="nb"
+                scale={22}
+                xChannelSelector="R"
+                yChannelSelector="G"
+              />
+            </filter>
+          </defs>
+        </svg>
+
+        {/* Ambient warmth — fixed behind everything */}
+        <div
+          className="fixed inset-0 z-0 pointer-events-none overflow-hidden"
+          aria-hidden="true"
+        >
+          <div className="absolute -top-[6%] left-[4%] w-[52vw] h-[52vw] rounded-full blur-[10px] bg-[radial-gradient(circle,rgba(255,90,31,0.13),transparent_60%)]" />
+          <div className="absolute -bottom-[14%] -right-[4%] w-[48vw] h-[48vw] rounded-full blur-[12px] bg-[radial-gradient(circle,rgba(226,58,14,0.10),transparent_62%)]" />
+          <div className="absolute top-[44%] left-[38%] w-[40vw] h-[40vw] rounded-full blur-[14px] bg-[radial-gradient(circle,rgba(255,138,61,0.07),transparent_64%)]" />
+        </div>
+
         {/* Top Navigation Bar */}
-        <nav className="fixed top-0 w-full z-50 bg-neutral-950/80 backdrop-blur-xl shadow-[0_0_15px_rgba(0,242,255,0.1)]">
-          <div className="flex justify-between items-center w-full px-8 py-4 max-w-[1920px] mx-auto">
-            <Link
-              href="/"
-              className="text-2xl font-black italic tracking-tighter text-cyan-400 skew-x-[-10deg] font-[family-name:var(--font-headline)]"
-            >
-              KINETIC VELOCITY
-            </Link>
-
-            <div className="hidden md:flex items-center gap-8 font-[family-name:var(--font-label)] text-xs uppercase tracking-widest">
-              <NavLinks />
-            </div>
-
-            <div className="flex items-center gap-4">
-              <div className="hidden lg:flex items-center bg-surface-container px-4 py-2 border border-outline-variant/30">
-                <span className="material-symbols-outlined text-outline text-sm mr-2">
-                  search
+        <nav className="sticky top-0 z-50 bg-[rgba(18,15,12,0.55)] backdrop-blur-[16px] backdrop-saturate-150 border-b border-white/[0.08] shadow-[0_1px_0_rgba(255,255,255,0.06)_inset,0_10px_40px_rgba(0,0,0,0.4)]">
+          <div className="max-w-[1440px] mx-auto flex items-center justify-between px-6 md:px-10 py-[15px]">
+            <div className="flex items-center gap-8 md:gap-12">
+              <Link href="/" className="flex items-center gap-[11px]">
+                <span className="w-[9px] h-[9px] rounded-full bg-[#FF5A1F] shadow-[0_0_14px_rgba(255,90,31,0.9)]" />
+                <span className="font-[family-name:var(--font-headline)] font-extrabold text-[21px] tracking-[-0.5px]">
+                  APEX
                 </span>
+              </Link>
+              <div className="hidden md:flex items-center gap-[30px] font-[family-name:var(--font-body)] font-semibold text-[13px]">
+                <NavLinks />
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="hidden lg:flex items-center gap-[9px] bg-[rgba(245,235,222,0.06)] backdrop-blur-[10px] border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] rounded-xl px-[14px] py-[9px] w-[208px]">
+                <span className="w-3 h-3 border-[1.5px] border-[#8f867a] rounded-full inline-block flex-none" />
                 <input
-                  className="bg-transparent border-none focus:ring-0 focus:outline-none text-[10px] tracking-tighter w-40 font-[family-name:var(--font-label)] uppercase text-on-surface placeholder:text-outline"
-                  placeholder="SEARCH TELEMETRY"
+                  className="flex-1 min-w-0 bg-transparent border-none outline-none font-medium text-xs text-on-background placeholder:text-warm-500"
+                  placeholder="Search drivers, tracks…"
+                  aria-label="Search"
                   type="text"
                 />
               </div>
-              <LiveStatusButton />
+              <div className="font-semibold text-xs text-warm-300">
+                Season <span className="text-on-background">2026</span>
+              </div>
             </div>
           </div>
         </nav>
 
         {/* Main Content */}
-        <main className="pt-24 pb-12 min-h-screen">{children}</main>
+        <main className="relative z-10 min-h-screen max-w-[1440px] mx-auto pb-24 md:pb-12">
+          {children}
+        </main>
 
         {/* Footer */}
-        <footer className="w-full border-t border-neutral-800 bg-neutral-950">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8 px-12 py-16 w-full max-w-[1920px] mx-auto">
-            <div className="col-span-1">
-              <div className="text-lg font-bold text-neutral-500 font-[family-name:var(--font-headline)] italic uppercase tracking-tighter mb-4">
-                KINETIC VELOCITY
-              </div>
-              <p className="text-[10px] font-[family-name:var(--font-label)] text-neutral-600 tracking-widest uppercase leading-relaxed">
-                The ultimate destination for high-speed telemetry and race
-                analysis. Fast as light, precise as engineering.
-              </p>
+        <footer className="relative z-10 border-t border-white/[0.07]">
+          <div className="max-w-[1440px] mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-6 md:px-10 py-7">
+            <div className="flex items-center gap-[10px]">
+              <span className="w-2 h-2 rounded-full bg-[#FF5A1F]" />
+              <span className="font-[family-name:var(--font-headline)] font-extrabold text-[15px]">
+                APEX
+              </span>
+              <span className="font-medium text-xs text-warm-500">
+                · 2026 F1 season hub
+              </span>
             </div>
-            <div className="flex flex-col gap-4">
-              <h4 className="text-cyan-400 font-[family-name:var(--font-label)] text-xs uppercase tracking-widest font-bold">
-                PLATFORM
-              </h4>
-              <a
-                className="text-neutral-600 text-xs uppercase tracking-widest hover:text-cyan-400 transition-colors"
-                href="#"
-              >
-                Privacy Policy
-              </a>
-              <a
-                className="text-neutral-600 text-xs uppercase tracking-widest hover:text-cyan-400 transition-colors"
-                href="#"
-              >
-                Terms of Service
-              </a>
-            </div>
-            <div className="flex flex-col gap-4">
-              <h4 className="text-cyan-400 font-[family-name:var(--font-label)] text-xs uppercase tracking-widest font-bold">
-                RESOURCES
-              </h4>
-              <a
-                className="text-neutral-600 text-xs uppercase tracking-widest hover:text-cyan-400 transition-colors"
-                href="#"
-              >
-                Press Kit
-              </a>
-              <a
-                className="text-neutral-600 text-xs uppercase tracking-widest hover:text-cyan-400 transition-colors"
-                href="#"
-              >
-                Contact
-              </a>
-            </div>
-            <div className="flex flex-col gap-4">
-              <h4 className="text-cyan-400 font-[family-name:var(--font-label)] text-xs uppercase tracking-widest font-bold">
-                CONNECT
-              </h4>
-              <div className="flex gap-4">
-                <span className="material-symbols-outlined text-neutral-600 hover:text-cyan-400 cursor-pointer">
-                  rss_feed
-                </span>
-                <span className="material-symbols-outlined text-neutral-600 hover:text-cyan-400 cursor-pointer">
-                  share
-                </span>
-                <span className="material-symbols-outlined text-neutral-600 hover:text-cyan-400 cursor-pointer">
-                  monitoring
-                </span>
-              </div>
-              <p className="text-[10px] font-[family-name:var(--font-label)] text-neutral-700 tracking-widest uppercase mt-2">
-                © 2025 KINETIC VELOCITY. FAST AS LIGHT.
-              </p>
-            </div>
+            <span className="font-medium text-xs text-warm-500">
+              Concept prototype · not affiliated with Formula 1
+            </span>
           </div>
         </footer>
 
         {/* Mobile Bottom Nav */}
-        <div className="md:hidden fixed bottom-0 left-0 w-full z-50 bg-neutral-950/90 backdrop-blur-xl px-6 py-4 flex justify-between items-center">
+        <div className="md:hidden fixed bottom-0 left-0 w-full z-50 bg-[rgba(18,15,12,0.85)] backdrop-blur-xl border-t border-white/[0.08] px-6 py-3 flex justify-between items-center">
           <MobileNav />
         </div>
       </body>

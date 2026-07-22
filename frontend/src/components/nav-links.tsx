@@ -27,10 +27,10 @@ export default function NavLinks() {
           <Link
             key={item.href}
             href={item.href}
-            className={`transition-colors duration-300 ${
+            className={`transition-colors duration-200 ${
               isActive
-                ? "text-cyan-400 border-b-2 border-cyan-400 pb-1"
-                : "text-neutral-400 hover:text-neutral-100"
+                ? "text-on-background"
+                : "text-warm-400 hover:text-on-background"
             }`}
           >
             {item.label}
@@ -46,9 +46,10 @@ export function MobileNav() {
 
   const mobileItems = [
     { href: "/", icon: "home", label: "Home" },
-    { href: "/schedule", icon: "schedule", label: "Schedule" },
+    { href: "/schedule", icon: "event", label: "Schedule" },
     { href: "/standings", icon: "leaderboard", label: "Standings" },
-    { href: "/teams", icon: "group", label: "Teams" },
+    { href: "/drivers", icon: "groups", label: "Drivers" },
+    { href: "/circuits", icon: "route", label: "Circuits" },
   ];
 
   return (
@@ -63,12 +64,14 @@ export function MobileNav() {
           <Link
             key={item.href}
             href={item.href}
-            className={`flex flex-col items-center ${
-              isActive ? "text-cyan-400" : "text-neutral-500"
+            className={`flex flex-col items-center gap-1 transition-colors ${
+              isActive ? "text-[#FFAE6A]" : "text-warm-500"
             }`}
           >
-            <span className="material-symbols-outlined">{item.icon}</span>
-            <span className="text-[8px] font-[family-name:var(--font-label)] tracking-widest uppercase mt-1">
+            <span className="material-symbols-outlined text-[22px]">
+              {item.icon}
+            </span>
+            <span className="text-[9px] font-semibold tracking-[0.12em] uppercase">
               {item.label}
             </span>
           </Link>

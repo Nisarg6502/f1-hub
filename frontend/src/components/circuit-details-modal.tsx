@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Image from "next/image";
 import { type CircuitDetail } from "@/lib/api";
+import TrackMap from "./track-map";
+import FlagImg from "./flag-img";
 
 interface CircuitDetailsModalProps {
   circuit: CircuitDetail;
@@ -19,7 +20,6 @@ export default function CircuitDetailsModal({
   isOpen,
   onClose,
 }: CircuitDetailsModalProps) {
-  // Mount at the closed state for one frame so the open transition animates.
   const [entered, setEntered] = useState(false);
 
   useEffect(() => {
@@ -27,13 +27,12 @@ export default function CircuitDetailsModal({
     return () => cancelAnimationFrame(id);
   }, []);
 
-  // Handle escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     if (isOpen) {
-      document.body.style.overflow = "hidden"; // Prevent background scrolling
+      document.body.style.overflow = "hidden";
       window.addEventListener("keydown", handleKeyDown);
     } else {
       document.body.style.overflow = "auto";
@@ -50,142 +49,109 @@ export default function CircuitDetailsModal({
   // Only render the stats this circuit actually has data for. A zero here means
   // "not reported" rather than a real measurement, so it is treated as absent.
   const stats = [
-    { label: "First Grand Prix", icon: "calendar_today", value: info?.first_grand_prix },
-    { label: "Number of Laps", icon: "change_history", value: info?.number_of_laps },
-    { label: "Corners", icon: "turn_right", value: info?.number_of_corners },
-  ].filter((stat): stat is { label: string; icon: string; value: string | number } =>
-    Boolean(stat.value)
+    { label: "Laps", value: info?.number_of_laps },
+    { label: "Corners", value: info?.number_of_corners },
+    { label: "First GP", value: info?.first_grand_prix },
+  ].filter(
+    (s): s is { label: string; value: string | number } => Boolean(s.value)
   );
 
   return (
-    <>
-      {/* Backdrop */}
+    <div
+      onClick={onClose}
+      className={`fixed inset-0 z-[80] flex items-center justify-center p-5 md:p-10 bg-[rgba(6,5,4,0.6)] backdrop-blur-[6px] transition-opacity duration-200 ${
+        visible ? "opacity-100" : "opacity-0 pointer-events-none"
+      }`}
+    >
       <div
-        className={`fixed inset-0 z-50 bg-background/80 backdrop-blur-sm transition-all duration-500 ${
-          visible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        onClick={(e) => e.stopPropagation()}
+        className={`relative w-[560px] max-w-full max-h-full overflow-y-auto rounded-[24px] apex-glass-strong apex-sheen transition-all duration-300 ease-[cubic-bezier(0.2,0.9,0.2,1)] ${
+          visible
+            ? "opacity-100 scale-100 translate-y-0"
+            : "opacity-0 scale-95 translate-y-6"
         }`}
-        onClick={onClose}
-      />
-
-      {/* Modal Container */}
-      <div
-        className={`fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 md:p-12 pointer-events-none`}
       >
         <div
-          className={`relative w-full max-w-6xl max-h-full bg-surface-container-low border border-outline-variant overflow-y-auto overflow-x-hidden pointer-events-auto transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] shadow-[0_0_100px_rgba(0,0,0,0.5)] ${
-            visible
-              ? "opacity-100 scale-100 translate-y-0"
-              : "opacity-0 scale-95 translate-y-8"
-          }`}
-        >
-          {/* Close button */}
-          <button
-            onClick={onClose}
-            className="absolute top-6 right-6 z-20 w-10 h-10 bg-surface-container flex items-center justify-center rounded-full hover:bg-primary-container hover:text-on-primary-container transition-colors group"
-          >
-            <span className="material-symbols-outlined group-hover:rotate-90 transition-transform duration-300">
-              close
-            </span>
-          </button>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 min-h-[600px]">
-            {/* Left Column: Visuals & Header */}
-            <div className="relative p-8 lg:p-12 bg-gradient-to-br from-surface-container-low to-[#09090b] flex flex-col justify-between border-r border-outline-variant/30">
-              {/* Background Glow */}
-              <div className="absolute inset-0 bg-primary-container/5 blur-[100px] pointer-events-none" />
-
-              <div className="relative z-10 mb-12">
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="w-12 h-8 bg-neutral-800 flex items-center justify-center overflow-hidden border border-outline-variant">
-                    {flagPath ? (
-                      <Image
-                        src={flagPath}
-                        alt={circuit.country}
-                        width={48}
-                        height={32}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <span className="material-symbols-outlined text-neutral-500">
-                        flag
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-primary-container font-[family-name:var(--font-label)] font-bold tracking-[0.2em] uppercase text-xs">
-                    Round {circuit.round} · {circuit.country}
-                  </span>
-                </div>
-                
-                <h2 className="text-4xl lg:text-6xl font-black font-[family-name:var(--font-headline)] skew-heading italic uppercase tracking-tighter leading-none mb-2">
-                  {circuit.circuit_name}
-                </h2>
-                <p className="text-neutral-400 font-[family-name:var(--font-label)] tracking-widest text-sm uppercase">
-                  {circuit.grand_prix}
-                </p>
-              </div>
-
-              {/* Track Layout Visualization */}
-              <div className="relative flex-1 flex items-center justify-center min-h-[300px] w-full">
-                {circuitImagePath ? (
-                  <Image
-                    src={circuitImagePath}
-                    alt={`${circuit.circuit_name} layout`}
-                    fill
-                    className="object-contain drop-shadow-[0_0_30px_rgba(255,255,255,0.1)] opacity-90 invert brightness-0 dark:invert-0 dark:brightness-100"
-                  />
-                ) : (
-                  <span className="material-symbols-outlined text-[200px] text-neutral-800">
-                    route
+          className="h-[5px]"
+          style={{ background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)" }}
+        />
+        <div className="relative p-[30px]">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2.5 mb-2">
+                {flagPath && (
+                  <span className="w-[26px] h-[18px] rounded overflow-hidden flex-none">
+                    <FlagImg
+                      src={flagPath}
+                      alt={circuit.country}
+                      width={26}
+                      height={18}
+                      className="object-cover w-full h-full"
+                    />
                   </span>
                 )}
+                <span className="font-bold text-[10px] tracking-[0.12em] uppercase text-[#FF7A3D]">
+                  Round {circuit.round} · {circuit.country}
+                </span>
+              </div>
+              <div className="font-[family-name:var(--font-headline)] font-extrabold text-2xl md:text-[30px] tracking-[-0.5px] leading-[1.02]">
+                {circuit.circuit_name}
+              </div>
+              <div className="font-semibold text-xs text-warm-400 mt-1">
+                {circuit.grand_prix}
               </div>
             </div>
-
-            {/* Right Column: Track Data */}
-            <div className="p-8 lg:p-12 bg-surface-container-lowest flex flex-col justify-center">
-              <h3 className="text-2xl font-black font-[family-name:var(--font-headline)] skew-heading italic uppercase tracking-tighter text-outline mb-8 border-b border-outline-variant pb-4">
-                Track DNA
-              </h3>
-
-              <div className="grid grid-cols-2 gap-x-8 gap-y-10">
-                {stats.map((stat) => (
-                  <div key={stat.label} className="group">
-                    <p className="text-[10px] text-outline font-[family-name:var(--font-label)] uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
-                      <span className="material-symbols-outlined text-[14px] text-primary-container">
-                        {stat.icon}
-                      </span>
-                      {stat.label}
-                    </p>
-                    <p className="text-3xl font-black font-[family-name:var(--font-headline)] skew-heading italic text-on-surface">
-                      {stat.value}
-                    </p>
-                  </div>
-                ))}
-
-                {info?.lap_record && (
-                  <div className="col-span-2 group mt-4 bg-surface-container-low p-6 border-l-2 border-primary-container">
-                    <p className="text-[10px] text-outline font-[family-name:var(--font-label)] uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
-                      <span className="material-symbols-outlined text-[14px] text-primary-container">
-                        timer
-                      </span>
-                      Fastest Lap
-                    </p>
-                    <p className="text-2xl lg:text-3xl font-black font-[family-name:var(--font-headline)] skew-heading italic text-on-surface">
-                      {info.lap_record}
-                    </p>
-                  </div>
-                )}
-
-                {stats.length === 0 && !info?.lap_record && (
-                  <p className="col-span-2 text-sm text-neutral-500">
-                    No track data recorded for this circuit yet.
-                  </p>
-                )}
-              </div>
-            </div>
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="w-[34px] h-[34px] rounded-[10px] bg-[rgba(245,235,222,0.08)] flex items-center justify-center text-warm-200 text-lg hover:bg-[rgba(245,235,222,0.14)] transition-colors flex-none"
+            >
+              ×
+            </button>
           </div>
+
+          <TrackMap
+            src={circuitImagePath}
+            alt={`${circuit.circuit_name} layout`}
+            containerClassName="my-[22px] h-[150px] rounded-[14px]"
+            imgClassName="object-contain p-4 opacity-85"
+            labelClassName="font-semibold text-[10px] tracking-[0.16em] text-warm-600"
+            sizes="(max-width: 768px) 90vw, 520px"
+          />
+
+          {stats.length > 0 || info?.lap_record ? (
+            <div className="grid grid-cols-3 gap-3">
+              {stats.map((s) => (
+                <div
+                  key={s.label}
+                  className="bg-[rgba(245,235,222,0.05)] rounded-xl px-3.5 py-3.5"
+                >
+                  <div className="font-semibold text-[9px] tracking-[0.1em] uppercase text-warm-500">
+                    {s.label}
+                  </div>
+                  <div className="font-extrabold text-xl tabular-nums mt-1">
+                    {s.value}
+                  </div>
+                </div>
+              ))}
+              {info?.lap_record && (
+                <div className="bg-[rgba(245,235,222,0.05)] rounded-xl px-3.5 py-3.5">
+                  <div className="font-semibold text-[9px] tracking-[0.1em] uppercase text-warm-500">
+                    Lap record
+                  </div>
+                  <div className="font-extrabold text-[15px] tabular-nums mt-1.5 text-[#FFAE6A]">
+                    {info.lap_record}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="font-medium text-sm text-warm-400">
+              No track data recorded for this circuit yet.
+            </p>
+          )}
         </div>
       </div>
-    </>
+    </div>
   );
 }

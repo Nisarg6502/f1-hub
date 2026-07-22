@@ -9,7 +9,11 @@ interface RaceSelectorProps {
   seasonYear: number;
 }
 
-export default function RaceSelector({ races, currentRound, seasonYear }: RaceSelectorProps) {
+export default function RaceSelector({
+  races,
+  currentRound,
+  seasonYear,
+}: RaceSelectorProps) {
   const router = useRouter();
 
   const handleSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -20,26 +24,22 @@ export default function RaceSelector({ races, currentRound, seasonYear }: RaceSe
   };
 
   return (
-    <div className="flex flex-col gap-2">
-      <label className="font-[family-name:var(--font-label)] text-[10px] uppercase tracking-[0.2em] text-primary-container font-bold">
-        Select Grand Prix
-      </label>
-      <div className="relative">
-        <select
-          value={currentRound}
-          onChange={handleSelect}
-          className="appearance-none bg-surface-container-low text-on-surface font-[family-name:var(--font-headline)] font-bold text-lg uppercase tracking-tight py-3 pl-4 pr-12 border-l-4 border-primary-container outline-none focus:ring-2 focus:ring-primary-container/50 hover:bg-surface-container transition-colors cursor-pointer w-full md:w-64"
-        >
-          {races.map((race) => (
-            <option key={race.round} value={race.round}>
-              {race.raceName.replace(" Grand Prix", "").toUpperCase()}
-            </option>
-          ))}
-        </select>
-        <span className="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 text-primary-container pointer-events-none">
-          keyboard_arrow_down
-        </span>
-      </div>
+    <div className="relative">
+      <select
+        value={currentRound}
+        onChange={handleSelect}
+        aria-label="Select Grand Prix"
+        className="appearance-none apex-glass-soft rounded-[11px] text-on-background font-bold text-sm py-[13px] pl-4 pr-11 outline-none focus:border-[rgba(255,138,61,0.5)] transition-colors cursor-pointer w-full md:w-60"
+      >
+        {races.map((race) => (
+          <option key={race.round} value={race.round} className="bg-[#14110e]">
+            {race.raceName.replace(" Grand Prix", "")}
+          </option>
+        ))}
+      </select>
+      <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-[#FFAE6A] pointer-events-none text-xl">
+        keyboard_arrow_down
+      </span>
     </div>
   );
 }

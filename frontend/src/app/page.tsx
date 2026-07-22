@@ -7,101 +7,76 @@ import {
   getRaceResults,
 } from "@/lib/api";
 import CountdownTimer from "@/components/countdown-timer";
-import SessionCountdownCards from "@/components/session-countdown-cards";
+import HeroFX from "@/components/hero-fx";
+import TiltCard from "@/components/tilt-card";
+import TrackMap from "@/components/track-map";
 import LocalDateTime from "@/components/local-datetime";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { getCircuitImagePath } from "@/lib/circuit-images";
-import {
-  buildRaceSessionTimeline,
-  getNextSession,
-} from "@/lib/sessions";
+import { getTeamColor } from "@/lib/team-colors";
+import { buildRaceSessionTimeline, getUpcomingSessions } from "@/lib/sessions";
 
-// Rendered per request. This page picks the next race by comparing the schedule
-// against the current time, so a prerender goes stale the moment its target
-// race is run — and on Cloud Run a cold container serves the build-time HTML,
-// which is how the countdown ends up frozen at zero.
+// Rendered per request: the "next race" and "latest winner" depend on the
+// current time, so a prerender goes stale the moment a race is run.
 export const dynamic = "force-dynamic";
+
+function parseRaceMs(date?: string, time?: string): number | null {
+  if (!date) return null;
+  const baseTime = time ?? "12:00:00Z";
+  const iso = baseTime.endsWith("Z") ? `${date}T${baseTime}` : `${date}T${baseTime}Z`;
+  const ts = new Date(iso).getTime();
+  return Number.isNaN(ts) ? null : ts;
+}
 
 export default async function Home() {
   const seasonYear = getActiveSeasonYear();
+  const nowMs = Date.now();
 
   let races: Awaited<ReturnType<typeof getSeasonRaces>>["races"] = [];
-  let driverStandings: Awaited<ReturnType<typeof getDriverStandings>>["driver_standings"] = [];
+  let driverStandings: Awaited<
+    ReturnType<typeof getDriverStandings>
+  >["driver_standings"] = [];
 
   try {
-    const [racesRes, driverStandingsRes] =
-      await Promise.all([
-        getSeasonRaces(seasonYear),
-        getDriverStandings(seasonYear),
-      ]);
-
+    const [racesRes, driverStandingsRes] = await Promise.all([
+      getSeasonRaces(seasonYear),
+      getDriverStandings(seasonYear),
+    ]);
     races = racesRes.races ?? [];
     driverStandings = driverStandingsRes.driver_standings ?? [];
   } catch {
-    // Backend is offline — render with empty data
+    // Backend offline — render with empty data
   }
 
-  // Find next upcoming race
-  const now = new Date();
-  const upcoming = races
-    .map((race) => {
-      if (!race.date) return null;
-      const baseTime = race.time ?? "12:00:00Z";
-      const iso = baseTime.endsWith("Z")
-        ? `${race.date}T${baseTime}`
-        : `${race.date}T${baseTime}Z`;
-      const parsed = new Date(iso);
-      const ts = parsed.getTime();
-      if (Number.isNaN(ts)) return null;
-      return { race, timestamp: ts };
-    })
-    .filter(
-      (
-        r
-      ): r is {
-        race: (typeof races)[number];
-        timestamp: number;
-      } => !!r
-    )
-    .filter((r) => r.timestamp > now.getTime())
-    .sort((a, b) => a.timestamp - b.timestamp)[0]?.race;
+  const withTs = races
+    .map((race) => ({ race, ts: parseRaceMs(race.date, race.time) }))
+    .filter((r): r is { race: (typeof races)[number]; ts: number } => r.ts !== null);
 
-  const nextRace = upcoming ?? races.find((r) => r.date) ?? races.at(-1);
+  const nextRace =
+    withTs
+      .filter((r) => r.ts > nowMs)
+      .sort((a, b) => a.ts - b.ts)[0]?.race ??
+    races.find((r) => r.date) ??
+    races.at(-1);
 
-  // Find the latest completed race for "Latest Race Winner"
-  const completedRaces = races
-    .map((race) => {
-      if (!race.date) return null;
-      const baseTime = race.time ?? "12:00:00Z";
-      const iso = baseTime.endsWith("Z")
-        ? `${race.date}T${baseTime}`
-        : `${race.date}T${baseTime}Z`;
-      const parsed = new Date(iso);
-      const ts = parsed.getTime();
-      if (Number.isNaN(ts)) return null;
-      return { race, timestamp: ts };
-    })
-    .filter(
-      (
-        r
-      ): r is {
-        race: (typeof races)[number];
-        timestamp: number;
-      } => !!r
-    )
-    .filter((r) => r.timestamp <= now.getTime())
-    .sort((a, b) => b.timestamp - a.timestamp);
+  const completed = withTs
+    .filter((r) => r.ts <= nowMs)
+    .sort((a, b) => b.ts - a.ts);
+  const latestCompletedRace = completed[0]?.race;
 
-  const latestCompletedRace = completedRaces[0]?.race;
-
-  // Try to get the latest race results
-  let latestWinner: { name: string; team: string; raceName: string; time: string; givenName: string; familyName: string } | null = null;
+  let latestWinner: {
+    name: string;
+    team: string;
+    raceName: string;
+    time: string;
+    givenName: string;
+    familyName: string;
+  } | null = null;
   if (latestCompletedRace) {
     try {
       const res = await getRaceResults(seasonYear, Number(latestCompletedRace.round));
-      const results = res.results ?? [];
-      if (results.length > 0) {
-        const winner = results[0];
+      const winner = (res.results ?? [])[0];
+      if (winner) {
         latestWinner = {
           name: `${winner.Driver?.givenName ?? ""} ${winner.Driver?.familyName ?? ""}`.trim(),
           team: winner.Constructor?.name ?? "",
@@ -112,312 +87,413 @@ export default async function Home() {
         };
       }
     } catch {
-      // Silently fail
+      // no results yet
     }
   }
 
-  const championshipLeader = driverStandings[0];
+  const leader = driverStandings[0];
+  const second = driverStandings[1];
+  const leaderName = leader
+    ? `${leader.Driver.givenName ?? ""} ${leader.Driver.familyName ?? ""}`.trim()
+    : "";
+  const leaderTeam = leader?.Constructors?.[0]?.name ?? "";
+  const leaderPts = Number(leader?.points ?? 0);
+  const secondPts = Number(second?.points ?? 0);
+  const ptsGap = Math.max(leaderPts - secondPts, 0);
+  const leaderWins = leader?.wins ?? "0";
+  const leaderColor = getTeamColor(leaderTeam);
 
-  // Derive the country name for hero
-  const nextRaceCountry =
-    nextRace?.Circuit?.Location?.country ?? "";
-  const heroRaceName = nextRace?.raceName ?? "NEXT GRAND PRIX";
-  const nextRaceSessions = buildRaceSessionTimeline(nextRace);
-  const miniSessionCards = nextRaceSessions
-    .filter((session) => session.sessionField !== "Race")
-    .filter((session) => session.endTimeMs > now.getTime())
-    .slice(0, 3);
-  const nextWeekendSession = getNextSession(nextRaceSessions, now.getTime());
+  const total = races.length;
+  const done = completed.length;
+  const roundsLeft = Math.max(total - done, 0);
+  const elapsedPct = total ? done / total : 0;
+  const gapPct = leaderPts > 0 ? Math.min(ptsGap / leaderPts, 1) : 0;
+
+  // Countdown hero context
+  const heroRaceName = nextRace?.raceName ?? "Next Grand Prix";
+  const heroBase = heroRaceName.replace(" Grand Prix", "");
+  const heroHasGP = heroBase !== heroRaceName;
+  const heroLocality = nextRace?.Circuit?.Location?.locality;
+  const heroCircuit = nextRace?.Circuit?.circuitName;
+  const nextRaceCountry = nextRace?.Circuit?.Location?.country ?? "";
+
+  const upcomingSessions = getUpcomingSessions(
+    buildRaceSessionTimeline(nextRace),
+    nowMs,
+    4
+  );
+
+  const winnerColor = getTeamColor(latestWinner?.team);
+  const circuitImg = getCircuitImagePath(
+    nextRaceCountry,
+    heroLocality,
+    heroCircuit
+  );
+
+  const RING = 276; // 2πr for r=44
 
   return (
     <>
-      {/* Hero Section */}
-      <section className="relative min-h-[716px] flex flex-col items-center justify-center px-6 overflow-hidden motion-blur-bg">
-        {/* Decorative Streaks */}
-        <div className="light-streak w-[200%] top-1/4 -left-1/2 rotate-[-15deg]" />
-        <div className="light-streak w-[200%] top-2/3 -left-1/4 rotate-[-10deg] opacity-20" />
-
-        <div className="relative z-10 text-center">
-          <h2 className="text-tertiary-container font-[family-name:var(--font-label)] text-sm md:text-base tracking-[0.4em] uppercase mb-4 opacity-80">
-            Next Destination
-          </h2>
-          <h1 className="text-6xl md:text-9xl font-black font-[family-name:var(--font-headline)] text-on-background italic skew-x-[-12deg] tracking-tighter leading-none mb-8">
-            {heroRaceName
-              .replace(" Grand Prix", "")
-              .toUpperCase()
-              .split(" ")
-              .slice(0, -2)
-              .join(" ") || heroRaceName.replace(" Grand Prix", "").toUpperCase()}{" "}
-            <span className="text-primary-container drop-shadow-[0_0_15px_#00f2ff]">
-              GRAND PRIX
-            </span>
-          </h1>
-          <CountdownTimer targetRace={nextRace} />
-          {nextWeekendSession && (
-            <p className="mt-4 text-xs uppercase tracking-[0.2em] text-on-surface-variant font-label">
-              Next session: {nextWeekendSession.sessionLabel} ·{" "}
-              <LocalDateTime timestampMs={nextWeekendSession.startTimeMs} />
-            </p>
-          )}
-          <SessionCountdownCards sessions={miniSessionCards} />
-        </div>
-      </section>
-
-      {/* Glance Bento Grid */}
-      <section className="max-w-[1400px] mx-auto px-8 -mt-20 relative z-20">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Championship Leader Card */}
-          <div className="glass-card group overflow-hidden relative p-0 transition-all hover:translate-y-[-4px] border-t-2 border-t-primary-container">
-            {/* Background number */}
-            <span className="absolute -right-4 -bottom-6 font-[family-name:var(--font-headline)] font-black text-[180px] italic text-white/[0.03] select-none pointer-events-none leading-none">
-              {championshipLeader?.Driver?.permanentNumber ?? ""}
-            </span>
-
-            <div className="relative z-10 p-8 flex flex-col justify-between min-h-[320px]">
-              <p className="font-[family-name:var(--font-label)] text-[10px] tracking-[0.3em] text-primary-container uppercase mb-4">
-                Championship Leader
-              </p>
-              <div>
-                <h3 className="text-3xl font-black font-[family-name:var(--font-headline)] italic skew-x-[-12deg] tracking-tighter uppercase">
-                  {championshipLeader
-                    ? `${championshipLeader.Driver.givenName} ${championshipLeader.Driver.familyName}`
-                    : "TBC"}
-                </h3>
-                <div className="flex items-center gap-3 mt-2">
-                  <span className="font-[family-name:var(--font-label)] text-sm tracking-widest text-on-surface-variant uppercase">
-                    {championshipLeader?.Constructors?.[0]?.name ?? "—"}
+      {/* ===================== HERO ===================== */}
+      <section className="relative overflow-hidden px-6 md:px-10 pt-12 pb-11 min-h-[520px]">
+        <HeroFX />
+        <div className="relative grid lg:grid-cols-[1.4fr_0.78fr] gap-10 lg:gap-[52px] items-center">
+          {/* Left */}
+          <div className="min-w-0">
+            <div className="flex items-center gap-[13px] mb-6 anim-rise">
+              <span className="font-bold text-xs tracking-[0.16em] uppercase text-[#FF7A3D]">
+                {nextRace ? `Round ${nextRace.round}` : "Season 2026"}
+              </span>
+              {(heroLocality || heroCircuit) && (
+                <>
+                  <span className="w-[5px] h-[5px] rounded-full bg-warm-700" />
+                  <span className="font-semibold text-xs tracking-[0.1em] uppercase text-warm-400">
+                    {[heroLocality, heroCircuit].filter(Boolean).join(" · ")}
                   </span>
-                </div>
-                <div className="mt-4 flex items-baseline gap-2">
-                  <span className="text-5xl font-black font-[family-name:var(--font-headline)] tabular-nums text-primary-container">
-                    {championshipLeader?.points ?? "—"}
-                  </span>
-                  <span className="text-xs font-[family-name:var(--font-label)] tracking-widest opacity-50 uppercase">
-                    Points
-                  </span>
-                </div>
-              </div>
+                </>
+              )}
             </div>
 
-            {/* Driver image overlay */}
-            {championshipLeader && hasDriverImage(championshipLeader.Driver.givenName, championshipLeader.Driver.familyName) && (
-              <div className="absolute bottom-0 right-0 w-[55%] h-full pointer-events-none">
-                <Image
-                  src={getDriverImagePath(championshipLeader.Driver.givenName, championshipLeader.Driver.familyName)!}
-                  alt={`${championshipLeader.Driver.givenName} ${championshipLeader.Driver.familyName}`}
-                  fill
-                  className="object-contain object-bottom opacity-60 group-hover:opacity-80 group-hover:scale-105 transition-all duration-700 drop-shadow-[0_0_20px_rgba(0,0,0,0.8)]"
-                />
+            <div className="leading-[0.94] mb-3">
+              <div className="font-[family-name:var(--font-headline)] font-bold text-5xl sm:text-6xl md:text-[80px] tracking-[-2px] anim-fade">
+                {heroBase}
               </div>
-            )}
-          </div>
-
-          {/* Latest Race Winner Card */}
-          <div className="glass-card group overflow-hidden relative p-0 transition-all hover:translate-y-[-4px] border-t-2 border-t-secondary-container">
-            <div className="relative z-10 p-8 flex flex-col justify-between min-h-[320px]">
-              <p className="font-[family-name:var(--font-label)] text-[10px] tracking-[0.3em] text-secondary-container uppercase mb-4">
-                Latest Race Winner
-              </p>
-              <div>
-                <h3 className="text-3xl font-black font-[family-name:var(--font-headline)] italic skew-x-[-12deg] tracking-tighter uppercase">
-                  {latestWinner?.name ?? "TBC"}
-                </h3>
-                <p className="text-xs font-[family-name:var(--font-label)] tracking-widest text-on-surface-variant uppercase mb-4">
-                  {latestWinner?.raceName ?? "—"}
-                </p>
-                {latestWinner?.time && (
-                  <div className="inline-block px-3 py-1 bg-secondary-container/20 border border-secondary-container/30 text-secondary-container text-[10px] font-bold tracking-widest uppercase">
-                    {latestWinner.time}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Driver image overlay */}
-            {latestWinner && hasDriverImage(latestWinner.givenName, latestWinner.familyName) && (
-              <div className="absolute bottom-0 right-0 w-[50%] h-full pointer-events-none">
-                <Image
-                  src={getDriverImagePath(latestWinner.givenName, latestWinner.familyName)!}
-                  alt={latestWinner.name}
-                  fill
-                  className="object-contain object-bottom opacity-50 group-hover:opacity-75 group-hover:scale-105 transition-all duration-700 drop-shadow-[0_0_20px_rgba(0,0,0,0.8)]"
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Track Info Card */}
-          <Link 
-            href={nextRace ? `/schedule/${seasonYear}/${nextRace.round}` : "/schedule"}
-            className="glass-card group overflow-hidden relative p-8 transition-all hover:translate-y-[-4px] border-t-2 border-t-tertiary-container block"
-          >
-            <p className="font-[family-name:var(--font-label)] text-[10px] tracking-[0.3em] text-tertiary-container uppercase mb-6">
-              Next Race Circuit
-            </p>
-            <div className="flex flex-col items-center justify-center flex-1">
-              <div className="relative w-full aspect-square max-h-48 mb-6 flex items-center justify-center">
-                {(() => {
-                  const circuitImg = getCircuitImagePath(nextRaceCountry, nextRace?.Circuit?.Location?.locality, nextRace?.Circuit?.circuitName);
-                  return circuitImg ? (
-                    <Image
-                      src={circuitImg}
-                      alt="Circuit Layout"
-                      fill
-                      className="object-contain opacity-50 group-hover:opacity-100 transition-all duration-700 invert brightness-0 dark:invert-0 dark:brightness-100"
-                    />
-                  ) : (
-                    <span className="material-symbols-outlined text-4xl text-tertiary-container animate-pulse">
-                      location_on
-                    </span>
-                  );
-                })()}
-              </div>
-              <div className="w-full grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-[10px] font-[family-name:var(--font-label)] text-on-surface-variant tracking-widest uppercase">
-                    Circuit
-                  </p>
-                  <p className="font-bold text-lg font-[family-name:var(--font-headline)] italic skew-x-[-12deg]">
-                    {nextRace?.Circuit?.circuitName?.split(" ").slice(0, 2).join(" ") ?? "TBC"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-[family-name:var(--font-label)] text-on-surface-variant tracking-widest uppercase">
-                    Country
-                  </p>
-                  <p className="font-bold text-lg font-[family-name:var(--font-headline)] italic skew-x-[-12deg]">
-                    {nextRaceCountry || "TBC"}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </Link>
-        </div>
-      </section>
-
-      {/* Quick Links / Telemetry Section */}
-      <section className="max-w-[1400px] mx-auto px-8 mt-24">
-        <div className="flex justify-between items-end mb-8">
-          <div>
-            <h2 className="text-4xl font-black font-[family-name:var(--font-headline)] italic skew-x-[-12deg] tracking-tighter uppercase">
-              Season Overview
-            </h2>
-            <p className="text-xs font-[family-name:var(--font-label)] tracking-widest text-on-surface-variant uppercase mt-1">
-              Quick access to all sections
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Link
-            href="/schedule"
-            className="bg-surface-container-low p-6 flex flex-col gap-4 group hover:bg-surface-container-high transition-colors"
-          >
-            <span className="material-symbols-outlined text-primary-container text-3xl">
-              schedule
-            </span>
-            <p className="font-[family-name:var(--font-label)] text-[10px] tracking-[0.2em] uppercase opacity-60">
-              Race Calendar
-            </p>
-            <p className="font-[family-name:var(--font-headline)] font-bold italic text-lg">
-              {races.length} RACES
-            </p>
-          </Link>
-
-          <Link
-            href="/standings"
-            className="bg-surface-container-low p-6 flex flex-col gap-4 group hover:bg-surface-container-high transition-colors"
-          >
-            <span className="material-symbols-outlined text-secondary-container text-3xl">
-              leaderboard
-            </span>
-            <p className="font-[family-name:var(--font-label)] text-[10px] tracking-[0.2em] uppercase opacity-60">
-              Championship
-            </p>
-            <p className="font-[family-name:var(--font-headline)] font-bold italic text-lg">
-              STANDINGS
-            </p>
-          </Link>
-
-          <Link
-            href="/drivers"
-            className="bg-surface-container-low p-6 flex flex-col gap-4 group hover:bg-surface-container-high transition-colors"
-          >
-            <span className="material-symbols-outlined text-tertiary-container text-3xl">
-              person
-            </span>
-            <p className="font-[family-name:var(--font-label)] text-[10px] tracking-[0.2em] uppercase opacity-60">
-              Driver Grid
-            </p>
-            <p className="font-[family-name:var(--font-headline)] font-bold italic text-lg">
-              {driverStandings.length} DRIVERS
-            </p>
-          </Link>
-
-          <Link
-            href="/circuits"
-            className="bg-surface-container-low p-6 flex flex-col gap-4 group hover:bg-surface-container-high transition-colors"
-          >
-            <span className="material-symbols-outlined text-primary-container text-3xl">
-              route
-            </span>
-            <p className="font-[family-name:var(--font-label)] text-[10px] tracking-[0.2em] uppercase opacity-60">
-              World Tour
-            </p>
-            <p className="font-[family-name:var(--font-headline)] font-bold italic text-lg">
-              CIRCUITS
-            </p>
-          </Link>
-        </div>
-      </section>
-
-      {/* Telemetry Preview Bars */}
-      <section className="max-w-[1400px] mx-auto px-8 mt-16 mb-12">
-        <div className="flex justify-between items-end mb-8">
-          <div>
-            <h2 className="text-4xl font-black font-[family-name:var(--font-headline)] italic skew-x-[-12deg] tracking-tighter uppercase">
-              Live Telemetry
-            </h2>
-            <p className="text-xs font-[family-name:var(--font-label)] tracking-widest text-on-surface-variant uppercase mt-1">
-              Real-time data from sector 3
-            </p>
-          </div>
-          <Link
-            href="/standings"
-            className="text-primary-container font-[family-name:var(--font-label)] text-[10px] tracking-widest uppercase border-b border-primary-container pb-1 hover:opacity-70 transition-opacity"
-          >
-            Full Data Stack
-          </Link>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {[
-            { label: "Engine Load", value: "85%", width: "85%", color: "primary-container" },
-            { label: "Tire Temp (S)", value: "112°C", width: "62%", color: "secondary-container" },
-            { label: "Fuel Density", value: "34%", width: "34%", color: "tertiary-container" },
-            { label: "G-Force (Lat)", value: "4.8G", width: "92%", color: "primary-container" },
-          ].map((item) => (
-            <div
-              key={item.label}
-              className="bg-surface-container-low p-6 flex flex-col gap-4"
-            >
-              <p className="font-[family-name:var(--font-label)] text-[10px] tracking-[0.2em] uppercase opacity-60">
-                {item.label}
-              </p>
-              <div className="h-12 bg-neutral-900 overflow-hidden relative skew-x-[-12deg]">
+              {heroHasGP && (
                 <div
-                  className={`h-full bg-gradient-to-r from-${item.color}/20 to-${item.color}`}
-                  style={{ width: item.width }}
-                />
-                <div className="absolute inset-0 flex items-center justify-end px-4">
-                  <span className="font-[family-name:var(--font-headline)] font-bold text-xl italic">
-                    {item.value}
+                  className="font-[family-name:var(--font-headline)] font-extrabold text-5xl sm:text-6xl md:text-[80px] tracking-[-2px] apex-flame-text anim-fade"
+                  style={{ animationDelay: "0.12s" }}
+                >
+                  Grand Prix
+                </div>
+              )}
+            </div>
+
+            <div
+              className="h-[2px] w-[130px] bg-[linear-gradient(90deg,#FF5A1F,transparent)] anim-line mb-8"
+              style={{ animationDelay: "0.5s" }}
+            />
+
+            <div
+              className="mb-6 anim-rise"
+              style={{ animationDelay: "0.35s" }}
+            >
+              <CountdownTimer targetRace={nextRace} />
+            </div>
+
+            {upcomingSessions.length > 0 && (
+              <div
+                className="flex flex-wrap items-center gap-4 anim-rise"
+                style={{ animationDelay: "0.5s" }}
+              >
+                <span className="font-semibold text-[13px] text-warm-300">
+                  Next session
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {upcomingSessions.map((s, i) => (
+                    <span
+                      key={s.id}
+                      className={`text-xs px-[14px] py-2 rounded-[10px] ${
+                        i === 0
+                          ? "font-bold bg-[rgba(255,90,31,0.16)] text-[#FFAE6A]"
+                          : "font-semibold bg-[rgba(245,235,222,0.05)] text-warm-200"
+                      }`}
+                    >
+                      {s.sessionLabel} ·{" "}
+                      <LocalDateTime
+                        timestampMs={s.startTimeMs}
+                        options={{
+                          weekday: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          hour12: false,
+                        }}
+                      />
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right — This season stat card */}
+          <TiltCard
+            className="apex-glass apex-sheen rounded-[22px] p-7 anim-rise min-w-0 overflow-hidden"
+            strength={5}
+          >
+            <div className="relative">
+              <div className="flex items-center justify-between gap-2 mb-6">
+                <span className="font-bold text-[13px] truncate">
+                  This season
+                </span>
+                <span className="font-semibold text-[11px] tracking-[0.06em] text-warm-500 uppercase whitespace-nowrap flex-none">
+                  {done} / {total} rounds
+                </span>
+              </div>
+              <div className="flex justify-around mb-6">
+                {[
+                  {
+                    label: "Elapsed",
+                    center: `${Math.round(elapsedPct * 100)}%`,
+                    offset: RING * (1 - elapsedPct),
+                    color: "#FF5A1F",
+                  },
+                  {
+                    label: "Pt gap",
+                    center: `${ptsGap}`,
+                    offset: RING * (1 - gapPct),
+                    color: "#c9c0b4",
+                  },
+                ].map((ring) => (
+                  <div key={ring.label} className="relative text-center">
+                    <svg width="108" height="108" viewBox="0 0 108 108">
+                      <circle
+                        cx="54"
+                        cy="54"
+                        r="44"
+                        fill="none"
+                        stroke="rgba(245,235,222,0.07)"
+                        strokeWidth="5"
+                      />
+                      <circle
+                        cx="54"
+                        cy="54"
+                        r="44"
+                        fill="none"
+                        stroke={ring.color}
+                        strokeWidth="5"
+                        strokeLinecap="round"
+                        transform="rotate(-90 54 54)"
+                        strokeDasharray={RING}
+                        strokeDashoffset={ring.offset}
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="font-extrabold text-2xl tabular-nums">
+                        {ring.center}
+                      </span>
+                      <span className="font-semibold text-[9px] tracking-[0.12em] uppercase text-warm-500">
+                        {ring.label}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div>
+                {[
+                  { k: "Leader wins", v: leaderWins },
+                  { k: "Rounds completed", v: `${done} / ${total}` },
+                  { k: "Rounds remaining", v: roundsLeft },
+                ].map((row) => (
+                  <div
+                    key={row.k}
+                    className="flex justify-between py-[11px] border-t border-[rgba(245,235,222,0.07)] font-semibold text-[13px]"
+                  >
+                    <span className="text-warm-300">{row.k}</span>
+                    <span className="tabular-nums">{row.v}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </TiltCard>
+        </div>
+      </section>
+
+      {/* ===================== BENTO ===================== */}
+      <section className="px-6 md:px-10 [perspective:1200px]">
+        <div className="grid md:grid-cols-3 gap-5">
+          {/* Championship leader */}
+          <TiltCard className="apex-glass apex-sheen rounded-[22px] p-[26px] overflow-hidden min-h-[224px]">
+            <BentoDriverArt
+              given={leader?.Driver.givenName}
+              family={leader?.Driver.familyName}
+              accent
+            />
+            <div className="relative max-w-[62%]">
+              <span className="font-bold text-[11px] tracking-[0.14em] uppercase text-[#FF7A3D]">
+                Championship leader
+              </span>
+              <div className="font-[family-name:var(--font-headline)] font-bold text-[21px] leading-[1.05] my-[14px] mb-[3px]">
+                {leaderName || "TBC"}
+              </div>
+              <div className="font-semibold text-xs text-warm-400">
+                {leaderTeam || "—"}
+              </div>
+              <div className="mt-5 flex items-baseline gap-2">
+                <span className="font-extrabold text-[44px] leading-none tabular-nums">
+                  {leaderPts || "—"}
+                </span>
+                <span className="font-semibold text-[11px] tracking-[0.08em] uppercase text-warm-500">
+                  Pts
+                </span>
+              </div>
+            </div>
+          </TiltCard>
+
+          {/* Last time out */}
+          <TiltCard className="apex-glass apex-sheen rounded-[22px] p-[26px] overflow-hidden min-h-[224px]">
+            <BentoDriverArt
+              given={latestWinner?.givenName}
+              family={latestWinner?.familyName}
+            />
+            <div className="relative max-w-[62%]">
+              <span className="font-bold text-[11px] tracking-[0.14em] uppercase text-warm-300">
+                Last time out
+              </span>
+              <div className="font-[family-name:var(--font-headline)] font-bold text-[21px] leading-[1.05] my-[14px] mb-[3px]">
+                {latestWinner?.name || "TBC"}
+              </div>
+              <div className="font-semibold text-xs text-warm-400">
+                {latestWinner
+                  ? `${latestWinner.raceName.replace(" Grand Prix", " GP")} · Win`
+                  : "—"}
+              </div>
+              {latestWinner?.time && (
+                <div className="mt-[22px] inline-flex items-center gap-2 bg-[rgba(255,90,31,0.12)] rounded-[10px] px-[13px] py-[9px]">
+                  <span
+                    className="w-[6px] h-[6px] rounded-full"
+                    style={{ background: winnerColor.hex }}
+                  />
+                  <span className="font-bold text-sm text-[#FFAE6A] tabular-nums">
+                    {latestWinner.time}
                   </span>
+                </div>
+              )}
+            </div>
+          </TiltCard>
+
+          {/* Next circuit */}
+          <TiltCard
+            href={
+              nextRace
+                ? `/schedule/${seasonYear}/${nextRace.round}`
+                : "/circuits"
+            }
+            className="apex-glass apex-sheen rounded-[22px] p-[26px] overflow-hidden min-h-[224px] block"
+            ariaLabel="Next circuit"
+          >
+            <span className="relative font-bold text-[11px] tracking-[0.14em] uppercase text-[#FF7A3D]">
+              Next circuit
+            </span>
+            <TrackMap
+              src={circuitImg}
+              alt={heroCircuit ?? "Circuit"}
+              containerClassName="relative my-4 h-[100px] rounded-[14px]"
+              imgClassName="object-contain p-3 opacity-80"
+            />
+            <div className="relative flex justify-between">
+              <div>
+                <div className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-500">
+                  Circuit
+                </div>
+                <div className="font-[family-name:var(--font-headline)] font-bold text-base mt-1">
+                  {heroCircuit?.split(" ").slice(0, 2).join(" ") ?? "TBC"}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-500">
+                  Country
+                </div>
+                <div className="font-[family-name:var(--font-headline)] font-bold text-base mt-1">
+                  {nextRaceCountry || "TBC"}
                 </div>
               </div>
             </div>
+          </TiltCard>
+        </div>
+      </section>
+
+      {/* ===================== EXPLORE ===================== */}
+      <section className="px-6 md:px-10 pt-10 pb-14">
+        <div className="flex items-baseline justify-between mb-5">
+          <span className="font-[family-name:var(--font-headline)] font-bold text-[19px]">
+            Explore the season
+          </span>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[
+            { href: "/schedule", kicker: "Race calendar", big: `${total || 22}`, small: "races" },
+            { href: "/standings", kicker: "Championship", title: "Standings" },
+            { href: "/drivers", kicker: "Driver grid", big: `${driverStandings.length || 22}`, small: "drivers" },
+            { href: "/teams", kicker: "Constructors", title: "Teams", accent: true },
+          ].map((c) => (
+            <Link
+              key={c.href}
+              href={c.href}
+              className="apex-glass-soft rounded-2xl p-[22px] flex flex-col gap-[14px] transition-all duration-200 hover:-translate-y-1 hover:border-[rgba(255,138,61,0.45)]"
+            >
+              <span className="font-semibold text-[11px] tracking-[0.12em] uppercase text-warm-400">
+                {c.kicker}
+              </span>
+              {c.big ? (
+                <span className="font-extrabold text-2xl tabular-nums">
+                  {c.big}{" "}
+                  <span className="text-[15px] font-semibold text-warm-300">
+                    {c.small}
+                  </span>
+                </span>
+              ) : (
+                <span
+                  className={`font-[family-name:var(--font-headline)] font-bold text-xl ${
+                    c.accent ? "text-[#FFAE6A]" : ""
+                  }`}
+                >
+                  {c.title}
+                </span>
+              )}
+            </Link>
           ))}
         </div>
       </section>
     </>
+  );
+}
+
+/**
+ * Right-side driver artwork inside a bento card — the real cutout when we have
+ * one, otherwise the APEX hatch placeholder. `accent` tints the placeholder
+ * flame-orange to mark the championship leader.
+ */
+function BentoDriverArt({
+  given,
+  family,
+  accent = false,
+}: {
+  given?: string;
+  family?: string;
+  accent?: boolean;
+}) {
+  const hasImg = given && family && hasDriverImage(given, family);
+  const imgPath = hasImg ? getDriverImagePath(given!, family!) : null;
+
+  if (imgPath) {
+    return (
+      <div className="absolute top-0 right-0 bottom-0 w-[46%] pointer-events-none">
+        <Image
+          src={imgPath}
+          alt={`${given} ${family}`}
+          fill
+          sizes="200px"
+          className="object-contain object-bottom drop-shadow-[0_10px_30px_rgba(0,0,0,0.7)]"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`absolute top-6 right-6 bottom-6 w-[98px] rounded-[14px] flex items-end justify-center pb-[10px] ${
+        accent ? "apex-hatch-flame" : "apex-hatch"
+      }`}
+    >
+      <span
+        className={`font-semibold text-[8px] tracking-[0.08em] text-center leading-tight ${
+          accent ? "text-[#7a5a45]" : "text-warm-500"
+        }`}
+      >
+        // DRIVER
+        <br />
+        CUTOUT
+      </span>
+    </div>
   );
 }

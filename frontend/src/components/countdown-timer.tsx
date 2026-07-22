@@ -34,56 +34,48 @@ export default function CountdownTimer({ targetRace }: CountdownTimerProps) {
 
   if (!targetDate) {
     return (
-      <div className="text-4xl font-bold font-headline italic tracking-tighter text-on-surface-variant">
+      <div className="font-[family-name:var(--font-headline)] text-3xl font-bold text-warm-400">
         Awaiting schedule
       </div>
     );
   }
 
-  const diff = targetDate.getTime() - now.getTime();
-  const clamped = Math.max(diff, 0);
-
-  const totalSeconds = Math.floor(clamped / 1000);
-  const days = Math.floor(totalSeconds / 86400);
-  const hours = Math.floor((totalSeconds % 86400) / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
+  const diff = Math.max(targetDate.getTime() - now.getTime(), 0);
+  const pad = (n: number) => String(n).padStart(2, "0");
 
   const segments = [
-    { label: "DAYS", value: days, highlight: false },
-    { label: "HRS", value: hours, highlight: false },
-    { label: "MIN", value: minutes, highlight: false },
-    { label: "SEC", value: seconds, highlight: true },
+    { label: "Days", value: pad(Math.floor(diff / 86400000)), hot: false },
+    { label: "Hours", value: pad(Math.floor(diff / 3600000) % 24), hot: false },
+    { label: "Minutes", value: pad(Math.floor(diff / 60000) % 60), hot: false },
+    { label: "Seconds", value: pad(Math.floor(diff / 1000) % 60), hot: true },
   ];
 
   return (
-    <div className="flex gap-4 md:gap-8 justify-center items-center font-headline">
+    <div className="flex items-stretch">
       {segments.map((seg, i) => (
-        <div key={seg.label} className="flex items-center gap-4 md:gap-8">
-          <div className="flex flex-col items-center">
-            <span
-              className={`text-5xl md:text-7xl font-bold tabular-nums ${
-                seg.highlight
-                  ? "text-secondary-container"
-                  : "text-on-background"
+        <div key={seg.label} className="flex items-stretch">
+          <div
+            className={`${i === 0 ? "pr-3 sm:pr-6" : "px-3 sm:px-6"} ${
+              i === segments.length - 1 ? "pr-0" : ""
+            }`}
+          >
+            <div
+              className={`font-extrabold text-4xl sm:text-5xl md:text-[54px] leading-none tabular-nums ${
+                seg.hot ? "text-[#FF7A3D]" : "text-on-background"
               }`}
             >
-              {String(seg.value).padStart(2, "0")}
-            </span>
-            <span
-              className={`text-xs font-label tracking-widest ${
-                seg.highlight
-                  ? "text-secondary-container"
-                  : "text-primary-container"
+              {seg.value}
+            </div>
+            <div
+              className={`mt-[6px] text-[10px] sm:text-[11px] font-semibold tracking-[0.12em] sm:tracking-[0.16em] uppercase ${
+                seg.hot ? "text-[#8a6a52]" : "text-warm-500"
               }`}
             >
               {seg.label}
-            </span>
+            </div>
           </div>
           {i < segments.length - 1 && (
-            <span className="text-4xl font-light opacity-30 animate-pulse">
-              :
-            </span>
+            <div className="w-px bg-[rgba(245,235,222,0.1)]" />
           )}
         </div>
       ))}
