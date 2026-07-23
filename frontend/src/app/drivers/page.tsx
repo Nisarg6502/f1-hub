@@ -1,11 +1,17 @@
-import { getActiveSeasonYear, getDriverStandings } from "@/lib/api";
+import { getActiveSeasonYear, getDriverStandings, resolveSeasonYear } from "@/lib/api";
 import DriversGrid from "@/components/drivers-grid";
+import SeasonSelector from "@/components/season-selector";
 
 // Driver standings change after every race; render per request.
 export const dynamic = "force-dynamic";
 
-export default async function DriversPage() {
-  const year = getActiveSeasonYear();
+interface PageProps {
+  searchParams: Promise<{ season?: string }>;
+}
+
+export default async function DriversPage({ searchParams }: PageProps) {
+  const { season } = await searchParams;
+  const year = resolveSeasonYear(season);
   let drivers: Awaited<ReturnType<typeof getDriverStandings>>["driver_standings"] =
     [];
   try {
@@ -20,13 +26,16 @@ export default async function DriversPage() {
   return (
     <div className="px-6 md:px-10 pt-11 pb-16">
       {/* Header */}
-      <div className="mb-7">
-        <span className="font-bold text-xs tracking-[0.18em] uppercase text-[#FF7A3D]">
-          {year} World Championship lineup
-        </span>
-        <div className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[52px] tracking-[-1.5px] mt-2">
-          The Grid
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-5 mb-7">
+        <div>
+          <span className="font-bold text-xs tracking-[0.18em] uppercase text-[#FF7A3D]">
+            {year} World Championship lineup
+          </span>
+          <div className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[52px] tracking-[-1.5px] mt-2">
+            The Grid
+          </div>
         </div>
+        <SeasonSelector currentYear={year} maxYear={getActiveSeasonYear()} />
       </div>
 
       {list.length === 0 && (

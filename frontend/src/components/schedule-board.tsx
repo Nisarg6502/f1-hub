@@ -5,6 +5,7 @@ import Link from "next/link";
 import { motion, type Variants } from "motion/react";
 import { EASE_OUT, Stagger } from "./motion-primitives";
 import FlagImg from "./flag-img";
+import SeasonSelector from "./season-selector";
 
 // Rows fade+rise in; completed rows settle at a dimmed rest opacity (the
 // `custom` boolean drives it) so the cascade doesn't leave them fully lit.
@@ -32,11 +33,13 @@ export interface ScheduleRow {
 
 interface ScheduleBoardProps {
   year: number;
+  maxYear: number;
   rows: ScheduleRow[];
   nextTargetMs: number | null;
   nextName: string | null;
   nextCircuit: string | null;
   nextLocality: string | null;
+  initialPhase?: "upcoming" | "completed";
 }
 
 function badgeFor(row: ScheduleRow) {
@@ -51,13 +54,15 @@ function badgeFor(row: ScheduleRow) {
 
 export default function ScheduleBoard({
   year,
+  maxYear,
   rows,
   nextTargetMs,
   nextName,
   nextCircuit,
   nextLocality,
+  initialPhase = "upcoming",
 }: ScheduleBoardProps) {
-  const [phase, setPhase] = useState<"upcoming" | "completed">("upcoming");
+  const [phase, setPhase] = useState<"upcoming" | "completed">(initialPhase);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -75,13 +80,16 @@ export default function ScheduleBoard({
 
   return (
     <div className="px-6 md:px-10 pt-11 pb-16">
-      <div className="mb-8">
-        <span className="font-bold text-xs tracking-[0.18em] uppercase text-[#FF7A3D]">
-          {year} FIA Formula One World Championship
-        </span>
-        <div className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[52px] tracking-[-1.5px] mt-2">
-          Race Calendar
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-5 mb-8">
+        <div>
+          <span className="font-bold text-xs tracking-[0.18em] uppercase text-[#FF7A3D]">
+            {year} FIA Formula One World Championship
+          </span>
+          <div className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[52px] tracking-[-1.5px] mt-2">
+            Race Calendar
+          </div>
         </div>
+        <SeasonSelector currentYear={year} maxYear={maxYear} />
       </div>
 
       <div className="grid lg:grid-cols-[280px_1fr] gap-7 items-start">

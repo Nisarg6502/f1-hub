@@ -1,4 +1,4 @@
-import { getActiveSeasonYear, getSeasonRaces } from "@/lib/api";
+import { getActiveSeasonYear, getSeasonRaces, resolveSeasonYear } from "@/lib/api";
 import { getCountryFlagPath } from "@/lib/flags";
 import ScheduleBoard, { type ScheduleRow } from "@/components/schedule-board";
 
@@ -6,8 +6,13 @@ import ScheduleBoard, { type ScheduleRow } from "@/components/schedule-board";
 // against the current time, which a prerender cannot keep correct.
 export const dynamic = "force-dynamic";
 
-export default async function SchedulePage() {
-  const year = getActiveSeasonYear();
+interface PageProps {
+  searchParams: Promise<{ season?: string }>;
+}
+
+export default async function SchedulePage({ searchParams }: PageProps) {
+  const { season } = await searchParams;
+  const year = resolveSeasonYear(season);
   let races: Awaited<ReturnType<typeof getSeasonRaces>>["races"] = [];
   try {
     const racesRes = await getSeasonRaces(year);
@@ -56,9 +61,15 @@ export default async function SchedulePage() {
     };
   });
 
+  // A fully historical season has no upcoming race — default straight to the
+  // completed list rather than opening on an empty "Upcoming" tab.
+  const initialPhase = next === null && rows.length > 0 ? "completed" : "upcoming";
+
   return (
     <ScheduleBoard
       year={year}
+      maxYear={getActiveSeasonYear()}
+      initialPhase={initialPhase}
       rows={rows}
       nextTargetMs={next?.ms ?? null}
       nextName={next?.race.raceName ?? null}

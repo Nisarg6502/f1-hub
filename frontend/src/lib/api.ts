@@ -186,6 +186,16 @@ export function getActiveSeasonYear(): number {
   return current >= MIN_SUPPORTED_SEASON ? current : MIN_SUPPORTED_SEASON;
 }
 
+// Resolves a `?season=` query param into a valid year, clamped to the range
+// the season selector offers. Falls back to the active season for anything
+// missing or unparseable rather than letting a bad param reach the backend.
+export function resolveSeasonYear(seasonParam?: string): number {
+  const active = getActiveSeasonYear();
+  const parsed = Number(seasonParam);
+  if (!seasonParam || !Number.isFinite(parsed)) return active;
+  return Math.min(Math.max(Math.trunc(parsed), MIN_SUPPORTED_SEASON), active);
+}
+
 // --- API helpers ---
 
 export async function getSeasonRaces(year: number) {
