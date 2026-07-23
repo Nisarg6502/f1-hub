@@ -2,6 +2,7 @@ import { getActiveSeasonYear, getConstructorStandings } from "@/lib/api";
 import { getEngineForTeam } from "@/lib/engines";
 import { getTeamColor } from "@/lib/team-colors";
 import TiltCard from "@/components/tilt-card";
+import { Stagger, StaggerItem } from "@/components/motion-primitives";
 
 // Constructor standings change after every race; render per request.
 export const dynamic = "force-dynamic";
@@ -50,7 +51,10 @@ export default async function TeamsPage() {
       )}
 
       {/* Team cards */}
-      <div className="grid md:grid-cols-2 gap-4 mb-10 [perspective:1400px]">
+      <Stagger
+        className="grid md:grid-cols-2 gap-4 mb-10 [perspective:1400px]"
+        gap={0.07}
+      >
         {list.map((team, idx) => {
           const name = team.Constructor.name ?? "—";
           const color = getTeamColor(name);
@@ -58,10 +62,9 @@ export default async function TeamsPage() {
           const mono = name.slice(0, 2).toUpperCase();
 
           return (
+            <StaggerItem key={name || idx}>
             <TiltCard
-              key={name || idx}
-              className="apex-glass rounded-[20px] overflow-hidden p-[26px] min-h-[200px] anim-rise"
-              style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }}
+              className="apex-glass rounded-[20px] overflow-hidden p-[26px] min-h-[200px] block h-full"
               strength={5}
             >
               {/* corner wash + blurred blob */}
@@ -127,9 +130,10 @@ export default async function TeamsPage() {
                 </div>
               </div>
             </TiltCard>
+            </StaggerItem>
           );
         })}
-      </div>
+      </Stagger>
 
       {/* Power units */}
       {engineGroups.size > 0 && (
@@ -137,9 +141,9 @@ export default async function TeamsPage() {
           <div className="font-[family-name:var(--font-headline)] font-bold text-[19px] mb-4">
             Power units
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+          <Stagger className="grid grid-cols-2 lg:grid-cols-4 gap-3.5" gap={0.05}>
             {[...engineGroups.entries()].map(([engineName, teams]) => (
-              <div
+              <StaggerItem
                 key={engineName}
                 className="apex-glass-soft rounded-[14px] px-5 py-[18px]"
               >
@@ -147,9 +151,9 @@ export default async function TeamsPage() {
                 <div className="font-medium text-xs text-warm-400 mt-1.5">
                   {teams.join(" · ")}
                 </div>
-              </div>
+              </StaggerItem>
             ))}
-          </div>
+          </Stagger>
         </>
       )}
     </div>

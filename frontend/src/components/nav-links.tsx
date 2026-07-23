@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { motion } from "motion/react";
 
 const navItems = [
   { href: "/", label: "Home" },
@@ -27,13 +28,20 @@ export default function NavLinks() {
           <Link
             key={item.href}
             href={item.href}
-            className={`transition-colors duration-200 ${
+            className={`relative py-1 transition-colors duration-200 ${
               isActive
                 ? "text-on-background"
                 : "text-warm-400 hover:text-on-background"
             }`}
           >
             {item.label}
+            {isActive && (
+              <motion.span
+                layoutId="nav-underline"
+                className="absolute -bottom-0.5 left-0 right-0 h-[2px] rounded-full bg-[#FF5A1F] shadow-[0_0_10px_rgba(255,90,31,0.8)]"
+                transition={{ type: "spring", stiffness: 400, damping: 32 }}
+              />
+            )}
           </Link>
         );
       })}

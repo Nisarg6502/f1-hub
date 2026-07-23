@@ -2,7 +2,20 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { motion, type Variants } from "motion/react";
+import { EASE_OUT, Stagger } from "./motion-primitives";
 import FlagImg from "./flag-img";
+
+// Rows fade+rise in; completed rows settle at a dimmed rest opacity (the
+// `custom` boolean drives it) so the cascade doesn't leave them fully lit.
+const rowVariants: Variants = {
+  hidden: { opacity: 0, y: 16 },
+  show: (dim: boolean) => ({
+    opacity: dim ? 0.62 : 1,
+    y: 0,
+    transition: { duration: 0.45, ease: EASE_OUT },
+  }),
+};
 
 export interface ScheduleRow {
   round: string;
@@ -84,13 +97,20 @@ export default function ScheduleBoard({
               <button
                 key={key}
                 onClick={() => setPhase(key)}
-                className={`flex-1 text-center text-xs py-2.5 rounded-[9px] transition-[background-color,color,transform] duration-150 active:scale-[0.97] ${
+                className={`relative flex-1 text-center text-xs py-2.5 rounded-[9px] transition-[color,transform] duration-150 active:scale-[0.97] ${
                   phase === key
-                    ? "font-bold bg-[rgba(255,90,31,0.18)] text-[#FFAE6A]"
+                    ? "font-bold text-[#FFAE6A]"
                     : "font-semibold text-warm-300 hover:text-on-background"
                 }`}
               >
-                {label}
+                {phase === key && (
+                  <motion.span
+                    layoutId="sched-phase-pill"
+                    className="absolute inset-0 rounded-[9px] bg-[rgba(255,90,31,0.18)]"
+                    transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                  />
+                )}
+                <span className="relative z-10">{label}</span>
               </button>
             ))}
           </div>
@@ -126,8 +146,8 @@ export default function ScheduleBoard({
           )}
         </div>
 
-        {/* Rounds list */}
-        <div className="flex flex-col gap-3">
+        {/* Rounds list — keyed on phase so the cascade replays on each toggle */}
+        <Stagger key={phase} className="flex flex-col gap-3" gap={0.045}>
           {shown.length === 0 && (
             <div className="apex-glass-soft rounded-2xl px-6 py-10 text-center font-medium text-warm-400">
               {phase === "completed"
@@ -135,13 +155,17 @@ export default function ScheduleBoard({
                 : "No upcoming rounds."}
             </div>
           )}
-          {shown.map((r, i) => {
+          {shown.map((r) => {
             const badge = badgeFor(r);
             return (
-              <Link
+              <motion.div
                 key={`${r.round}-${r.name}`}
+                variants={rowVariants}
+                custom={r.status === "completed"}
+              >
+              <Link
                 href={`/schedule/${r.season}/${r.round}`}
-                className="grid grid-cols-[84px_1fr_auto] sm:grid-cols-[96px_40px_1fr_auto] gap-3 sm:gap-5 items-center px-4 sm:px-[22px] py-5 rounded-2xl border transition-[border-color,background-color,transform] duration-150 hover:border-[rgba(255,138,61,0.4)] active:scale-[0.99] anim-rise"
+                className="grid grid-cols-[84px_1fr_auto] sm:grid-cols-[96px_40px_1fr_auto] gap-3 sm:gap-5 items-center px-4 sm:px-[22px] py-5 rounded-2xl border transition-[border-color,background-color,transform] duration-150 hover:border-[rgba(255,138,61,0.4)] active:scale-[0.99]"
                 style={{
                   background:
                     r.status === "next"
@@ -153,11 +177,7 @@ export default function ScheduleBoard({
                     r.status === "next"
                       ? "rgba(255,90,31,0.45)"
                       : "rgba(255,255,255,0.07)",
-                  // riseIn's "to" keyframe reads this instead of a hardcoded 1,
-                  // so completed rows settle at their dimmed opacity.
-                  ["--rise-opacity" as string]: r.status === "completed" ? 0.62 : 1,
-                  animationDelay: `${Math.min(i * 30, 300)}ms`,
-                } as React.CSSProperties}
+                }}
               >
                 <div>
                   <div className="font-semibold text-[10px] tracking-[0.08em] uppercase text-warm-500">
@@ -193,9 +213,10 @@ export default function ScheduleBoard({
                   </span>
                 </div>
               </Link>
+              </motion.div>
             );
           })}
-        </div>
+        </Stagger>
       </div>
     </div>
   );
