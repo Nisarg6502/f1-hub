@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { CSSProperties, MouseEvent, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from "react";
 
 interface TiltCardProps {
   href?: string;
@@ -15,6 +15,8 @@ interface TiltCardProps {
   ariaLabel?: string;
   /** merged with the card's own transition style, e.g. for a stagger animationDelay */
   style?: CSSProperties;
+  /** renders a keyboard-accessible clickable div instead of a Link; ignored if `href` is set */
+  onClick?: () => void;
 }
 
 /**
@@ -32,6 +34,7 @@ export default function TiltCard({
   glareSize = 220,
   ariaLabel,
   style: styleProp,
+  onClick,
 }: TiltCardProps) {
   // Asymmetric timing, not a single uniform easing: while the cursor is
   // moving, the tilt should feel tightly coupled to it (fast, linear). On
@@ -91,10 +94,24 @@ export default function TiltCard({
     );
   }
 
+  const onKeyDown = onClick
+    ? (e: KeyboardEvent<HTMLDivElement>) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }
+    : undefined;
+
   return (
     <div
       onMouseMove={onMove}
       onMouseLeave={onLeave}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-label={ariaLabel}
       className={className}
       style={style}
     >

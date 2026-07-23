@@ -6,6 +6,7 @@ from . import races
 from . import championship_standings
 from . import session_results
 from . import circuit_info
+from . import driver_bio
 
 app = FastAPI(title="F1 API")
 
@@ -23,6 +24,7 @@ app.include_router(races.router)
 app.include_router(championship_standings.router)
 app.include_router(session_results.router)
 app.include_router(circuit_info.router)
+app.include_router(driver_bio.router)
 
 
 @app.get("/health")

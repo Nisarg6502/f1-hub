@@ -437,6 +437,8 @@ def create_indexes(db) -> None:
     )
     db.circuit_details.create_index([("season", 1), ("round", 1)], unique=True)
     db.weather_cache.create_index([("season", 1), ("round", 1)], unique=True)
+    # Populated lazily by /api/driver_bio on demand, not by this batch job.
+    db.driver_bios.create_index([("driverId", 1)], unique=True)
 
 
 def _years_to_sync() -> list[int]:
