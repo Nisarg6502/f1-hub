@@ -13,6 +13,15 @@ import {
 } from "recharts";
 import { Check, ChevronsUpDown, AlertCircle } from "lucide-react";
 
+interface Stint {
+  driver_number: number;
+  stint_number: number;
+  lap_start: number;
+  lap_end: number;
+  compound: string;
+  tyre_age_at_start: number;
+}
+
 interface TireStintsChartProps {
   sessionKey: number | null;
   drivers: {
@@ -23,6 +32,9 @@ interface TireStintsChartProps {
     familyName: string;
     teamColor: string;
   }[];
+  /** Stints fetched server-side by the pitwall page. When provided, this
+   * component seeds from it instead of fetching client-side after hydration. */
+  initialStints?: Stint[];
 }
 
 const COMPOUND_COLORS: Record<string, string> = {
@@ -37,10 +49,11 @@ const COMPOUND_COLORS: Record<string, string> = {
 export default function TireStintsChart({
   sessionKey,
   drivers,
+  initialStints,
 }: TireStintsChartProps) {
-  const [stints, setStints] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [stints, setStints] = useState<Stint[]>(initialStints ?? []);
+  const [loading, setLoading] = useState(initialStints === undefined);
+  const [error, setError] = useState(initialStints === undefined && !sessionKey);
   const [selectedDrivers, setSelectedDrivers] = useState<string[]>(() => {
     // Default to top 5 drivers
     return drivers.slice(0, 5).map((d) => d.number);
@@ -48,6 +61,9 @@ export default function TireStintsChart({
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
   useEffect(() => {
+    // Already fetched server-side by the pitwall page — nothing to do here.
+    if (initialStints !== undefined) return;
+
     if (!sessionKey) {
       setLoading(false);
       setError(true);
@@ -76,7 +92,7 @@ export default function TireStintsChart({
     }
 
     fetchStints();
-  }, [sessionKey]);
+  }, [sessionKey, initialStints]);
 
   const toggleDriver = (number: string) => {
     setSelectedDrivers((prev) =>

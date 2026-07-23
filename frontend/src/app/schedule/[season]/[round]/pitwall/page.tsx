@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getRaceResults, getSeasonRaces } from "@/lib/api";
-import { getSessionKeyByDate } from "@/lib/openf1";
+import { getSessionKeyByDate, getStints } from "@/lib/openf1";
 import { getTeamColor } from "@/lib/team-colors";
 import TireStintsChart from "@/components/tire-stints-chart";
 
@@ -21,18 +21,20 @@ export default async function PitwallPage({ params }: PageProps) {
     notFound();
   }
 
-  // 1. Get Race Date from Ergast
-  const racesRes = await getSeasonRaces(seasonYear);
+  // Neither call depends on the other's result — only getSessionKeyByDate
+  // (below) needs the race date, so fire both up front instead of serially.
+  const [racesRes, resultsRes] = await Promise.all([
+    getSeasonRaces(seasonYear),
+    getRaceResults(seasonYear, roundNumber),
+  ]);
   const race = (racesRes.races ?? []).find((r) => r.round === String(roundNumber));
-  
+
   if (!race || !race.date) {
     notFound();
   }
 
-  // 2. Get Drivers from Ergast
-  const resultsRes = await getRaceResults(seasonYear, roundNumber);
   const results = resultsRes.results ?? [];
-  
+
   const drivers = results
     .filter((r) => r.Driver && r.number)
     .map((r) => ({
@@ -44,8 +46,15 @@ export default async function PitwallPage({ params }: PageProps) {
       teamColor: getTeamColor(r.Constructor?.name).hex,
     }));
 
-  // 3. Get OpenF1 Session Key
   const sessionKey = await getSessionKeyByDate(seasonYear, race.date);
+  // Fetched server-side so the chart never re-fetches on the client — also
+  // fixes the client fetch bypassing fetchOpenF1's auth header.
+  const initialStints = sessionKey
+    ? await getStints(
+        sessionKey,
+        drivers.map((d) => Number(d.number)).filter((n) => Number.isFinite(n))
+      )
+    : [];
 
   return (
     <div className="px-6 md:px-10 pt-8 pb-16">
@@ -100,7 +109,7 @@ export default async function PitwallPage({ params }: PageProps) {
         {/* Main Content Area */}
         <main>
           {sessionKey ? (
-            <TireStintsChart sessionKey={sessionKey} drivers={drivers} />
+            <TireStintsChart sessionKey={sessionKey} drivers={drivers} initialStints={initialStints} />
           ) : (
             <div className="apex-glass-soft rounded-2xl p-12 flex flex-col items-center justify-center text-center min-h-[500px]">
               <div className="w-14 h-14 rounded-[14px] bg-[rgba(255,90,31,0.1)] border border-[rgba(255,90,31,0.25)] flex items-center justify-center mb-5">
