@@ -72,7 +72,9 @@ export default async function RaceDetailPage({ params }: PageProps) {
 
   const isNextRace = upcomingRace?.round === String(roundNumber);
 
-  // Fetch results for completed races
+  // Fetch results, session classifications and circuit info for completed
+  // races in one parallel wave instead of six sequential round trips — each
+  // request fails independently so one missing session doesn't wipe the rest.
   let results: RaceResult[] = [];
   let qualifyingResults: RaceResult[] = [];
   let sprintResults: RaceResult[] = [];
@@ -80,44 +82,43 @@ export default async function RaceDetailPage({ params }: PageProps) {
   let fp2Results: RaceResult[] = [];
   let fp3Results: RaceResult[] = [];
   let sprintQualiResults: RaceResult[] = [];
+  let circuitInfo = null;
+
   if (isPast) {
-    try {
-      const res = await getRaceResults(seasonYear, roundNumber);
-      results = res.results ?? [];
-    } catch {
-      // no results
-    }
-    try {
-      const res = await getQualifyingResults(seasonYear, roundNumber);
-      qualifyingResults = res.results ?? [];
-    } catch {
-      qualifyingResults = [];
-    }
-    try {
-      const res = await getSprintResults(seasonYear, roundNumber);
-      sprintResults = res.results ?? [];
-    } catch {
-      sprintResults = [];
-    }
-    // Fetch each practice/SQ session independently so one failure doesn't wipe all results
-    const [fp1Res, fp2Res, fp3Res, sqRes] = await Promise.allSettled([
+    const [
+      raceRes,
+      qualiRes,
+      sprintRes,
+      fp1Res,
+      fp2Res,
+      fp3Res,
+      sqRes,
+      circuitInfoRes,
+    ] = await Promise.allSettled([
+      getRaceResults(seasonYear, roundNumber),
+      getQualifyingResults(seasonYear, roundNumber),
+      getSprintResults(seasonYear, roundNumber),
       getSessionClassification(seasonYear, roundNumber, "FP1"),
       getSessionClassification(seasonYear, roundNumber, "FP2"),
       getSessionClassification(seasonYear, roundNumber, "FP3"),
       getSessionClassification(seasonYear, roundNumber, "SQ"),
+      getCircuitInfo(seasonYear, race.raceName),
     ]);
+
+    results = raceRes.status === "fulfilled" ? raceRes.value.results ?? [] : [];
+    qualifyingResults = qualiRes.status === "fulfilled" ? qualiRes.value.results ?? [] : [];
+    sprintResults = sprintRes.status === "fulfilled" ? sprintRes.value.results ?? [] : [];
     fp1Results = fp1Res.status === "fulfilled" ? fp1Res.value.results ?? [] : [];
     fp2Results = fp2Res.status === "fulfilled" ? fp2Res.value.results ?? [] : [];
     fp3Results = fp3Res.status === "fulfilled" ? fp3Res.value.results ?? [] : [];
     sprintQualiResults = sqRes.status === "fulfilled" ? sqRes.value.results ?? [] : [];
-  }
-
-  // Fetch circuit info
-  let circuitInfo = null;
-  try {
-    circuitInfo = await getCircuitInfo(seasonYear, race.raceName);
-  } catch {
-    circuitInfo = null;
+    circuitInfo = circuitInfoRes.status === "fulfilled" ? circuitInfoRes.value : null;
+  } else {
+    try {
+      circuitInfo = await getCircuitInfo(seasonYear, race.raceName);
+    } catch {
+      circuitInfo = null;
+    }
   }
 
   const circuit = race.Circuit;
