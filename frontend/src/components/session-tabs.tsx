@@ -186,13 +186,13 @@ function WinnerCard({ r }: { r: RaceResult }) {
         style={{ background: color.hex, boxShadow: `0 0 16px ${color.glow}` }}
       />
       {img ? (
-        <div className="absolute top-5 right-4 bottom-5 w-[34%] pointer-events-none">
+        <div className="absolute top-5 right-4 bottom-5 w-[34%] pointer-events-none overflow-hidden rounded-lg">
           <Image
             src={img}
             alt={`${given} ${family}`}
             fill
             sizes="200px"
-            className="object-contain object-bottom drop-shadow-[0_10px_28px_rgba(0,0,0,0.7)]"
+            className="object-cover object-[50%_10%] drop-shadow-[0_10px_28px_rgba(0,0,0,0.7)]"
           />
         </div>
       ) : (
