@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import {
+  getActiveSeasonYear,
   getCircuitInfo,
   getQualifyingResults,
   getRaceResults,
@@ -11,6 +12,7 @@ import {
 } from "@/lib/api";
 import SessionTabs from "@/components/session-tabs";
 import RaceSelector from "@/components/race-selector";
+import SeasonSelector from "@/components/season-selector";
 
 interface PageProps {
   params: Promise<{
@@ -173,6 +175,11 @@ export default async function RaceDetailPage({ params }: PageProps) {
           </p>
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <SeasonSelector
+            currentYear={seasonYear}
+            maxYear={getActiveSeasonYear()}
+            hrefTemplate="/schedule/{year}/1"
+          />
           <RaceSelector
             races={races}
             currentRound={String(roundNumber)}

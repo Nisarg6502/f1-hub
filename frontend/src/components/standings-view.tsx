@@ -6,17 +6,20 @@ import type { DriverStanding, ConstructorStanding } from "@/lib/api";
 import { getTeamColor } from "@/lib/team-colors";
 import { Stagger, StaggerItem } from "@/components/motion-primitives";
 import { AnimatedNumber } from "@/components/animated-number";
+import SeasonSelector from "@/components/season-selector";
 
 interface StandingsViewProps {
   drivers: DriverStanding[];
   constructors: ConstructorStanding[];
   year: number;
+  maxYear: number;
 }
 
 export default function StandingsView({
   drivers,
   constructors,
   year,
+  maxYear,
 }: StandingsViewProps) {
   const [tab, setTab] = useState<"drivers" | "cons">("drivers");
 
@@ -35,32 +38,35 @@ export default function StandingsView({
             Championship
           </div>
         </div>
-        <div className="flex gap-1.5 apex-glass-soft rounded-xl p-[5px] w-fit">
-          {(
-            [
-              ["drivers", "Drivers"],
-              ["cons", "Constructors"],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              className={`relative text-xs px-5 py-[9px] rounded-lg transition-[color,transform] duration-150 active:scale-[0.97] ${
-                tab === key
-                  ? "font-bold text-[#FFAE6A]"
-                  : "font-semibold text-warm-300 hover:text-on-background"
-              }`}
-            >
-              {tab === key && (
-                <motion.span
-                  layoutId="standings-tab-pill"
-                  className="absolute inset-0 rounded-lg bg-[rgba(255,90,31,0.18)]"
-                  transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                />
-              )}
-              <span className="relative z-10">{label}</span>
-            </button>
-          ))}
+        <div className="flex items-center gap-3">
+          <div className="flex gap-1.5 apex-glass-soft rounded-xl p-[5px] w-fit">
+            {(
+              [
+                ["drivers", "Drivers"],
+                ["cons", "Constructors"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className={`relative text-xs px-5 py-[9px] rounded-lg transition-[color,transform] duration-150 active:scale-[0.97] ${
+                  tab === key
+                    ? "font-bold text-[#FFAE6A]"
+                    : "font-semibold text-warm-300 hover:text-on-background"
+                }`}
+              >
+                {tab === key && (
+                  <motion.span
+                    layoutId="standings-tab-pill"
+                    className="absolute inset-0 rounded-lg bg-[rgba(255,90,31,0.18)]"
+                    transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                  />
+                )}
+                <span className="relative z-10">{label}</span>
+              </button>
+            ))}
+          </div>
+          <SeasonSelector currentYear={year} maxYear={maxYear} />
         </div>
       </div>
 
