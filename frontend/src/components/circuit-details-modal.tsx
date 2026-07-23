@@ -114,7 +114,7 @@ export default function CircuitDetailsModal({
             src={circuitImagePath}
             alt={`${circuit.circuit_name} layout`}
             containerClassName="my-[22px] h-[150px] rounded-[14px]"
-            imgClassName="object-contain p-4 opacity-85"
+            imgClassName="object-contain p-4"
             labelClassName="font-semibold text-[10px] tracking-[0.16em] text-warm-600"
             sizes="(max-width: 768px) 90vw, 520px"
           />
