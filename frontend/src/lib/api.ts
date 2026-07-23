@@ -288,6 +288,27 @@ export async function getSessionClassification(
   });
 }
 
+export interface DriverBio {
+  driverId: string;
+  givenName?: string | null;
+  familyName?: string | null;
+  code?: string | null;
+  permanentNumber?: string | null;
+  dateOfBirth?: string | null;
+  nationality?: string | null;
+  wikiUrl?: string | null;
+  wins: number;
+  podiums: number;
+  poles: number;
+  championships: number;
+}
+
+export async function getDriverBio(driverId: string) {
+  return fetchJson<DriverBio>("/api/driver_bio", { driver_id: driverId }, {
+    next: { revalidate: 3600 }, // Cache for 1 hour
+  });
+}
+
 export async function getCircuitInfo(year: number, eventName: string) {
   return fetchJson<CircuitInfo>("/api/circuit_info", {
     year,
