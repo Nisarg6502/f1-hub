@@ -11,6 +11,9 @@ import HeroFX from "@/components/hero-fx";
 import TiltCard from "@/components/tilt-card";
 import TrackMap from "@/components/track-map";
 import LocalDateTime from "@/components/local-datetime";
+import { AnimatedNumber } from "@/components/animated-number";
+import { AnimatedRing } from "@/components/animated-ring";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion-primitives";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { getCircuitImagePath } from "@/lib/circuit-images";
 import { getTeamColor } from "@/lib/team-colors";
@@ -244,38 +247,13 @@ export default async function Home() {
                     color: "#c9c0b4",
                   },
                 ].map((ring) => (
-                  <div key={ring.label} className="relative text-center">
-                    <svg width="108" height="108" viewBox="0 0 108 108">
-                      <circle
-                        cx="54"
-                        cy="54"
-                        r="44"
-                        fill="none"
-                        stroke="rgba(245,235,222,0.07)"
-                        strokeWidth="5"
-                      />
-                      <circle
-                        cx="54"
-                        cy="54"
-                        r="44"
-                        fill="none"
-                        stroke={ring.color}
-                        strokeWidth="5"
-                        strokeLinecap="round"
-                        transform="rotate(-90 54 54)"
-                        strokeDasharray={RING}
-                        strokeDashoffset={ring.offset}
-                      />
-                    </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="font-extrabold text-2xl tabular-nums">
-                        {ring.center}
-                      </span>
-                      <span className="font-semibold text-[9px] tracking-[0.12em] uppercase text-warm-500">
-                        {ring.label}
-                      </span>
-                    </div>
-                  </div>
+                  <AnimatedRing
+                    key={ring.label}
+                    center={ring.center}
+                    label={ring.label}
+                    offset={ring.offset}
+                    color={ring.color}
+                  />
                 ))}
               </div>
               <div>
@@ -300,9 +278,10 @@ export default async function Home() {
 
       {/* ===================== BENTO ===================== */}
       <section className="px-6 md:px-10 [perspective:1200px]">
-        <div className="grid md:grid-cols-3 gap-5">
+        <Stagger className="grid md:grid-cols-3 gap-5" gap={0.08}>
           {/* Championship leader */}
-          <TiltCard className="apex-glass apex-sheen rounded-[22px] p-[26px] overflow-hidden min-h-[224px]">
+          <StaggerItem>
+          <TiltCard className="apex-glass apex-sheen rounded-[22px] p-[26px] overflow-hidden min-h-[224px] block h-full">
             <BentoDriverArt
               given={leader?.Driver.givenName}
               family={leader?.Driver.familyName}
@@ -319,18 +298,27 @@ export default async function Home() {
                 {leaderTeam || "—"}
               </div>
               <div className="mt-5 flex items-baseline gap-2">
-                <span className="font-extrabold text-[44px] leading-none tabular-nums">
-                  {leaderPts || "—"}
-                </span>
+                {leaderPts ? (
+                  <AnimatedNumber
+                    value={leaderPts}
+                    className="font-extrabold text-[44px] leading-none tabular-nums"
+                  />
+                ) : (
+                  <span className="font-extrabold text-[44px] leading-none tabular-nums">
+                    —
+                  </span>
+                )}
                 <span className="font-semibold text-[11px] tracking-[0.08em] uppercase text-warm-500">
                   Pts
                 </span>
               </div>
             </div>
           </TiltCard>
+          </StaggerItem>
 
           {/* Last time out */}
-          <TiltCard className="apex-glass apex-sheen rounded-[22px] p-[26px] overflow-hidden min-h-[224px]">
+          <StaggerItem>
+          <TiltCard className="apex-glass apex-sheen rounded-[22px] p-[26px] overflow-hidden min-h-[224px] block h-full">
             <BentoDriverArt
               given={latestWinner?.givenName}
               family={latestWinner?.familyName}
@@ -360,15 +348,17 @@ export default async function Home() {
               )}
             </div>
           </TiltCard>
+          </StaggerItem>
 
           {/* Next circuit */}
+          <StaggerItem>
           <TiltCard
             href={
               nextRace
                 ? `/schedule/${seasonYear}/${nextRace.round}`
                 : "/circuits"
             }
-            className="apex-glass apex-sheen rounded-[22px] p-[26px] overflow-hidden min-h-[224px] block"
+            className="apex-glass apex-sheen rounded-[22px] p-[26px] overflow-hidden min-h-[224px] block h-full"
             ariaLabel="Next circuit"
           >
             <span className="relative font-bold text-[11px] tracking-[0.14em] uppercase text-[#FF7A3D]">
@@ -399,27 +389,28 @@ export default async function Home() {
               </div>
             </div>
           </TiltCard>
-        </div>
+          </StaggerItem>
+        </Stagger>
       </section>
 
       {/* ===================== EXPLORE ===================== */}
       <section className="px-6 md:px-10 pt-10 pb-14">
-        <div className="flex items-baseline justify-between mb-5">
+        <Reveal className="flex items-baseline justify-between mb-5">
           <span className="font-[family-name:var(--font-headline)] font-bold text-[19px]">
             Explore the season
           </span>
-        </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        </Reveal>
+        <Stagger className="grid grid-cols-2 lg:grid-cols-4 gap-4" gap={0.06}>
           {[
             { href: "/schedule", kicker: "Race calendar", big: `${total || 22}`, small: "races" },
             { href: "/standings", kicker: "Championship", title: "Standings" },
             { href: "/drivers", kicker: "Driver grid", big: `${driverStandings.length || 22}`, small: "drivers" },
             { href: "/teams", kicker: "Constructors", title: "Teams", accent: true },
           ].map((c) => (
+            <StaggerItem key={c.href}>
             <Link
-              key={c.href}
               href={c.href}
-              className="apex-glass-soft rounded-2xl p-[22px] flex flex-col gap-[14px] transition-all duration-200 hover:-translate-y-1 hover:border-[rgba(255,138,61,0.45)]"
+              className="apex-glass-soft rounded-2xl p-[22px] flex flex-col gap-[14px] h-full transition-[transform,border-color] duration-200 hover:-translate-y-1 hover:border-[rgba(255,138,61,0.45)]"
             >
               <span className="font-semibold text-[11px] tracking-[0.12em] uppercase text-warm-400">
                 {c.kicker}
@@ -441,8 +432,9 @@ export default async function Home() {
                 </span>
               )}
             </Link>
+            </StaggerItem>
           ))}
-        </div>
+        </Stagger>
       </section>
     </>
   );

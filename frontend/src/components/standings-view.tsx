@@ -1,8 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { motion } from "motion/react";
 import type { DriverStanding, ConstructorStanding } from "@/lib/api";
 import { getTeamColor } from "@/lib/team-colors";
+import { Stagger, StaggerItem } from "@/components/motion-primitives";
+import { AnimatedNumber } from "@/components/animated-number";
 
 interface StandingsViewProps {
   drivers: DriverStanding[];
@@ -42,13 +45,20 @@ export default function StandingsView({
             <button
               key={key}
               onClick={() => setTab(key)}
-              className={`text-xs px-5 py-[9px] rounded-lg transition-[background-color,color,transform] duration-150 active:scale-[0.97] ${
+              className={`relative text-xs px-5 py-[9px] rounded-lg transition-[color,transform] duration-150 active:scale-[0.97] ${
                 tab === key
-                  ? "font-bold bg-[rgba(255,90,31,0.18)] text-[#FFAE6A]"
+                  ? "font-bold text-[#FFAE6A]"
                   : "font-semibold text-warm-300 hover:text-on-background"
               }`}
             >
-              {label}
+              {tab === key && (
+                <motion.span
+                  layoutId="standings-tab-pill"
+                  className="absolute inset-0 rounded-lg bg-[rgba(255,90,31,0.18)]"
+                  transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                />
+              )}
+              <span className="relative z-10">{label}</span>
             </button>
           ))}
         </div>
@@ -57,7 +67,7 @@ export default function StandingsView({
       {/* DRIVERS */}
       {tab === "drivers" && (
         <div className="grid lg:grid-cols-[1fr_340px] gap-6 items-start">
-          <div className="flex flex-col gap-2">
+          <Stagger className="flex flex-col gap-2" gap={0.035}>
             {drivers.length === 0 && <EmptyRow label="No driver standings yet" />}
             {drivers.map((d, i) => {
               const name = `${d.Driver.givenName ?? ""} ${
@@ -67,9 +77,9 @@ export default function StandingsView({
               const color = getTeamColor(team);
               const leader = i === 0;
               return (
-                <div
+                <StaggerItem
                   key={name || i}
-                  className="grid grid-cols-[40px_1fr_auto] sm:grid-cols-[44px_1fr_70px_90px] gap-3 sm:gap-4 items-center px-4 sm:px-5 py-[14px] rounded-[14px] border transition-colors anim-rise"
+                  className="grid grid-cols-[40px_1fr_auto] sm:grid-cols-[44px_1fr_70px_90px] gap-3 sm:gap-4 items-center px-4 sm:px-5 py-[14px] rounded-[14px] border transition-colors"
                   style={{
                     background: leader
                       ? "rgba(255,90,31,0.12)"
@@ -77,7 +87,6 @@ export default function StandingsView({
                     borderColor: leader
                       ? "rgba(255,90,31,0.4)"
                       : "rgba(255,255,255,0.07)",
-                    animationDelay: `${Math.min(i * 30, 300)}ms`,
                   }}
                 >
                   <span
@@ -112,20 +121,20 @@ export default function StandingsView({
                     </div>
                   </div>
                   <div className="text-right flex items-baseline gap-[5px] justify-end">
-                    <span
-                      className="font-extrabold text-2xl tabular-nums"
-                      style={{ color: leader ? "#FFAE6A" : "#f6f1ea" }}
-                    >
-                      {d.points}
-                    </span>
+                    <AnimatedNumber
+                      value={Number(d.points) || 0}
+                      className={`font-extrabold text-2xl tabular-nums ${
+                        leader ? "text-[#FFAE6A]" : "text-[#f6f1ea]"
+                      }`}
+                    />
                     <span className="font-semibold text-[9px] text-warm-500">
                       PTS
                     </span>
                   </div>
-                </div>
+                </StaggerItem>
               );
             })}
-          </div>
+          </Stagger>
 
           {/* Constructor battle */}
           <div className="lg:sticky lg:top-[88px] apex-glass apex-sheen rounded-[20px] p-6 overflow-hidden">
@@ -168,7 +177,7 @@ export default function StandingsView({
 
       {/* CONSTRUCTORS */}
       {tab === "cons" && (
-        <div className="flex flex-col gap-2.5">
+        <Stagger className="flex flex-col gap-2.5" gap={0.04}>
           {constructors.length === 0 && (
             <EmptyRow label="No constructor standings yet" />
           )}
@@ -178,9 +187,9 @@ export default function StandingsView({
             const leader = i === 0;
             const pct = (Number(c.points) / maxConsPts) * 100;
             return (
-              <div
+              <StaggerItem
                 key={name || i}
-                className="relative px-5 sm:px-6 py-5 rounded-2xl overflow-hidden border anim-rise"
+                className="relative px-5 sm:px-6 py-5 rounded-2xl overflow-hidden border"
                 style={{
                   background: leader
                     ? "rgba(255,90,31,0.1)"
@@ -188,7 +197,6 @@ export default function StandingsView({
                   borderColor: leader
                     ? "rgba(255,90,31,0.35)"
                     : "rgba(255,255,255,0.07)",
-                  animationDelay: `${Math.min(i * 30, 300)}ms`,
                 }}
               >
                 <div className="grid grid-cols-[40px_1fr_auto] sm:grid-cols-[44px_1fr_80px_100px] gap-3 sm:gap-4 items-center">
@@ -222,12 +230,12 @@ export default function StandingsView({
                     </div>
                   </div>
                   <div className="text-right flex items-baseline gap-[5px] justify-end">
-                    <span
-                      className="font-extrabold text-2xl tabular-nums"
-                      style={{ color: leader ? "#FFAE6A" : "#f6f1ea" }}
-                    >
-                      {c.points}
-                    </span>
+                    <AnimatedNumber
+                      value={Number(c.points) || 0}
+                      className={`font-extrabold text-2xl tabular-nums ${
+                        leader ? "text-[#FFAE6A]" : "text-[#f6f1ea]"
+                      }`}
+                    />
                     <span className="font-semibold text-[9px] text-warm-500">
                       PTS
                     </span>
@@ -242,10 +250,10 @@ export default function StandingsView({
                     }}
                   />
                 </div>
-              </div>
+              </StaggerItem>
             );
           })}
-        </div>
+        </Stagger>
       )}
     </div>
   );

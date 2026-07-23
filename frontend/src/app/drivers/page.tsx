@@ -5,6 +5,7 @@ import { getFlagPath } from "@/lib/flags";
 import { getTeamColor } from "@/lib/team-colors";
 import TiltCard from "@/components/tilt-card";
 import FlagImg from "@/components/flag-img";
+import { Stagger, StaggerItem } from "@/components/motion-primitives";
 
 // Driver standings change after every race; render per request.
 export const dynamic = "force-dynamic";
@@ -41,7 +42,10 @@ export default async function DriversPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 [perspective:1400px]">
+      <Stagger
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 [perspective:1400px]"
+        gap={0.05}
+      >
         {list.map((driver, idx) => {
           const given = driver.Driver.givenName ?? "";
           const family = driver.Driver.familyName ?? "";
@@ -55,10 +59,9 @@ export default async function DriversPage() {
           const flagSrc = getFlagPath(driver.Driver.nationality);
 
           return (
+            <StaggerItem key={`${given} ${family}` || idx}>
             <TiltCard
-              key={`${given} ${family}` || idx}
-              className="apex-glass rounded-[18px] overflow-hidden p-5 min-h-[280px] anim-rise"
-              style={{ animationDelay: `${Math.min(idx * 25, 300)}ms` }}
+              className="apex-glass rounded-[18px] overflow-hidden p-5 min-h-[280px] block h-full"
               strength={6}
             >
               {/* team accent */}
@@ -143,9 +146,10 @@ export default async function DriversPage() {
                 </div>
               </div>
             </TiltCard>
+            </StaggerItem>
           );
         })}
-      </div>
+      </Stagger>
     </div>
   );
 }

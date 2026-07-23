@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { type Race, type CircuitDetail } from "@/lib/api";
 import { getCountryFlagPath } from "@/lib/flags";
 import { getCircuitImagePath } from "@/lib/circuit-images";
+import { Stagger, revealItem } from "./motion-primitives";
 import CircuitDetailsModal from "./circuit-details-modal";
 import TrackMap from "./track-map";
 import FlagImg from "./flag-img";
@@ -38,9 +40,14 @@ export default function CircuitsGallery({
     flagPath: string | null;
   } | null>(null);
 
+  const reduce = useReducedMotion();
+
   return (
     <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <Stagger
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+        gap={0.04}
+      >
         {races.map((race, idx) => {
           const color = PALETTE[idx % PALETTE.length];
           const location = race.Circuit?.Location;
@@ -55,20 +62,23 @@ export default function CircuitsGallery({
           );
 
           return (
-            <button
+            <motion.button
               key={`${race.round}-${race.raceName}`}
               type="button"
               disabled={!detail}
+              variants={revealItem}
               onClick={() =>
                 detail &&
                 setSelected({ detail, circuitImagePath, flagPath })
               }
-              className={`text-left rounded-2xl overflow-hidden apex-glass-soft transition-[transform,border-color] duration-200 anim-rise ${
+              whileHover={detail && !reduce ? { y: -6 } : undefined}
+              whileTap={detail && !reduce ? { scale: 0.97 } : undefined}
+              transition={{ type: "spring", stiffness: 400, damping: 28 }}
+              className={`text-left rounded-2xl overflow-hidden apex-glass-soft transition-[border-color] duration-200 ${
                 detail
-                  ? "cursor-pointer hover:-translate-y-1.5 hover:border-[rgba(255,138,61,0.4)] active:scale-[0.98] active:translate-y-0"
+                  ? "cursor-pointer hover:border-[rgba(255,138,61,0.4)]"
                   : "cursor-default"
               }`}
-              style={{ animationDelay: `${Math.min(idx * 25, 300)}ms` }}
             >
               <div className="h-[3px]" style={{ background: color }} />
               <div className="p-[18px]">
@@ -117,10 +127,10 @@ export default function CircuitsGallery({
                   </div>
                 </div>
               </div>
-            </button>
+            </motion.button>
           );
         })}
-      </div>
+      </Stagger>
 
       {selected && (
         <CircuitDetailsModal
