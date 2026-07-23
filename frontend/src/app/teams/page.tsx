@@ -1,6 +1,8 @@
+import Image from "next/image";
 import { getActiveSeasonYear, getConstructorStandings, resolveSeasonYear } from "@/lib/api";
 import { getEngineForTeam } from "@/lib/engines";
 import { getTeamColor } from "@/lib/team-colors";
+import { getTeamLogoPath } from "@/lib/team-images";
 import TiltCard from "@/components/tilt-card";
 import { Stagger, StaggerItem } from "@/components/motion-primitives";
 import SeasonSelector from "@/components/season-selector";
@@ -69,6 +71,7 @@ export default async function TeamsPage({ searchParams }: PageProps) {
           const color = getTeamColor(name);
           const engine = getEngineForTeam(name);
           const mono = name.slice(0, 2).toUpperCase();
+          const logoPath = getTeamLogoPath(name);
 
           return (
             <StaggerItem key={name || idx}>
@@ -104,12 +107,24 @@ export default async function TeamsPage({ searchParams }: PageProps) {
                     )}
                   </div>
                 </div>
-                <div
-                  className="w-[54px] h-[54px] rounded-[14px] flex items-center justify-center font-[family-name:var(--font-headline)] font-extrabold text-xl flex-none"
-                  style={{ background: color.hex, color: "#0a0908" }}
-                >
-                  {mono}
-                </div>
+                {logoPath ? (
+                  <div className="relative w-[54px] h-[54px] rounded-[14px] p-2 flex-none bg-[rgba(245,235,222,0.92)]">
+                    <Image
+                      src={logoPath}
+                      alt={`${name} logo`}
+                      fill
+                      sizes="54px"
+                      className="object-contain p-1"
+                    />
+                  </div>
+                ) : (
+                  <div
+                    className="w-[54px] h-[54px] rounded-[14px] flex items-center justify-center font-[family-name:var(--font-headline)] font-extrabold text-xl flex-none"
+                    style={{ background: color.hex, color: "#0a0908" }}
+                  >
+                    {mono}
+                  </div>
+                )}
               </div>
 
               <div className="relative mt-8 flex items-end justify-between">
@@ -143,6 +158,30 @@ export default async function TeamsPage({ searchParams }: PageProps) {
           );
         })}
       </Stagger>
+
+      {/* CC BY 4.0 requires attribution — the Aston Martin logo is the only
+          team asset under that license; the rest are public-domain/CC0. */}
+      <p className="font-medium text-[10px] text-warm-500 mb-8 -mt-6">
+        Aston Martin logo via{" "}
+        <a
+          href="https://commons.wikimedia.org/wiki/File:Aston_Martin_F1_Team_logo_2024.jpg"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline hover:text-warm-300"
+        >
+          Wikimedia Commons
+        </a>
+        , licensed{" "}
+        <a
+          href="https://creativecommons.org/licenses/by/4.0/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline hover:text-warm-300"
+        >
+          CC BY 4.0
+        </a>
+        .
+      </p>
 
       {/* Power units */}
       {engineGroups.size > 0 && (
