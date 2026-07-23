@@ -18,8 +18,10 @@ interface TrackMapProps {
 /**
  * Circuit outline image with a graceful fallback: if the asset is missing
  * (e.g. the CDN asset base isn't configured), it drops back to the APEX hatch
- * placeholder instead of a broken image. The hatch is always the box's
- * background, so the fallback needs no extra markup.
+ * placeholder instead of a broken image. The hatch is a fallback-only texture
+ * now — applying it under a loaded image made every circuit's transparent
+ * PNG/AVIF sit on top of a dark diagonal-stripe pattern, which is what made
+ * the artwork look faded and "wrong" even when it had loaded correctly.
  */
 export default function TrackMap({
   src,
@@ -32,9 +34,22 @@ export default function TrackMap({
 }: TrackMapProps) {
   const [ok, setOk] = useState(Boolean(src));
 
+  // Only default to `relative` when the caller hasn't specified their own
+  // position utility (e.g. the featured circuit card passes `absolute
+  // inset-0` to fill its parent). Including both unconditionally used to
+  // silently break that case: Tailwind's stylesheet puts `.relative` after
+  // `.absolute`, so at equal specificity `relative` always won regardless of
+  // class order here, leaving the fill image with no sized ancestor to fill
+  // and collapsing it to zero height.
+  const hasPositionOverride = /\b(absolute|fixed|sticky|static)\b/.test(
+    containerClassName
+  );
+
   return (
     <div
-      className={`relative overflow-hidden apex-hatch flex items-center justify-center ${containerClassName}`}
+      className={`overflow-hidden flex items-center justify-center ${
+        hasPositionOverride ? "" : "relative"
+      } ${ok && src ? "bg-[rgba(245,235,222,0.035)]" : "apex-hatch"} ${containerClassName}`}
     >
       {ok && src ? (
         <Image

@@ -56,7 +56,7 @@ export default async function CircuitsPage() {
             src={featuredImagePath}
             alt={featured?.Circuit?.circuitName ?? "Circuit"}
             containerClassName="absolute inset-0"
-            imgClassName="object-contain p-14 opacity-80"
+            imgClassName="object-contain p-14"
             labelClassName="font-semibold text-[11px] tracking-[0.16em] text-warm-600"
             sizes="(max-width: 1024px) 100vw, 900px"
           />
