@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { motion } from "motion/react";
 import type { DriverStanding, ConstructorStanding } from "@/lib/api";
 import { getTeamColor } from "@/lib/team-colors";
+import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { Stagger, StaggerItem } from "@/components/motion-primitives";
 import { AnimatedNumber } from "@/components/animated-number";
 import SeasonSelector from "@/components/season-selector";
@@ -82,6 +84,10 @@ export default function StandingsView({
               const team = d.Constructors?.[0]?.name ?? "—";
               const color = getTeamColor(team);
               const leader = i === 0;
+              const hasImg = hasDriverImage(d.Driver.givenName, d.Driver.familyName);
+              const imgPath = hasImg
+                ? getDriverImagePath(d.Driver.givenName, d.Driver.familyName)
+                : null;
               return (
                 <StaggerItem
                   key={name || i}
@@ -109,6 +115,19 @@ export default function StandingsView({
                         boxShadow: `0 0 10px ${color.glow}`,
                       }}
                     />
+                    <div className="relative w-9 h-9 rounded-[9px] overflow-hidden flex-none bg-[rgba(245,235,222,0.06)]">
+                      {imgPath ? (
+                        <Image
+                          src={imgPath}
+                          alt={name}
+                          fill
+                          sizes="36px"
+                          className="object-cover object-[50%_10%]"
+                        />
+                      ) : (
+                        <div className="absolute inset-0 apex-hatch" />
+                      )}
+                    </div>
                     <div className="min-w-0">
                       <div className="font-bold text-base truncate">
                         {name || "—"}
