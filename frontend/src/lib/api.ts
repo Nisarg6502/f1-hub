@@ -53,6 +53,12 @@ export interface Race {
   Sprint?: { date?: string; time?: string };
   SprintQualifying?: { date?: string; time?: string };
   Qualifying?: { date?: string; time?: string };
+  /** Attached server-side once the round's results are cached; absent otherwise. */
+  winner?: {
+    givenName: string;
+    familyName: string;
+    code: string;
+  };
 }
 
 export interface DriverStanding {

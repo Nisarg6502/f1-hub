@@ -68,6 +68,34 @@ async def _fetch_and_cache_races(db, year: int) -> list[dict]:
     return races
 
 
+async def _attach_winners(db, year: int, races: list[dict]) -> None:
+    """Attach each completed round's winner, read from cached results in one query.
+
+    The schedule list only needs the winner's name, not the full results, so
+    this stays a single lightweight query rather than a call per round.
+    """
+    result_docs = await db.race_results.find(
+        {"season": year}, {"_id": 0, "round": 1, "results": 1}
+    ).to_list(length=100)
+
+    winners_by_round: dict[str, dict] = {}
+    for doc in result_docs:
+        results = doc.get("results") or []
+        driver = (results[0].get("Driver") or {}) if results else {}
+        if not driver.get("familyName"):
+            continue
+        winners_by_round[str(doc.get("round"))] = {
+            "givenName": driver.get("givenName", ""),
+            "familyName": driver.get("familyName", ""),
+            "code": driver.get("code", ""),
+        }
+
+    for race in races:
+        winner = winners_by_round.get(str(race.get("round")))
+        if winner:
+            race["winner"] = winner
+
+
 @router.get("/races")
 async def get_races(
     year: int = Query(..., description="Season year"),
@@ -80,6 +108,7 @@ async def get_races(
         races = await _fetch_and_cache_races(db, year)
 
     races.sort(key=_round_key)
+    await _attach_winners(db, year, races)
 
     requested = {p.strip() for p in (fields or "").split(",") if p.strip()}
     if not requested:

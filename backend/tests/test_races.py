@@ -47,6 +47,7 @@ class FakeDb:
     def __init__(self, **collections):
         self.races = collections.get("races", FakeCollection())
         self.circuit_details = collections.get("circuit_details", FakeCollection())
+        self.race_results = collections.get("race_results", FakeCollection())
 
 
 ERGAST_RACES_PAYLOAD = {
@@ -106,6 +107,31 @@ class RacesCacheMissTests(unittest.TestCase):
         self.assertEqual(body["races"], [])
         self.assertEqual(body["total_races"], 0)
         self.assertEqual(fake_db.races.updates, [])
+
+
+class RaceWinnersTests(unittest.TestCase):
+    def test_attaches_winner_only_to_rounds_with_cached_results(self):
+        race_docs = FakeCollection([
+            {"season": 2026, "round": "1", "raceName": "Australian Grand Prix"},
+            {"season": 2026, "round": "2", "raceName": "Chinese Grand Prix"},
+        ])
+        race_results = FakeCollection([
+            {
+                "round": "1",
+                "results": [
+                    {"Driver": {"givenName": "Max", "familyName": "Verstappen", "code": "VER"}},
+                ],
+            },
+        ])
+        fake_db = FakeDb(races=race_docs, race_results=race_results)
+
+        with patch.object(races, "get_db", return_value=fake_db):
+            response = asyncio.run(races.get_races(year=2026, fields="races"))
+
+        body = json.loads(response.body)
+        by_round = {r["round"]: r for r in body["races"]}
+        self.assertEqual(by_round["1"]["winner"]["familyName"], "Verstappen")
+        self.assertNotIn("winner", by_round["2"])
 
 
 class CircuitDetailsTests(unittest.TestCase):
