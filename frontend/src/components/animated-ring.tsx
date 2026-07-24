@@ -11,11 +11,14 @@ const RING = 276; // 2πr for r=44
  */
 export function AnimatedRing({
   center,
+  unit,
   label,
   offset,
   color,
 }: {
   center: string;
+  /** small unit suffix rendered next to the center value, e.g. "pts" */
+  unit?: string;
   label: string;
   /** final strokeDashoffset — smaller means more of the ring is filled */
   offset: number;
@@ -50,8 +53,13 @@ export function AnimatedRing({
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="font-extrabold text-2xl tabular-nums">{center}</span>
-        <span className="font-semibold text-[9px] tracking-[0.12em] uppercase text-warm-500">
+        <div className="flex items-baseline gap-1">
+          <span className="font-extrabold text-2xl tabular-nums">{center}</span>
+          {unit && (
+            <span className="font-bold text-[10px] text-warm-500">{unit}</span>
+          )}
+        </div>
+        <span className="font-semibold text-[9px] tracking-[0.12em] uppercase text-warm-500 mt-0.5">
           {label}
         </span>
       </div>
