@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { type CircuitDetail } from "@/lib/api";
 import TrackMap from "./track-map";
 import FlagImg from "./flag-img";
@@ -21,6 +22,7 @@ export default function CircuitDetailsModal({
   onClose,
 }: CircuitDetailsModalProps) {
   const [entered, setEntered] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   useEffect(() => {
     const id = requestAnimationFrame(() => setEntered(true));
@@ -29,7 +31,10 @@ export default function CircuitDetailsModal({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      // Escape closes the lightbox first, then the modal on a second press.
+      if (lightboxOpen) setLightboxOpen(false);
+      else onClose();
     };
     if (isOpen) {
       document.body.style.overflow = "hidden";
@@ -41,7 +46,7 @@ export default function CircuitDetailsModal({
       document.body.style.overflow = "auto";
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, lightboxOpen]);
 
   const info = circuit.track_information;
   const visible = isOpen && entered;
@@ -56,7 +61,8 @@ export default function CircuitDetailsModal({
     (s): s is { label: string; value: string | number } => Boolean(s.value)
   );
 
-  return (
+  return createPortal(
+    <>
     <div
       onClick={onClose}
       className={`fixed inset-0 z-[80] flex items-center justify-center p-5 md:p-10 bg-[rgba(6,5,4,0.6)] backdrop-blur-[6px] transition-opacity duration-200 ${
@@ -110,14 +116,27 @@ export default function CircuitDetailsModal({
             </button>
           </div>
 
-          <TrackMap
-            src={circuitImagePath}
-            alt={`${circuit.circuit_name} layout`}
-            containerClassName="my-[22px] h-[150px] rounded-[14px]"
-            imgClassName="object-contain p-4"
-            labelClassName="font-semibold text-[10px] tracking-[0.16em] text-warm-600"
-            sizes="(max-width: 768px) 90vw, 520px"
-          />
+          <div className="relative my-[22px]">
+            <TrackMap
+              src={circuitImagePath}
+              alt={`${circuit.circuit_name} layout`}
+              containerClassName="h-[150px] rounded-[14px]"
+              imgClassName="object-contain p-4"
+              labelClassName="font-semibold text-[10px] tracking-[0.16em] text-warm-600"
+              sizes="(max-width: 768px) 90vw, 520px"
+            />
+            {circuitImagePath && (
+              <button
+                onClick={() => setLightboxOpen(true)}
+                aria-label="View full-size circuit layout"
+                className="absolute top-2.5 right-2.5 w-8 h-8 rounded-[9px] bg-[rgba(6,5,4,0.55)] backdrop-blur-sm border border-white/10 flex items-center justify-center text-warm-100 hover:bg-[rgba(6,5,4,0.8)] hover:border-[rgba(255,138,61,0.5)] transition-[background-color,border-color,transform] duration-150 active:scale-90"
+              >
+                <span className="material-symbols-outlined text-[18px]">
+                  open_in_full
+                </span>
+              </button>
+            )}
+          </div>
 
           {stats.length > 0 || info?.lap_record ? (
             <div className="grid grid-cols-3 gap-3">
@@ -153,5 +172,38 @@ export default function CircuitDetailsModal({
         </div>
       </div>
     </div>
+
+    {circuitImagePath && (
+      <div
+        onClick={() => setLightboxOpen(false)}
+        className={`fixed inset-0 z-[90] flex items-center justify-center p-6 bg-[rgba(4,3,3,0.85)] backdrop-blur-md transition-opacity duration-200 ${
+          lightboxOpen ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+      >
+        <button
+          onClick={() => setLightboxOpen(false)}
+          aria-label="Close full-size view"
+          className="absolute top-5 right-5 w-10 h-10 rounded-[10px] bg-[rgba(245,235,222,0.1)] flex items-center justify-center text-warm-100 text-xl hover:bg-[rgba(245,235,222,0.16)] transition-[background-color,transform] duration-150 active:scale-90"
+        >
+          ×
+        </button>
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className={`relative w-full max-w-3xl max-h-[80vh] aspect-[16/10] transition-transform duration-200 ${
+            lightboxOpen ? "scale-100" : "scale-95"
+          }`}
+        >
+          <TrackMap
+            src={circuitImagePath}
+            alt={`${circuit.circuit_name} layout, full size`}
+            containerClassName="absolute inset-0 rounded-[18px]"
+            imgClassName="object-contain"
+            sizes="90vw"
+          />
+        </div>
+      </div>
+    )}
+    </>,
+    document.body
   );
 }
