@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Race } from "@/lib/api";
+import LocalDateTime from "./local-datetime";
 
 interface CountdownTimerProps {
   targetRace?: Race;
@@ -51,34 +52,50 @@ export default function CountdownTimer({ targetRace }: CountdownTimerProps) {
   ];
 
   return (
-    <div className="flex items-stretch">
-      {segments.map((seg, i) => (
-        <div key={seg.label} className="flex items-stretch">
-          <div
-            className={`${i === 0 ? "pr-3 sm:pr-6" : "px-3 sm:px-6"} ${
-              i === segments.length - 1 ? "pr-0" : ""
-            }`}
-          >
+    <div>
+      <div className="flex items-stretch">
+        {segments.map((seg, i) => (
+          <div key={seg.label} className="flex items-stretch">
             <div
-              className={`font-extrabold text-4xl sm:text-5xl md:text-[54px] leading-none tabular-nums ${
-                seg.hot ? "text-[#FF7A3D]" : "text-on-background"
+              className={`${i === 0 ? "pr-3 sm:pr-6" : "px-3 sm:px-6"} ${
+                i === segments.length - 1 ? "pr-0" : ""
               }`}
             >
-              {seg.value}
+              <div
+                className={`font-extrabold text-4xl sm:text-5xl md:text-[54px] leading-none tabular-nums ${
+                  seg.hot ? "text-[#FF7A3D]" : "text-on-background"
+                }`}
+              >
+                {seg.value}
+              </div>
+              <div
+                className={`mt-[6px] text-[10px] sm:text-[11px] font-semibold tracking-[0.12em] sm:tracking-[0.16em] uppercase ${
+                  seg.hot ? "text-[#8a6a52]" : "text-warm-500"
+                }`}
+              >
+                {seg.label}
+              </div>
             </div>
-            <div
-              className={`mt-[6px] text-[10px] sm:text-[11px] font-semibold tracking-[0.12em] sm:tracking-[0.16em] uppercase ${
-                seg.hot ? "text-[#8a6a52]" : "text-warm-500"
-              }`}
-            >
-              {seg.label}
-            </div>
+            {i < segments.length - 1 && (
+              <div className="w-px bg-[rgba(245,235,222,0.1)]" />
+            )}
           </div>
-          {i < segments.length - 1 && (
-            <div className="w-px bg-[rgba(245,235,222,0.1)]" />
-          )}
-        </div>
-      ))}
+        ))}
+      </div>
+      <div className="mt-3 text-xs sm:text-sm font-semibold text-warm-400">
+        <LocalDateTime
+          timestampMs={targetDate.getTime()}
+          options={{
+            weekday: "short",
+            day: "2-digit",
+            month: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          }}
+        />{" "}
+        · your local time
+      </div>
     </div>
   );
 }
