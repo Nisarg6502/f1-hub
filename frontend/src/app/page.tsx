@@ -13,6 +13,7 @@ import TrackMap from "@/components/track-map";
 import LocalDateTime from "@/components/local-datetime";
 import { AnimatedNumber } from "@/components/animated-number";
 import { AnimatedRing } from "@/components/animated-ring";
+import Tooltip from "@/components/tooltip";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion-primitives";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { getCircuitImagePath } from "@/lib/circuit-images";
@@ -239,21 +240,41 @@ export default async function Home() {
                     center: `${Math.round(elapsedPct * 100)}%`,
                     offset: RING * (1 - elapsedPct),
                     color: "#FF5A1F",
+                    tooltip:
+                      "Share of this season's rounds that have been run so far.",
                   },
                   {
-                    label: "Pt gap",
+                    label: "Title gap",
                     center: `${ptsGap}`,
+                    unit: "pts",
                     offset: RING * (1 - gapPct),
                     color: "#c9c0b4",
+                    tooltip:
+                      "Points separating the championship leader from 2nd place — a smaller gap means a tighter title fight.",
                   },
                 ].map((ring) => (
-                  <AnimatedRing
-                    key={ring.label}
-                    center={ring.center}
-                    label={ring.label}
-                    offset={ring.offset}
-                    color={ring.color}
-                  />
+                  <div key={ring.label} className="relative">
+                    <AnimatedRing
+                      center={ring.center}
+                      unit={ring.unit}
+                      label={ring.label}
+                      offset={ring.offset}
+                      color={ring.color}
+                    />
+                    <div className="absolute -top-1 -right-1">
+                      <Tooltip content={ring.tooltip}>
+                        <button
+                          type="button"
+                          aria-label={`What does ${ring.label} mean?`}
+                          className="w-5 h-5 rounded-full bg-[rgba(245,235,222,0.06)] flex items-center justify-center text-warm-500 hover:text-warm-200 hover:bg-[rgba(245,235,222,0.12)] transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-[13px] leading-none">
+                            info
+                          </span>
+                        </button>
+                      </Tooltip>
+                    </div>
+                  </div>
                 ))}
               </div>
               <div>
