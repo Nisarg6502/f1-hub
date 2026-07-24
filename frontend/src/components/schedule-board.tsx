@@ -29,6 +29,11 @@ export interface ScheduleRow {
   flagSrc: string | null;
   status: "completed" | "next" | "upcoming";
   isSprint: boolean;
+  winner?: {
+    givenName: string;
+    familyName: string;
+    code: string;
+  };
 }
 
 interface ScheduleBoardProps {
@@ -212,13 +217,28 @@ export default function ScheduleBoard({
                     {[r.circuit, r.locality].filter(Boolean).join(" · ")}
                   </div>
                 </div>
-                <div className="justify-self-end">
-                  <span
-                    className="font-bold text-[10px] tracking-[0.08em] uppercase px-3 py-1.5 rounded-lg whitespace-nowrap"
-                    style={{ background: badge.bg, color: badge.color }}
-                  >
-                    {badge.label}
-                  </span>
+                <div className="justify-self-end flex flex-col items-end gap-1.5">
+                  {r.winner && r.winner.familyName && (
+                    <span className="font-bold text-[11px] sm:text-xs text-warm-100 whitespace-nowrap">
+                      🏆 {r.winner.code || r.winner.familyName}
+                    </span>
+                  )}
+                  <div className="flex items-center gap-1.5">
+                    {r.status === "completed" && r.isSprint && (
+                      <span
+                        className="font-bold text-[9px] tracking-[0.08em] uppercase px-2 py-1 rounded-lg whitespace-nowrap"
+                        style={{ background: "rgba(255,138,61,0.16)", color: "#FFAE6A" }}
+                      >
+                        Sprint
+                      </span>
+                    )}
+                    <span
+                      className="font-bold text-[10px] tracking-[0.08em] uppercase px-3 py-1.5 rounded-lg whitespace-nowrap"
+                      style={{ background: badge.bg, color: badge.color }}
+                    >
+                      {badge.label}
+                    </span>
+                  </div>
                 </div>
               </Link>
               </motion.div>

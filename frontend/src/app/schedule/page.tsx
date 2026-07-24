@@ -58,6 +58,7 @@ export default async function SchedulePage({ searchParams }: PageProps) {
       flagSrc: getCountryFlagPath(country),
       status: r.isPast ? "completed" : i === nextIdx ? "next" : "upcoming",
       isSprint: r.isSprint,
+      winner: r.race.winner,
     };
   });
 
