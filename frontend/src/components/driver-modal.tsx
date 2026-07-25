@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import { motion, useReducedMotion } from "motion/react";
 import type { DriverStanding, DriverBio } from "@/lib/api";
@@ -83,7 +84,7 @@ export default function DriverModal({
     { l: "Titles", v: bio?.championships ?? 0 },
   ];
 
-  return (
+  return createPortal(
     <motion.div
       onClick={onClose}
       initial={{ opacity: 0 }}
@@ -237,6 +238,7 @@ export default function DriverModal({
           </div>
         </div>
       </motion.div>
-    </motion.div>
+    </motion.div>,
+    document.body
   );
 }

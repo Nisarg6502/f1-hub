@@ -82,7 +82,7 @@ export default function DriversGrid({ drivers }: DriversGridProps) {
                         alt={`${given} ${family}`}
                         fill
                         sizes="(max-width: 640px) 90vw, 320px"
-                        className="object-cover object-[50%_10%] drop-shadow-[0_10px_28px_rgba(0,0,0,0.7)]"
+                        className="object-cover object-[50%_0%] drop-shadow-[0_10px_28px_rgba(0,0,0,0.7)]"
                         priority={idx < 4}
                       />
                     </motion.div>
