@@ -230,25 +230,12 @@ Two data sources are called directly from the frontend rather than through the b
 These exist in the shipped UI but do not work, or do not work as their label implies.
 
 - **Nav search box is decorative.** The "Search drivers, tracks…" input in the top bar (desktop `lg` and up) has no `onChange`, no form, and no submit handler. Typing in it does nothing. There is no search feature anywhere in the app.
-- **"Season 2026" in the nav is a hardcoded string.** It is not derived from the active season or from the season you are currently viewing, so it keeps saying 2026 while you browse 2019. The page `<title>` ("APEX | 2026 F1 Season Hub") and meta description are hardcoded to 2026 for the same reason, and they are the only metadata in the app — no route sets its own title.
 - **Pitwall "Lap Telemetry" and "Race Control" buttons** are `disabled`, dimmed to 50% opacity, and badged "Soon". Helper functions for both (`getLaps`, `getRaceControl` in `frontend/src/lib/openf1.ts`) exist but are never called.
-- **Pitwall "Tire Stints" button does nothing when clicked.** It is styled as the active module but has no `onClick` — it is a static indicator, not a control. There is only one module, so nothing is lost, but it is not a working switcher.
 - **Footer has no links.** It is two lines of text. Nothing in it is clickable — worth knowing if you are looking for an About/GitHub/attribution link there.
-- **`/telemetry` is unreachable through the UI.** It is absent from both the desktop nav and the mobile bottom bar, and nothing links to it. It also requires `NEXT_PUBLIC_RAPIDAPI_KEY`; without it, the moment a session goes live the panel renders the raw error "NEXT_PUBLIC_RAPIDAPI_KEY is not configured".
-- **Weather is fetched by nothing.** The backend serves `GET /api/race_weather` and the client has a `getRaceWeather()` helper, but no page or component calls it. Air/track temperature, wind, rainfall, humidity and pressure are all available and entirely unsurfaced.
-- **Pitwall silently renders an empty chart when OpenF1 returns a session but no stints.** OpenF1 paywalls `/stints` for the current season, returning 401, which the fetch wrapper converts to an empty array. Because a session *key* was still found, the page takes the chart branch rather than the empty-state branch: you get axes, five driver labels, and no bars, with no explanation. The "premium subscription" empty state only appears when no session matches at all.
-- **The Pitwall empty state's copy is inaccurate.** It attributes every failure to a missing premium OpenF1 subscription, including seasons OpenF1 simply has no data for, and its claim that "historical data is available for the 2023–2025 seasons" does not reflect what the page will actually render. This is the thing the in-flight stints branch fixes.
+- **`/telemetry` is unreachable through the UI.** It is absent from both the desktop nav and the mobile bottom bar, and nothing links to it. Deliberately left unlinked (see `ROADMAP.md`) until `NEXT_PUBLIC_RAPIDAPI_KEY` is confirmed provisioned in production — the page now shows a friendly "not available in this environment yet" message instead of a raw config-error string when the key is missing.
+- **The page `<title>` ("APEX | 2026 F1 Season Hub") and meta description are hardcoded to 2026**, unlike the nav's Season label (which now reflects the active/viewed season) — no route sets its own title.
 - **The Pitwall driver dropdown has no click-outside or Escape handling.** Once opened it stays open until you click the trigger button again.
 - **Season selectors offer 2018 onward, but data quality drops off sharply.** The range is fixed at `MIN_SUPPORTED_SEASON = 2018` regardless of what is actually cached; older seasons will show calendars and standings but largely empty session classifications, circuit details, and no Pitwall data.
-
----
-
-## In flight (not on `main`)
-
-Two branches are open and not yet merged. Neither is reflected in the descriptions above.
-
-- **`feat/pitwall-fastf1-stints`** — re-sources the Pitwall tyre-stint data from FastF1 through a new backend endpoint (`backend/app/race_stints.py`, plus sync-job support) instead of calling OpenF1 directly from the frontend. It also replaces the misleading "requires a premium OpenF1 subscription" lock state with an honest one: an hourglass icon, "Stint data not available yet", and copy explaining that stints are derived once the race has finished and its data has been archived, with "Race results" and schedule links instead of the OpenF1 outbound link. This addresses two of the Pitwall gaps listed above.
-- **`feat/pitwall-pit-stops`** — a new pit-stop analysis module for the Pitwall page, actively in progress. It currently branches from the stints work; no distinct commits yet.
 
 ---
 
