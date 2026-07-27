@@ -394,6 +394,10 @@ export async function getCircuitInfo(year: number, eventName: string) {
 }
 
 
+export function isLiveTimingConfigured(): boolean {
+  return Boolean(process.env.NEXT_PUBLIC_RAPIDAPI_KEY);
+}
+
 export async function getLiveTimingData() {
   const rapidApiKey = process.env.NEXT_PUBLIC_RAPIDAPI_KEY;
   const rapidApiHost =
