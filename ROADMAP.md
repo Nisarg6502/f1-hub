@@ -24,17 +24,29 @@ The original plan's CP15-19 (driver/team head-to-head compare, championship calc
 
 ## Current batch
 
-Batch 4 is complete and merged. Batch 5 is not yet planned — see Backlog below for candidates.
+Batch 5 — CP25, lap-by-lap position chart (the disabled Pitwall "Lap Telemetry" module). A
+single checkpoint: it's the size of the earlier stints/pit-stops work (new backend endpoint +
+sync job wiring + a new chart component), not a quick win to pair with something else.
 
-A pre-existing bug was found (not caused by Batch 4) while verifying CP24: `/standings` can get
-stuck client-side on its loading skeleton indefinitely, even though the server sends fully
-resolved HTML — see the "Known gaps" note in `FEATURES.md`. Flagged as a background task, not
-folded into a batch, since it's a bug fix rather than a planned feature.
+Scoped to **track position per lap only** for this pass, not gap-to-leader in seconds — FastF1's
+`session.laps` already carries a `Position` column for free, while a time-based gap needs
+cumulative race-time reconstruction per driver (accounting for pit stops, retirements, and
+lapped traffic), which is a materially bigger and riskier lift. Position-per-lap is the standard
+"who overtook whom" race chart and ships the disabled button's promise without that risk;
+gap-to-leader can be a follow-up checkpoint if wanted later.
+
+| # | Checkpoint | Status |
+|---|---|---|
+| 25 | Lap-by-lap position chart (Pitwall "Lap Telemetry" module) | not started |
+
+The `/standings` client hydration stall found while verifying CP24 (see `FEATURES.md` Known
+gaps) is being investigated as its own background task, run in parallel with this batch rather
+than folded into it, since it's a bug fix rather than a planned feature.
 
 ## Backlog (unscheduled)
 
 ### Comparison & analysis
-- Lap-by-lap position/gap chart (Pitwall "Lap Telemetry" module)
+- Gap-to-leader (seconds) as a Pitwall Lap Telemetry follow-up to CP25's position-only chart
 - Championship "Title Decider" scenario calculator
 - Circuit similarity / "Circuit DNA" comparison across tracks
 
