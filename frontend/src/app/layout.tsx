@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Bricolage_Grotesque, Hanken_Grotesk } from "next/font/google";
 import Link from "next/link";
 import NavLinks, { MobileNav } from "@/components/nav-links";
+import SeasonBadge from "@/components/season-badge";
 import "./globals.css";
 
 const bricolage = Bricolage_Grotesque({
@@ -119,9 +121,9 @@ export default function RootLayout({
                   type="text"
                 />
               </div>
-              <div className="font-semibold text-xs text-warm-300">
-                Season <span className="text-on-background">2026</span>
-              </div>
+              <Suspense fallback={<div className="font-semibold text-xs text-warm-300 w-[85px]" />}>
+                <SeasonBadge />
+              </Suspense>
             </div>
           </div>
         </nav>
