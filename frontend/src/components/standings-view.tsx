@@ -9,6 +9,7 @@ import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { Stagger, StaggerItem } from "@/components/motion-primitives";
 import { AnimatedNumber } from "@/components/animated-number";
 import SeasonSelector from "@/components/season-selector";
+import TeammateBattlePanel from "@/components/teammate-battle-panel";
 
 interface StandingsViewProps {
   drivers: DriverStanding[];
@@ -161,41 +162,45 @@ export default function StandingsView({
             })}
           </Stagger>
 
-          {/* Constructor battle */}
-          <div className="lg:sticky lg:top-[88px] apex-glass apex-sheen rounded-[20px] p-6 overflow-hidden">
-            <div className="relative">
-              <span className="font-bold text-xs tracking-[0.12em] uppercase text-[#FF7A3D]">
-                Constructor battle
-              </span>
-              <div className="mt-5 flex flex-col gap-[18px]">
-                {constructors.slice(0, 5).map((c) => {
-                  const name = c.Constructor.name ?? "—";
-                  const color = getTeamColor(name);
-                  const pct = (Number(c.points) / maxConsPts) * 100;
-                  return (
-                    <div key={name}>
-                      <div className="flex justify-between mb-[7px]">
-                        <span className="font-bold text-[13px]">{name}</span>
-                        <span className="font-bold text-sm tabular-nums">
-                          {c.points}
-                        </span>
+          {/* Sidebar: constructor battle + teammate battle */}
+          <div className="lg:sticky lg:top-[88px] flex flex-col gap-6">
+            <div className="apex-glass apex-sheen rounded-[20px] p-6 overflow-hidden">
+              <div className="relative">
+                <span className="font-bold text-xs tracking-[0.12em] uppercase text-[#FF7A3D]">
+                  Constructor battle
+                </span>
+                <div className="mt-5 flex flex-col gap-[18px]">
+                  {constructors.slice(0, 5).map((c) => {
+                    const name = c.Constructor.name ?? "—";
+                    const color = getTeamColor(name);
+                    const pct = (Number(c.points) / maxConsPts) * 100;
+                    return (
+                      <div key={name}>
+                        <div className="flex justify-between mb-[7px]">
+                          <span className="font-bold text-[13px]">{name}</span>
+                          <span className="font-bold text-sm tabular-nums">
+                            {c.points}
+                          </span>
+                        </div>
+                        <div className="h-[7px] bg-white/[0.06] rounded overflow-hidden">
+                          <div
+                            className="h-full rounded anim-bar"
+                            style={{ width: `${pct}%`, background: color.hex }}
+                          />
+                        </div>
                       </div>
-                      <div className="h-[7px] bg-white/[0.06] rounded overflow-hidden">
-                        <div
-                          className="h-full rounded anim-bar"
-                          style={{ width: `${pct}%`, background: color.hex }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-                {constructors.length === 0 && (
-                  <span className="font-medium text-xs text-warm-400">
-                    No constructor data yet
-                  </span>
-                )}
+                    );
+                  })}
+                  {constructors.length === 0 && (
+                    <span className="font-medium text-xs text-warm-400">
+                      No constructor data yet
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
+
+            {drivers.length > 0 && <TeammateBattlePanel drivers={drivers} year={year} />}
           </div>
         </div>
       )}
