@@ -1,14 +1,69 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getRaceResults, getRaceStints, getSeasonRaces } from "@/lib/api";
+import {
+  getPitStops,
+  getRaceResults,
+  getRaceStints,
+  getSeasonRaces,
+} from "@/lib/api";
 import { getTeamColor } from "@/lib/team-colors";
 import TireStintsChart from "@/components/tire-stints-chart";
+import PitStopsChart from "@/components/pit-stops-chart";
+import PitwallModules from "@/components/pitwall-modules";
 
 interface PageProps {
   params: Promise<{
     season: string;
     round: string;
   }>;
+}
+
+/** Shared "we don't have this yet" panel.
+ *
+ * A module with no data is an expected state, not a failure: stints wait on
+ * the local FastF1 sync and pit stops wait on the race actually being run.
+ * Both say so plainly rather than surfacing an error.
+ */
+function ModuleEmptyState({
+  title,
+  children,
+  season,
+  round,
+}: {
+  title: string;
+  children: React.ReactNode;
+  season: string;
+  round: string;
+}) {
+  return (
+    <div className="apex-glass-soft rounded-2xl p-12 flex flex-col items-center justify-center text-center min-h-[500px]">
+      <div className="w-14 h-14 rounded-[14px] bg-[rgba(255,90,31,0.1)] border border-[rgba(255,90,31,0.25)] flex items-center justify-center mb-5">
+        <span className="material-symbols-outlined text-[#FF7A3D] text-2xl">
+          hourglass_empty
+        </span>
+      </div>
+      <h3 className="font-[family-name:var(--font-headline)] font-bold text-2xl mb-2">
+        {title}
+      </h3>
+      <p className="font-medium text-sm text-warm-400 max-w-md mx-auto">
+        {children}
+      </p>
+      <div className="mt-7 flex gap-3">
+        <Link
+          href={`/schedule/${season}/${round}`}
+          className="font-bold text-xs uppercase tracking-[0.1em] px-6 py-2.5 rounded-[11px] apex-glass-soft hover:border-[rgba(255,138,61,0.5)] transition-colors"
+        >
+          Race results
+        </Link>
+        <Link
+          href="/schedule"
+          className="font-bold text-xs uppercase tracking-[0.1em] px-6 py-2.5 rounded-[11px] bg-[rgba(255,90,31,0.16)] text-[#FFAE6A] hover:bg-[rgba(255,90,31,0.24)] transition-colors"
+        >
+          View schedule
+        </Link>
+      </div>
+    </div>
+  );
 }
 
 export default async function PitwallPage({ params }: PageProps) {
@@ -22,11 +77,13 @@ export default async function PitwallPage({ params }: PageProps) {
 
   // None of these depend on each other's result, so fire them together rather
   // than serially. Stints come from the backend's FastF1-backed cache — OpenF1
-  // paywalled its /stints feed for the entire current season.
-  const [racesRes, resultsRes, stintsRes] = await Promise.all([
+  // paywalled its /stints feed for the entire current season. Pit stops come
+  // from Ergast, which unlike FastF1 answers from Cloud Run.
+  const [racesRes, resultsRes, stintsRes, pitStopsRes] = await Promise.all([
     getSeasonRaces(seasonYear),
     getRaceResults(seasonYear, roundNumber),
     getRaceStints(seasonYear, roundNumber).catch(() => null),
+    getPitStops(seasonYear, roundNumber).catch(() => null),
   ]);
   const race = (racesRes.races ?? []).find((r) => r.round === String(roundNumber));
 
@@ -48,7 +105,7 @@ export default async function PitwallPage({ params }: PageProps) {
     }));
 
   const stints = stintsRes?.stints ?? [];
-  const hasStints = stints.length > 0;
+  const stops = pitStopsRes?.stops ?? [];
 
   return (
     <div className="px-6 md:px-10 pt-8 pb-16">
@@ -72,71 +129,46 @@ export default async function PitwallPage({ params }: PageProps) {
         </Link>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
-        {/* Sidebar */}
-        <aside>
-          <h3 className="font-bold text-[11px] tracking-[0.18em] uppercase text-warm-500 mb-4">
-            Analysis modules
-          </h3>
-          <nav className="flex flex-col gap-2.5">
-            <button className="flex items-center justify-between px-5 py-4 rounded-2xl border border-[rgba(255,90,31,0.35)] bg-[rgba(255,90,31,0.1)] text-[#FFAE6A] w-full text-left transition-colors">
-              <span className="font-bold text-[15px]">Tire Stints</span>
-              <span className="material-symbols-outlined text-lg">
-                chevron_right
-              </span>
-            </button>
-            {["Lap Telemetry", "Race Control"].map((label) => (
-              <button
-                key={label}
-                disabled
-                className="flex items-center justify-between px-5 py-4 rounded-2xl apex-glass-soft opacity-50 cursor-not-allowed w-full text-left"
+      <PitwallModules
+        comingSoon={["Lap Telemetry", "Race Control"]}
+        modules={[
+          {
+            id: "stints",
+            label: "Tire Stints",
+            panel: stints.length ? (
+              <TireStintsChart drivers={drivers} initialStints={stints} />
+            ) : (
+              <ModuleEmptyState
+                title="Stint data not available yet"
+                season={season}
+                round={round}
               >
-                <span className="font-bold text-[15px]">{label}</span>
-                <span className="text-[10px] uppercase tracking-[0.1em] text-warm-500 font-bold rounded-md bg-[rgba(245,235,222,0.06)] px-2 py-1">
-                  Soon
-                </span>
-              </button>
-            ))}
-          </nav>
-        </aside>
-
-        {/* Main Content Area */}
-        <main>
-          {hasStints ? (
-            <TireStintsChart drivers={drivers} initialStints={stints} />
-          ) : (
-            <div className="apex-glass-soft rounded-2xl p-12 flex flex-col items-center justify-center text-center min-h-[500px]">
-              <div className="w-14 h-14 rounded-[14px] bg-[rgba(255,90,31,0.1)] border border-[rgba(255,90,31,0.25)] flex items-center justify-center mb-5">
-                <span className="material-symbols-outlined text-[#FF7A3D] text-2xl">
-                  hourglass_empty
-                </span>
-              </div>
-              <h3 className="font-[family-name:var(--font-headline)] font-bold text-2xl mb-2">
-                Stint data not available yet
-              </h3>
-              <p className="font-medium text-sm text-warm-400 max-w-md mx-auto">
-                Tyre strategy for {race.raceName} hasn&apos;t been processed yet.
-                Stints are derived from timing data once the race has finished
-                and its data has been archived — check back after the weekend.
-              </p>
-              <div className="mt-7 flex gap-3">
-                <Link
-                  href={`/schedule/${season}/${round}`}
-                  className="font-bold text-xs uppercase tracking-[0.1em] px-6 py-2.5 rounded-[11px] apex-glass-soft hover:border-[rgba(255,138,61,0.5)] transition-colors"
-                >
-                  Race results
-                </Link>
-                <Link
-                  href="/schedule"
-                  className="font-bold text-xs uppercase tracking-[0.1em] px-6 py-2.5 rounded-[11px] bg-[rgba(255,90,31,0.16)] text-[#FFAE6A] hover:bg-[rgba(255,90,31,0.24)] transition-colors"
-                >
-                  View schedule
-                </Link>
-              </div>
-            </div>
-          )}
-        </main>
-      </div>
+                Tyre strategy for {race.raceName} hasn&apos;t been processed
+                yet. Stints are derived from timing data once the race has
+                finished and its data has been archived — check back after the
+                weekend.
+              </ModuleEmptyState>
+            ),
+          },
+          {
+            id: "pit-stops",
+            label: "Pit Stops",
+            panel: stops.length ? (
+              <PitStopsChart drivers={drivers} stops={stops} />
+            ) : (
+              <ModuleEmptyState
+                title="Pit-stop data not available yet"
+                season={season}
+                round={round}
+              >
+                No pit stops have been published for {race.raceName}. Stop
+                times appear alongside the official classification once the
+                race has run — check back after the weekend.
+              </ModuleEmptyState>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }

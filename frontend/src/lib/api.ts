@@ -354,6 +354,36 @@ export async function getRaceStints(year: number, round: number) {
   });
 }
 
+export interface PitStop {
+  driver_id: string;
+  lap: number;
+  stop: number;
+  /** Ergast's raw string, kept because a red-flag stop reads "18:01.553". */
+  duration: string;
+  duration_seconds: number;
+  time: string | null;
+}
+
+/** Pit stops for a finished race, from Ergast and cached in Mongo.
+ *
+ * Unlike `getRaceStints` the backing source is reachable from Cloud Run, so
+ * `synced: false` here means the round genuinely has no published stops (a
+ * future race) rather than "the local sync job hasn't run".
+ */
+export async function getPitStops(year: number, round: number) {
+  return fetchJson<{
+    year: number;
+    round: number;
+    stops: PitStop[];
+    synced: boolean;
+  }>("/api/pit_stops", {
+    year,
+    round,
+  }, {
+    next: { revalidate: 3600 }, // Cache for 1 hour
+  });
+}
+
 export async function getCircuitInfo(year: number, eventName: string) {
   return fetchJson<CircuitInfo>("/api/circuit_info", {
     year,
