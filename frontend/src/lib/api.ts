@@ -325,6 +325,35 @@ export async function getDriverBio(driverId: string) {
   });
 }
 
+export interface RaceStint {
+  driver_number: number;
+  stint_number: number;
+  lap_start: number;
+  lap_end: number;
+  compound: string;
+  tyre_age_at_start: number;
+}
+
+/** Tyre stints for a finished race, derived from FastF1 and cached in Mongo.
+ *
+ * `synced` is false when the round hasn't been through the local sync job yet
+ * (FastF1's live-timing archive blocks Cloud Run, so the backend can't rebuild
+ * it on demand in production) — the UI distinguishes that from "no such race".
+ */
+export async function getRaceStints(year: number, round: number) {
+  return fetchJson<{
+    year: number;
+    round: number;
+    stints: RaceStint[];
+    synced: boolean;
+  }>("/api/race_stints", {
+    year,
+    round,
+  }, {
+    next: { revalidate: 3600 }, // Cache for 1 hour
+  });
+}
+
 export async function getCircuitInfo(year: number, eventName: string) {
   return fetchJson<CircuitInfo>("/api/circuit_info", {
     year,

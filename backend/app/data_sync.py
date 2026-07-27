@@ -390,6 +390,43 @@ def sync_circuit_details(db, year: int, races: list[dict]) -> None:
     print(f"  circuit details: synced {synced} new round(s)")
 
 
+def sync_race_stints(db, year: int, races: list[dict]) -> None:
+    """Per-driver tyre stints via FastF1, replacing the paywalled OpenF1 feed.
+
+    Like `sync_circuit_details` this reads the live-timing archive, which 403s
+    from Cloud Run — so in practice this only populates when the job is run
+    from a local machine after a race weekend. The API serves whatever is here
+    and reports an empty result rather than an error when a round is missing.
+    """
+    from .race_stints import build_race_stints
+
+    synced = 0
+    for race in races:
+        round_number = int(race.get("round", 0))
+        if not FORCE_RESYNC and db.race_stints.find_one(
+            {"season": year, "round": str(round_number)}
+        ):
+            continue
+
+        stints = build_race_stints(year, round_number)
+        if not stints:
+            continue
+
+        db.race_stints.update_one(
+            {"season": year, "round": str(round_number)},
+            {"$set": {
+                "season": year,
+                "round": str(round_number),
+                "stints": stints,
+                "synced_at": _utcnow_iso(),
+            }},
+            upsert=True,
+        )
+        synced += 1
+
+    print(f"  race stints: synced {synced} new round(s)")
+
+
 def sync_weather(db, year: int, races: list[dict]) -> None:
     from .session_results import fetch_openf1_weather
 
@@ -436,6 +473,7 @@ def create_indexes(db) -> None:
         [("season", 1), ("round", 1), ("session", 1)], unique=True
     )
     db.circuit_details.create_index([("season", 1), ("round", 1)], unique=True)
+    db.race_stints.create_index([("season", 1), ("round", 1)], unique=True)
     db.weather_cache.create_index([("season", 1), ("round", 1)], unique=True)
     # Populated lazily by /api/driver_bio on demand, not by this batch job.
     db.driver_bios.create_index([("driverId", 1)], unique=True)
@@ -478,6 +516,7 @@ def main() -> int:
         sync_session_results(db, year, started)
         sync_practice_results(db, year, started)
         sync_circuit_details(db, year, finished)
+        sync_race_stints(db, year, finished)
         sync_weather(db, year, finished)
 
     client.close()
