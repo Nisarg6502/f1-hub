@@ -15,18 +15,13 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 1 | CP1-6 | Perf, circuit images, driver crop, driver modal, season selector, team logos | merged |
 | 2 | CP7-14 | Circuit lightbox, schedule/home/standings polish, Pitwall CTA prominence, tyre stints re-sourced from FastF1 | merged |
 | 2 (ad hoc) | unnumbered | Pit-stop analysis module (Pitwall), driver-bio rate-limit fix (Hamilton championship undercount) — built mid-batch in response to user requests, outside the original CP15-19 plan | merged |
+| 3 | CP20-22 | Weather conditions tile, dynamic nav season label, telemetry error-leak fix | merged |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
 ## Current batch
 
-Batch 3 — CP20-22, small fixes/polish before starting larger comparison/analysis features.
-
-| # | Checkpoint | Status |
-|---|---|---|
-| 20 | Race weather "Conditions" tile on race detail page | ✅ merged |
-| 21 | Nav "Season" label reflects active/viewed season | ✅ merged |
-| 22 | `/telemetry` graceful env-var error + nav-link deferred | ⏳ pushed, PR not opened yet |
+Batch 3 is complete and merged. Batch 4 is not yet planned — see Backlog below for candidates.
 
 ## Backlog (unscheduled)
 
