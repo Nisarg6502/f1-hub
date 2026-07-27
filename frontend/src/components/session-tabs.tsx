@@ -306,9 +306,16 @@ function FullResultsTable({ results }: { results: RaceResult[] }) {
         {season && round && (
           <Link
             href={`/schedule/${season}/${round}/pitwall`}
-            className="font-bold text-[11px] tracking-[0.08em] uppercase px-4 py-2 rounded-[10px] bg-[rgba(255,90,31,0.16)] text-[#FFAE6A] hover:bg-[rgba(255,90,31,0.24)] transition-[background-color,transform] duration-150 active:scale-95"
+            className="group inline-flex items-center gap-2 font-bold text-xs tracking-[0.08em] uppercase text-[#1a1210] px-5 py-2.5 rounded-[12px] shadow-[0_6px_20px_rgba(255,90,31,0.35)] hover:shadow-[0_8px_26px_rgba(255,90,31,0.5)] transition-[box-shadow,transform] duration-150 active:scale-95"
+            style={{ background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)" }}
           >
+            <span className="material-symbols-outlined text-[17px] leading-none">
+              query_stats
+            </span>
             Pitwall analysis
+            <span className="material-symbols-outlined text-[16px] leading-none transition-transform duration-150 group-hover:translate-x-0.5">
+              arrow_forward
+            </span>
           </Link>
         )}
       </div>
