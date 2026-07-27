@@ -23,13 +23,18 @@ The original plan's CP15-19 (driver/team head-to-head compare, championship calc
 
 ## Current batch
 
-Batch 3 is complete and merged. Batch 4 is not yet planned — see Backlog below for candidates.
+Batch 4 — CP23-24, driver/team comparison tools. Sequential, not parallel: both depend on a
+shared new `getSeasonResultsByRound(year)` frontend helper, so parallel subagents would risk
+duplicated/conflicting versions of it.
+
+| # | Checkpoint | Status |
+|---|---|---|
+| 23 | Driver-vs-driver head-to-head compare (race metrics + qualifying gap) | not started |
+| 24 | Teammate battle panel on `/standings` | not started |
 
 ## Backlog (unscheduled)
 
 ### Comparison & analysis
-- Driver-vs-driver head-to-head comparison (quali gap, points, head-to-head finishes)
-- Teammate battle view
 - Lap-by-lap position/gap chart (Pitwall "Lap Telemetry" module)
 - Championship "Title Decider" scenario calculator
 - Circuit similarity / "Circuit DNA" comparison across tracks
