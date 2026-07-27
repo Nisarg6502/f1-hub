@@ -24,7 +24,7 @@ Batch 3 — CP20-22, small fixes/polish before starting larger comparison/analys
 
 | # | Checkpoint | Status |
 |---|---|---|
-| 20 | Race weather "Conditions" tile on race detail page | not started |
+| 20 | Race weather "Conditions" tile on race detail page | ✅ merged |
 | 21 | Nav "Season" label reflects active/viewed season | not started |
 | 22 | `/telemetry` graceful env-var error + nav-link deferred | not started |
 
