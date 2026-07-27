@@ -173,6 +173,113 @@ class DriverBioCacheMissTests(unittest.TestCase):
         self.assertIsNone(stale.update)
 
 
+class FakeResponse:
+    def __init__(self, payload: dict):
+        self._body = json.dumps(payload).encode("utf-8")
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def _http_error(code: int):
+    from urllib.error import HTTPError
+
+    return HTTPError("http://example.test", code, "boom", {}, None)
+
+
+class FetchRetryTests(unittest.TestCase):
+    """Jolpica rate-limits bursts; a 429 must not read as 'no data'."""
+
+    def test_retries_a_rate_limited_request_until_it_succeeds(self):
+        attempts = [_http_error(429), _http_error(429), FakeResponse({"MRData": {"total": "7"}})]
+
+        def urlopen(request, timeout=None):
+            result = attempts.pop(0)
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        with patch.object(driver_bio, "urlopen", side_effect=urlopen), \
+             patch.object(driver_bio.time, "sleep"):
+            data = driver_bio._fetch_json("http://example.test")
+
+        self.assertEqual(data["MRData"]["total"], "7")
+        self.assertEqual(attempts, [])
+
+    def test_raises_rather_than_returning_none_when_rate_limiting_persists(self):
+        with patch.object(driver_bio, "urlopen", side_effect=lambda *a, **k: (_ for _ in ()).throw(_http_error(429))), \
+             patch.object(driver_bio.time, "sleep"):
+            with self.assertRaises(driver_bio.FetchError):
+                driver_bio._fetch_json("http://example.test")
+
+    def test_does_not_retry_a_client_error(self):
+        calls = []
+
+        def urlopen(request, timeout=None):
+            calls.append(request)
+            raise _http_error(404)
+
+        with patch.object(driver_bio, "urlopen", side_effect=urlopen), \
+             patch.object(driver_bio.time, "sleep"):
+            with self.assertRaises(driver_bio.FetchError):
+                driver_bio._fetch_json("http://example.test")
+
+        self.assertEqual(len(calls), 1)
+
+
+class PartialFailureTests(unittest.TestCase):
+    """Regression: Hamilton's 7 titles were served (and cached) as 3.
+
+    Every stat here is a count, so a request that fails is indistinguishable
+    from a season the driver didn't win unless the failure propagates.
+    """
+
+    def _fetch_with_one_failing_season(self, url, timeout=15):
+        if "/2023/drivers/max_verstappen/driverstandings.json" in url:
+            raise driver_bio.FetchError("HTTP 429")
+        return _fake_fetch_json(url, timeout)
+
+    def test_a_rate_limited_season_never_undercounts_a_cached_championship_total(self):
+        stale_time = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=48)
+        stale = FakeCollection({
+            "driverId": "max_verstappen",
+            "givenName": "Max",
+            "championships": 2,
+            "wins": 71,
+            "synced_at": stale_time.isoformat(),
+        })
+        fake_db = FakeDb(driver_bios=stale)
+
+        with patch.object(driver_bio, "get_db", return_value=fake_db), \
+             patch.object(driver_bio, "_fetch_json", side_effect=self._fetch_with_one_failing_season):
+            response = asyncio.run(driver_bio.get_driver_bio(driver_id="max_verstappen"))
+
+        body = json.loads(response.body)
+        # The whole point: 2, not the 1 a partial count would have produced.
+        self.assertEqual(body["championships"], 2)
+        self.assertIsNone(stale.update, "a partial rebuild must never be cached")
+
+    def test_reports_unavailable_rather_than_inventing_totals_with_no_cache(self):
+        fake_db = FakeDb()
+
+        with patch.object(driver_bio, "get_db", return_value=fake_db), \
+             patch.object(driver_bio, "_fetch_json", side_effect=self._fetch_with_one_failing_season):
+            response = asyncio.run(driver_bio.get_driver_bio(driver_id="max_verstappen"))
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIsNone(fake_db.driver_bios.update)
+
+    def test_concurrency_is_capped_below_jolpicas_burst_limit(self):
+        # 20+ simultaneous season lookups are what triggered the 429s.
+        self.assertLessEqual(driver_bio.MAX_CONCURRENT_REQUESTS, 5)
+
+
 class MrdataTotalTests(unittest.TestCase):
     def test_reads_the_total_field(self):
         self.assertEqual(driver_bio._mrdata_total({"MRData": {"total": "71"}}), 71)
