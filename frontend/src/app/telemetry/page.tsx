@@ -6,6 +6,7 @@ import {
   getActiveSeasonYear,
   getLiveTimingData,
   getSeasonRaces,
+  isLiveTimingConfigured,
   type LiveTimingLine,
   type Race,
 } from "@/lib/api";
@@ -41,6 +42,7 @@ export default function TelemetryPage() {
   const [timingRows, setTimingRows] = useState<LiveTimingLine[]>([]);
   const [isLoadingTiming, setIsLoadingTiming] = useState(false);
   const [timingError, setTimingError] = useState<string | null>(null);
+  const [isConfigError, setIsConfigError] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -81,10 +83,22 @@ export default function TelemetryPage() {
     if (!liveSession) {
       setTimingRows([]);
       setTimingError(null);
+      setIsConfigError(false);
       setIsLoadingTiming(false);
       return;
     }
 
+    if (!isLiveTimingConfigured()) {
+      // No RapidAPI key in this environment -- don't even attempt the fetch,
+      // and never let the "not configured" internals reach the DOM.
+      setTimingRows([]);
+      setTimingError(null);
+      setIsConfigError(true);
+      setIsLoadingTiming(false);
+      return;
+    }
+
+    setIsConfigError(false);
     let isMounted = true;
 
     const fetchTiming = async () => {
@@ -102,7 +116,8 @@ export default function TelemetryPage() {
         setTimingError(null);
       } catch (error) {
         if (!isMounted) return;
-        setTimingError(error instanceof Error ? error.message : "Failed to load live timing");
+        console.error("Live timing fetch failed:", error);
+        setTimingError("Couldn't reach the live timing feed. Retrying…");
       } finally {
         if (isMounted) {
           setIsLoadingTiming(false);
@@ -189,17 +204,22 @@ export default function TelemetryPage() {
           </div>
 
           <div className="max-h-[70vh] overflow-y-auto">
-            {isLoadingTiming && timingRows.length === 0 && (
+            {isConfigError && (
+              <div className="p-4 font-medium text-sm text-[#ff9b8a]">
+                Live timing isn&apos;t available in this environment yet.
+              </div>
+            )}
+            {!isConfigError && isLoadingTiming && timingRows.length === 0 && (
               <div className="p-4 font-medium text-sm text-warm-400">
                 Loading live timing feed…
               </div>
             )}
-            {timingError && (
+            {!isConfigError && timingError && (
               <div className="p-4 font-medium text-sm text-[#ff9b8a]">
                 {timingError}
               </div>
             )}
-            {!isLoadingTiming && !timingError && timingRows.length === 0 && (
+            {!isConfigError && !isLoadingTiming && !timingError && timingRows.length === 0 && (
               <div className="p-4 font-medium text-sm text-warm-400">
                 No timing rows available yet.
               </div>
