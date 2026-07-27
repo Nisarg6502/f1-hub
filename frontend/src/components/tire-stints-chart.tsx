@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   BarChart,
   Bar,
@@ -11,19 +11,10 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
-import { Check, ChevronsUpDown, AlertCircle } from "lucide-react";
-
-interface Stint {
-  driver_number: number;
-  stint_number: number;
-  lap_start: number;
-  lap_end: number;
-  compound: string;
-  tyre_age_at_start: number;
-}
+import { Check, ChevronsUpDown } from "lucide-react";
+import type { RaceStint } from "@/lib/api";
 
 interface TireStintsChartProps {
-  sessionKey: number | null;
   drivers: {
     driverId: string;
     number: string;
@@ -32,9 +23,9 @@ interface TireStintsChartProps {
     familyName: string;
     teamColor: string;
   }[];
-  /** Stints fetched server-side by the pitwall page. When provided, this
-   * component seeds from it instead of fetching client-side after hydration. */
-  initialStints?: Stint[];
+  /** Stints fetched server-side by the pitwall page, which only renders this
+   * chart once it has some — so there is no loading or empty state here. */
+  initialStints: RaceStint[];
 }
 
 const COMPOUND_COLORS: Record<string, string> = {
@@ -46,53 +37,68 @@ const COMPOUND_COLORS: Record<string, string> = {
   UNKNOWN: "#555555",
 };
 
+/** One Recharts row per driver.
+ *
+ * Recharts addresses stacked bars by flat `dataKey` strings, so each stint is
+ * spread across `stint<n>_len` / `_compound` / `_age` keys rather than nested
+ * under an array.
+ */
+type ChartRow = Record<string, string | number>;
+
+interface StintTooltipProps {
+  active?: boolean;
+  payload?: { payload: ChartRow }[];
+}
+
+/** Declared outside the chart so it isn't recreated (and remounted) each render. */
+function StintTooltip({ active, payload }: StintTooltipProps) {
+  if (!active || !payload?.length) return null;
+
+  const row = payload[0].payload;
+  const stints = [];
+  for (let idx = 0; row[`stint${idx}_len`] !== undefined; idx++) {
+    stints.push({
+      laps: Number(row[`stint${idx}_len`]),
+      compound: String(row[`stint${idx}_compound`] ?? "UNKNOWN"),
+    });
+  }
+
+  return (
+    <div className="rounded-xl bg-[rgba(26,22,19,0.95)] border border-white/10 p-4 shadow-xl">
+      <p className="font-[family-name:var(--font-headline)] font-bold text-lg mb-2">
+        {row.fullName}
+      </p>
+      <div className="space-y-2">
+        {stints.map(({ laps, compound }, idx) =>
+          laps ? (
+            <div key={idx} className="flex items-center gap-2 text-sm">
+              <div
+                className="w-3 h-3 rounded-full"
+                style={{
+                  backgroundColor:
+                    COMPOUND_COLORS[compound] || COMPOUND_COLORS.UNKNOWN,
+                }}
+              />
+              <span className="text-warm-300">Stint {idx + 1}:</span>
+              <span className="font-bold tabular-nums">{laps} laps</span>
+              <span className="text-xs text-warm-500">({compound})</span>
+            </div>
+          ) : null
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function TireStintsChart({
-  sessionKey,
   drivers,
-  initialStints,
+  initialStints: stints,
 }: TireStintsChartProps) {
-  const [stints, setStints] = useState<Stint[]>(initialStints ?? []);
-  const [loading, setLoading] = useState(initialStints === undefined);
-  const [error, setError] = useState(initialStints === undefined && !sessionKey);
   const [selectedDrivers, setSelectedDrivers] = useState<string[]>(() => {
     // Default to top 5 drivers
     return drivers.slice(0, 5).map((d) => d.number);
   });
   const [dropdownOpen, setDropdownOpen] = useState(false);
-
-  useEffect(() => {
-    // Already fetched server-side by the pitwall page — nothing to do here.
-    if (initialStints !== undefined) return;
-
-    if (!sessionKey) {
-      setLoading(false);
-      setError(true);
-      return;
-    }
-
-    async function fetchStints() {
-      try {
-        const res = await fetch(
-          `https://api.openf1.org/v1/stints?session_key=${sessionKey}`
-        );
-        if (res.status === 401) {
-          setError(true);
-          setLoading(false);
-          return;
-        }
-        if (!res.ok) throw new Error("Failed to fetch");
-        const data = await res.json();
-        setStints(data);
-      } catch (e) {
-        console.error(e);
-        setError(true);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchStints();
-  }, [sessionKey, initialStints]);
 
   const toggleDriver = (number: string) => {
     setSelectedDrivers((prev) =>
@@ -107,17 +113,22 @@ export default function TireStintsChart({
   // Prepare data for Recharts
   // We need an array where each object is a driver, and has keys for each stint length
   // e.g. { name: "VER", stint0_len: 15, stint0_compound: "SOFT", stint1_len: 20, stint1_compound: "HARD" }
-  let maxStints = 0;
-  const chartData = activeDrivers.map((driver) => {
-    const driverStints = stints
+  const stintsByDriver = activeDrivers.map((driver) => ({
+    driver,
+    driverStints: stints
       .filter((s) => String(s.driver_number) === driver.number)
-      .sort((a, b) => a.stint_number - b.stint_number);
+      .sort((a, b) => a.stint_number - b.stint_number),
+  }));
 
-    if (driverStints.length > maxStints) {
-      maxStints = driverStints.length;
-    }
+  // One <Bar> is rendered per stint index, so the chart needs the highest stint
+  // count across the selected drivers before it can lay any of them out.
+  const maxStints = stintsByDriver.reduce(
+    (max, { driverStints }) => Math.max(max, driverStints.length),
+    0
+  );
 
-    const row: any = {
+  const chartData = stintsByDriver.map(({ driver, driverStints }) => {
+    const row: ChartRow = {
       name: driver.code || driver.familyName,
       fullName: `${driver.givenName} ${driver.familyName}`,
       teamColor: driver.teamColor,
@@ -133,38 +144,6 @@ export default function TireStintsChart({
 
     return row;
   });
-
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      const driverData = payload[0].payload;
-      return (
-        <div className="rounded-xl bg-[rgba(26,22,19,0.95)] border border-white/10 p-4 shadow-xl">
-          <p className="font-[family-name:var(--font-headline)] font-bold text-lg mb-2">
-            {driverData.fullName}
-          </p>
-          <div className="space-y-2">
-            {Array.from({ length: maxStints }).map((_, idx) => {
-              const len = driverData[`stint${idx}_len`];
-              const compound = driverData[`stint${idx}_compound`];
-              if (!len) return null;
-              return (
-                <div key={idx} className="flex items-center gap-2 text-sm">
-                  <div
-                    className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: COMPOUND_COLORS[compound] || COMPOUND_COLORS.UNKNOWN }}
-                  />
-                  <span className="text-warm-300">Stint {idx + 1}:</span>
-                  <span className="font-bold tabular-nums">{len} laps</span>
-                  <span className="text-xs text-warm-500">({compound})</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      );
-    }
-    return null;
-  };
 
   return (
     <div className="flex flex-col h-full gap-6">
@@ -228,21 +207,6 @@ export default function TireStintsChart({
 
       {/* Chart Area */}
       <div className="apex-glass-soft rounded-2xl flex-grow p-6 relative min-h-[500px]">
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-[rgba(10,9,8,0.5)] backdrop-blur-sm z-10 rounded-2xl">
-            <div className="w-12 h-12 border-4 border-[#FF5A1F] border-t-transparent rounded-full animate-spin" />
-          </div>
-        )}
-
-        {error && !loading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[rgba(10,9,8,0.5)] backdrop-blur-sm z-10 text-warm-400 rounded-2xl">
-            <AlertCircle className="w-12 h-12 mb-4 text-[#FF7A3D]" />
-            <p className="text-lg font-medium">
-              No stint data available for this session.
-            </p>
-          </div>
-        )}
-
         {activeDrivers.length === 0 ? (
           <div className="absolute inset-0 flex items-center justify-center text-warm-500 font-medium">
             Select at least one driver to view stints.
@@ -269,7 +233,7 @@ export default function TireStintsChart({
                 tick={{ fill: "#f6f1ea", fontSize: 14, fontWeight: "bold" }}
                 width={60}
               />
-              <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} content={<CustomTooltip />} />
+              <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} content={<StintTooltip />} />
               
               {/* Render a Bar for each possible stint index */}
               {Array.from({ length: maxStints }).map((_, idx) => (

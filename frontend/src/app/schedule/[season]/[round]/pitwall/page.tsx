@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getRaceResults, getSeasonRaces } from "@/lib/api";
-import { getSessionKeyByDate, getStints } from "@/lib/openf1";
+import { getRaceResults, getRaceStints, getSeasonRaces } from "@/lib/api";
 import { getTeamColor } from "@/lib/team-colors";
 import TireStintsChart from "@/components/tire-stints-chart";
 
@@ -21,11 +20,13 @@ export default async function PitwallPage({ params }: PageProps) {
     notFound();
   }
 
-  // Neither call depends on the other's result — only getSessionKeyByDate
-  // (below) needs the race date, so fire both up front instead of serially.
-  const [racesRes, resultsRes] = await Promise.all([
+  // None of these depend on each other's result, so fire them together rather
+  // than serially. Stints come from the backend's FastF1-backed cache — OpenF1
+  // paywalled its /stints feed for the entire current season.
+  const [racesRes, resultsRes, stintsRes] = await Promise.all([
     getSeasonRaces(seasonYear),
     getRaceResults(seasonYear, roundNumber),
+    getRaceStints(seasonYear, roundNumber).catch(() => null),
   ]);
   const race = (racesRes.races ?? []).find((r) => r.round === String(roundNumber));
 
@@ -46,15 +47,8 @@ export default async function PitwallPage({ params }: PageProps) {
       teamColor: getTeamColor(r.Constructor?.name).hex,
     }));
 
-  const sessionKey = await getSessionKeyByDate(seasonYear, race.date);
-  // Fetched server-side so the chart never re-fetches on the client — also
-  // fixes the client fetch bypassing fetchOpenF1's auth header.
-  const initialStints = sessionKey
-    ? await getStints(
-        sessionKey,
-        drivers.map((d) => Number(d.number)).filter((n) => Number.isFinite(n))
-      )
-    : [];
+  const stints = stintsRes?.stints ?? [];
+  const hasStints = stints.length > 0;
 
   return (
     <div className="px-6 md:px-10 pt-8 pb-16">
@@ -108,38 +102,36 @@ export default async function PitwallPage({ params }: PageProps) {
 
         {/* Main Content Area */}
         <main>
-          {sessionKey ? (
-            <TireStintsChart sessionKey={sessionKey} drivers={drivers} initialStints={initialStints} />
+          {hasStints ? (
+            <TireStintsChart drivers={drivers} initialStints={stints} />
           ) : (
             <div className="apex-glass-soft rounded-2xl p-12 flex flex-col items-center justify-center text-center min-h-[500px]">
               <div className="w-14 h-14 rounded-[14px] bg-[rgba(255,90,31,0.1)] border border-[rgba(255,90,31,0.25)] flex items-center justify-center mb-5">
                 <span className="material-symbols-outlined text-[#FF7A3D] text-2xl">
-                  lock
+                  hourglass_empty
                 </span>
               </div>
               <h3 className="font-[family-name:var(--font-headline)] font-bold text-2xl mb-2">
-                Telemetry data unavailable
+                Stint data not available yet
               </h3>
               <p className="font-medium text-sm text-warm-400 max-w-md mx-auto">
-                Detailed stint & strategy data for the {seasonYear} season
-                requires a premium OpenF1 subscription. Historical data is
-                available for the 2023–2025 seasons.
+                Tyre strategy for {race.raceName} hasn&apos;t been processed yet.
+                Stints are derived from timing data once the race has finished
+                and its data has been archived — check back after the weekend.
               </p>
               <div className="mt-7 flex gap-3">
                 <Link
-                  href="/schedule"
+                  href={`/schedule/${season}/${round}`}
                   className="font-bold text-xs uppercase tracking-[0.1em] px-6 py-2.5 rounded-[11px] apex-glass-soft hover:border-[rgba(255,138,61,0.5)] transition-colors"
+                >
+                  Race results
+                </Link>
+                <Link
+                  href="/schedule"
+                  className="font-bold text-xs uppercase tracking-[0.1em] px-6 py-2.5 rounded-[11px] bg-[rgba(255,90,31,0.16)] text-[#FFAE6A] hover:bg-[rgba(255,90,31,0.24)] transition-colors"
                 >
                   View schedule
                 </Link>
-                <a
-                  href="https://openf1.org"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-bold text-xs uppercase tracking-[0.1em] px-6 py-2.5 rounded-[11px] bg-[rgba(255,90,31,0.16)] text-[#FFAE6A] hover:bg-[rgba(255,90,31,0.24)] transition-colors"
-                >
-                  OpenF1 website
-                </a>
               </div>
             </div>
           )}
