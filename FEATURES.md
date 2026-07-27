@@ -1,0 +1,255 @@
+# APEX — Feature Inventory
+
+**What this app is.** APEX is a Formula 1 season hub: a dark, warm-orange "glassmorphism" web app that answers *when is the next race, who is winning, what happened last weekend, and who/what is on the grid*. It is built as a Next.js App Router frontend talking to a FastAPI backend, which in turn caches data from the Ergast API (via the Jolpica mirror), FastF1, and OpenF1 into MongoDB. There are eight user-facing routes covering the calendar, per-race results down to individual practice sessions, both championship tables, driver and team profiles, circuit maps, a strategy "Pitwall" view, and a live-timing board. Everything is read-only — there are no accounts, no writes, and no user-generated content. It self-describes in the footer as a "Concept prototype · not affiliated with Formula 1".
+
+This document describes what is on `main` today. Anything present in the UI but non-functional is collected in [Known gaps](#known-gaps--not-yet-functional) rather than mixed in below.
+
+---
+
+## Route map
+
+| Route | Purpose |
+| --- | --- |
+| `/` | Home — countdown to the next Grand Prix, season-at-a-glance stats, three highlight cards, links into the rest of the app |
+| `/schedule` | Race calendar for a season, split into Upcoming / Completed |
+| `/schedule/[season]/[round]` | Race weekend detail — per-session tabs, podium, full classification, circuit stats |
+| `/schedule/[season]/[round]/pitwall` | Pitwall strategy lab — tyre-stint comparison chart |
+| `/standings` | Drivers' and Constructors' championship tables |
+| `/drivers` | The grid — a card per driver, each opening a profile modal |
+| `/teams` | Constructor cards plus a power-unit grouping |
+| `/circuits` | Featured track, season "Circuit DNA", and a gallery of every circuit with detail modals |
+| `/telemetry` | Live Timing board (polls a third-party feed while a session is running). **Not linked from any navigation** — reachable only by typing the URL |
+
+---
+
+## Global chrome (present on every page)
+
+**Top navigation bar** — sticky, translucent, blurred. On the left: the APEX wordmark with a glowing dot (links home) and six desktop links — Home, Schedule, Standings, Drivers, Teams, Circuits. The active link is marked with an orange underline that animates between items as you navigate. On the right: a search input (see Known gaps) and a "Season 2026" label.
+
+**Mobile bottom bar** — replaces the desktop links below the `md` breakpoint. Five icon+label items: Home, Schedule, Standings, Drivers, Circuits. Teams is not in the mobile bar.
+
+**Footer** — the APEX mark, "· 2026 F1 season hub", and "Concept prototype · not affiliated with Formula 1". It contains no links at all.
+
+**Ambient treatment** — three fixed radial orange glows sit behind all content, and SVG displacement filters power the "liquid glass" card surfaces. Purely decorative.
+
+**Page transitions** — every route fades in on arrival (opacity only). Lists and card grids cascade in with a stagger. All of this collapses to static rendering under `prefers-reduced-motion`, which is honoured throughout (card tilt, number count-ups, ring draw-ins, modal spring animations, and the hover/tap effects on circuit cards all check it).
+
+**Loading skeletons** — `/standings`, `/schedule/[season]/[round]`, and the Pitwall page each render a pulsing glass-block skeleton matching their layout while their server data resolves.
+
+**When the backend is offline** — every page catches its fetch failure and renders with empty data rather than erroring. Depending on the page you get an explicit message ("Driver standings are unavailable right now.", "No driver standings yet") or simply empty sections.
+
+---
+
+## Home (`/`)
+
+**Hero.** A large countdown to the next Grand Prix. The kicker line shows "Round N" plus locality and circuit name; the race name is split so "Grand Prix" renders in the flame gradient. The countdown ticks every second across four segments (Days / Hours / Minutes / Seconds, seconds highlighted orange) and is followed by the target time rendered in the visitor's own locale and timezone, labelled "· your local time". If no dated race can be found it reads "Awaiting schedule".
+
+Below the countdown, a "Next session" row lists up to four upcoming sessions of that weekend as chips (e.g. "FP1 · Fri 13:30"), the nearest one highlighted, each time converted to the visitor's local time.
+
+The hero background carries a drifting-ember canvas and a warm spotlight that follows the cursor.
+
+**"This season" stat card** (right of the hero, tilts toward the cursor in 3D):
+- Header shows `done / total rounds`.
+- Two animated progress rings that draw themselves in on first view: **Elapsed** (percentage of the season's rounds run) and **Title gap** (points between the championship leader and P2). Each ring has a small `info` button; hovering, focusing or tapping it opens a tooltip explaining the metric.
+- Three rows underneath: Leader wins, Rounds completed, Rounds remaining.
+
+**Three highlight cards** (bento row, each tilts on hover):
+- **Championship leader** — name, team, and points (points spring-count up on first view). The driver's cutout photo fills the right of the card.
+- **Last time out** — winner of the most recent completed round, their team, "<GP> · Win", and their finishing time on a chip dotted in the team colour.
+- **Next circuit** — the circuit outline image, circuit name and country. This card is a link to that round's detail page (or to `/circuits` if no next race is known).
+
+**"Explore the season"** — four link tiles: Race calendar (with race count), Standings, Driver grid (with driver count), Teams.
+
+Home is always pinned to the active season; it has no season selector.
+
+---
+
+## Schedule (`/schedule`)
+
+Header reads "<year> FIA Formula One World Championship / Race Calendar", with a **season selector** (dropdown, 2018 → current season) that reloads the page via `?season=`.
+
+**Sidebar** (sticky on large screens):
+- An **Upcoming / Completed** toggle with an animated sliding pill. It defaults to Upcoming, except for a fully historical season with no upcoming race, which opens on Completed.
+- A **Next event** card: race name, circuit · locality, and a days + hours countdown that refreshes every minute.
+
+**Round list.** One row per race, re-cascading each time you flip the toggle. Each row shows: round number, date (`DD MMM`), country flag, race name, circuit · locality, and a status badge — *Next race* (orange, and the whole row is tinted orange), *Completed* (dimmed to 62% opacity), *Sprint*, or *Upcoming*. Completed rounds whose results are cached also show a 🏆 badge with the winner's three-letter code. Completed sprint weekends get an additional "Sprint" chip alongside the status badge. Every row links to that round's detail page. If a filter has nothing in it you get "No completed rounds yet." / "No upcoming rounds."
+
+---
+
+## Race weekend detail (`/schedule/[season]/[round]`)
+
+**Header.** Status badge (*Completed* / *Next race* / *Upcoming*), "Round N · year", the race name with "GP" in the flame gradient, and circuit · locality, country. Three controls on the right: a **season selector** (jumps to round 1 of the chosen year), a **Grand Prix selector** listing every round in the season, and a "← Back to schedule" link.
+
+**Circuit info bar.** Up to three tiles — Laps, Corners, Fastest Lap (time plus driver code). Only the stats FastF1 actually reports for that event are rendered; the whole bar disappears if none are available.
+
+**Session tabs.** A "Race" tab is always present; Qualifying, Sprint Race, Sprint Quali, FP3, FP2 and FP1 tabs appear only for sessions this weekend's format actually has.
+
+*Race tab, completed round with results:*
+- **Podium row** — a winner card (team-coloured edge stripe, the driver's photo, name, team, total time), P2 and P3 rows (position, team colour bar, name, team, interval), and a **Fastest lap** card (lap time, driver, team, "Lap X / Y"). If no fastest lap was reported the card says "Not reported for this session."
+- **Full classification** table — position, driver (with team colour bar), team, interval, and points. P1 is highlighted orange; DNF/DNS/DSQ/RET intervals render in red; zero-point finishers are dimmed. Columns collapse on narrow screens.
+- Above the table sits the **"Pitwall analysis"** call-to-action — a filled orange gradient button with a chart icon and an arrow that nudges right on hover, linking to the Pitwall sub-page.
+
+*Race tab, completed round with no results yet:* "Results pending — This race has finished but results are not yet in the data feed. They usually sync within a few hours of the chequered flag."
+
+*Race tab, upcoming round:* a **Weekend schedule** list instead — every session in the weekend with its date and local start time, the Race row tinted orange and labelled "Lights out", past sessions dimmed and labelled "Completed".
+
+*Any non-Race tab:* the session name with a Completed/Upcoming badge, three info tiles (Date, Local start time, Circuit), and — if the session has run and its classification is cached — a results table. Qualifying and Sprint Qualifying show **Q1 / Q2 / Q3** columns when segment times are available (Q3 highlighted); practice sessions show a **Best lap** column; everything else shows Time / status. If the session has finished but there is no classification: "Detailed classification for <session> is not available in the data feed." If the session isn't part of the weekend format: "<session> not scheduled".
+
+---
+
+## Pitwall (`/schedule/[season]/[round]/pitwall`)
+
+Reached from the "Pitwall analysis" button on a completed round's full-classification table. Header reads "Telemetry lab / Pitwall **Strategy**" with the race name and round, plus a "← Back to race" link.
+
+**Sidebar — "Analysis modules"**: three buttons. "Tire Stints" is styled as the selected module; "Lap Telemetry" and "Race Control" are disabled and labelled "Soon" (see Known gaps).
+
+**Tyre stints chart.** A horizontal stacked bar chart, one row per driver, each bar segment a stint coloured by compound (Soft red, Medium yellow, Hard white, Intermediate green, Wet blue) with the X axis labelled "Lap number". Controls above it:
+- A **"Compare drivers" dropdown** listing every classified driver with number, three-letter code, a team-colour bar and a checkbox. Multi-select; defaults to the top five finishers. The button label reads "N drivers selected".
+- A **compound legend** (Soft / Medium / Hard / Inter / Wet).
+
+Hovering a bar opens a tooltip listing the driver's full name and every stint — "Stint 1: 15 laps (SOFT)" — with a compound dot per row. Deselecting everyone shows "Select at least one driver to view stints."
+
+**When no session can be matched in OpenF1**, the chart is replaced by a lock-icon panel headed "Telemetry data unavailable", claiming stint data for the current season requires a premium OpenF1 subscription and that 2023–2025 are available, with "View schedule" and "OpenF1 website" buttons. This copy and its behaviour are being replaced — see [In flight](#in-flight-not-on-main).
+
+---
+
+## Standings (`/standings`)
+
+Header: "Season <year> · Championship / Championship", a **Drivers / Constructors** tab pair with an animated sliding pill, and a **season selector**.
+
+**Drivers tab** — a row per driver, cascading in: position (P1 highlighted orange with a tinted, orange-bordered row), a glowing team-colour bar, the driver's photo, name, team, wins, and points. Points spring-count up the first time each row scrolls into view. Beside the list, a sticky **"Constructor battle"** panel shows the top five constructors as horizontal bars filled in team colours, each animating out to its share of the leader's points.
+
+**Constructors tab** — a card per team: position, team-colour bar, team name, nationality, wins, points (count-up), and a full-width points bar filled with a team-colour gradient, sized relative to the leader.
+
+Empty states: "No driver standings yet" / "No constructor standings yet" / "No constructor data yet".
+
+---
+
+## Drivers (`/drivers`)
+
+Header: "<year> World Championship lineup / The Grid" with a **season selector**.
+
+**Grid of driver cards** (4 across on large screens), each tilting toward the cursor with a specular glare. A card carries: a team-colour stripe along the top, the driver's permanent number as a huge translucent watermark, the driver's cutout photo, their nationality flag, team name, given name, family name, and a footer with Wins / Pts / Pos (position highlighted) plus a progress bar showing their points relative to the leader.
+
+**Clicking a card opens the driver modal**, with the driver's photo animating smoothly from the card into the modal (shared-element transition). The modal shows:
+- Nationality flag, team, full name.
+- Current season tiles: Position, Points, Season wins.
+- A **Career** block, fetched when the modal opens: Wins, Podiums, Poles, Titles as four tiles, then nationality, date of birth with computed age, and a "Wikipedia →" external link. Four pulsing placeholders show while it loads; if the fetch fails the block reads "Career stats unavailable right now."
+
+The modal closes on the × button, a click on the backdrop, or Escape. Page scroll is locked while it is open.
+
+If standings are unavailable: "Driver standings are unavailable right now."
+
+---
+
+## Teams (`/teams`)
+
+Header: "Constructor standings <year> / Teams & Chassis" with a **season selector**.
+
+**Team cards**, two across, each tilting on hover with a team-coloured corner wash and a blurred colour blob. Each card shows team name, nationality, a "Power · <engine>" chip, and Position / Wins / Season pts. The team's logo appears on a light rounded plate; teams without a freely-licensed logo (Ferrari, Red Bull, Racing Bulls) fall back to a two-letter monogram on a team-colour tile.
+
+Below the cards: an attribution line linking to Wikimedia Commons and the CC BY 4.0 licence for the Aston Martin logo (both open in a new tab — these are the only working outbound links in the app besides Wikipedia in the driver modal and the OpenF1 link on the Pitwall empty state).
+
+**Power units** — a tile per engine supplier (Red Bull Ford, Mercedes-AMG, Ferrari, Honda, Renault, Audi) listing the teams that run it.
+
+Empty state: "Constructor standings are unavailable right now."
+
+---
+
+## Circuits (`/circuits`)
+
+**Featured track** — a large panel showing the circuit outline of the next upcoming round (or the season opener if none is upcoming), badged "Featured track", with "Round N · <locality>" and the circuit name.
+
+**Circuit DNA** panel — Total circuits, Season, Opening round, Featured country.
+
+**World tour gallery** — a card per round with an accent stripe from a rotating palette, locality, country flag, circuit name, the circuit outline image, and country / round. Cards lift on hover and press on tap.
+
+**Clicking a card opens the circuit modal**: flag, "Round N · <country>", circuit name, Grand Prix name, the track map, and up to four stat tiles — Laps, Corners, First GP, and Lap record (highlighted). Only stats the sync actually recorded are shown; if there are none, "No track data recorded for this circuit yet."
+
+The map inside the modal has an **expand button** that opens a full-screen lightbox of the track layout. Escape closes the lightbox first and the modal on a second press; both also close on backdrop click or their × button.
+
+**Cards with no cached circuit detail are not clickable** — they render normally but do nothing, because there is no detail record to show. This is why the gallery feels partly inert early in a season.
+
+This page has no season selector; it always shows the active season.
+
+---
+
+## Live Timing (`/telemetry`)
+
+Not linked from any navigation — you have to type the URL.
+
+Header reads "APEX Live / Live Timing" with the current session name, a **Live** pill (pulsing red dot) or a **Standby** pill, and a link to the schedule.
+
+The page derives whether a session is live from the season calendar plus assumed session durations (FP 60 min, Sprint Shootout 45, Sprint 30, Qualifying 60, Race 120). The race list refreshes every 60 seconds and the clock ticks every second.
+
+**When no session is live**, it shows "Live timing polling is paused because no session is currently active." plus "Next session: <race> · <session> · <date/time>".
+
+**When a session is live**, it polls a third-party RapidAPI feed every 10 seconds and renders a timing table: Pos, No, Driver (three-letter code in the team's colour), Gap, Interval, Last Lap, three **sector bars** (purple = overall fastest, green = personal best, orange otherwise), a **tyre** column (compound-coloured dot plus tyre age), and a Status column showing PIT / DRS / RUN. Rows are sorted by position. Loading, error, and "No timing rows available yet." states are all handled.
+
+---
+
+## Cross-cutting behaviour
+
+**Season selection.** A shared dropdown offering every year from 2018 to the current season appears on Schedule, Standings, Drivers, Teams and the race-detail page. On most pages it sets `?season=<year>`; on the race-detail page it navigates to round 1 of the chosen year. Out-of-range or unparseable `?season=` values are clamped rather than passed to the backend. Home and Circuits are always pinned to the active season.
+
+**Graceful degradation on images.** This is the main reason a page can look different at different times:
+- **Driver photos** exist for 22 named drivers. Any driver not in that set renders the "APEX hatch" — a dark diagonal-stripe placeholder, labelled `// CUTOUT` on driver cards, `// DRIVER CUTOUT` on the home bento, `// WINNER` on the race winner card.
+- **Circuit outlines** are mapped by locality/country. Unmapped circuits, or a missing/failed asset, fall back to the hatch with a `// TRACK MAP` label.
+- **Flags** are mapped from nationality and country strings; an unmapped or failed flag simply disappears, leaving the neutral chip behind rather than a broken-image icon.
+- **Team logos** exist for 8 of the 11 teams; the rest use a colour + monogram tile.
+- Driver photos, circuit outlines, flags and team logos are all served from `NEXT_PUBLIC_ASSET_BASE_URL` when it is set (driver photos and flags are also bundled under `frontend/public`); circuit and team images exist only on that asset host, so with no asset base configured those two fall back to hatch/monogram everywhere.
+
+**"Not cached yet" states.** Most of the backend is Mongo-first with a live upstream fallback, populated by an hourly sync job. Where the cache is cold the UI says so rather than showing nothing: results-pending on a just-finished race, "not available in the data feed" for a missing session classification, "No track data recorded for this circuit yet", disabled circuit cards, an absent 🏆 winner badge on the schedule, and a missing circuit info bar on the race page.
+
+**Team colours** are resolved from a single canonical map by case-insensitive substring match, so they survive the various constructor names the API returns ("RB F1 Team", "Kick Sauber", "Aston Martin Aramco"). Anything unmatched gets the APEX flame orange.
+
+---
+
+## Data the UI actually consumes
+
+| Backend endpoint | Feeds |
+| --- | --- |
+| `GET /api/races` | Home, Schedule, race detail, Pitwall, Circuits, Live Timing — the season calendar, with each completed round's winner attached |
+| `GET /api/driverstandings` | Home, Standings, Drivers |
+| `GET /api/constructorstandings` | Standings, Teams |
+| `GET /api/race_results` | Home ("Last time out"), race detail podium + classification, Pitwall driver list |
+| `GET /api/qualifying_results` | Race detail — Qualifying tab |
+| `GET /api/sprint_results` | Race detail — Sprint tab |
+| `GET /api/session_classification` | Race detail — FP1 / FP2 / FP3 / Sprint Quali tabs |
+| `GET /api/circuit_info` | Race detail — Laps / Corners / Fastest Lap bar |
+| `GET /api/circuit_details` | Circuits gallery and its detail modals |
+| `GET /api/driver_bio` | Driver modal — career wins, podiums, poles, titles, DOB, Wikipedia link |
+| `GET /health` | Not used by the UI (deployment health check) |
+
+Two data sources are called directly from the frontend rather than through the backend: **OpenF1** (`/sessions`, `/stints`, server-side, for the Pitwall chart) and a **RapidAPI live-timing feed** (client-side, for `/telemetry`).
+
+---
+
+## Known gaps / not yet functional
+
+These exist in the shipped UI but do not work, or do not work as their label implies.
+
+- **Nav search box is decorative.** The "Search drivers, tracks…" input in the top bar (desktop `lg` and up) has no `onChange`, no form, and no submit handler. Typing in it does nothing. There is no search feature anywhere in the app.
+- **"Season 2026" in the nav is a hardcoded string.** It is not derived from the active season or from the season you are currently viewing, so it keeps saying 2026 while you browse 2019. The page `<title>` ("APEX | 2026 F1 Season Hub") and meta description are hardcoded to 2026 for the same reason, and they are the only metadata in the app — no route sets its own title.
+- **Pitwall "Lap Telemetry" and "Race Control" buttons** are `disabled`, dimmed to 50% opacity, and badged "Soon". Helper functions for both (`getLaps`, `getRaceControl` in `frontend/src/lib/openf1.ts`) exist but are never called.
+- **Pitwall "Tire Stints" button does nothing when clicked.** It is styled as the active module but has no `onClick` — it is a static indicator, not a control. There is only one module, so nothing is lost, but it is not a working switcher.
+- **Footer has no links.** It is two lines of text. Nothing in it is clickable — worth knowing if you are looking for an About/GitHub/attribution link there.
+- **`/telemetry` is unreachable through the UI.** It is absent from both the desktop nav and the mobile bottom bar, and nothing links to it. It also requires `NEXT_PUBLIC_RAPIDAPI_KEY`; without it, the moment a session goes live the panel renders the raw error "NEXT_PUBLIC_RAPIDAPI_KEY is not configured".
+- **Weather is fetched by nothing.** The backend serves `GET /api/race_weather` and the client has a `getRaceWeather()` helper, but no page or component calls it. Air/track temperature, wind, rainfall, humidity and pressure are all available and entirely unsurfaced.
+- **Pitwall silently renders an empty chart when OpenF1 returns a session but no stints.** OpenF1 paywalls `/stints` for the current season, returning 401, which the fetch wrapper converts to an empty array. Because a session *key* was still found, the page takes the chart branch rather than the empty-state branch: you get axes, five driver labels, and no bars, with no explanation. The "premium subscription" empty state only appears when no session matches at all.
+- **The Pitwall empty state's copy is inaccurate.** It attributes every failure to a missing premium OpenF1 subscription, including seasons OpenF1 simply has no data for, and its claim that "historical data is available for the 2023–2025 seasons" does not reflect what the page will actually render. This is the thing the in-flight stints branch fixes.
+- **The Pitwall driver dropdown has no click-outside or Escape handling.** Once opened it stays open until you click the trigger button again.
+- **Season selectors offer 2018 onward, but data quality drops off sharply.** The range is fixed at `MIN_SUPPORTED_SEASON = 2018` regardless of what is actually cached; older seasons will show calendars and standings but largely empty session classifications, circuit details, and no Pitwall data.
+
+---
+
+## In flight (not on `main`)
+
+Two branches are open and not yet merged. Neither is reflected in the descriptions above.
+
+- **`feat/pitwall-fastf1-stints`** — re-sources the Pitwall tyre-stint data from FastF1 through a new backend endpoint (`backend/app/race_stints.py`, plus sync-job support) instead of calling OpenF1 directly from the frontend. It also replaces the misleading "requires a premium OpenF1 subscription" lock state with an honest one: an hourglass icon, "Stint data not available yet", and copy explaining that stints are derived once the race has finished and its data has been archived, with "Race results" and schedule links instead of the OpenF1 outbound link. This addresses two of the Pitwall gaps listed above.
+- **`feat/pitwall-pit-stops`** — a new pit-stop analysis module for the Pitwall page, actively in progress. It currently branches from the stints work; no distinct commits yet.
+
+---
+
+*Written from the code on `main`. The repo's `DESIGN-CONTEXT.md` is stale — it describes an obsolete cyan/magenta theme that no longer exists — and was not used as a source here.*
