@@ -63,9 +63,23 @@ The pattern that worked all batch, use it again:
    --screenshot=<path> <url>`
 5. **Delete the throwaway route before committing.**
 
-The in-app Claude_Browser preview pane throttles `requestAnimationFrame`, so `computer
-{action:"screenshot"}` frequently times out on Framer-Motion UI — but its *text* tools
-(`get_page_text`, `javascript_tool`) work fine and are great for asserting DOM state/tooltip copy.
+The in-app Claude_Browser preview pane keeps its tab `document.hidden === true` **permanently**
+— even after `tabs_select` fronts it — which starves `requestAnimationFrame` entirely (a bare
+rAF call never fires, confirmed with a 3s timeout probe). This doesn't just make `computer
+{action:"screenshot"}` time out on Framer-Motion UI; it can make an entire route look
+**permanently broken**. Any route with its own `loading.tsx` gets an automatic Suspense
+boundary, and React's App Router reveal (the `$RC`/`$RV`/`window.$RB` streaming swap that
+replaces the fallback with the real content) is gated on rAF with no fallback unless a
+slow-connection marker is present — so in this preview pane that swap queues up and then never
+fires, and the page sits on the `loading.tsx` skeleton forever even though the server's HTML
+already contains the fully-resolved content. (Root-caused for `/standings`, the only route with
+a `loading.tsx` as of 2026-07-28 — see `f1hub-preview-pane-raf-stall.md` in auto-memory.) Before
+concluding a route is stuck when tested in this pane, check `document.hidden` via
+`javascript_tool` and whether the route has a `loading.tsx`; if both are true, don't trust the
+pane for that route — verify instead with the headless-Chrome screenshot method above
+(a real, non-backgrounded process), which is authoritative. The preview pane's *text* tools
+(`get_page_text`, `javascript_tool`) still work fine and are great for asserting DOM
+state/tooltip copy that doesn't depend on the rAF-gated reveal.
 The dev server (`preview_start` name `apex-frontend`, port 3113) also died several times mid-
 session; just `preview_start` again.
 
