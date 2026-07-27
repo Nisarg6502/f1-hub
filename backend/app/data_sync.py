@@ -427,6 +427,44 @@ def sync_race_stints(db, year: int, races: list[dict]) -> None:
     print(f"  race stints: synced {synced} new round(s)")
 
 
+def sync_pit_stops(db, year: int, races: list[dict]) -> None:
+    """Per-driver pit stops from Ergast.
+
+    Unlike `sync_race_stints` this source is reachable from Cloud Run, so the
+    hourly job actually keeps it current without anyone running the sync
+    locally. Stops are published with the race result, so a round that returns
+    nothing is simply retried on the next run.
+    """
+    from .pit_stops import fetch_pit_stops
+
+    synced = 0
+    for race in races:
+        round_number = int(race.get("round", 0))
+        if not FORCE_RESYNC and db.pit_stops.find_one(
+            {"season": year, "round": str(round_number)}
+        ):
+            continue
+
+        stops = fetch_pit_stops(year, round_number)
+        if not stops:
+            continue
+
+        db.pit_stops.update_one(
+            {"season": year, "round": str(round_number)},
+            {"$set": {
+                "season": year,
+                "round": str(round_number),
+                "stops": stops,
+                "synced_at": _utcnow_iso(),
+            }},
+            upsert=True,
+        )
+        synced += 1
+        time.sleep(0.5)
+
+    print(f"  pit stops: synced {synced} new round(s)")
+
+
 def sync_weather(db, year: int, races: list[dict]) -> None:
     from .session_results import fetch_openf1_weather
 
@@ -474,6 +512,7 @@ def create_indexes(db) -> None:
     )
     db.circuit_details.create_index([("season", 1), ("round", 1)], unique=True)
     db.race_stints.create_index([("season", 1), ("round", 1)], unique=True)
+    db.pit_stops.create_index([("season", 1), ("round", 1)], unique=True)
     db.weather_cache.create_index([("season", 1), ("round", 1)], unique=True)
     # Populated lazily by /api/driver_bio on demand, not by this batch job.
     db.driver_bios.create_index([("driverId", 1)], unique=True)
@@ -517,6 +556,7 @@ def main() -> int:
         sync_practice_results(db, year, started)
         sync_circuit_details(db, year, finished)
         sync_race_stints(db, year, finished)
+        sync_pit_stops(db, year, finished)
         sync_weather(db, year, finished)
 
     client.close()
