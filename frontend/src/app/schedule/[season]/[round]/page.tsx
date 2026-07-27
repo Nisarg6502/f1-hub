@@ -5,6 +5,7 @@ import {
   getCircuitInfo,
   getQualifyingResults,
   getRaceResults,
+  getRaceWeather,
   getSessionClassification,
   getSeasonRaces,
   getSprintResults,
@@ -13,6 +14,7 @@ import {
 import SessionTabs from "@/components/session-tabs";
 import RaceSelector from "@/components/race-selector";
 import SeasonSelector from "@/components/season-selector";
+import ConditionsTile from "@/components/conditions-tile";
 
 interface PageProps {
   params: Promise<{
@@ -85,6 +87,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
   let fp3Results: RaceResult[] = [];
   let sprintQualiResults: RaceResult[] = [];
   let circuitInfo = null;
+  let weather: Awaited<ReturnType<typeof getRaceWeather>>["weather"] = null;
 
   if (isPast) {
     const [
@@ -96,6 +99,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
       fp3Res,
       sqRes,
       circuitInfoRes,
+      weatherRes,
     ] = await Promise.allSettled([
       getRaceResults(seasonYear, roundNumber),
       getQualifyingResults(seasonYear, roundNumber),
@@ -105,6 +109,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
       getSessionClassification(seasonYear, roundNumber, "FP3"),
       getSessionClassification(seasonYear, roundNumber, "SQ"),
       getCircuitInfo(seasonYear, race.raceName),
+      getRaceWeather(seasonYear, roundNumber),
     ]);
 
     results = raceRes.status === "fulfilled" ? raceRes.value.results ?? [] : [];
@@ -115,11 +120,18 @@ export default async function RaceDetailPage({ params }: PageProps) {
     fp3Results = fp3Res.status === "fulfilled" ? fp3Res.value.results ?? [] : [];
     sprintQualiResults = sqRes.status === "fulfilled" ? sqRes.value.results ?? [] : [];
     circuitInfo = circuitInfoRes.status === "fulfilled" ? circuitInfoRes.value : null;
+    weather = weatherRes.status === "fulfilled" ? weatherRes.value.weather ?? null : null;
   } else {
     try {
       circuitInfo = await getCircuitInfo(seasonYear, race.raceName);
     } catch {
       circuitInfo = null;
+    }
+    try {
+      const weatherRes = await getRaceWeather(seasonYear, roundNumber);
+      weather = weatherRes.weather ?? null;
+    } catch {
+      weather = null;
     }
   }
 
@@ -212,6 +224,8 @@ export default async function RaceDetailPage({ params }: PageProps) {
           ))}
         </div>
       )}
+
+      <ConditionsTile weather={weather} />
 
       {/* Session Tabs + Content */}
       <SessionTabs
