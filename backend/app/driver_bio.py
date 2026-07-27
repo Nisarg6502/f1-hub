@@ -16,6 +16,7 @@ genuine cache miss, not on the hot path.
 import asyncio
 import datetime
 import json
+import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -33,18 +34,50 @@ USER_AGENT = "f1-scratch-api/1.0"
 # this just keeps an active driver's stats from going stale for a whole season.
 STALE_AFTER = datetime.timedelta(hours=24)
 
+MAX_RETRIES = 4
+RETRY_BACKOFF_SECONDS = 2
+
+# A championship count needs one request per season raced — 20 for a driver like
+# Hamilton — and Jolpica rate-limits bursts. Firing them all at once made a
+# quarter of them 429, and because a failed lookup used to read as "didn't win
+# that year", Hamilton's 7 titles were being reported as 3. Cap the burst so the
+# retries below stay a backstop rather than the normal path.
+MAX_CONCURRENT_REQUESTS = 2
+
+
+class FetchError(Exception):
+    """A request could not be completed, as distinct from returning no data.
+
+    This distinction is the whole point: every total here is derived by
+    counting, so a swallowed failure silently becomes a smaller number that
+    then gets cached as if it were the real answer.
+    """
+
 
 def _fetch_json(url: str, timeout: int = 15):
-    try:
-        request = Request(url, headers={"User-Agent": USER_AGENT})
-        with urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except (HTTPError, URLError, json.JSONDecodeError, OSError):
-        return None
+    """Fetch JSON, retrying rate limits. Raises FetchError if it can't."""
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            request = Request(url, headers={"User-Agent": USER_AGENT})
+            with urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except HTTPError as error:
+            retryable = error.code == 429 or error.code >= 500
+            if not retryable or attempt == MAX_RETRIES:
+                raise FetchError(f"HTTP {error.code} for {url}") from error
+        except (URLError, json.JSONDecodeError, OSError) as error:
+            if attempt == MAX_RETRIES:
+                raise FetchError(f"{type(error).__name__} for {url}") from error
+        time.sleep(RETRY_BACKOFF_SECONDS * attempt)
+
+    raise FetchError(f"exhausted retries for {url}")
 
 
-async def _fetch(url: str):
-    return await asyncio.to_thread(_fetch_json, url)
+async def _fetch(url: str, semaphore: asyncio.Semaphore | None = None):
+    if semaphore is None:
+        return await asyncio.to_thread(_fetch_json, url)
+    async with semaphore:
+        return await asyncio.to_thread(_fetch_json, url)
 
 
 def _mrdata_total(data: dict | None) -> int:
@@ -56,8 +89,8 @@ def _mrdata_total(data: dict | None) -> int:
         return 0
 
 
-async def _fetch_bio_fields(driver_id: str) -> dict:
-    data = await _fetch(f"{ERGAST_BASE}/drivers/{driver_id}.json")
+async def _fetch_bio_fields(driver_id: str, semaphore: asyncio.Semaphore) -> dict:
+    data = await _fetch(f"{ERGAST_BASE}/drivers/{driver_id}.json", semaphore)
     drivers = (data or {}).get("MRData", {}).get("DriverTable", {}).get("Drivers", [])
     driver = drivers[0] if drivers else {}
     return {
@@ -71,8 +104,18 @@ async def _fetch_bio_fields(driver_id: str) -> dict:
     }
 
 
-async def _fetch_championships(driver_id: str) -> int:
-    seasons_data = await _fetch(f"{ERGAST_BASE}/drivers/{driver_id}/seasons.json?limit=100")
+async def _fetch_championships(driver_id: str, semaphore: asyncio.Semaphore) -> int:
+    """Count seasons this driver finished P1.
+
+    Jolpica's `driverStandings` endpoint requires a season and has no
+    driver-scoped "all seasons" query (`/drivers/x/driverstandings/1` 400s with
+    "Missing one of the required parameters ['season_year']"), so this really
+    does need one request per season raced. Any failure propagates as a
+    FetchError rather than being counted as a non-title season.
+    """
+    seasons_data = await _fetch(
+        f"{ERGAST_BASE}/drivers/{driver_id}/seasons.json?limit=100", semaphore
+    )
     seasons = [
         s.get("season")
         for s in (seasons_data or {}).get("MRData", {}).get("SeasonTable", {}).get("Seasons", [])
@@ -82,7 +125,9 @@ async def _fetch_championships(driver_id: str) -> int:
         return 0
 
     async def _is_champion(season: str) -> bool:
-        data = await _fetch(f"{ERGAST_BASE}/{season}/drivers/{driver_id}/driverstandings.json")
+        data = await _fetch(
+            f"{ERGAST_BASE}/{season}/drivers/{driver_id}/driverstandings.json", semaphore
+        )
         lists = (data or {}).get("MRData", {}).get("StandingsTable", {}).get("StandingsLists", [])
         standings = lists[0].get("DriverStandings", []) if lists else []
         return bool(standings) and standings[0].get("position") == "1"
@@ -92,13 +137,21 @@ async def _fetch_championships(driver_id: str) -> int:
 
 
 async def _build_driver_bio(driver_id: str) -> dict:
+    """Assemble a driver's bio and career totals. Raises FetchError on any miss.
+
+    Every field here except the bio strings is a count, so a partial answer is
+    indistinguishable from a smaller real one — the caller must not cache what
+    this raises on.
+    """
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+
     bio, wins_data, p2_data, p3_data, poles_data, championships = await asyncio.gather(
-        _fetch_bio_fields(driver_id),
-        _fetch(f"{ERGAST_BASE}/drivers/{driver_id}/results/1.json?limit=1"),
-        _fetch(f"{ERGAST_BASE}/drivers/{driver_id}/results/2.json?limit=1"),
-        _fetch(f"{ERGAST_BASE}/drivers/{driver_id}/results/3.json?limit=1"),
-        _fetch(f"{ERGAST_BASE}/drivers/{driver_id}/qualifying/1.json?limit=1"),
-        _fetch_championships(driver_id),
+        _fetch_bio_fields(driver_id, semaphore),
+        _fetch(f"{ERGAST_BASE}/drivers/{driver_id}/results/1.json?limit=1", semaphore),
+        _fetch(f"{ERGAST_BASE}/drivers/{driver_id}/results/2.json?limit=1", semaphore),
+        _fetch(f"{ERGAST_BASE}/drivers/{driver_id}/results/3.json?limit=1", semaphore),
+        _fetch(f"{ERGAST_BASE}/drivers/{driver_id}/qualifying/1.json?limit=1", semaphore),
+        _fetch_championships(driver_id, semaphore),
     )
 
     wins = _mrdata_total(wins_data)
@@ -136,7 +189,23 @@ async def get_driver_bio(
         doc.pop("synced_at", None)
         return JSONResponse(content=doc)
 
-    bio = await _build_driver_bio(driver_id)
+    try:
+        bio = await _build_driver_bio(driver_id)
+    except FetchError as error:
+        # Every stat here is a count, so a partial rebuild would understate the
+        # driver's career and then be cached as fact for STALE_AFTER. Prefer a
+        # stale-but-whole answer, and never write this attempt back.
+        print(f"Driver bio rebuild for {driver_id} failed: {error}")
+        if doc:
+            doc.pop("synced_at", None)
+            return JSONResponse(content=doc)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "Upstream unavailable",
+                "message": f"Could not load career stats for {driver_id}",
+            },
+        )
 
     if not bio.get("givenName"):
         # Ergast has nothing for this id on this attempt — prefer a stale
