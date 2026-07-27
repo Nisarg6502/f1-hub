@@ -18,19 +18,18 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 2 | CP7-14 | Circuit lightbox, schedule/home/standings polish, Pitwall CTA prominence, tyre stints re-sourced from FastF1 | merged |
 | 2 (ad hoc) | unnumbered | Pit-stop analysis module (Pitwall), driver-bio rate-limit fix (Hamilton championship undercount) — built mid-batch in response to user requests, outside the original CP15-19 plan | merged |
 | 3 | CP20-22 | Weather conditions tile, dynamic nav season label, telemetry error-leak fix | merged |
+| 4 | CP23-24 | Driver head-to-head compare, teammate battle panel | merged |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
 ## Current batch
 
-Batch 4 — CP23-24, driver/team comparison tools. Sequential, not parallel: both depend on a
-shared new `getSeasonResultsByRound(year)` frontend helper, so parallel subagents would risk
-duplicated/conflicting versions of it.
+Batch 4 is complete and merged. Batch 5 is not yet planned — see Backlog below for candidates.
 
-| # | Checkpoint | Status |
-|---|---|---|
-| 23 | Driver-vs-driver head-to-head compare (race metrics + qualifying gap) | ✅ merged |
-| 24 | Teammate battle panel on `/standings` | ⏳ pushed, PR not opened yet |
+A pre-existing bug was found (not caused by Batch 4) while verifying CP24: `/standings` can get
+stuck client-side on its loading skeleton indefinitely, even though the server sends fully
+resolved HTML — see the "Known gaps" note in `FEATURES.md`. Flagged as a background task, not
+folded into a batch, since it's a bug fix rather than a planned feature.
 
 ## Backlog (unscheduled)
 

@@ -117,7 +117,7 @@ Hovering a bar opens a tooltip listing the driver's full name and every stint �
 
 Header: "Season <year> · Championship / Championship", a **Drivers / Constructors** tab pair with an animated sliding pill, and a **season selector**.
 
-**Drivers tab** — a row per driver, cascading in: position (P1 highlighted orange with a tinted, orange-bordered row), a glowing team-colour bar, the driver's photo, name, team, wins, and points. Points spring-count up the first time each row scrolls into view. Beside the list, a sticky **"Constructor battle"** panel shows the top five constructors as horizontal bars filled in team colours, each animating out to its share of the leader's points.
+**Drivers tab** — a row per driver, cascading in: position (P1 highlighted orange with a tinted, orange-bordered row), a glowing team-colour bar, the driver's photo, name, team, wins, and points. Points spring-count up the first time each row scrolls into view. Beside the list, a sticky sidebar stacks two panels: **"Constructor battle"**, showing the top five constructors as horizontal bars filled in team colours sized to their share of the leader's points, and **"Teammate battle"**, showing each team's two highest-scoring drivers head-to-head on race finishing position across every round they've both raced this season (a split bar plus an "N-M" score), computed client-side from cached race results — no extra backend calls.
 
 **Constructors tab** — a card per team: position, team-colour bar, team name, nationality, wins, points (count-up), and a full-width points bar filled with a team-colour gradient, sized relative to the leader.
 
@@ -128,6 +128,8 @@ Empty states: "No driver standings yet" / "No constructor standings yet" / "No c
 ## Drivers (`/drivers`)
 
 Header: "<year> World Championship lineup / The Grid" with a **season selector**.
+
+**Compare drivers panel** — two dropdowns (any driver vs any other) and a "Compare" button open a modal with both drivers' current-season Position/Points/Wins side by side, plus two computed head-to-head splits across every round they both raced: race finishing position, and qualifying pace (comparing whichever Q-segment — Q3, falling back to Q2 then Q1 — both drivers actually reached that round, with the average time gap). No new backend endpoint; entirely derived client-side from cached race and qualifying results.
 
 **Grid of driver cards** (4 across on large screens), each tilting toward the cursor with a specular glare. A card carries: a team-colour stripe along the top, the driver's permanent number as a huge translucent watermark, the driver's cutout photo, their nationality flag, team name, given name, family name, and a footer with Wins / Pts / Pos (position highlighted) plus a progress bar showing their points relative to the leader.
 
@@ -236,6 +238,7 @@ These exist in the shipped UI but do not work, or do not work as their label imp
 - **The page `<title>` ("APEX | 2026 F1 Season Hub") and meta description are hardcoded to 2026**, unlike the nav's Season label (which now reflects the active/viewed season) — no route sets its own title.
 - **The Pitwall driver dropdown has no click-outside or Escape handling.** Once opened it stays open until you click the trigger button again.
 - **Season selectors offer 2018 onward, but data quality drops off sharply.** The range is fixed at `MIN_SUPPORTED_SEASON = 2018` regardless of what is actually cached; older seasons will show calendars and standings but largely empty session classifications, circuit details, and no Pitwall data.
+- **`/standings` can get stuck on its loading skeleton indefinitely.** In some client environments the route's `<div style="opacity:0">` streaming placeholder never gets swapped for the real content, even though the server sends fully-resolved HTML (confirmed via direct fetch) — no console error is thrown. Reproduces on a clean checkout of `main`, so it predates the driver-comparison work in Batch 4. Flagged as a background investigation task, not yet root-caused or fixed.
 
 ---
 
