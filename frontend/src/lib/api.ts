@@ -274,6 +274,44 @@ export async function getQualifyingResults(year: number, round: number) {
   });
 }
 
+export interface SeasonRoundResults {
+  round: string;
+  raceName: string;
+  results: RaceResult[];
+  qualifying: RaceResult[];
+}
+
+// Head-to-head comparisons need every round's race + qualifying results, and
+// there's no bulk endpoint for that (unlike _attach_winners on /api/races,
+// which only attaches the winner's name). One round trip per round, but
+// every one of them is Mongo-cached, so a full season is cheap. Rounds whose
+// results fail to fetch (not yet raced, backend miss) just come back empty
+// rather than failing the whole comparison.
+export async function getSeasonResultsByRound(year: number): Promise<SeasonRoundResults[]> {
+  const { races } = await getSeasonRaces(year);
+  const rounds = races ?? [];
+
+  const settled = await Promise.allSettled(
+    rounds.map(async (race): Promise<SeasonRoundResults> => {
+      const roundNumber = Number(race.round);
+      const [raceRes, qualiRes] = await Promise.allSettled([
+        getRaceResults(year, roundNumber),
+        getQualifyingResults(year, roundNumber),
+      ]);
+      return {
+        round: race.round,
+        raceName: race.raceName,
+        results: raceRes.status === "fulfilled" ? raceRes.value.results ?? [] : [],
+        qualifying: qualiRes.status === "fulfilled" ? qualiRes.value.results ?? [] : [],
+      };
+    })
+  );
+
+  return settled
+    .filter((r): r is PromiseFulfilledResult<SeasonRoundResults> => r.status === "fulfilled")
+    .map((r) => r.value);
+}
+
 export async function getSprintResults(year: number, round: number) {
   return fetchJson<{
     race?: Race;

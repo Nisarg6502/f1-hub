@@ -29,7 +29,7 @@ duplicated/conflicting versions of it.
 
 | # | Checkpoint | Status |
 |---|---|---|
-| 23 | Driver-vs-driver head-to-head compare (race metrics + qualifying gap) | not started |
+| 23 | Driver-vs-driver head-to-head compare (race metrics + qualifying gap) | ⏳ pushed, PR not opened yet |
 | 24 | Teammate battle panel on `/standings` | not started |
 
 ## Backlog (unscheduled)

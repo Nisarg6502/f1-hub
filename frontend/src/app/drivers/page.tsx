@@ -1,6 +1,7 @@
 import { getActiveSeasonYear, getDriverStandings, resolveSeasonYear } from "@/lib/api";
 import DriversGrid from "@/components/drivers-grid";
 import SeasonSelector from "@/components/season-selector";
+import CompareDriversPanel from "@/components/compare-drivers-panel";
 
 // Driver standings change after every race; render per request.
 export const dynamic = "force-dynamic";
@@ -43,6 +44,8 @@ export default async function DriversPage({ searchParams }: PageProps) {
           Driver standings are unavailable right now.
         </div>
       )}
+
+      {list.length > 0 && <CompareDriversPanel drivers={list} seasonYear={year} />}
 
       <DriversGrid drivers={list} />
     </div>
