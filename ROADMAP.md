@@ -27,14 +27,29 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 8 | CP32-34 | Functional global search, Pitwall "Race Control" panel, cross-track "Circuit DNA" comparison | merged |
 | 8 (ad hoc) | unnumbered | Select all / Clear all on the Pitwall driver-compare dropdown (Tire Stints + Lap Telemetry) — built mid-batch in response to a user request | merged |
 | 9 | CP35-37 | Circuit/team image coverage (Bahrain + Saudi Arabia outlines added) PR #55, footer GitHub link PR #54, `/telemetry` surfaced in desktop nav PR #53 | merged |
+| 9 (ad hoc) | unnumbered | Fixed the Circuit history panel (CP27) reporting wrong "first raced" years, e.g. "2024" for Silverstone (on the calendar since 1950) — it aggregated only over whichever seasons this app's own sync job happened to have cached, not full circuit history. Re-sourced `/api/circuit_history` from Ergast/Jolpica's circuit-scoped endpoints (full result history back to 1950), cached in a new `circuit_history_cache` collection. Found via a user bug report on `/circuits`, not backlog-planned. PR #57 | merged |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
 ## Current batch
 
 Batch 9 is complete and merged: CP35 circuit/team image coverage (PR #55), CP36 footer GitHub link
-(PR #54), CP37 `/telemetry` surfaced in desktop nav (PR #53). Batch 10 is not yet planned — see
-Backlog below for candidates.
+(PR #54), CP37 `/telemetry` surfaced in desktop nav (PR #53), plus the ad-hoc circuit-history fix
+(PR #57). Batch 10 is not yet planned — see Backlog below for candidates.
+
+**Any cross-season aggregation must be checked against what "cached" actually means before it
+ships.** The circuit-history ad-hoc fix's root cause (`first_year_raced`/`most_wins`/
+`closest_finish` silently scanning only the handful of seasons this app's own sync job has synced,
+then presenting the result as if it were the real historical record) is the same shape of bug as
+the earlier `race_laps`-empty-collection issue from Batch 8, just one level more subtle: that one
+made a module look *entirely broken* (obviously wrong), this one made stats look *plausible but
+wrong* (confidently, silently wrong) — worse, because nothing about the empty state prompts you to
+double-check it. Any future feature that aggregates "across all X" from `races`/`race_results`
+directly, rather than from a live full-history source, should be treated as suspect by default —
+cross-check a well-known answer (a circuit that's been racing since the 1950s, a driver with an
+obviously large win count) against real-world knowledge before shipping it, the same way this bug
+was caught by a user noticing "first raced 2024" was obviously wrong for granted knowledge, not by
+a test.
 
 Batch 9 was built as three parallel worktree agents on disjoint files (`circuit-images.ts`/`team-images.ts`,
 the `layout.tsx` footer block, `nav-links.tsx`), each opening an independent PR — same pattern as
