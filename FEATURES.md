@@ -88,6 +88,7 @@ Header reads "<year> FIA Formula One World Championship / Race Calendar", with a
 
 *Race tab, completed round with results:*
 - **Podium row** — a winner card (team-coloured edge stripe, the driver's photo, name, team, total time), P2 and P3 rows (position, team colour bar, name, team, interval), and a **Fastest lap** card (lap time, driver, team, "Lap X / Y"). If no fastest lap was reported the card says "Not reported for this session."
+- **AI Recap** — a glass card labelled "AI Recap" with a small pulsing dot while generating, streaming in an LLM-written summary of the race (who won, the closest battles, notable retirements, the fastest lap) grounded strictly in the cached classification data, with a "Generated commentary from race data · not official reporting" disclaimer beneath it. Generated once per race on the first request after it finishes, then cached forever and replayed instantly for every request after that. Requires `OLLAMA_API_KEY` to be configured on the backend (Ollama Cloud); without it, or if generation fails, the card simply doesn't render — same "omit rather than error" pattern as everything else in this app.
 - **Full classification** table — position, driver (with team colour bar), team, interval, and points. P1 is highlighted orange; DNF/DNS/DSQ/RET intervals render in red; zero-point finishers are dimmed. Columns collapse on narrow screens.
 - Above the table sits the **"Pitwall analysis"** call-to-action — a filled orange gradient button with a chart icon and an arrow that nudges right on hover, linking to the Pitwall sub-page.
 
@@ -228,6 +229,7 @@ The page derives whether a session is live from the season calendar plus assumed
 | `GET /api/circuit_details` | Circuits gallery and its detail modals |
 | `GET /api/circuit_history` | Circuits detail modal — Circuit history panel (first raced, most wins, closest finish) |
 | `GET /api/driver_bio` | Driver modal — career wins, podiums, poles, titles, DOB, Wikipedia link |
+| `GET /api/session_recap` | Race detail page — AI Recap card. Streams plain text rather than JSON; calls Ollama Cloud on a cache miss |
 | `GET /health` | Not used by the UI (deployment health check) |
 
 Three data sources are called directly from the frontend rather than through the backend: **OpenF1** (`/sessions`, `/stints`, server-side, for the Pitwall chart; `/sessions`, `/race_control`, server-side, for the Pitwall Race Control module) and a **RapidAPI live-timing feed** (client-side, for `/telemetry`).

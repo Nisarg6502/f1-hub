@@ -584,3 +584,13 @@ export async function getCircuitHistory(
     return null;
   }
 }
+
+// The AI race recap streams plain text rather than JSON, so it's fetched
+// directly by the client component (session-recap-card.tsx) via this URL
+// rather than through fetchJson — this just centralizes the base-URL logic.
+export function getSessionRecapUrl(year: number, round: number): string {
+  const url = new URL("/api/session_recap", API_BASE_URL);
+  url.searchParams.set("year", String(year));
+  url.searchParams.set("round", String(round));
+  return url.toString();
+}
