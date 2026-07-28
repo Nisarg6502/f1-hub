@@ -28,7 +28,8 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 8 (ad hoc) | unnumbered | Select all / Clear all on the Pitwall driver-compare dropdown (Tire Stints + Lap Telemetry) — built mid-batch in response to a user request | merged |
 | 9 | CP35-37 | Circuit/team image coverage (Bahrain + Saudi Arabia outlines added) PR #55, footer GitHub link PR #54, `/telemetry` surfaced in desktop nav PR #53 | merged |
 | 9 (ad hoc) | unnumbered | Fixed the Circuit history panel (CP27) reporting wrong "first raced" years, e.g. "2024" for Silverstone (on the calendar since 1950) — it aggregated only over whichever seasons this app's own sync job happened to have cached, not full circuit history. Re-sourced `/api/circuit_history` from Ergast/Jolpica's circuit-scoped endpoints (full result history back to 1950), cached in a new `circuit_history_cache` collection. Found via a user bug report on `/circuits`, not backlog-planned. PR #57 | merged |
-| 10 | CP38 | "AI Recap" on the race-detail page — an LLM-generated, streamed race summary grounded in cached classification data (Ollama Cloud, `gpt-oss:20b`), generated once per race and cached forever | pending |
+| 10 | CP38 | "AI Recap" on the race-detail page — an LLM-generated, streamed race summary grounded in cached classification data (Ollama Cloud), generated once per race and cached forever | merged |
+| 10 (ad hoc) | unnumbered | Accuracy overhaul of CP38 after a user caught a hallucinated teammate claim: pre-compute relational facts in code, add OpenF1 race-control events (penalties, VSC, stewards' decisions), upgrade to `gpt-oss:120b`, add inline citations and Markdown rendering. Also discovered OpenF1's current-season paywall has lifted | pending |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
@@ -37,6 +38,19 @@ The original plan's CP15-19 (driver/team head-to-head compare, championship calc
 Batch 9 is complete and merged: CP35 circuit/team image coverage (PR #55), CP36 footer GitHub link
 (PR #54), CP37 `/telemetry` surfaced in desktop nav (PR #53), plus the ad-hoc circuit-history fix
 (PR #57).
+
+**CP38's accuracy overhaul is the most important lesson in this file for anyone building the next GenAI feature.** The first version handed the model a bare classification list and asked it to find "the story." It produced fluent, confident prose that claimed Andrea Kimi Antonelli (Mercedes) was Max Verstappen's (Red Bull) teammate — with both drivers' correct, different team names sitting right there in the data it was given. Generalized: **an LLM asked to *derive* a relational or comparative fact will confabulate it even when the underlying fields are present and correct.** The fix was not a sterner prompt alone; it was moving every derivable fact out of the model's job and into Python:
+
+- `_teammates()` emits explicit pairings, so "teammate" is a lookup, never an inference.
+- `_biggest_movers()`/`positions_gained` pre-compute grid-to-finish deltas, so the model never does arithmetic.
+- `_retirements()` classifies status strings (note: "Lapped" and "+1 Lap" are *finishers*, not retirements — an easy and initially-made mistake).
+- The model's remaining job is narrating already-true statements. Prompt rules then forbid the specific failure classes observed in testing: inventing sporting regulations (it claimed a fastest-lap bonus point that doesn't exist in 2026), asserting an event did/didn't affect the outcome, and applying unsupported labels ("front-running" for cars that started 21st and 22nd).
+
+Two supporting changes: `gpt-oss:120b` replaced `20b` (the smaller model was the one that hallucinated; at one generation per race, cached forever, the latency cost is irrelevant), and `temperature: 0.2`, since sampling variance is pure downside on a factual summarization task. Inline citations (`[P3]`, `[FL]`, `[RC 66]`) were added not just for the reader but as a forcing function — a claim that cannot cite a data row is visibly unsupported.
+
+**`PROMPT_VERSION` is part of the cache key.** Because recaps cache forever, a prompt change would otherwise keep serving output generated under the old contract indefinitely. Bump it whenever the prompt or fact-bundle shape changes; old rows stop matching and regenerate on next view.
+
+**OpenF1's current-season paywall has lifted** (verified 2026-07-29: `GET /v1/sessions?year=2026` and `/race_control` both return 200, 80 messages for the Hungarian GP). Several docs described this as a hard blocker — they were correct when written and are now stale. This is what made grounded penalty/safety-car narration possible, and it also means the Pitwall Race Control module (CP33) should now populate for current-season rounds. Worth re-testing any other feature that was shelved because of that 401.
 
 **Batch 10 (CP38)** is the first GenAI feature: "Explain this session" (Race only, per the Backlog
 item below), built and live-verified against a real Ollama Cloud key and real cached race data

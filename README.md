@@ -81,7 +81,7 @@ MONGODB_URI=your_mongodb_connection_string
 # Optional — enables the AI race recap on completed race pages. Without it,
 # the recap card simply doesn't render (no error).
 OLLAMA_API_KEY=your_ollama_cloud_api_key
-OLLAMA_MODEL=gpt-oss:20b
+OLLAMA_MODEL=gpt-oss:120b
 ```
 Run the FastAPI server:
 ```bash
