@@ -426,12 +426,23 @@ export interface RaceLap {
   driver_number: number;
   lap_number: number;
   position: number;
+  /** Seconds behind that lap's leader (0 for the leader themselves), or
+   * null/absent when it can't be computed — either this specific lap had no
+   * usable LapTime to reconstruct a cumulative race time from, or (for a
+   * round cached before gap-to-leader existed) the field simply isn't in the
+   * cached document at all. Treat "missing" and "null" the same way: no gap
+   * data for this lap. */
+  gap_seconds?: number | null;
 }
 
-/** Per-lap track position for a finished race, derived from FastF1 and cached in Mongo.
+/** Per-lap track position and gap-to-leader for a finished race, derived from FastF1 and cached in Mongo.
  *
  * Same `synced` convention as `getRaceStints` — false means the local sync
  * job hasn't populated this round yet, not that the round doesn't exist.
+ * `gap_seconds` may be absent on every row for a round synced before it
+ * existed — that's a stale-cache degrade, not an error, so the frontend
+ * treats it as "gap mode isn't available for this round" rather than
+ * retrying or erroring.
  */
 export async function getRaceLaps(year: number, round: number) {
   return fetchJson<{
