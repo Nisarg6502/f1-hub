@@ -7,10 +7,12 @@ import {
   getRaceStints,
   getSeasonRaces,
 } from "@/lib/api";
+import { getRaceControl, getSessionKeyByDate } from "@/lib/openf1";
 import { getTeamColor } from "@/lib/team-colors";
 import TireStintsChart from "@/components/tire-stints-chart";
 import PitStopsChart from "@/components/pit-stops-chart";
 import LapPositionChart from "@/components/lap-position-chart";
+import RaceControlPanel from "@/components/race-control-panel";
 import PitwallModules from "@/components/pitwall-modules";
 
 interface PageProps {
@@ -94,6 +96,17 @@ export default async function PitwallPage({ params }: PageProps) {
     notFound();
   }
 
+  // Race control goes straight to OpenF1 (unlike the calls above, which go
+  // through the backend), so it needs its own session_key lookup by date.
+  // OpenF1 paywalls the entire current season for real-time-shaped endpoints
+  // (see HANDOFF.md) — `getSessionKeyByDate`/`getRaceControl` already fail
+  // soft to `null`/`[]` on a 401 or network error, so this never throws; an
+  // empty result here just means "unavailable", handled below like every
+  // other module's empty state.
+  const raceControlMessages = await getSessionKeyByDate(seasonYear, race.date, "Race")
+    .then((sessionKey) => (sessionKey ? getRaceControl(sessionKey) : []))
+    .catch(() => []);
+
   const results = resultsRes.results ?? [];
 
   const drivers = results
@@ -134,7 +147,6 @@ export default async function PitwallPage({ params }: PageProps) {
       </div>
 
       <PitwallModules
-        comingSoon={["Race Control"]}
         modules={[
           {
             id: "stints",
@@ -186,6 +198,24 @@ export default async function PitwallPage({ params }: PageProps) {
                 yet. Positions are derived from timing data once the race has
                 finished and its data has been archived — check back after
                 the weekend.
+              </ModuleEmptyState>
+            ),
+          },
+          {
+            id: "race-control",
+            label: "Race Control",
+            panel: raceControlMessages.length ? (
+              <RaceControlPanel drivers={drivers} messages={raceControlMessages} />
+            ) : (
+              <ModuleEmptyState
+                title="Race control data is unavailable for this session"
+                season={season}
+                round={round}
+              >
+                Flag, safety-car, and investigation messages come from OpenF1,
+                which currently paywalls real-time data for the {season}{" "}
+                season. Historical seasons and archived sessions may still
+                have this feed once it clears their paid window.
               </ModuleEmptyState>
             ),
           },

@@ -101,7 +101,7 @@ Header reads "<year> FIA Formula One World Championship / Race Calendar", with a
 
 Reached from the "Pitwall analysis" button on a completed round's full-classification table. Header reads "Telemetry lab / Pitwall **Strategy**" with the race name and round, plus a "← Back to race" link.
 
-**Sidebar — "Analysis modules"**: three working modules — Tire Stints, Pit Stops, Lap Telemetry — switchable instantly (each panel is rendered server-side up front, so switching costs no extra fetch); "Race Control" remains disabled and labelled "Soon". All three working modules are sourced Mongo-first with a FastF1/Ergast self-heal rebuild on a miss (`race_stints`, `pit_stops`, `race_laps` respectively), and each shows its own "not available yet" empty state — rather than an error — when the round hasn't been through the sync job.
+**Sidebar — "Analysis modules"**: four working modules — Tire Stints, Pit Stops, Lap Telemetry, Race Control — switchable instantly (each panel is rendered server-side up front, so switching costs no extra fetch). Tire Stints, Pit Stops, and Lap Telemetry are sourced Mongo-first with a FastF1/Ergast self-heal rebuild on a miss (`race_stints`, `pit_stops`, `race_laps` respectively), each showing its own "not available yet" empty state — rather than an error — when the round hasn't been through the sync job. Race Control is sourced directly from OpenF1 (`/race_control`, resolved via a `/sessions` lookup by race date) rather than through the backend cache.
 
 **Tyre stints chart.** A horizontal stacked bar chart, one row per driver, each bar segment a stint coloured by compound (Soft red, Medium yellow, Hard white, Intermediate green, Wet blue) with the X axis labelled "Lap number". A **"Compare drivers" dropdown** (multi-select, defaults to the top five finishers) and a compound legend sit above it. Hovering a bar opens a tooltip listing the driver's full name and every stint — "Stint 1: 15 laps (SOFT)". Deselecting everyone shows "Select at least one driver to view stints."
 
@@ -110,6 +110,8 @@ Reached from the "Pitwall analysis" button on a completed round's full-classific
 **Lap Telemetry (position/gap chart).** A line chart, one line per selected driver in their team colour, X axis "Lap number". A segmented toggle switches the Y axis between **Position** (reversed so P1 sits at the top — the original view) and **Gap to leader** (seconds behind, also reversed so the leader sits at the top at 0s), reconstructed from each driver's cumulative lap times. Same multi-select driver dropdown as the stints chart. Hovering shows every selected driver's position or gap for that lap, sorted accordingly. Deselecting everyone shows "Select at least one driver to view positions." The Gap toggle is disabled with an explanatory note when a round's cached lap data predates this feature (no `gap_seconds` recorded yet) — Position mode still works for those rounds.
 
 **When a module's data hasn't synced yet** (the FastF1-backed modules — Tire Stints and Lap Telemetry — depend on a local sync job, since FastF1's live-timing archive blocks Cloud Run), the panel shows an hourglass empty state — "Stint data not available yet" / "Lap data not available yet" — explaining that the data appears once the race has finished and been archived, with links back to the race results and schedule. Pit Stops sources from Ergast instead, which is reachable from Cloud Run, so its equivalent empty state ("Pit-stop data not available yet") means the round genuinely has no published stops yet, not a sync gap.
+
+**Race Control module.** Stat tiles (total messages, flag changes, safety car / VSC periods, other notes) above a scrollable, filterable feed (All / Flags / Safety Car / Other) of every race-control message in session order — timestamp, lap number, and involved driver (team-coloured) alongside the message text. Flag and safety-car messages get colour-coded left icons (green/yellow/red/blue for flags, amber for safety car/VSC, neutral for investigations, penalties, and DRS notes) so the highest-signal events read at a glance. Because OpenF1 currently paywalls its real-time-shaped endpoints for the whole current season (see below), this module shows an "unavailable for this session" empty state for the 2026 season rather than an error.
 
 ---
 
@@ -226,7 +228,7 @@ The page derives whether a session is live from the season calendar plus assumed
 | `GET /api/driver_bio` | Driver modal — career wins, podiums, poles, titles, DOB, Wikipedia link |
 | `GET /health` | Not used by the UI (deployment health check) |
 
-Two data sources are called directly from the frontend rather than through the backend: **OpenF1** (`/sessions`, `/stints`, server-side, for the Pitwall chart) and a **RapidAPI live-timing feed** (client-side, for `/telemetry`).
+Three data sources are called directly from the frontend rather than through the backend: **OpenF1** (`/sessions`, `/stints`, server-side, for the Pitwall chart; `/sessions`, `/race_control`, server-side, for the Pitwall Race Control module) and a **RapidAPI live-timing feed** (client-side, for `/telemetry`).
 
 ---
 
@@ -235,10 +237,10 @@ Two data sources are called directly from the frontend rather than through the b
 These exist in the shipped UI but do not work, or do not work as their label implies.
 
 - **Nav search box is decorative.** The "Search drivers, tracks…" input in the top bar (desktop `lg` and up) has no `onChange`, no form, and no submit handler. Typing in it does nothing. There is no search feature anywhere in the app.
-- **Pitwall "Race Control" button** is `disabled`, dimmed to 50% opacity, and badged "Soon" (Tire Stints, Pit Stops, and Lap Telemetry are all working modules as of Batch 5). `getRaceControl` in `frontend/src/lib/openf1.ts` exists for it but is never called.
 - **Footer has no links.** It is two lines of text. Nothing in it is clickable — worth knowing if you are looking for an About/GitHub/attribution link there.
 - **`/telemetry` is unreachable through the UI.** It is absent from both the desktop nav and the mobile bottom bar, and nothing links to it. Deliberately left unlinked (see `ROADMAP.md`) until `NEXT_PUBLIC_RAPIDAPI_KEY` is confirmed provisioned in production — the page now shows a friendly "not available in this environment yet" message instead of a raw config-error string when the key is missing.
 - **Season selectors offer 2018 onward, but data quality drops off sharply.** The range is fixed at `MIN_SUPPORTED_SEASON = 2018` regardless of what is actually cached; older seasons will show calendars and standings but largely empty session classifications, circuit details, and no Pitwall data.
+- **Pitwall Race Control is functional but shows its empty state for the current season.** OpenF1 paywalls its real-time-shaped endpoints (`/sessions` for the current year, and by extension `/race_control`) for the entire current season, not just live sessions — confirmed by a live 401 on `GET /v1/sessions?year=2026`. There is no FastF1 equivalent for race-control messages, so unlike Tire Stints this module has no self-heal path; it will start working once a session ages into OpenF1's free historical window.
 
 ---
 

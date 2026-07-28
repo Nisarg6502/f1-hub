@@ -45,8 +45,22 @@ export async function getStints(sessionKey: number, driverNumbers: number[]) {
   return stints.filter(s => driverNumbers.includes(s.driver_number));
 }
 
-export async function getRaceControl(sessionKey: number) {
-  return fetchOpenF1<any[]>("/race_control", { session_key: sessionKey });
+/** Shape of OpenF1's `/race_control` rows. Not every message carries every
+ * field — a flag change has `flag`/`scope` but no `driver_number`, while a
+ * penalty/investigation note has `driver_number` but `flag: null`. */
+export interface RaceControlMessage {
+  date: string;
+  category: string;
+  flag: string | null;
+  scope: string | null;
+  message: string;
+  driver_number: number | null;
+  lap_number: number | null;
+  sector: number | null;
+}
+
+export async function getRaceControl(sessionKey: number): Promise<RaceControlMessage[]> {
+  return fetchOpenF1<RaceControlMessage[]>("/race_control", { session_key: sessionKey });
 }
 
 export async function getWeather(sessionKey: number) {
