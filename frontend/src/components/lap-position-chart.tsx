@@ -190,6 +190,21 @@ export default function LapPositionChart({
           </button>
           {dropdownOpen && (
             <div className="absolute top-full left-0 mt-1.5 w-64 rounded-xl bg-[rgba(26,22,19,0.98)] border border-white/10 shadow-2xl z-50 max-h-64 overflow-y-auto p-1">
+              <div className="flex items-center gap-1 px-2 py-1.5 mb-1 border-b border-white/10">
+                <button
+                  onClick={() => setSelectedDrivers(drivers.map((d) => d.number))}
+                  className="text-[11px] font-bold uppercase tracking-[0.08em] text-warm-400 hover:text-[#FFAE6A] transition-[color,transform] duration-150 active:scale-[0.97] px-1.5 py-0.5"
+                >
+                  Select all
+                </button>
+                <span className="text-warm-600">·</span>
+                <button
+                  onClick={() => setSelectedDrivers([])}
+                  className="text-[11px] font-bold uppercase tracking-[0.08em] text-warm-400 hover:text-[#FFAE6A] transition-[color,transform] duration-150 active:scale-[0.97] px-1.5 py-0.5"
+                >
+                  Clear all
+                </button>
+              </div>
               {drivers.map((driver) => {
                 const isSelected = selectedDrivers.includes(driver.number);
                 return (

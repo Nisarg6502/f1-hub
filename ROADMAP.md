@@ -29,7 +29,21 @@ The original plan's CP15-19 (driver/team head-to-head compare, championship calc
 
 ## Current batch
 
-Batch 7 is complete and merged. Batch 8 is not yet planned — see Backlog below for candidates.
+Batch 8 (CP32-34) is in progress: functional global search (nav search box), Pitwall "Race
+Control" panel (wires up the existing but never-called `getRaceControl`), and a real cross-track
+"Circuit DNA" comparison (the current `/circuits` stat card just borrows the name for a
+single-season summary). Built the same way as Batches 6-7: three parallel worktree agents on
+disjoint files (navbar/search, Pitwall, circuits page), each opening an independent PR.
+
+- **CP33 (Pitwall Race Control) is merged** (PR #47). CP32 (global search) and CP34 (Circuit DNA
+  comparison) are still in progress.
+
+Also fixed mid-batch: Lap Telemetry was showing "not processed yet" for every completed race —
+turned out `race_laps` (FastF1-sourced, unrelated to the OpenF1 paywall) had simply never been
+locally synced since the feature shipped. Ran `data_sync.py` locally to backfill it, then
+manually re-triggered the `f1-frontend` Cloud Build trigger to bust the 1-hour `revalidate` cache
+on `getRaceLaps` so the fix was visible immediately rather than waiting out the cache window.
+No code change was needed for this one.
 
 Batch 7 was built the same way as Batch 6: three parallel worktree agents (CP29, CP30, CP31),
 each touching disjoint files, all opening independent PRs. The worktree-cleanup discipline from
