@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { type CircuitDetail } from "@/lib/api";
+import { type CircuitDetail, type CircuitHistory, getCircuitHistory } from "@/lib/api";
 import TrackMap from "./track-map";
 import FlagImg from "./flag-img";
 
@@ -14,6 +14,15 @@ interface CircuitDetailsModalProps {
   onClose: () => void;
 }
 
+// Renders an Ergast-style gap in seconds as "0.088s" or "1:02.345" once past
+// a minute — mirrors how the rest of the app formats race/lap times.
+function formatGapSeconds(gapSeconds: number): string {
+  if (gapSeconds < 60) return `${gapSeconds.toFixed(3)}s`;
+  const minutes = Math.floor(gapSeconds / 60);
+  const seconds = gapSeconds - minutes * 60;
+  return `${minutes}:${seconds.toFixed(3).padStart(6, "0")}`;
+}
+
 export default function CircuitDetailsModal({
   circuit,
   circuitImagePath,
@@ -23,11 +32,29 @@ export default function CircuitDetailsModal({
 }: CircuitDetailsModalProps) {
   const [entered, setEntered] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [history, setHistory] = useState<CircuitHistory | null>(null);
 
   useEffect(() => {
     const id = requestAnimationFrame(() => setEntered(true));
     return () => cancelAnimationFrame(id);
   }, []);
+
+  // Cross-season history is its own lazy fetch — the round-scoped
+  // `circuit_details` data the rest of the modal renders is passed in as a
+  // prop, but this needs a fresh aggregation per circuit name. The modal is
+  // only ever mounted fresh per circuit selection (see `circuits-gallery.tsx`,
+  // which unmounts it on close), so there's no stale-data window to guard
+  // against by resetting state before the fetch resolves.
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    getCircuitHistory(circuit.circuit_name).then((result) => {
+      if (!cancelled) setHistory(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, circuit.circuit_name]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -60,6 +87,21 @@ export default function CircuitDetailsModal({
   ].filter(
     (s): s is { label: string; value: string | number } => Boolean(s.value)
   );
+
+  // Cross-season aggregation, fetched separately from the round-scoped stats
+  // above — each field is independent, so a circuit missing one or two still
+  // shows whichever it has.
+  const historyStats = [
+    history?.first_year && { label: "First raced", value: history.first_year },
+    history?.most_wins && {
+      label: "Most wins",
+      value: `${history.most_wins.driver} (${history.most_wins.wins})`,
+    },
+    history?.closest_finish && {
+      label: "Closest finish",
+      value: `${formatGapSeconds(history.closest_finish.gap_seconds)} · ${history.closest_finish.season}`,
+    },
+  ].filter((s): s is { label: string; value: string } => Boolean(s));
 
   return createPortal(
     <>
@@ -168,6 +210,29 @@ export default function CircuitDetailsModal({
             <p className="font-medium text-sm text-warm-400">
               No track data recorded for this circuit yet.
             </p>
+          )}
+
+          {historyStats.length > 0 && (
+            <div className="mt-5">
+              <div className="font-semibold text-[9px] tracking-[0.1em] uppercase text-warm-500 mb-2.5">
+                Circuit history
+              </div>
+              <div className="grid grid-cols-1 gap-2.5">
+                {historyStats.map((s) => (
+                  <div
+                    key={s.label}
+                    className="flex items-center justify-between bg-[rgba(245,235,222,0.05)] rounded-xl px-3.5 py-3"
+                  >
+                    <span className="font-semibold text-xs text-warm-400">
+                      {s.label}
+                    </span>
+                    <span className="font-bold text-sm tabular-nums text-right">
+                      {s.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       </div>

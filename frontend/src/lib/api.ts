@@ -541,3 +541,35 @@ export async function getCircuitDetails(year?: number): Promise<CircuitDetail[]>
     return [];
   }
 }
+
+// Cross-season stats for one physical circuit — every field is independently
+// optional, since it's pure aggregation over whatever `races`/`race_results`
+// happen to be cached for that circuit name; a brand-new circuit or one whose
+// older seasons never synced will omit whichever fields it can't compute.
+export interface CircuitHistory {
+  circuit_name: string;
+  first_year?: number;
+  most_wins?: {
+    driver: string;
+    wins: number;
+  };
+  closest_finish?: {
+    gap_seconds: number;
+    season: number;
+    round: string;
+  };
+}
+
+export async function getCircuitHistory(
+  circuitName: string
+): Promise<CircuitHistory | null> {
+  try {
+    return await fetchJson<CircuitHistory>(
+      "/api/circuit_history",
+      { circuit_name: circuitName },
+      { next: { revalidate: 3600 } }
+    );
+  } catch {
+    return null;
+  }
+}
