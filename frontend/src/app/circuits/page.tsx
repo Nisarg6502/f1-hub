@@ -93,6 +93,31 @@ export default async function CircuitsPage() {
       </div>
 
       <CircuitsGallery races={races} circuitDetails={circuitDetails} />
+
+      {/* CC BY-SA 3.0 requires attribution — the Saudi Arabia (Jeddah) track
+          outline is the only circuit asset under that license; the rest are
+          public-domain/CC0 or original artwork. */}
+      <p className="font-medium text-[10px] text-warm-500 mt-8">
+        Jeddah Corniche Circuit outline via{" "}
+        <a
+          href="https://commons.wikimedia.org/wiki/File:Jeddah_Street_Circuit_2021.svg"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline hover:text-warm-300"
+        >
+          Wikimedia Commons
+        </a>
+        , licensed{" "}
+        <a
+          href="https://creativecommons.org/licenses/by-sa/3.0/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline hover:text-warm-300"
+        >
+          CC BY-SA 3.0
+        </a>
+        .
+      </p>
     </div>
   );
 }

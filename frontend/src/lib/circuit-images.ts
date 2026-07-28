@@ -20,6 +20,7 @@ export function getCircuitImagePath(country?: string, locality?: string, circuit
   const map: Record<string, string> = {
     "australia": "Australia_Circuit.avif",
     "austria": "Austria_Circuit.avif",
+    "bahrain": "Bahrain_Circuit.avif",
     "belgium": "Belgium_Circuit.avif",
     "brazil": "Brazil_Circuit.avif",
     "canada": "Canada_Circuit.avif",
@@ -31,6 +32,7 @@ export function getCircuitImagePath(country?: string, locality?: string, circuit
     "monaco": "Monaco_Circuit.avif",
     "netherlands": "Netherlands_Circuit.avif",
     "qatar": "Qatar_Circuit.avif",
+    "saudi arabia": "Saudi_Arabia_Circuit.avif",
     "singapore": "Singapore_Circuit.avif",
     "spain": "Spain_Circuit.avif",
     "usa": "USA_Circuit.avif",
