@@ -24,35 +24,38 @@ if "motor.motor_asyncio" not in sys.modules:
 from app import circuit_history
 
 
-class FakeCursor:
-    def __init__(self, docs):
-        self.docs = docs
-
-    async def to_list(self, length=None):
-        return list(self.docs)
-
-
 class FakeCollection:
-    def __init__(self, docs=None):
-        self.docs = docs if docs is not None else []
-        self.queries = []
+    """Minimal stand-in for a Motor collection: one `find_one` result, and
+    `update_one` calls recorded for assertions rather than actually stored."""
 
-    def find(self, query=None, *args, **kwargs):
-        self.queries.append(query)
-        return FakeCursor(self.docs)
+    def __init__(self, find_one_result=None):
+        self._find_one_result = find_one_result
+        self.update_one_calls = []
+
+    async def find_one(self, query=None, *args, **kwargs):
+        return self._find_one_result
+
+    async def update_one(self, query, update, upsert=False):
+        self.update_one_calls.append((query, update, upsert))
 
 
 class FakeDb:
-    def __init__(self, races=None, race_results=None):
+    def __init__(self, races=None, circuit_history_cache=None):
         self.races = races or FakeCollection()
-        self.race_results = race_results or FakeCollection()
+        self.circuit_history_cache = circuit_history_cache or FakeCollection()
 
 
-def result_row(position, given_name, family_name, time=""):
+def ergast_race(season, round_, position, given_name, family_name, time=""):
     return {
-        "position": position,
-        "Driver": {"givenName": given_name, "familyName": family_name},
-        "Time": {"time": time},
+        "season": season,
+        "round": round_,
+        "Results": [
+            {
+                "position": position,
+                "Driver": {"givenName": given_name, "familyName": family_name},
+                "Time": {"time": time},
+            }
+        ],
     }
 
 
@@ -77,144 +80,120 @@ class ParseGapSecondsTests(unittest.TestCase):
 
 class FirstYearRacedTests(unittest.TestCase):
     def test_returns_the_earliest_season(self):
-        races = [{"season": 2023}, {"season": 2019}, {"season": 2026}]
-        self.assertEqual(circuit_history.first_year_raced(races), 2019)
+        races = [{"season": "2023"}, {"season": "1950"}, {"season": "2026"}]
+        self.assertEqual(circuit_history.first_year_raced(races), 1950)
 
     def test_no_races_yields_none(self):
         self.assertIsNone(circuit_history.first_year_raced([]))
 
     def test_ignores_malformed_season_values(self):
-        races = [{"season": None}, {"season": "2019"}]
-        # "2019" (a string) is not counted; only real ints qualify.
+        races = [{"season": None}, {"season": "not-a-year"}]
         self.assertIsNone(circuit_history.first_year_raced(races))
 
 
 class MostWinsTests(unittest.TestCase):
     def test_tallies_wins_by_driver_and_reports_the_top_one(self):
-        docs = [
-            {"results": [result_row("1", "Max", "Verstappen")]},
-            {"results": [result_row("1", "Max", "Verstappen")]},
-            {"results": [result_row("1", "Lewis", "Hamilton")]},
+        races = [
+            ergast_race("2022", "10", "1", "Max", "Verstappen"),
+            ergast_race("2023", "10", "1", "Max", "Verstappen"),
+            ergast_race("2024", "10", "1", "Lewis", "Hamilton"),
         ]
 
-        result = circuit_history.most_wins(docs)
+        result = circuit_history.most_wins(races)
 
         self.assertEqual(result, {"driver": "Max Verstappen", "wins": 2})
 
     def test_ties_report_whichever_driver_was_tallied_first(self):
-        docs = [
-            {"results": [result_row("1", "Lewis", "Hamilton")]},
-            {"results": [result_row("1", "Max", "Verstappen")]},
+        races = [
+            ergast_race("2022", "10", "1", "Lewis", "Hamilton"),
+            ergast_race("2023", "10", "1", "Max", "Verstappen"),
         ]
 
-        result = circuit_history.most_wins(docs)
+        result = circuit_history.most_wins(races)
 
         self.assertEqual(result, {"driver": "Lewis Hamilton", "wins": 1})
 
-    def test_docs_with_no_winner_are_skipped(self):
-        docs = [{"results": []}, {"results": [result_row("2", "Max", "Verstappen")]}]
+    def test_races_missing_a_p1_result_are_skipped(self):
+        races = [{"season": "2022", "round": "10", "Results": []}]
 
-        self.assertIsNone(circuit_history.most_wins(docs))
+        self.assertIsNone(circuit_history.most_wins(races))
 
-    def test_no_docs_yields_none(self):
+    def test_no_races_yields_none(self):
         self.assertIsNone(circuit_history.most_wins([]))
 
 
 class ClosestFinishTests(unittest.TestCase):
     def test_reports_the_smallest_valid_gap(self):
-        docs = [
-            {
-                "season": 2022,
-                "round": "10",
-                "results": [
-                    result_row("1", "Max", "Verstappen"),
-                    result_row("2", "Lewis", "Hamilton", "+5.636"),
-                ],
-            },
-            {
-                "season": 2023,
-                "round": "10",
-                "results": [
-                    result_row("1", "Max", "Verstappen"),
-                    result_row("2", "Sergio", "Perez", "+0.088"),
-                ],
-            },
+        races = [
+            ergast_race("2022", "10", "2", "Lewis", "Hamilton", "+5.636"),
+            ergast_race("2023", "10", "2", "Sergio", "Perez", "+0.088"),
         ]
 
-        result = circuit_history.closest_finish(docs)
+        result = circuit_history.closest_finish(races)
 
         self.assertEqual(result["season"], 2023)
         self.assertEqual(result["round"], "10")
         self.assertAlmostEqual(result["gap_seconds"], 0.088)
 
-    def test_skips_docs_with_a_non_numeric_gap(self):
-        docs = [
-            {
-                "season": 2021,
-                "round": "5",
-                "results": [
-                    result_row("1", "Max", "Verstappen"),
-                    result_row("2", "Lewis", "Hamilton", "+1 Lap"),
-                ],
-            },
-        ]
+    def test_skips_races_with_a_non_numeric_gap(self):
+        races = [ergast_race("2021", "5", "2", "Lewis", "Hamilton", "+1 Lap")]
 
-        self.assertIsNone(circuit_history.closest_finish(docs))
+        self.assertIsNone(circuit_history.closest_finish(races))
 
-    def test_skips_docs_missing_p1_or_p2(self):
-        docs = [{"season": 2021, "round": "5", "results": [result_row("1", "Max", "Verstappen")]}]
+    def test_skips_races_missing_a_p2_result(self):
+        races = [{"season": "2021", "round": "5", "Results": []}]
 
-        self.assertIsNone(circuit_history.closest_finish(docs))
+        self.assertIsNone(circuit_history.closest_finish(races))
 
-    def test_no_docs_yields_none(self):
+    def test_no_races_yields_none(self):
         self.assertIsNone(circuit_history.closest_finish([]))
 
 
 class CircuitHistoryEndpointTests(unittest.TestCase):
-    def test_aggregates_across_matching_races_and_results(self):
-        races = FakeCollection([
-            {"season": 2022, "round": "10"},
-            {"season": 2023, "round": "10"},
-        ])
-        race_results = FakeCollection([
-            {
-                "season": 2022,
-                "round": "10",
-                "results": [
-                    result_row("1", "Max", "Verstappen"),
-                    result_row("2", "Lewis", "Hamilton", "+5.636"),
-                ],
-            },
-            {
-                "season": 2023,
-                "round": "10",
-                "results": [
-                    result_row("1", "Max", "Verstappen"),
-                    result_row("2", "Sergio", "Perez", "+0.088"),
-                ],
-            },
-        ])
-        fake_db = FakeDb(races=races, race_results=race_results)
+    def _fake_fetch_all_races(self, winner_races, runner_up_races):
+        async def fake(path: str, *args, **kwargs):
+            if "/results/1/" in path:
+                return winner_races
+            if "/results/2/" in path:
+                return runner_up_races
+            raise AssertionError(f"unexpected path: {path}")
 
-        with patch.object(circuit_history, "get_db", return_value=fake_db):
+        return fake
+
+    def test_resolves_circuit_id_and_aggregates_full_ergast_history(self):
+        races = FakeCollection(find_one_result={"Circuit": {"circuitId": "silverstone"}})
+        cache = FakeCollection(find_one_result=None)
+        fake_db = FakeDb(races=races, circuit_history_cache=cache)
+
+        winner_races = [
+            ergast_race("1950", "1", "1", "Nino", "Farina"),
+            ergast_race("2024", "12", "1", "Lewis", "Hamilton"),
+        ]
+        runner_up_races = [ergast_race("2024", "12", "2", "Max", "Verstappen", "+0.500")]
+
+        with patch.object(circuit_history, "get_db", return_value=fake_db), patch.object(
+            circuit_history,
+            "_fetch_all_races",
+            side_effect=self._fake_fetch_all_races(winner_races, runner_up_races),
+        ):
             response = asyncio.run(
                 circuit_history.get_circuit_history(circuit_name="Silverstone Circuit")
             )
 
         body = json.loads(response.body)
         self.assertEqual(body["circuit_name"], "Silverstone Circuit")
-        self.assertEqual(body["first_year"], 2022)
-        self.assertEqual(body["most_wins"], {"driver": "Max Verstappen", "wins": 2})
-        self.assertEqual(body["closest_finish"]["season"], 2023)
-        self.assertAlmostEqual(body["closest_finish"]["gap_seconds"], 0.088)
+        self.assertEqual(body["first_year"], 1950)
+        self.assertEqual(body["most_wins"], {"driver": "Nino Farina", "wins": 1})
+        self.assertAlmostEqual(body["closest_finish"]["gap_seconds"], 0.5)
 
-        # Queried races by circuit name, not by any particular season.
-        self.assertEqual(
-            races.queries[0], {"Circuit.circuitName": "Silverstone Circuit"}
-        )
+        # Looked up circuitId by circuit name, not scoped to any one season.
+        self.assertEqual(races.update_one_calls, [])
+        # Result got written back to the cache collection.
+        self.assertEqual(len(cache.update_one_calls), 1)
 
-    def test_a_circuit_with_no_cached_races_omits_every_field(self):
-        fake_db = FakeDb(races=FakeCollection([]), race_results=FakeCollection([]))
+    def test_a_circuit_never_synced_at_all_omits_every_field(self):
+        races = FakeCollection(find_one_result=None)
+        fake_db = FakeDb(races=races)
 
         with patch.object(circuit_history, "get_db", return_value=fake_db):
             response = asyncio.run(
@@ -224,19 +203,52 @@ class CircuitHistoryEndpointTests(unittest.TestCase):
         body = json.loads(response.body)
         self.assertEqual(body, {"circuit_name": "Brand New Street Circuit"})
 
-    def test_races_cached_but_no_race_results_yet_omits_wins_and_closest_finish(self):
-        races = FakeCollection([{"season": 2019, "round": "1"}])
-        fake_db = FakeDb(races=races, race_results=FakeCollection([]))
+    def test_a_fresh_cache_entry_is_served_without_hitting_ergast(self):
+        cache = FakeCollection(
+            find_one_result={
+                "circuit_name": "Silverstone Circuit",
+                "first_year": 1950,
+                "synced_at": circuit_history._utcnow_iso(),
+            }
+        )
+        fake_db = FakeDb(circuit_history_cache=cache)
 
-        with patch.object(circuit_history, "get_db", return_value=fake_db):
+        with patch.object(circuit_history, "get_db", return_value=fake_db), patch.object(
+            circuit_history, "_fetch_all_races"
+        ) as fetch_mock:
             response = asyncio.run(
-                circuit_history.get_circuit_history(circuit_name="Some Circuit")
+                circuit_history.get_circuit_history(circuit_name="Silverstone Circuit")
             )
 
+        fetch_mock.assert_not_called()
         body = json.loads(response.body)
-        self.assertEqual(body["first_year"], 2019)
-        self.assertNotIn("most_wins", body)
-        self.assertNotIn("closest_finish", body)
+        self.assertEqual(body["first_year"], 1950)
+        self.assertNotIn("synced_at", body)
+
+    def test_a_stale_cache_entry_triggers_a_refetch(self):
+        import datetime
+
+        stale_time = (
+            datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=48)
+        ).isoformat()
+        cache = FakeCollection(
+            find_one_result={
+                "circuit_name": "Silverstone Circuit",
+                "first_year": 1950,
+                "synced_at": stale_time,
+            }
+        )
+        races = FakeCollection(find_one_result={"Circuit": {"circuitId": "silverstone"}})
+        fake_db = FakeDb(races=races, circuit_history_cache=cache)
+
+        with patch.object(circuit_history, "get_db", return_value=fake_db), patch.object(
+            circuit_history,
+            "_fetch_all_races",
+            side_effect=self._fake_fetch_all_races([], []),
+        ) as fetch_mock:
+            asyncio.run(circuit_history.get_circuit_history(circuit_name="Silverstone Circuit"))
+
+        fetch_mock.assert_called()
 
 
 if __name__ == "__main__":
