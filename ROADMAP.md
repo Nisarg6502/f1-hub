@@ -40,12 +40,18 @@ Batch 11 is not yet planned — see Backlog below for candidates.
 
 **Deployment note for anything using a new backend env var:** `cloudbuild-backend.yaml` deploys the
 image but does not set env vars, so a new one (`OLLAMA_API_KEY`) has to be added to the Cloud Run
-service by hand (`gcloud run services update f1-backend --region asia-south1 --update-env-vars ...`)
-or the feature silently no-ops in production while working perfectly locally — which is exactly what
-happened on CP38's first deploy. Worse, an env var set as a *pin* can later become a *downgrade*:
-`OLLAMA_MODEL=gpt-oss:20b` was set when 20b was the default, and after the code default moved to
-120b that same var would have kept production on the model that hallucinated. Re-check existing env
-vars whenever a code-level default changes.
+service separately or the feature silently no-ops in production while working perfectly locally —
+which is exactly what happened on CP38's first deploy. Worse, an env var set as a *pin* can later
+become a *downgrade*: `OLLAMA_MODEL=gpt-oss:20b` was set when 20b was the default, and after the
+code default moved to 120b that same var would have kept production on the model that hallucinated.
+Re-check existing env vars whenever a code-level default changes.
+
+**Credentials go in Secret Manager, not `--update-env-vars`.** `OLLAMA_API_KEY` shipped as a
+plaintext env var and was migrated to a `secretKeyRef` to match how `MONGODB_URI` was already
+handled; a plaintext value is readable by anyone with project access and is echoed by
+`gcloud run services describe`. See `README.md` for the exact commands. Note that migrating does
+*not* scrub the value from previously-deployed revision configs — Cloud Run retains those for
+rollback — so a key that was ever set in plaintext should be rotated to be fully clean.
 
 **CP38's accuracy overhaul is the most important lesson in this file for anyone building the next GenAI feature.** The first version handed the model a bare classification list and asked it to find "the story." It produced fluent, confident prose that claimed Andrea Kimi Antonelli (Mercedes) was Max Verstappen's (Red Bull) teammate — with both drivers' correct, different team names sitting right there in the data it was given. Generalized: **an LLM asked to *derive* a relational or comparative fact will confabulate it even when the underlying fields are present and correct.** The fix was not a sterner prompt alone; it was moving every derivable fact out of the model's job and into Python:
 
@@ -173,9 +179,10 @@ it retry indefinitely.
 ### GenAI features
 - "Explain this session" for Qualifying and Sprint — the Race-only version shipped in Batch 10
   (CP38); extending to the other session types is a smaller follow-up now that the Ollama Cloud
-  integration, streaming pattern, and caching shape all exist. Race Control-informed context
-  (safety car periods, flags) would meaningfully improve any of these recaps but is unavailable for
-  the whole current season due to the OpenF1 paywall — see the Pitwall Race Control known gap.
+  integration, streaming pattern, fact-precomputation approach and caching shape all exist. Race
+  Control context (penalties, safety cars, flags) is already wired in for the Race recap and is
+  reachable for the current season again — the OpenF1 paywall that previously blocked it has
+  lifted.
 - Natural-language query bar (a GenAI layer alongside the now-functional keyword nav search)
 - Race strategy commentary on the Pitwall page (grounded in stint data)
 - Driver comparison narrative (pairs with the head-to-head feature)

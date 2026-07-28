@@ -83,6 +83,19 @@ MONGODB_URI=your_mongodb_connection_string
 OLLAMA_API_KEY=your_ollama_cloud_api_key
 OLLAMA_MODEL=gpt-oss:120b
 ```
+
+**Deploying secrets:** `cloudbuild-backend.yaml` deploys the image but does not set
+environment variables, so anything new has to be added to the Cloud Run service
+separately or the feature silently no-ops in production. Credentials go in Secret
+Manager, never as a plaintext env var:
+
+```bash
+printf "%s" "$YOUR_KEY" | gcloud secrets create OLLAMA_API_KEY --data-file=- --replication-policy=automatic
+gcloud secrets add-iam-policy-binding OLLAMA_API_KEY   --member="serviceAccount:<project-number>-compute@developer.gserviceaccount.com"   --role="roles/secretmanager.secretAccessor"
+gcloud run services update f1-backend --region asia-south1   --update-secrets "OLLAMA_API_KEY=OLLAMA_API_KEY:latest"
+```
+
+Non-secret config (`OLLAMA_MODEL`) can stay a plain `--update-env-vars`.
 Run the FastAPI server:
 ```bash
 uvicorn app.main:app --reload --port 8000
