@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
+import ReactMarkdown from "react-markdown";
 import { useReducedMotion } from "motion/react";
 import { getSessionRecapUrl } from "@/lib/api";
 
@@ -9,13 +10,47 @@ interface SessionRecapCardProps {
   round: number;
 }
 
-// Streams the recap in as it's generated (only happens on the very first
-// request for a given race — every request after that replays the cached
-// text from the backend, still through this same streaming response). If
-// nothing ever arrives — no OLLAMA_API_KEY configured, no cached race
-// results yet, or the Ollama call failed — this renders nothing rather than
-// an error or an empty card, same as every other "not available" state in
-// this app.
+// The recap cites the data behind each claim inline: [P1] for a classification
+// row, [FL] for the fastest lap, [RC 66] for a race-control event on that lap.
+// Rendering them as muted chips keeps the prose readable while still letting a
+// reader check any statement against the classification table below.
+// Whitespace inside the brackets is tolerated because the model emits both
+// "[P1]" and "[ P1 ]" depending on the sentence.
+const CITATION_RE = /\[\s*(?:P\d+[^\]]*?|FL|RC[^\]]*?)\s*\]/g;
+
+function decorateCitations(children: ReactNode): ReactNode {
+  return (
+    <>
+      {(Array.isArray(children) ? children : [children]).map((child, index) => {
+        if (typeof child !== "string") return <Fragment key={index}>{child}</Fragment>;
+
+        const parts = child.split(CITATION_RE);
+        const matches = child.match(CITATION_RE) ?? [];
+
+        return (
+          <Fragment key={index}>
+            {parts.map((part, i) => (
+              <Fragment key={i}>
+                {part}
+                {matches[i] && (
+                  <span className="inline-block align-baseline font-semibold text-[10px] tracking-[0.04em] text-[#FF9A5A]/70 bg-[rgba(255,90,31,0.08)] rounded px-1 py-px mx-0.5">
+                    {matches[i].slice(1, -1).trim()}
+                  </span>
+                )}
+              </Fragment>
+            ))}
+          </Fragment>
+        );
+      })}
+    </>
+  );
+}
+
+// Streams the recap in as it's generated (only on the very first request for a
+// given race — every request after that replays the cached text from Mongo,
+// still through the same streaming response). If nothing ever arrives — no
+// OLLAMA_API_KEY configured, no cached race results, or the call failed — this
+// renders nothing rather than an error, matching the app's other empty states.
 export default function SessionRecapCard({ year, round }: SessionRecapCardProps) {
   const [text, setText] = useState("");
   const [isStreaming, setIsStreaming] = useState(true);
@@ -45,9 +80,7 @@ export default function SessionRecapCard({ year, round }: SessionRecapCardProps)
           const { value, done } = await reader.read();
           if (done) break;
           const chunk = decoder.decode(value, { stream: true });
-          if (chunk && !cancelled) {
-            setText((prev) => prev + chunk);
-          }
+          if (chunk && !cancelled) setText((prev) => prev + chunk);
         }
       } catch {
         // Aborted on unmount, or a network failure — either way, no recap.
@@ -62,38 +95,48 @@ export default function SessionRecapCard({ year, round }: SessionRecapCardProps)
     };
   }, [year, round]);
 
-  if (!isStreaming && !text) {
-    return null;
-  }
+  if (!isStreaming && !text) return null;
 
   return (
     <div className="apex-glass-soft rounded-2xl p-[22px] mb-6">
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex items-center gap-2 mb-3.5">
         <span className="font-bold text-[11px] tracking-[0.12em] uppercase text-[#FF7A3D]">
           AI Recap
         </span>
         {isStreaming && (
           <span
-            className={`w-1.5 h-1.5 rounded-full bg-[#FF7A3D] ${
-              reduce ? "" : "animate-pulse"
-            }`}
+            className={`w-1.5 h-1.5 rounded-full bg-[#FF7A3D] ${reduce ? "" : "animate-pulse"}`}
             aria-hidden="true"
           />
         )}
       </div>
-      <p className="font-medium text-[15px] leading-relaxed text-warm-200 whitespace-pre-line">
-        {text}
-        {isStreaming && (
-          <span
-            className={`inline-block w-[7px] h-[15px] ml-0.5 -mb-[2px] bg-[#FFAE6A] ${
-              reduce ? "" : "animate-pulse"
-            }`}
-            aria-hidden="true"
-          />
+
+      <div className="font-medium text-[15px] leading-[1.7] text-warm-200">
+        {text ? (
+          <ReactMarkdown
+            components={{
+              p: ({ children }) => (
+                <p className="mb-3.5 last:mb-0">{decorateCitations(children)}</p>
+              ),
+              strong: ({ children }) => (
+                <strong className="font-bold text-on-background">{children}</strong>
+              ),
+              em: ({ children }) => <em className="italic">{children}</em>,
+              // The recap is instructed not to emit links; if one slips
+              // through, render its text rather than a navigable anchor.
+              a: ({ children }) => <span>{children}</span>,
+            }}
+          >
+            {text}
+          </ReactMarkdown>
+        ) : (
+          <span className="text-warm-400">Generating recap…</span>
         )}
-      </p>
-      <p className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500 mt-3">
-        Generated commentary from race data · not official reporting
+      </div>
+
+      <p className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500 mt-4 pt-3.5 border-t border-white/[0.06]">
+        Generated commentary · grounded in race results and FIA race control ·
+        citations reference the classification below
       </p>
     </div>
   );
