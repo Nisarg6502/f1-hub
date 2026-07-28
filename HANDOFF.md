@@ -2,7 +2,7 @@
 
 ## Where things stand
 
-Batches 1 through 6 are fully merged (see `ROADMAP.md`'s "Shipped batches" table for the full
+Batches 1 through 7 are fully merged (see `ROADMAP.md`'s "Shipped batches" table for the full
 history, including two ad-hoc Batch 2 additions built mid-batch). A durable roadmap-tracking
 system exists at `ROADMAP.md` — **current batch and checkpoint status live there** (see "Current
 batch"), not in this file. This file only carries session-specific working memory: recent
@@ -10,17 +10,31 @@ gotchas, environment quirks, and the immediate next action.
 
 ### Immediate next action
 
-Batch 6 (CP26-28) is complete and merged. Batch 7 is not yet planned — see `ROADMAP.md`'s Backlog
+Batch 7 (CP29-31) is complete and merged. Batch 8 is not yet planned — see `ROADMAP.md`'s Backlog
 section for candidates when starting the next batch-planning pass.
 
-### New this batch: worktree cleanup can hang on orphaned dev servers
+### Worktree cleanup can hang on orphaned dev servers
 
-Batch 6 ran three checkpoints as parallel agents, each in its own git worktree. Two of them left
-a `next dev` process running in the worktree after finishing verification, which held file locks
-that made `git worktree remove --force` hang for minutes rather than fail outright. If a post-batch
-worktree cleanup seems stuck, check for orphaned `node.exe` processes whose command line still
-points at that worktree's path (PowerShell: `Get-CimInstance Win32_Process | Where-Object {
-$_.CommandLine -match 'worktrees' }`) and kill them before assuming the removal itself is broken.
+A parallel-worktree batch's agents can leave a `next dev` process running in their worktree after
+finishing verification, which holds file locks and makes `git worktree remove --force` hang for
+minutes rather than fail outright. If a post-batch worktree cleanup seems stuck, check for
+orphaned `node.exe` processes whose command line still points at that worktree's path
+(PowerShell: `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'worktrees' }`)
+and kill them before assuming the removal itself is broken.
+
+### Resuming a paused agent doesn't kill its background jobs
+
+When a background agent pauses mid-task (e.g. "waiting for npm install to finish") and gets
+resumed with a follow-up message, the resume does **not** kill whatever background job it was
+actually waiting on — if the agent then starts a *new* attempt at the same operation (e.g. another
+`npm install`) without realizing one is already running, the two collide and corrupt shared state
+(this happened to a CP29 agent: two `rm -rf node_modules && npm install` runs raced on the same
+directory across several resumes, deleting/rewriting the same files concurrently and leaving a
+broken install each time). If an agent reports the same "still waiting" status across several
+resumes, check for a duplicate/stray process for that worktree path before just prompting it to
+continue again — killing the stray and, if needed, running the operation yourself directly in the
+agent's worktree path (then telling the agent it's already done and not to repeat it) is more
+reliable than resuming indefinitely.
 
 ## Things learned this batch that will bite you again
 
