@@ -138,11 +138,12 @@ identically — there's no shared component yet. Worth extracting if a third cop
   source cutouts are ~0.35:1 (tall/narrow, e.g. 440×1265), so `object-cover` only reveals a
   ~16%-tall horizontal slice. `object-[50%_0%]` puts that slice on the head; don't "fix" head
   cropping by changing the container — change the object-position.
-- **OpenF1 now paywalls the entire current season**, not just the live window: verified live that
-  `GET /v1/sessions?year=2026` returns 401. There is no FastF1 equivalent for race-control
-  messages (unlike tyre stints, which were re-sourced to FastF1) — Pitwall Race Control (CP33)
-  will show its empty state for the current season until a round ages into OpenF1's free
-  historical window.
+- **OpenF1 paywalled the entire current season for a stretch in 2026 — that has since lifted.**
+  It was real (a `GET /v1/sessions?year=2026` 401), and it is why tyre stints were re-sourced to
+  FastF1 and why there is no OpenF1-backed fallback for anything else. Re-verified 2026-07-29:
+  `/sessions`, `/race_control`, `/stints`, `/laps` and `/pit` all return 200 for 2026, and Pitwall
+  Race Control (CP33) populates with real messages for the current season. The 401 handling in
+  `frontend/src/lib/openf1.ts` is kept as a defensive fail-soft in case the gate returns.
 - **Pre-existing lint failures on `main`** (do not try to "fix" these as part of a checkpoint;
   confirm with a `git stash` compare if unsure): `react/jsx-no-comment-textnodes` in `page.tsx`,
   `drivers-grid.tsx`, `session-tabs.tsx`; `react-hooks/purity` on `Date.now()` in

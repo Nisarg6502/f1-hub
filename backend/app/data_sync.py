@@ -391,7 +391,8 @@ def sync_circuit_details(db, year: int, races: list[dict]) -> None:
 
 
 def sync_race_stints(db, year: int, races: list[dict]) -> None:
-    """Per-driver tyre stints via FastF1, replacing the paywalled OpenF1 feed.
+    """Per-driver tyre stints via FastF1, which replaced the OpenF1 feed back
+    when OpenF1 paywalled the current season (that paywall lifted 2026-07).
 
     Like `sync_circuit_details` this reads the live-timing archive, which 403s
     from Cloud Run — so in practice this only populates when the job is run
