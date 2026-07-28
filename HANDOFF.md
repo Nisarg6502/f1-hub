@@ -10,11 +10,31 @@ quirks, and the immediate next action.
 
 ### Immediate next action
 
-Batch 9 (CP35-37) is complete and merged, plus an ad-hoc fix for the Circuit history panel showing
-wrong "first raced" years (see `ROADMAP.md`'s Current batch section for the root cause — it's a bug
-shape worth knowing about before building anything else that aggregates "across all X"). Batch 10
-is not yet planned — see `ROADMAP.md`'s Backlog section for candidates when starting the next
-batch-planning pass.
+Batch 10 (CP38, the AI race recap) is complete and merged, including a follow-up accuracy overhaul.
+Batch 11 is not yet planned — see `ROADMAP.md`'s Backlog section for candidates. **Read
+`ROADMAP.md`'s Current batch section before building any further GenAI feature** — the CP38
+hallucination post-mortem there (precompute relational facts in code; never let the model derive
+them) is the single most transferable lesson from this batch.
+
+### OpenF1's current-season paywall has lifted — several docs are stale on this
+
+Verified 2026-07-29: `GET /v1/sessions?year=2026` and `/race_control` both return 200 (80 messages
+for the Hungarian GP, including penalties and VSC periods). Multiple places in this repo describe a
+hard 401 for the whole current season — accurate when written, no longer true. CP38's recap now
+depends on this working. Anything else that was shelved or degraded because of that 401 (notably
+the Pitwall Race Control module, CP33) is worth re-testing.
+
+### Verify against a *freshly started* local server, not one you think you restarted
+
+Cost real time this batch: a `uvicorn` from earlier in the session was still holding port 8000, so
+every "restart" silently failed to bind and died, and the old process kept serving **stale code**.
+The recap under test looked like it had regressed badly when in fact the new code was never
+running. `uvicorn`'s bind error goes to the log, not the terminal, so it's invisible unless checked.
+Confirm the running process's start time (`Get-CimInstance Win32_Process | Select ProcessId,
+CreationDate, CommandLine`) against when you restarted, and check the log for
+`error while attempting to bind`. The same applies to `next build`/`next dev` holding
+`.next/lock` — and note Git Bash's `ps -p <pid>` cannot see native Windows PIDs, so use
+`tasklist //FI "PID eq <pid>"` when waiting on one.
 
 ### `MONGODB_URI` from the root `.env` can drive a real local backend against Atlas
 
