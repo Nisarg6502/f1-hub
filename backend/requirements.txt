@@ -5,3 +5,4 @@ pymongo[srv]
 fastf1
 pandas
 python-dotenv
+httpx

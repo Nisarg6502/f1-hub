@@ -28,6 +28,7 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 8 (ad hoc) | unnumbered | Select all / Clear all on the Pitwall driver-compare dropdown (Tire Stints + Lap Telemetry) — built mid-batch in response to a user request | merged |
 | 9 | CP35-37 | Circuit/team image coverage (Bahrain + Saudi Arabia outlines added) PR #55, footer GitHub link PR #54, `/telemetry` surfaced in desktop nav PR #53 | merged |
 | 9 (ad hoc) | unnumbered | Fixed the Circuit history panel (CP27) reporting wrong "first raced" years, e.g. "2024" for Silverstone (on the calendar since 1950) — it aggregated only over whichever seasons this app's own sync job happened to have cached, not full circuit history. Re-sourced `/api/circuit_history` from Ergast/Jolpica's circuit-scoped endpoints (full result history back to 1950), cached in a new `circuit_history_cache` collection. Found via a user bug report on `/circuits`, not backlog-planned. PR #57 | merged |
+| 10 | CP38 | "AI Recap" on the race-detail page — an LLM-generated, streamed race summary grounded in cached classification data (Ollama Cloud, `gpt-oss:20b`), generated once per race and cached forever | pending |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
@@ -35,7 +36,33 @@ The original plan's CP15-19 (driver/team head-to-head compare, championship calc
 
 Batch 9 is complete and merged: CP35 circuit/team image coverage (PR #55), CP36 footer GitHub link
 (PR #54), CP37 `/telemetry` surfaced in desktop nav (PR #53), plus the ad-hoc circuit-history fix
-(PR #57). Batch 10 is not yet planned — see Backlog below for candidates.
+(PR #57).
+
+**Batch 10 (CP38)** is the first GenAI feature: "Explain this session" (Race only, per the Backlog
+item below), built and live-verified against a real Ollama Cloud key and real cached race data
+before opening its PR — not just unit-tested. Notes for whoever builds the next GenAI checkpoint
+(the query bar, driver-comparison narrative, etc. — see Backlog):
+
+- **`gpt-oss:20b` (and presumably its sibling reasoning models on Ollama Cloud) stream a `thinking`
+  field separately from `content`** in `/api/chat`'s streamed response — the model's chain-of-thought
+  comes through as `message.thinking` deltas with `message.content` staying empty, then `content`
+  starts populating once the model commits to its actual answer. Only forward `content` to the
+  client; forwarding `thinking` too would leak raw reasoning traces into a "recap," not user-facing
+  commentary. This also means the *first* visible token can take a while — the CP38 test saw ~13s
+  of pure thinking before content started on a 3-word toy prompt, and the full race-recap call took
+  ~44s end-to-end — which is exactly why this had to stream rather than block.
+- **Cache whatever's genuinely immutable, forever, keyed by the natural identity** (here:
+  season+round+session, matching how `race_results`/`race_stints` are already keyed) — a finished
+  race's facts don't change, so there's no staleness window to manage, unlike `circuit_history_cache`
+  (Batch 9 ad hoc), which does need one since Ergast's answer for "most wins at this circuit" changes
+  every time a new race happens there.
+- **A streaming response needs a client component fetching directly against the backend**, not the
+  server-component `fetchJson` pattern every other endpoint in `lib/api.ts` uses — Next.js server
+  components can't progressively forward a fetch's `ReadableStream` to the browser the way a client
+  component reading `response.body.getReader()` can. `NEXT_PUBLIC_API_BASE_URL` is already exposed
+  to the client bundle (the driver-bio "Career" block already fetches it client-side on modal open),
+  so this isn't a new pattern for the app, just the first one that streams rather than waiting for a
+  full JSON body.
 
 **Any cross-season aggregation must be checked against what "cached" actually means before it
 ships.** The circuit-history ad-hoc fix's root cause (`first_year_raced`/`most_wins`/
@@ -122,7 +149,11 @@ it retry indefinitely.
   appearing.
 
 ### GenAI features
-- "Explain this session" auto-recap after a race/quali/sprint syncs
+- "Explain this session" for Qualifying and Sprint — the Race-only version shipped in Batch 10
+  (CP38); extending to the other session types is a smaller follow-up now that the Ollama Cloud
+  integration, streaming pattern, and caching shape all exist. Race Control-informed context
+  (safety car periods, flags) would meaningfully improve any of these recaps but is unavailable for
+  the whole current season due to the OpenF1 paywall — see the Pitwall Race Control known gap.
 - Natural-language query bar (a GenAI layer alongside the now-functional keyword nav search)
 - Race strategy commentary on the Pitwall page (grounded in stint data)
 - Driver comparison narrative (pairs with the head-to-head feature)

@@ -8,6 +8,7 @@ import type { Race, RaceResult } from "@/lib/api";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { getTeamColor } from "@/lib/team-colors";
 import { buildRaceSessionTimeline, type RaceSessionField } from "@/lib/sessions";
+import SessionRecapCard from "@/components/session-recap-card";
 
 interface SessionTabsProps {
   race: Race;
@@ -61,6 +62,8 @@ export default function SessionTabs({
   isPast,
 }: SessionTabsProps) {
   const [nowMs] = useState<number>(() => Date.now());
+  const params = useParams();
+  const seasonYear = Number(params?.season);
 
   const availableSessions: SessionKey[] = ["Race"];
   const sessionKeys: SessionKey[] = [
@@ -131,6 +134,9 @@ export default function SessionTabs({
                   </div>
                 )}
               </div>
+              {Number.isFinite(seasonYear) && (
+                <SessionRecapCard year={seasonYear} round={Number(race.round)} />
+              )}
               <FullResultsTable results={results} />
             </>
           ) : isPast ? (
