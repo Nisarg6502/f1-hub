@@ -23,32 +23,32 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 4 | CP23-24 | Driver head-to-head compare, teammate battle panel | merged |
 | 5 | CP25 | Lap-by-lap position chart (Pitwall "Lap Telemetry"), plus the compare-drivers dropdown redesign | merged |
 | 6 | CP26-28 | Pitwall dropdown click-outside/Escape backport, circuit history panel (closest finish/most wins/first year raced), season-aware page metadata | merged |
+| 7 | CP29-31 | Gap-to-leader on Pitwall Lap Telemetry, "Add to calendar" for weekend sessions, Championship "Title Decider" calculator | merged |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
 ## Current batch
 
-Batch 6 is complete and merged. Batch 7 is not yet planned — see Backlog below for candidates.
+Batch 7 is complete and merged. Batch 8 is not yet planned — see Backlog below for candidates.
 
-Batch 6 was built as three parallel worktree agents (CP26, CP27, CP28), each touching disjoint
-files with no shared dependency, per this file's parallelization-check convention — all three
-opened independent PRs and merged cleanly with no collisions.
-
-**Worktree cleanup note:** two of Batch 6's agent worktrees left their `next dev` processes
-running after finishing (verification step didn't tear the server down), which held file locks
-that made `git worktree remove` hang for several minutes until the leftover `node.exe` processes
-were killed manually. If a post-batch worktree cleanup hangs, check for orphaned dev-server
-processes still pointing at that worktree's path before assuming the removal itself is stuck.
+Batch 7 was built the same way as Batch 6: three parallel worktree agents (CP29, CP30, CP31),
+each touching disjoint files, all opening independent PRs. The worktree-cleanup discipline from
+Batch 6 held for two of the three, but CP29's agent hit a different problem worth recording:
+its `npm install` kept getting corrupted mid-run because a stray `npm install` process from an
+earlier resume was still running in the background and racing against a fresh `rm -rf
+node_modules && npm install` attempt, deleting/rewriting the same files concurrently. Resuming a
+paused agent doesn't kill whatever background job it was waiting on — if an agent reports the
+same "still installing" status across several resumes, check for a duplicate/stray process
+before just prompting it to continue again; it may be worth running the install yourself outside
+the agent (in its worktree path) and telling it node_modules is already good, rather than letting
+it retry indefinitely.
 
 ## Backlog (unscheduled)
 
 ### Comparison & analysis
-- Gap-to-leader (seconds) as a Pitwall Lap Telemetry follow-up to CP25's position-only chart
-- Championship "Title Decider" scenario calculator
 - Circuit similarity / "Circuit DNA" comparison across tracks
 
 ### Race weekend enrichment
-- "Add to calendar" reminders for sessions
 - Functional global search (nav search input is currently dead)
 - Team radio moments (text, from OpenF1 race_control)
 - F1DB circuit-layout SVGs / team logos to replace incomplete asset host coverage
