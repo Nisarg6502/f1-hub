@@ -36,7 +36,35 @@ The original plan's CP15-19 (driver/team head-to-head compare, championship calc
 ## Current batch
 
 Batch 10 is complete and merged: CP38 AI race recap (PR #59) plus its accuracy overhaul (PR #60).
-Batch 11 is not yet planned — see Backlog below for candidates.
+
+**Batch 11 (CP39-41)** is scoped around a single discovery: **OpenF1's current-season paywall has
+fully lifted.** Not just `/race_control` (found during CP38's overhaul) — `/stints`, `/laps` and
+`/pit` all return 200 for 2026 as well, verified 2026-07-29. This invalidates a constraint that has
+shaped the architecture since Batch 2 and is asserted in many places across the docs and code.
+
+- **CP39 — Correct the stale paywall claims.** Docs and code comments across `FEATURES.md`,
+  `HANDOFF.md`, `pit_stops.py`, `race_stints.py`, `openf1.ts` and `pitwall/page.tsx` still assert a
+  hard 401. Most urgent: `pitwall/page.tsx`'s Race Control empty state renders copy telling users
+  OpenF1 "currently paywalls real-time data" — user-facing text that is now simply false. (Race
+  Control itself already works in production with no code change; verified real messages in the
+  server-rendered HTML.) Docs/copy only, no behaviour change.
+- **CP40 — Self-heal `race_stints`/`race_laps` from OpenF1.** These are FastF1-sourced, and FastF1
+  is IP-blocked from Cloud Run, so their self-heal path can *never* succeed in production — the
+  cache is only ever filled by someone running `data_sync.py` locally. That is the root cause of
+  the CP25-to-Batch-8 gap where Lap Telemetry was empty for every race. OpenF1 is reachable from
+  Cloud Run, so: **try OpenF1 first on a cache miss, keep the existing FastF1 rebuild as fallback.**
+  Deliberately additive — nothing currently working may regress, and historical seasons keep
+  whatever path already serves them. Verify field parity before trusting it (notably that lap data
+  still supports the gap-to-leader chart from CP29).
+- **CP41 — Extend recaps to Qualifying and Sprint.** The Race-only recap shipped in CP38; the
+  grounding, streaming, caching and fact-precomputation patterns are all reusable. Follow CP38's
+  hard-won rule: precompute every relational/derived fact in Python, never let the model infer one.
+
+**Parallelization:** CP39 (docs + one copy string), CP40 (backend `race_stints.py`/`race_laps.py`)
+and CP41 (backend `session_recap.py` + a frontend card) touch disjoint files with no sequential
+dependency, so all three can run as parallel worktree agents. CP39 and CP40 both mention
+`pitwall/page.tsx`/`race_stints.py` in passing — CP39 owns comment/copy edits there, CP40 owns
+logic, and they must not cross.
 
 **Deployment note for anything using a new backend env var:** `cloudbuild-backend.yaml` deploys the
 image but does not set env vars, so a new one (`OLLAMA_API_KEY`) has to be added to the Cloud Run
