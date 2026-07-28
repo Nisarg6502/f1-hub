@@ -24,7 +24,9 @@ This document describes what is on `main` today. Anything present in the UI but 
 
 ## Global chrome (present on every page)
 
-**Top navigation bar** — sticky, translucent, blurred. On the left: the APEX wordmark with a glowing dot (links home) and six desktop links — Home, Schedule, Standings, Drivers, Teams, Circuits. The active link is marked with an orange underline that animates between items as you navigate. On the right: a search input (see Known gaps) and a "Season 2026" label.
+**Top navigation bar** — sticky, translucent, blurred. On the left: the APEX wordmark with a glowing dot (links home) and six desktop links — Home, Schedule, Standings, Drivers, Teams, Circuits. The active link is marked with an orange underline that animates between items as you navigate. On the right: a functional search input (desktop `lg` and up — see below) and a "Season 2026" label.
+
+**Global search** — the nav search box filters the current season's drivers, constructors, and circuits client-side (reusing the same standings/races/circuit-details data other pages already fetch) as you type, in a liquid-glass dropdown matching the compare-drivers/tire-stints popover pattern. Requires 2+ characters; shows a "No results" state otherwise. Selecting a driver or circuit opens that entity's existing modal (`driver-modal.tsx` / `circuit-details-modal.tsx`); selecting a team navigates to `/teams`. Escape and click-outside close it; respects `prefers-reduced-motion`.
 
 **Mobile bottom bar** — replaces the desktop links below the `md` breakpoint. Five icon+label items: Home, Schedule, Standings, Drivers, Circuits. Teams is not in the mobile bar.
 
@@ -236,7 +238,7 @@ Three data sources are called directly from the frontend rather than through the
 
 These exist in the shipped UI but do not work, or do not work as their label implies.
 
-- **Nav search box is decorative.** The "Search drivers, tracks…" input in the top bar (desktop `lg` and up) has no `onChange`, no form, and no submit handler. Typing in it does nothing. There is no search feature anywhere in the app.
+- **Pitwall "Race Control" button** is `disabled`, dimmed to 50% opacity, and badged "Soon" (Tire Stints, Pit Stops, and Lap Telemetry are all working modules as of Batch 5). `getRaceControl` in `frontend/src/lib/openf1.ts` exists for it but is never called.
 - **Footer has no links.** It is two lines of text. Nothing in it is clickable — worth knowing if you are looking for an About/GitHub/attribution link there.
 - **`/telemetry` is unreachable through the UI.** It is absent from both the desktop nav and the mobile bottom bar, and nothing links to it. Deliberately left unlinked (see `ROADMAP.md`) until `NEXT_PUBLIC_RAPIDAPI_KEY` is confirmed provisioned in production — the page now shows a friendly "not available in this environment yet" message instead of a raw config-error string when the key is missing.
 - **Season selectors offer 2018 onward, but data quality drops off sharply.** The range is fixed at `MIN_SUPPORTED_SEASON = 2018` regardless of what is actually cached; older seasons will show calendars and standings but largely empty session classifications, circuit details, and no Pitwall data.

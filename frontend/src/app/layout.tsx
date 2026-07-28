@@ -4,6 +4,7 @@ import { Bricolage_Grotesque, Hanken_Grotesk } from "next/font/google";
 import Link from "next/link";
 import NavLinks, { MobileNav } from "@/components/nav-links";
 import SeasonBadge from "@/components/season-badge";
+import GlobalSearch from "@/components/global-search";
 import "./globals.css";
 
 const bricolage = Bricolage_Grotesque({
@@ -112,15 +113,7 @@ export default function RootLayout({
               </div>
             </div>
             <div className="flex items-center gap-4">
-              <div className="hidden lg:flex items-center gap-[9px] bg-[rgba(245,235,222,0.06)] backdrop-blur-[10px] border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] rounded-xl px-[14px] py-[9px] w-[208px]">
-                <span className="w-3 h-3 border-[1.5px] border-[#8f867a] rounded-full inline-block flex-none" />
-                <input
-                  className="flex-1 min-w-0 bg-transparent border-none outline-none font-medium text-xs text-on-background placeholder:text-warm-500"
-                  placeholder="Search drivers, tracks…"
-                  aria-label="Search"
-                  type="text"
-                />
-              </div>
+              <GlobalSearch />
               <Suspense fallback={<div className="font-semibold text-xs text-warm-300 w-[85px]" />}>
                 <SeasonBadge />
               </Suspense>
