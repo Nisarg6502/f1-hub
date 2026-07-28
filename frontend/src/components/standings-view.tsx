@@ -10,6 +10,7 @@ import { Stagger, StaggerItem } from "@/components/motion-primitives";
 import { AnimatedNumber } from "@/components/animated-number";
 import SeasonSelector from "@/components/season-selector";
 import TeammateBattlePanel from "@/components/teammate-battle-panel";
+import TitleDeciderPanel from "@/components/title-decider-panel";
 
 interface StandingsViewProps {
   drivers: DriverStanding[];
@@ -201,6 +202,14 @@ export default function StandingsView({
             </div>
 
             {drivers.length > 0 && <TeammateBattlePanel drivers={drivers} year={year} />}
+
+            {drivers.length >= 2 && (
+              <TitleDeciderPanel
+                drivers={drivers}
+                constructors={constructors}
+                year={year}
+              />
+            )}
           </div>
         </div>
       )}
