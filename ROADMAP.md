@@ -179,9 +179,10 @@ it retry indefinitely.
 ### GenAI features
 - "Explain this session" for Qualifying and Sprint — the Race-only version shipped in Batch 10
   (CP38); extending to the other session types is a smaller follow-up now that the Ollama Cloud
-  integration, streaming pattern, and caching shape all exist. Race Control-informed context
-  (safety car periods, flags) would meaningfully improve any of these recaps but is unavailable for
-  the whole current season due to the OpenF1 paywall — see the Pitwall Race Control known gap.
+  integration, streaming pattern, fact-precomputation approach and caching shape all exist. Race
+  Control context (penalties, safety cars, flags) is already wired in for the Race recap and is
+  reachable for the current season again — the OpenF1 paywall that previously blocked it has
+  lifted.
 - Natural-language query bar (a GenAI layer alongside the now-functional keyword nav search)
 - Race strategy commentary on the Pitwall page (grounded in stint data)
 - Driver comparison narrative (pairs with the head-to-head feature)
