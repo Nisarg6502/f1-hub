@@ -17,7 +17,7 @@ This document describes what is on `main` today. Anything present in the UI but 
 | `/standings` | Drivers' and Constructors' championship tables |
 | `/drivers` | The grid — a card per driver, each opening a profile modal |
 | `/teams` | Constructor cards plus a power-unit grouping |
-| `/circuits` | Featured track, season "Circuit DNA", and a gallery of every circuit with detail modals |
+| `/circuits` | Featured track, cross-track "Circuit DNA" comparison, and a gallery of every circuit with detail modals |
 | `/telemetry` | Live Timing board (polls a third-party feed while a session is running). **Not linked from any navigation** — reachable only by typing the URL |
 
 ---
@@ -166,7 +166,7 @@ Empty state: "Constructor standings are unavailable right now."
 
 **Featured track** — a large panel showing the circuit outline of the next upcoming round (or the season opener if none is upcoming), badged "Featured track", with "Round N · <locality>" and the circuit name.
 
-**Circuit DNA** panel — Total circuits, Season, Opening round, Featured country.
+**Circuit DNA** panel — a real cross-track comparison, not a season summary. Two liquid-glass dropdown selectors (only circuits with cached circuit details are selectable) pick two tracks; selecting both opens a comparison modal showing country, total laps, corner count, and lap record (time + holder) for each side by side, plus first-raced / most-wins / closest-finish rows when that cross-season data exists for the circuit (same source as the circuit history panel below).
 
 **World tour gallery** — a card per round with an accent stripe from a rotating palette, locality, country flag, circuit name, the circuit outline image, and country / round. Cards lift on hover and press on tap.
 
@@ -238,7 +238,6 @@ Three data sources are called directly from the frontend rather than through the
 
 These exist in the shipped UI but do not work, or do not work as their label implies.
 
-- **Pitwall "Race Control" button** is `disabled`, dimmed to 50% opacity, and badged "Soon" (Tire Stints, Pit Stops, and Lap Telemetry are all working modules as of Batch 5). `getRaceControl` in `frontend/src/lib/openf1.ts` exists for it but is never called.
 - **Footer has no links.** It is two lines of text. Nothing in it is clickable — worth knowing if you are looking for an About/GitHub/attribution link there.
 - **`/telemetry` is unreachable through the UI.** It is absent from both the desktop nav and the mobile bottom bar, and nothing links to it. Deliberately left unlinked (see `ROADMAP.md`) until `NEXT_PUBLIC_RAPIDAPI_KEY` is confirmed provisioned in production — the page now shows a friendly "not available in this environment yet" message instead of a raw config-error string when the key is missing.
 - **Season selectors offer 2018 onward, but data quality drops off sharply.** The range is fixed at `MIN_SUPPORTED_SEASON = 2018` regardless of what is actually cached; older seasons will show calendars and standings but largely empty session classifications, circuit details, and no Pitwall data.

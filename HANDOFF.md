@@ -2,16 +2,62 @@
 
 ## Where things stand
 
-Batches 1 through 7 are fully merged (see `ROADMAP.md`'s "Shipped batches" table for the full
-history, including two ad-hoc Batch 2 additions built mid-batch). A durable roadmap-tracking
-system exists at `ROADMAP.md` — **current batch and checkpoint status live there** (see "Current
-batch"), not in this file. This file only carries session-specific working memory: recent
-gotchas, environment quirks, and the immediate next action.
+Batches 1 through 8 are fully merged (see `ROADMAP.md`'s "Shipped batches" table for the full
+history, including ad-hoc additions built mid-batch). A durable roadmap-tracking system exists at
+`ROADMAP.md` — **current batch and checkpoint status live there** (see "Current batch"), not in
+this file. This file only carries session-specific working memory: recent gotchas, environment
+quirks, and the immediate next action.
 
 ### Immediate next action
 
-Batch 7 (CP29-31) is complete and merged. Batch 8 is not yet planned — see `ROADMAP.md`'s Backlog
+Batch 8 (CP32-34) is complete and merged. Batch 9 is not yet planned — see `ROADMAP.md`'s Backlog
 section for candidates when starting the next batch-planning pass.
+
+### MongoDB Atlas IS reachable from this sandbox — only bare localhost:27017 isn't
+
+Earlier sessions concluded "MongoDB is not reachable here" from a bare TCP probe to
+`localhost:27017` (which times out — there's no local `mongod`). That's true, but it led to an
+overly broad assumption. The **real** database is MongoDB Atlas (`mongodburi` in the root `.env`,
+an `mongodb+srv://...mongodb.net` connection string, cluster `f1-hub`) — the same database
+`f1-backend` on Cloud Run reads from — and it **is** network-reachable from this sandbox. Running
+`cd backend && python -m app.data_sync` with `MONGODB_URI` exported from that value worked
+end-to-end (synced real races/laps/pit-stops) directly from here. `motor`/`pymongo` were missing
+from this Python install and needed `pip install -r requirements.txt` first, but that's a one-time
+setup cost, not a connectivity block. This means a future session could point the local backend
+dev server at the same Atlas URI for **real-data verification** instead of always mocking through
+a throwaway `dev-test-*` route — worth trying before defaulting to the mock-data pattern below.
+
+### Backend cache collections need an actual local sync run, not just correct code
+
+`race_laps` sat empty for every round from CP25 (when Lap Telemetry shipped) all the way through
+this batch, even though the endpoint code was correct — nobody had run `data_sync.py` locally
+since. Every completed race showed a generic "hasn't been processed yet" empty state that looked
+like a per-race bug but was actually "the whole collection is empty." If a FastF1-backed Pitwall
+module looks broken for every race regardless of which GP, suspect the cache is simply unpopulated
+before suspecting the code — check row counts / run `data_sync.py` before debugging logic.
+
+### Frontend `fetch` calls carry their own Next.js data-cache `revalidate`, independent of `force-dynamic`
+
+`export const dynamic = "force-dynamic"` on a page does **not** bypass a `next: { revalidate: N }`
+option on that page's own `fetch()` calls (see `getRaceLaps`/`getRaceStints` in
+`frontend/src/lib/api.ts` — 3600s and similar). After a manual out-of-band backfill (see above),
+the already-cached "empty" response kept serving for up to that window. In normal operation this
+is fine — the hourly `f1-data-sync-hourly` Cloud Run Job keeps data fresher than the cache window
+ever matters — but if you need a fix to show up on the live site *immediately* after a manual
+backfill, you need to force a fresh Cloud Run revision (re-run the existing Cloud Build trigger,
+e.g. `gcloud builds triggers run <trigger-name> --branch=main`), not just wait or re-request.
+
+### A background agent's "waiting on X" report can be stale — verify against the worktree directly
+
+A CP32 agent twice ended its turn reporting it was waiting on a background build/install, and both
+times the task-runner reported it "completed" with no live children — i.e. the agent had lost
+track of its own execution state, it hadn't silently failed. Checking its worktree directly
+(`git status`, `git log`) showed real, uncommitted work each time. Once it was a genuinely stale
+`next dev` process left over from the agent's own earlier verification step (not a build at all).
+Don't just re-prompt "continue" on faith — check the worktree and process list yourself
+(`Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match '<worktree-path>' }`),
+correct the agent's factual understanding of what's actually running, and give it explicit
+synchronous steps rather than trusting a self-report of "still waiting."
 
 ### Worktree cleanup can hang on orphaned dev servers
 
@@ -20,64 +66,55 @@ finishing verification, which holds file locks and makes `git worktree remove --
 minutes rather than fail outright. If a post-batch worktree cleanup seems stuck, check for
 orphaned `node.exe` processes whose command line still points at that worktree's path
 (PowerShell: `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'worktrees' }`)
-and kill them before assuming the removal itself is broken.
+and kill them before assuming the removal itself is broken. Sometimes the cleanup finishes on its
+own between checks (observed this batch) — check current state with `git worktree list` before
+assuming it's actually stuck.
 
-### Resuming a paused agent doesn't kill its background jobs
+### Duplicated components mean duplicated fixes
 
-When a background agent pauses mid-task (e.g. "waiting for npm install to finish") and gets
-resumed with a follow-up message, the resume does **not** kill whatever background job it was
-actually waiting on — if the agent then starts a *new* attempt at the same operation (e.g. another
-`npm install`) without realizing one is already running, the two collide and corrupt shared state
-(this happened to a CP29 agent: two `rm -rf node_modules && npm install` runs raced on the same
-directory across several resumes, deleting/rewriting the same files concurrently and leaving a
-broken install each time). If an agent reports the same "still waiting" status across several
-resumes, check for a duplicate/stray process for that worktree path before just prompting it to
-continue again — killing the stray and, if needed, running the operation yourself directly in the
-agent's worktree path (then telling the agent it's already done and not to repeat it) is more
-reliable than resuming indefinitely.
+`tire-stints-chart.tsx` and `lap-position-chart.tsx` both have their own copy-pasted
+compare-drivers dropdown (same markup, same `selectedDrivers`/`toggleDriver` state shape). A
+change to that dropdown (e.g. adding Select all / Clear all) has to be applied to both files
+identically — there's no shared component yet. Worth extracting if a third copy ever appears.
 
-## Things learned this batch that will bite you again
+## Things learned in earlier batches that still apply
 
 - **`gh` CLI is NOT installed** in this environment and no `GH_TOKEN`/`GITHUB_TOKEN` is set, so
   PRs cannot be opened programmatically. Push the branch, then give the user the
   `https://github.com/Nisarg6502/f1-hub/pull/new/<branch>` link and wait for them to merge.
-- **Two modals were rendering under the navbar** — root cause is that `<main>` in
-  `frontend/src/app/layout.tsx` has `relative z-10`, which creates a stacking context, so any
-  descendant's `z-[80]`/`z-[90]` is still compared as `z-10` against the nav's `z-50`. Both
-  `circuit-details-modal.tsx` and `driver-modal.tsx` are now fixed with `createPortal(...,
-  document.body)`. **Any new full-viewport overlay must be portaled too** or it will repeat this.
+- **Full-viewport overlays must be portaled** — `<main>` in `frontend/src/app/layout.tsx` has
+  `relative z-10`, which creates a stacking context, so any descendant's high z-index is still
+  compared as `z-10` against the nav's `z-50`. `circuit-details-modal.tsx`, `driver-modal.tsx`,
+  and `circuit-compare-modal.tsx` (CP34) all use `createPortal(..., document.body)` — any new
+  modal/overlay must too, or it repeats this bug.
 - **Driver-image crop math**: the drivers-grid card container is ~2.17:1 (wide/short) but the
   source cutouts are ~0.35:1 (tall/narrow, e.g. 440×1265), so `object-cover` only reveals a
-  ~16%-tall horizontal slice. `object-[50%_0%]` puts that slice on the head; the old
-  `object-[50%_10%]` cut into the forehead/chin. Don't "fix" head cropping by changing the
-  container — change the object-position.
+  ~16%-tall horizontal slice. `object-[50%_0%]` puts that slice on the head; don't "fix" head
+  cropping by changing the container — change the object-position.
 - **OpenF1 now paywalls the entire current season**, not just the live window: verified live that
-  `GET /v1/sessions?year=2026` itself returns 401. Their docs say historical (2023+) is free and
-  "real-time requires a paid subscription", but in practice the whole 2026 season reads as
-  real-time. That's why checkpoint 14 re-sources tyre stints from **FastF1** (`session.laps` has
-  `Stint`/`Compound`/`TyreLife`/`LapNumber`) via the existing Mongo-first self-heal pattern,
-  rather than just prettifying the error state.
+  `GET /v1/sessions?year=2026` returns 401. There is no FastF1 equivalent for race-control
+  messages (unlike tyre stints, which were re-sourced to FastF1) — Pitwall Race Control (CP33)
+  will show its empty state for the current season until a round ages into OpenF1's free
+  historical window.
 - **Pre-existing lint failures on `main`** (do not try to "fix" these as part of a checkpoint;
   confirm with a `git stash` compare if unsure): `react/jsx-no-comment-textnodes` in `page.tsx`,
   `drivers-grid.tsx`, `session-tabs.tsx`; `react-hooks/purity` on `Date.now()` in
-  `schedule/page.tsx` and `circuits/page.tsx`; several `no-explicit-any` in `openf1.ts` and
-  `tire-stints-chart.tsx`; unused vars `leaderColor`, `maxDriverPts`.
+  `schedule/page.tsx` and `circuits/page.tsx`; several `no-explicit-any` in `openf1.ts`; unused
+  vars `leaderColor`, `maxDriverPts`.
 - **`frontend/next-env.d.ts` churns by itself** between dev and build runs (`./.next/types/` vs
   `./.next/dev/types/`). Always `git checkout -- frontend/next-env.d.ts` before committing.
 
 ## How to verify work in this environment
 
-**MongoDB is not reachable here** (`localhost:27017` refused), so no page that hits the backend
-will render real data. The **public asset bucket IS reachable**
-(`https://storage.googleapis.com/f1-scratch-assets/...`), so real driver/circuit images work.
-
-The pattern that worked all batch, use it again:
+The pattern that's worked across batches:
 
 1. Write a throwaway route at `frontend/src/app/dev-test-<thing>/page.tsx` that renders the
-   component directly with hardcoded mock props. For components calling `useParams()`, make it a
-   dynamic route (`dev-test-x/[season]/[round]/page.tsx`).
-2. To exercise an interaction headlessly, add a `useEffect` that `setTimeout`s a
-   `document.querySelector('[aria-label="..."]')?.click()`.
+   component directly with hardcoded mock props (or mocked `fetch`). For components calling
+   `useParams()`, make it a dynamic route (`dev-test-x/[season]/[round]/page.tsx`).
+2. To exercise an interaction headlessly, either add a `useEffect` that `setTimeout`s a
+   `document.querySelector(...)?.click()`, or drive it directly via `javascript_tool` DOM calls
+   (`element.click()`, wrapped in an async IIFE with a short `setTimeout` wait) — the latter is
+   more reliable than the in-app `computer` click tool against the preview pane, see below.
 3. **Warm the route first** — `curl -s -o /dev/null -w "%{http_code}" http://localhost:3113/<route>`
    with a generous `--max-time`. Cold Turbopack compiles take 20s+ and will silently blow past
    Chrome's `--virtual-time-budget`, producing a blank/failed screenshot.
@@ -86,25 +123,27 @@ The pattern that worked all batch, use it again:
    --screenshot=<path> <url>`
 5. **Delete the throwaway route before committing.**
 
+Worth trying first, per the Atlas-reachability note above: point the local backend dev server at
+the same `mongodburi` Atlas connection string and verify against **real** data instead of mocks,
+where that's practical.
+
 The in-app Claude_Browser preview pane keeps its tab `document.hidden === true` **permanently**
-— even after `tabs_select` fronts it — which starves `requestAnimationFrame` entirely (a bare
-rAF call never fires, confirmed with a 3s timeout probe). This doesn't just make `computer
-{action:"screenshot"}` time out on Framer-Motion UI; it can make an entire route look
-**permanently broken**. Any route with its own `loading.tsx` gets an automatic Suspense
-boundary, and React's App Router reveal (the `$RC`/`$RV`/`window.$RB` streaming swap that
-replaces the fallback with the real content) is gated on rAF with no fallback unless a
-slow-connection marker is present — so in this preview pane that swap queues up and then never
-fires, and the page sits on the `loading.tsx` skeleton forever even though the server's HTML
-already contains the fully-resolved content. (Root-caused for `/standings`, the only route with
-a `loading.tsx` as of 2026-07-28 — see `f1hub-preview-pane-raf-stall.md` in auto-memory.) Before
-concluding a route is stuck when tested in this pane, check `document.hidden` via
-`javascript_tool` and whether the route has a `loading.tsx`; if both are true, don't trust the
-pane for that route — verify instead with the headless-Chrome screenshot method above
-(a real, non-backgrounded process), which is authoritative. The preview pane's *text* tools
-(`get_page_text`, `javascript_tool`) still work fine and are great for asserting DOM
-state/tooltip copy that doesn't depend on the rAF-gated reveal.
-The dev server (`preview_start` name `apex-frontend`, port 3113) also died several times mid-
-session; just `preview_start` again.
+— even after `tabs_select` fronts it — which starves `requestAnimationFrame` entirely. This
+doesn't just make `computer {action:"screenshot"}` time out on Framer-Motion UI; it can make an
+entire route look **permanently broken** if it has its own `loading.tsx` (the App Router's
+streaming reveal is rAF-gated). It also means `computer` clicks on the preview pane can silently
+land on the wrong tab if the tab wasn't freshly fronted with `tabs_select` first, or the click can
+appear to do nothing even when correctly targeted — `javascript_tool` DOM manipulation
+(`element.click()` + `document.querySelector` checks) is more reliable for verifying
+interactions in this pane than the `computer` click action. The preview pane's *text* tools
+(`get_page_text`, `read_page`, `javascript_tool`) work fine regardless and are great for
+asserting DOM state that doesn't depend on the rAF-gated reveal or on screenshot compositing.
+Before concluding a route is stuck, check `document.hidden` via `javascript_tool` and whether the
+route has a `loading.tsx`; if both are true, verify instead with the headless-Chrome screenshot
+method above.
+
+The dev server (`preview_start` name `apex-frontend`, port 3113) also died several times across
+sessions; just `preview_start` again.
 
 ## Batch 1 conventions (still in force)
 
@@ -114,25 +153,30 @@ session; just `preview_start` again.
 - **Backend self-heal pattern**: Mongo-first read → on miss, fetch live from Ergast/Jolpica
   (`https://api.jolpi.ca/ergast/f1`) or FastF1 → upsert back so the next request is cached. Used
   by `session_results.py`, `circuit_info.py`, `championship_standings.py`, `races.py`,
-  `driver_bio.py`. Checkpoint 14 should follow it exactly.
+  `driver_bio.py`, `race_laps.py`, `race_stints.py`.
 - **`data_sync.py` only syncs the current season by default** (`SYNC_YEARS` overrides) — that's
-  *why* the self-heal exists. Don't assume historical seasons are pre-populated.
+  *why* the self-heal exists. Don't assume historical seasons are pre-populated, and don't assume
+  the current season is either (see the `race_laps` gap above) — check, don't assume.
 - **FastF1 cannot be fetched from Cloud Run** — `livetiming.formula1.com` 403s datacenter IPs and
-  fails *soft* (empty streams, no error). Anything FastF1-sourced must be synced from the local
-  machine: `cd backend && MONGODB_URI=... python -m app.data_sync`. Relevant to checkpoint 14.
+  fails *soft* (empty streams, no error). Anything FastF1-sourced must be synced from a local
+  machine (or this sandbox, now that Atlas connectivity is confirmed — see above):
+  `cd backend && MONGODB_URI=... python -m app.data_sync`.
 - **Assets never go in git**: staged locally, uploaded with `gcloud storage cp` to
   `gs://f1-scratch-assets/<folder>/`, served via `NEXT_PUBLIC_ASSET_BASE_URL`. Resolvers
   (`driver-images.ts`, `circuit-images.ts`, `team-images.ts`) return `null` when unmapped and
   every caller has a graceful fallback — never a broken `<img>`.
 - Use `gcloud storage` not `gsutil` (gsutil needs a `python3.11` that isn't on PATH here).
 
-## Reusable pieces added this batch
+## Reusable pieces added so far
 
 - `frontend/src/components/tooltip.tsx` — hover/focus/tap tooltip on `motion/react`,
-  reduced-motion aware, `aria-describedby` wired. There was no tooltip primitive before; reuse
-  this rather than adding another one (checkpoints 15–17 will likely want it).
+  reduced-motion aware, `aria-describedby` wired.
 - `_attach_winners()` in `backend/app/races.py` — bulk-joins winners onto the season's races in
   one query. Reuse rather than N+1-ing `/api/race_results`.
+- The liquid-glass dropdown/popover pattern (`bg-[rgba(26,22,19,0.98)] border border-white/10`,
+  motion-animated, click-outside + Escape) now appears in `tire-stints-chart.tsx`,
+  `lap-position-chart.tsx`, `compare-drivers-panel.tsx`, `global-search.tsx` (CP32), and
+  `circuit-dna-compare.tsx` (CP34) — reuse it rather than a native `<select>`.
 
 ## Stale docs warning
 
@@ -140,4 +184,5 @@ session; just `preview_start` again.
 is obsolete — the app was reskinned to the warm-orange "APEX" glassmorphism system in an earlier
 session (see `f1hub-apex-design-system.md` in auto-memory). Its §10 UX backlog is still partly
 useful, but ignore all of its colour/branding claims. It also lists the nav search input and
-footer links as dead controls — the search input is checkpoint 19.
+footer links as dead controls — the search input shipped in CP32; the footer is still genuinely
+dead.
