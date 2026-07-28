@@ -428,11 +428,14 @@ def sync_race_stints(db, year: int, races: list[dict]) -> None:
 
 
 def sync_race_laps(db, year: int, races: list[dict]) -> None:
-    """Per-driver, per-lap track position via FastF1, for the Pitwall position chart.
+    """Per-driver, per-lap track position and gap-to-leader via FastF1, for the Pitwall chart.
 
     Same FastF1-on-Cloud-Run caveat as `sync_race_stints`: this only populates
     when run from a local machine. The API serves whatever is here and reports
-    an empty result rather than an error when a round is missing.
+    an empty result rather than an error when a round is missing. A round
+    synced before `gap_seconds` existed just won't have it on its rows until
+    it's re-synced (`FORCE_RESYNC`) -- see `race_laps.py`'s module docstring
+    for why that's a safe, non-crashing degradation rather than a problem.
     """
     from .race_laps import build_race_laps
 

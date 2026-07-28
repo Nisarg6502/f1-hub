@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { motion } from "motion/react";
 import {
   LineChart,
   Line,
@@ -27,26 +28,33 @@ interface LapPositionChartProps {
   initialLaps: RaceLap[];
 }
 
+type ChartMode = "position" | "gap";
+
 interface ChartRow {
   lap: number;
   [driverCode: string]: number;
 }
 
 /** Declared outside the component so it isn't recreated (and remounted by
- * Recharts) on every render. */
-function PositionTooltip({
+ * Recharts) on every render. Shared by both Position and Gap modes — only
+ * the value formatting differs. */
+function LapTooltip({
   active,
   payload,
   label,
+  mode,
   driversByCode,
 }: {
   active?: boolean;
   payload?: Array<{ dataKey?: string; value?: number; color?: string }>;
   label?: number;
+  mode: ChartMode;
   driversByCode: Map<string, { givenName: string; familyName: string }>;
 }) {
   if (!active || !payload || payload.length === 0) return null;
 
+  // Ascending sort reads as "best first" in both modes: lower position and
+  // smaller gap are both "better".
   const rows = payload
     .filter((p) => typeof p.value === "number")
     .sort((a, b) => (a.value ?? 0) - (b.value ?? 0));
@@ -58,13 +66,20 @@ function PositionTooltip({
         {rows.map((row) => {
           const code = row.dataKey as string;
           const driver = driversByCode.get(code);
+          const value = row.value ?? 0;
           return (
             <div key={code} className="flex items-center gap-2 text-xs">
               <span
                 className="w-2 h-2 rounded-full flex-none"
                 style={{ background: row.color }}
               />
-              <span className="font-bold tabular-nums w-5">P{row.value}</span>
+              <span className="font-bold tabular-nums w-12">
+                {mode === "gap"
+                  ? value <= 0
+                    ? "Leader"
+                    : `+${value.toFixed(1)}s`
+                  : `P${value}`}
+              </span>
               <span className="text-warm-300">
                 {driver ? `${driver.givenName} ${driver.familyName}` : code}
               </span>
@@ -85,6 +100,14 @@ export default function LapPositionChart({
   );
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Gap-to-leader was added after the position chart shipped, so a round
+  // that was synced (or cached) before then simply has no `gap_seconds` on
+  // any of its rows. Rather than show a flat-zero or broken gap chart, the
+  // toggle itself is disabled and the view is pinned to Position.
+  const hasGapData = laps.some((l) => typeof l.gap_seconds === "number");
+  const [mode, setMode] = useState<ChartMode>("position");
+  const effectiveMode: ChartMode = hasGapData ? mode : "position";
 
   useEffect(() => {
     if (!dropdownOpen) return;
@@ -115,9 +138,10 @@ export default function LapPositionChart({
     drivers.map((d) => [d.code || d.familyName, { givenName: d.givenName, familyName: d.familyName }])
   );
 
-  // Pivot the flat (driver_number, lap_number, position) rows into one row
-  // per lap with one column per selected driver's code, which is the shape
-  // Recharts' <Line dataKey> needs.
+  // Pivot the flat (driver_number, lap_number, position, gap_seconds) rows
+  // into one row per lap with one column per selected driver's code, which
+  // is the shape Recharts' <Line dataKey> needs. Which field feeds the
+  // column depends on the active mode.
   const maxLap = laps.reduce((max, l) => Math.max(max, l.lap_number), 0);
   const chartData: ChartRow[] = Array.from({ length: maxLap }, (_, idx) => {
     const lapNumber = idx + 1;
@@ -126,8 +150,10 @@ export default function LapPositionChart({
       const lapRow = laps.find(
         (l) => String(l.driver_number) === driver.number && l.lap_number === lapNumber
       );
-      if (lapRow) {
-        row[driver.code || driver.familyName] = lapRow.position;
+      if (!lapRow) continue;
+      const value = effectiveMode === "gap" ? lapRow.gap_seconds : lapRow.position;
+      if (typeof value === "number") {
+        row[driver.code || driver.familyName] = value;
       }
     }
     return row;
@@ -138,6 +164,12 @@ export default function LapPositionChart({
         .filter((l) => activeDrivers.some((d) => d.number === String(l.driver_number)))
         .reduce((max, l) => Math.max(max, l.position), 1)
     : 1;
+
+  const maxGap = activeDrivers.length
+    ? laps
+        .filter((l) => activeDrivers.some((d) => d.number === String(l.driver_number)))
+        .reduce((max, l) => (typeof l.gap_seconds === "number" ? Math.max(max, l.gap_seconds) : max), 0)
+    : 0;
 
   return (
     <div className="flex flex-col h-full gap-6">
@@ -183,13 +215,60 @@ export default function LapPositionChart({
             </div>
           )}
         </div>
+
+        <div className="flex items-center gap-2 ml-auto">
+          <div className="flex gap-1.5 apex-glass-soft rounded-xl p-[5px] w-fit">
+            {(
+              [
+                ["position", "Position"],
+                ["gap", "Gap to leader"],
+              ] as const
+            ).map(([key, label]) => {
+              const disabled = key === "gap" && !hasGapData;
+              return (
+                <button
+                  key={key}
+                  onClick={() => !disabled && setMode(key)}
+                  disabled={disabled}
+                  title={disabled ? "Gap-to-leader data isn't available for this round yet" : undefined}
+                  aria-disabled={disabled}
+                  className={`relative text-xs px-4 py-[9px] rounded-lg transition-[color,transform] duration-150 ${
+                    disabled
+                      ? "font-semibold text-warm-600 cursor-not-allowed opacity-50"
+                      : "active:scale-[0.97] " +
+                        (effectiveMode === key
+                          ? "font-bold text-[#FFAE6A]"
+                          : "font-semibold text-warm-300 hover:text-on-background")
+                  }`}
+                >
+                  {effectiveMode === key && !disabled && (
+                    <motion.span
+                      layoutId="lap-chart-mode-pill"
+                      className="absolute inset-0 rounded-lg bg-[rgba(255,90,31,0.18)]"
+                      transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                    />
+                  )}
+                  <span className="relative z-10">{label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
+
+      {!hasGapData && (
+        <div className="flex items-center gap-2 -mt-4 px-1 text-[11px] text-warm-500">
+          <span className="material-symbols-outlined text-sm text-[#FF7A3D]">hourglass_empty</span>
+          Gap-to-leader isn&apos;t available for this round yet — it needs a fresh sync. Position is
+          shown instead.
+        </div>
+      )}
 
       {/* Chart Area */}
       <div className="apex-glass-soft rounded-2xl flex-grow p-6 relative min-h-[500px]">
         {activeDrivers.length === 0 ? (
           <div className="absolute inset-0 flex items-center justify-center text-warm-500 font-medium">
-            Select at least one driver to view positions.
+            Select at least one driver to view {effectiveMode === "gap" ? "gaps" : "positions"}.
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
@@ -203,16 +282,32 @@ export default function LapPositionChart({
                 domain={[1, "dataMax"]}
                 label={{ value: "Lap number", position: "bottom", fill: "#6f665b", fontSize: 12, dy: 10 }}
               />
-              <YAxis
-                type="number"
-                reversed
-                domain={[1, maxPosition]}
-                allowDecimals={false}
-                stroke="#5c554b"
-                tick={{ fill: "#8f867a", fontSize: 12 }}
-                label={{ value: "Position", angle: -90, position: "insideLeft", fill: "#6f665b", fontSize: 12 }}
-              />
-              <Tooltip content={<PositionTooltip driversByCode={driversByCode} />} />
+              {effectiveMode === "gap" ? (
+                <YAxis
+                  type="number"
+                  // Reversed for the same reason the position axis is: this
+                  // keeps "better" (a smaller gap, with the leader at 0)
+                  // higher up the chart, consistent with how the Position
+                  // mode puts P1 at the top rather than the bottom.
+                  reversed
+                  domain={[0, maxGap || 1]}
+                  stroke="#5c554b"
+                  tick={{ fill: "#8f867a", fontSize: 12 }}
+                  tickFormatter={(value: number) => `+${value.toFixed(0)}s`}
+                  label={{ value: "Gap to leader (s)", angle: -90, position: "insideLeft", fill: "#6f665b", fontSize: 12 }}
+                />
+              ) : (
+                <YAxis
+                  type="number"
+                  reversed
+                  domain={[1, maxPosition]}
+                  allowDecimals={false}
+                  stroke="#5c554b"
+                  tick={{ fill: "#8f867a", fontSize: 12 }}
+                  label={{ value: "Position", angle: -90, position: "insideLeft", fill: "#6f665b", fontSize: 12 }}
+                />
+              )}
+              <Tooltip content={<LapTooltip mode={effectiveMode} driversByCode={driversByCode} />} />
               {activeDrivers.map((driver) => (
                 <Line
                   key={driver.number}
