@@ -26,30 +26,43 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 7 | CP29-31 | Gap-to-leader on Pitwall Lap Telemetry, "Add to calendar" for weekend sessions, Championship "Title Decider" calculator | merged |
 | 8 | CP32-34 | Functional global search, Pitwall "Race Control" panel, cross-track "Circuit DNA" comparison | merged |
 | 8 (ad hoc) | unnumbered | Select all / Clear all on the Pitwall driver-compare dropdown (Tire Stints + Lap Telemetry) — built mid-batch in response to a user request | merged |
+| 9 | CP35-37 | Circuit/team image coverage (Bahrain + Saudi Arabia outlines added) PR #55, footer GitHub link PR #54, `/telemetry` surfaced in desktop nav PR #53 | merged |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
 ## Current batch
 
-Batch 8 is complete and merged (CP32 global search PR #50, CP33 Pitwall Race Control PR #47, CP34
-Circuit DNA comparison PR #49), plus the ad-hoc select-all/clear-all fix (PR #48).
+Batch 9 is complete and merged: CP35 circuit/team image coverage (PR #55), CP36 footer GitHub link
+(PR #54), CP37 `/telemetry` surfaced in desktop nav (PR #53). Batch 10 is not yet planned — see
+Backlog below for candidates.
 
-**Batch 9 (CP35-37)** is in flight — pulls from two Backlog themes ("Race weekend enrichment" and
-the Known-gaps cleanup implied by `FEATURES.md`'s Known Gaps section), built as three parallel
-worktree agents on disjoint files, each opening an independent PR, same pattern as Batches 6-8:
+Batch 9 was built as three parallel worktree agents on disjoint files (`circuit-images.ts`/`team-images.ts`,
+the `layout.tsx` footer block, `nav-links.tsx`), each opening an independent PR — same pattern as
+Batches 6-8. Two things worth recording:
 
-- **CP35 — Circuit/team image coverage.** Fill gaps in `circuit-images.ts` (circuits missing an
-  outline mapping) and re-check whether Ferrari/Red Bull/Racing Bulls logos have gained a
-  freely-licensed source since `team-images.ts` was last touched. Files: `frontend/src/lib/circuit-images.ts`,
-  `frontend/src/lib/team-images.ts`, new assets uploaded to `gs://f1-scratch-assets/`.
-- **CP36 — Footer links.** The footer (`frontend/src/app/layout.tsx`, inline `<footer>` block) is
-  two lines of unclickable text — give it real links (repo/GitHub, attribution) rather than dead
-  text. Touches only the footer block in `layout.tsx`.
-- **CP37 — Surface `/telemetry` in nav.** It already has a friendly "not available in this
-  environment yet" fallback when `NEXT_PUBLIC_RAPIDAPI_KEY` is unset, so linking it no longer risks
-  a broken-looking page for most visitors — add it to the desktop nav (`frontend/src/components/nav-links.tsx`,
-  `navItems`/`NavLinks`). Leave the mobile bottom bar as-is (already at its 5-item ceiling per
-  `FEATURES.md`).
+- **CP35's research turned up real, previously-unnoticed gaps**, not just "re-check the two
+  known-blocked team logos": diffing the resolver against the live 2025/2026 Ergast calendar (not
+  just eyeballing the map) found Bahrain and Saudi Arabia had no circuit-outline mapping at all —
+  they'd been silently falling back to the hatch placeholder. Sourcing simple CC-licensed line-art
+  outlines from Wikimedia Commons (not the existing bucket's elaborate custom "official-style"
+  graphics, which have no free equivalent) was a reasonable trade — worth remembering that asset
+  parity with the existing bucket art isn't achievable for every circuit, and a simpler substitute
+  beats a placeholder. Also worth remembering: SVGs pulled from Commons often have black
+  strokes/text meant for a light page background and are invisible against this app's dark theme —
+  check a rendered composite against the actual dark background, not just the source file, before
+  calling an asset done. And when converting to AVIF for transparency, `ffmpeg`'s `libaom-av1`
+  silently drops the alpha channel (produces an opaque background) — use `sharp` instead when the
+  asset needs real transparency.
+- **Leftover worktree directories accumulate across batches, independent of `git worktree
+  remove`.** Cleaning up after this batch found *three* stale `.claude/worktrees/agent-*`
+  directories from batches before this one, still sitting on disk despite no longer being
+  registered with `git worktree list` (they'd been `prune`d or force-removed at the git level in
+  an earlier session, but the directory itself — likely mid-delete when a dev-server file lock was
+  still held — never actually got deleted). `git worktree remove --force` can report success (or
+  get git's bookkeeping to a clean state) while the directory itself survives; periodically check
+  `.claude/worktrees/` directly for orphaned folders rather than trusting `git worktree list`
+  alone, and be ready for the `rm -rf` itself to take a while / need to run in the background on a
+  deep `node_modules` tree.
 
 Built the same way as Batches 6-7: three parallel worktree agents on disjoint files
 (navbar/search, Pitwall, circuits page), each opening an independent PR. Two things worth
@@ -87,7 +100,11 @@ it retry indefinitely.
 ## Backlog (unscheduled)
 
 ### Race weekend enrichment
-- F1DB circuit-layout SVGs / team logos to replace incomplete asset host coverage
+- Circuit outline coverage is now complete for the current calendar (Batch 9 CP35 closed the
+  Bahrain/Saudi Arabia gap). Ferrari, Red Bull, and Racing Bulls logos remain unresolved — no
+  freely-licensed source exists on Wikimedia Commons as of this check (re-verified in CP35); this
+  is a standing licensing constraint, not a to-do, and is unlikely to change without a new source
+  appearing.
 
 ### GenAI features
 - "Explain this session" auto-recap after a race/quali/sprint syncs

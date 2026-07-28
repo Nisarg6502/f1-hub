@@ -30,7 +30,7 @@ This document describes what is on `main` today. Anything present in the UI but 
 
 **Mobile bottom bar** — replaces the desktop links below the `md` breakpoint. Five icon+label items: Home, Schedule, Standings, Drivers, Circuits. Teams is not in the mobile bar.
 
-**Footer** — the APEX mark, "· 2026 F1 season hub", and "Concept prototype · not affiliated with Formula 1". It contains no links at all.
+**Footer** — the APEX mark, "· 2026 F1 season hub", "Concept prototype · not affiliated with Formula 1", and a link to the project's GitHub repo (opens in a new tab).
 
 **Ambient treatment** — three fixed radial orange glows sit behind all content, and SVG displacement filters power the "liquid glass" card surfaces. Purely decorative.
 
@@ -154,7 +154,7 @@ Header: "Constructor standings <year> / Teams & Chassis" with a **season selecto
 
 **Team cards**, two across, each tilting on hover with a team-coloured corner wash and a blurred colour blob. Each card shows team name, nationality, a "Power · <engine>" chip, and Position / Wins / Season pts. The team's logo appears on a light rounded plate; teams without a freely-licensed logo (Ferrari, Red Bull, Racing Bulls) fall back to a two-letter monogram on a team-colour tile.
 
-Below the cards: an attribution line linking to Wikimedia Commons and the CC BY 4.0 licence for the Aston Martin logo (both open in a new tab — these are the only working outbound links in the app besides Wikipedia in the driver modal and the OpenF1 link on the Pitwall empty state).
+Below the cards: an attribution line linking to Wikimedia Commons and the CC BY 4.0 licence for the Aston Martin logo (opens in a new tab). The Circuits page carries an equivalent attribution for the Saudi Arabia (Jeddah) circuit outline, licensed CC BY-SA 3.0 (the Bahrain outline is public domain and needs none).
 
 **Power units** — a tile per engine supplier (Red Bull Ford, Mercedes-AMG, Ferrari, Honda, Renault, Audi) listing the teams that run it.
 
@@ -238,7 +238,6 @@ Three data sources are called directly from the frontend rather than through the
 
 These exist in the shipped UI but do not work, or do not work as their label implies.
 
-- **Footer has no links.** It is two lines of text. Nothing in it is clickable — worth knowing if you are looking for an About/GitHub/attribution link there.
 - **`/telemetry` is gated by a RapidAPI key at runtime.** It is now linked from the desktop nav ("Live", last item) but deliberately still excluded from the mobile bottom bar (already at its 5-item ceiling). If `NEXT_PUBLIC_RAPIDAPI_KEY` isn't provisioned in an environment, the page shows a friendly "not available in this environment yet" message instead of a raw config-error string.
 - **Season selectors offer 2018 onward, but data quality drops off sharply.** The range is fixed at `MIN_SUPPORTED_SEASON = 2018` regardless of what is actually cached; older seasons will show calendars and standings but largely empty session classifications, circuit details, and no Pitwall data.
 - **Pitwall Race Control is functional but shows its empty state for the current season.** OpenF1 paywalls its real-time-shaped endpoints (`/sessions` for the current year, and by extension `/race_control`) for the entire current season, not just live sessions — confirmed by a live 401 on `GET /v1/sessions?year=2026`. There is no FastF1 equivalent for race-control messages, so unlike Tire Stints this module has no self-heal path; it will start working once a session ages into OpenF1's free historical window.

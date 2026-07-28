@@ -2,7 +2,7 @@
 
 ## Where things stand
 
-Batches 1 through 8 are fully merged (see `ROADMAP.md`'s "Shipped batches" table for the full
+Batches 1 through 9 are fully merged (see `ROADMAP.md`'s "Shipped batches" table for the full
 history, including ad-hoc additions built mid-batch). A durable roadmap-tracking system exists at
 `ROADMAP.md` — **current batch and checkpoint status live there** (see "Current batch"), not in
 this file. This file only carries session-specific working memory: recent gotchas, environment
@@ -10,8 +10,20 @@ quirks, and the immediate next action.
 
 ### Immediate next action
 
-Batch 8 (CP32-34) is complete and merged. Batch 9 is not yet planned — see `ROADMAP.md`'s Backlog
+Batch 9 (CP35-37) is complete and merged. Batch 10 is not yet planned — see `ROADMAP.md`'s Backlog
 section for candidates when starting the next batch-planning pass.
+
+### Stray worktree directories can survive `git worktree remove --force`
+
+Cleaning up after Batch 9 found three `.claude/worktrees/agent-*` directories left over from
+sessions before this one — no longer registered in `git worktree list` (git's own bookkeeping was
+already clean, likely via an earlier `prune` or force-remove), but the directories themselves were
+still on disk. Check `.claude/worktrees/` directly, not just `git worktree list`, when doing
+post-batch cleanup; `rm -rf` on a leftover directory with a full `node_modules` tree can take
+several minutes and is worth running with `run_in_background`. Relatedly, killing an orphaned
+`next dev` process (see the pattern below) is sometimes a precondition for `git worktree remove`
+to succeed at all, not just for it to run quickly — it errored outright (`Invalid argument`) with
+the process still alive, not just timed out.
 
 ### MongoDB Atlas IS reachable from this sandbox — only bare localhost:27017 isn't
 
