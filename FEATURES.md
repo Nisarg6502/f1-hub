@@ -168,6 +168,8 @@ Empty state: "Constructor standings are unavailable right now."
 
 **Clicking a card opens the circuit modal**: flag, "Round N · <country>", circuit name, Grand Prix name, the track map, and up to four stat tiles — Laps, Corners, First GP, and Lap record (highlighted). Only stats the sync actually recorded are shown; if there are none, "No track data recorded for this circuit yet."
 
+Below the stat tiles, a **"Circuit history" panel** shows up to three cross-season facts computed from cached data for that physical circuit: First raced (earliest season a race was held there), Most wins (the driver with the most victories there, with a count), and Closest finish (the smallest P1→P2 race-time gap ever recorded there, with the season it happened). Each fact is independently shown only if it could be computed from what's cached; the whole panel is omitted if none can be.
+
 The map inside the modal has an **expand button** that opens a full-screen lightbox of the track layout. Escape closes the lightbox first and the modal on a second press; both also close on backdrop click or their × button.
 
 **Cards with no cached circuit detail are not clickable** — they render normally but do nothing, because there is no detail record to show. This is why the gallery feels partly inert early in a season.
@@ -192,7 +194,7 @@ The page derives whether a session is live from the season calendar plus assumed
 
 ## Cross-cutting behaviour
 
-**Season selection.** A shared dropdown offering every year from 2018 to the current season appears on Schedule, Standings, Drivers, Teams and the race-detail page. On most pages it sets `?season=<year>`; on the race-detail page it navigates to round 1 of the chosen year. Out-of-range or unparseable `?season=` values are clamped rather than passed to the backend. Home and Circuits are always pinned to the active season.
+**Season selection.** A shared dropdown offering every year from 2018 to the current season appears on Schedule, Standings, Drivers, Teams and the race-detail page. On most pages it sets `?season=<year>`; on the race-detail page it navigates to round 1 of the chosen year. Out-of-range or unparseable `?season=` values are clamped rather than passed to the backend. Home and Circuits are always pinned to the active season. The page `<title>` and meta description on Schedule, race-detail, Standings, Drivers and Teams reflect whichever season is actually being viewed (e.g. "APEX | 2023 F1 Season Hub"), falling back to the active season when none is selected; Home and Circuits keep the root layout's active-season metadata.
 
 **Graceful degradation on images.** This is the main reason a page can look different at different times:
 - **Driver photos** exist for 22 named drivers. Any driver not in that set renders the "APEX hatch" — a dark diagonal-stripe placeholder, labelled `// CUTOUT` on driver cards, `// DRIVER CUTOUT` on the home bento, `// WINNER` on the race winner card.
@@ -220,6 +222,7 @@ The page derives whether a session is live from the season calendar plus assumed
 | `GET /api/session_classification` | Race detail — FP1 / FP2 / FP3 / Sprint Quali tabs |
 | `GET /api/circuit_info` | Race detail — Laps / Corners / Fastest Lap bar |
 | `GET /api/circuit_details` | Circuits gallery and its detail modals |
+| `GET /api/circuit_history` | Circuits detail modal — Circuit history panel (first raced, most wins, closest finish) |
 | `GET /api/driver_bio` | Driver modal — career wins, podiums, poles, titles, DOB, Wikipedia link |
 | `GET /health` | Not used by the UI (deployment health check) |
 
@@ -235,8 +238,6 @@ These exist in the shipped UI but do not work, or do not work as their label imp
 - **Pitwall "Race Control" button** is `disabled`, dimmed to 50% opacity, and badged "Soon" (Tire Stints, Pit Stops, and Lap Telemetry are all working modules as of Batch 5). `getRaceControl` in `frontend/src/lib/openf1.ts` exists for it but is never called.
 - **Footer has no links.** It is two lines of text. Nothing in it is clickable — worth knowing if you are looking for an About/GitHub/attribution link there.
 - **`/telemetry` is unreachable through the UI.** It is absent from both the desktop nav and the mobile bottom bar, and nothing links to it. Deliberately left unlinked (see `ROADMAP.md`) until `NEXT_PUBLIC_RAPIDAPI_KEY` is confirmed provisioned in production — the page now shows a friendly "not available in this environment yet" message instead of a raw config-error string when the key is missing.
-- **The page `<title>` ("APEX | 2026 F1 Season Hub") and meta description are hardcoded to 2026**, unlike the nav's Season label (which now reflects the active/viewed season) — no route sets its own title.
-- **The Pitwall Tire Stints and Lap Telemetry driver-select dropdowns have no click-outside or Escape handling.** Once opened they stay open until you click the trigger button again — unlike the `/drivers` compare-drivers dropdown, which got this fix in Batch 5 but wasn't back-ported to the Pitwall charts' copy of the same pattern.
 - **Season selectors offer 2018 onward, but data quality drops off sharply.** The range is fixed at `MIN_SUPPORTED_SEASON = 2018` regardless of what is actually cached; older seasons will show calendars and standings but largely empty session classifications, circuit details, and no Pitwall data.
 
 ---
