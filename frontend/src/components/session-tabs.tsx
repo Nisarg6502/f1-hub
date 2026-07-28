@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { Race, RaceResult } from "@/lib/api";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { getTeamColor } from "@/lib/team-colors";
+import { buildRaceSessionTimeline, type RaceSessionField } from "@/lib/sessions";
 
 interface SessionTabsProps {
   race: Race;
@@ -593,6 +594,16 @@ function InfoTile({
   );
 }
 
+const WEEKEND_SCHEDULE_LABELS: Record<RaceSessionField, string> = {
+  FirstPractice: "Free Practice 1",
+  SecondPractice: "Free Practice 2",
+  ThirdPractice: "Free Practice 3",
+  SprintQualifying: "Sprint Qualifying",
+  Sprint: "Sprint Race",
+  Qualifying: "Qualifying",
+  Race: "Race",
+};
+
 function UpcomingSessionTimings({
   race,
   nowMs,
@@ -600,49 +611,21 @@ function UpcomingSessionTimings({
   race: Race;
   nowMs: number;
 }) {
-  const sessions: { key: string; label: string }[] = [
-    { key: "FirstPractice", label: "Free Practice 1" },
-    { key: "SecondPractice", label: "Free Practice 2" },
-    { key: "ThirdPractice", label: "Free Practice 3" },
-    { key: "SprintQualifying", label: "Sprint Qualifying" },
-    { key: "Sprint", label: "Sprint Race" },
-    { key: "Qualifying", label: "Qualifying" },
-  ];
+  // Reuse the shared session-timeline helper so start/end times (and
+  // therefore calendar durations) always agree with the rest of the app,
+  // instead of re-deriving dates from the raw race payload here.
+  const timeline = buildRaceSessionTimeline(race);
 
-  const raceSessions = race as Race &
-    Partial<Record<SessionKey, RaceSessionData>>;
-
-  const raceDate = race.date
-    ? new Date(
-        race.time && race.time.endsWith("Z")
-          ? `${race.date}T${race.time}`
-          : `${race.date}T${race.time ?? "12:00:00Z"}`
-      )
-    : null;
-
-  const rows: {
-    label: string;
-    dt: Date;
-    past: boolean;
-    isRace?: boolean;
-  }[] = [];
-  for (const { key, label } of sessions) {
-    const sd = raceSessions[key as SessionKey];
-    if (!sd?.date) continue;
-    const dt = new Date(
-      sd.time && sd.time.endsWith("Z")
-        ? `${sd.date}T${sd.time}`
-        : `${sd.date}T${sd.time ?? "12:00:00Z"}`
-    );
-    rows.push({ label, dt, past: dt.getTime() < nowMs });
-  }
-  if (raceDate)
-    rows.push({
-      label: "Race",
-      dt: raceDate,
-      past: raceDate.getTime() < nowMs,
-      isRace: true,
-    });
+  const rows = timeline.map((item) => ({
+    label: WEEKEND_SCHEDULE_LABELS[item.sessionField] ?? item.sessionLabel,
+    dt: new Date(item.startTimeMs),
+    startMs: item.startTimeMs,
+    endMs: item.endTimeMs,
+    past: item.startTimeMs < nowMs,
+    isRace: item.sessionField === "Race",
+    raceName: item.raceName,
+    circuitName: item.circuitName,
+  }));
 
   return (
     <div>
@@ -674,23 +657,205 @@ function UpcomingSessionTimings({
                 })}
               </p>
             </div>
-            <div className="text-right">
-              <p
-                className={`font-[family-name:var(--font-headline)] font-bold text-xl tabular-nums ${
-                  s.isRace ? "text-[#FFAE6A]" : ""
-                }`}
-              >
-                {s.dt.toLocaleTimeString(undefined, {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </p>
-              <p className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500">
-                {s.past ? "Completed" : s.isRace ? "Lights out" : "Local time"}
-              </p>
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <p
+                  className={`font-[family-name:var(--font-headline)] font-bold text-xl tabular-nums ${
+                    s.isRace ? "text-[#FFAE6A]" : ""
+                  }`}
+                >
+                  {s.dt.toLocaleTimeString(undefined, {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+                <p className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500">
+                  {s.past ? "Completed" : s.isRace ? "Lights out" : "Local time"}
+                </p>
+              </div>
+              <AddToCalendarButton
+                raceName={s.raceName}
+                circuitName={s.circuitName}
+                sessionLabel={s.label}
+                startMs={s.startMs}
+                endMs={s.endMs}
+              />
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------- add-to-calendar action ------------------------ */
+
+function toCalendarUtc(ms: number): string {
+  // RFC 5545 / Google Calendar "basic format" UTC timestamp: YYYYMMDDTHHmmssZ
+  return new Date(ms).toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+}
+
+function escapeIcsText(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,")
+    .replace(/\n/g, "\\n");
+}
+
+function buildIcsContent({
+  uid,
+  title,
+  location,
+  details,
+  startMs,
+  endMs,
+}: {
+  uid: string;
+  title: string;
+  location: string;
+  details: string;
+  startMs: number;
+  endMs: number;
+}): string {
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//APEX F1 Hub//Session Reminders//EN",
+    "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT",
+    `UID:${uid}`,
+    `DTSTAMP:${toCalendarUtc(Date.now())}`,
+    `DTSTART:${toCalendarUtc(startMs)}`,
+    `DTEND:${toCalendarUtc(endMs)}`,
+    `SUMMARY:${escapeIcsText(title)}`,
+    `LOCATION:${escapeIcsText(location)}`,
+    `DESCRIPTION:${escapeIcsText(details)}`,
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+  return lines.join("\r\n");
+}
+
+function downloadIcsFile(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function AddToCalendarButton({
+  raceName,
+  circuitName,
+  sessionLabel,
+  startMs,
+  endMs,
+}: {
+  raceName: string;
+  circuitName?: string;
+  sessionLabel: string;
+  startMs: number;
+  endMs: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  const title = `${raceName} · ${sessionLabel}`;
+  const location = circuitName ?? "";
+  const details = "Added from APEX — F1 Hub.";
+
+  const googleUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(
+    title
+  )}&dates=${toCalendarUtc(startMs)}/${toCalendarUtc(
+    endMs
+  )}&details=${encodeURIComponent(details)}&location=${encodeURIComponent(
+    location
+  )}`;
+
+  const handleIcsDownload = () => {
+    const uid = `${startMs}-${sessionLabel.replace(/\s+/g, "")}@apex.f1hub`;
+    const ics = buildIcsContent({
+      uid,
+      title,
+      location,
+      details,
+      startMs,
+      endMs,
+    });
+    const filename = `${title.replace(/[^\w\- ]+/g, "")}.ics`;
+    downloadIcsFile(filename, ics);
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-label={`Add ${sessionLabel} to calendar`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="flex items-center justify-center w-9 h-9 rounded-[10px] bg-[rgba(245,235,222,0.06)] border border-white/10 text-warm-300 hover:text-[#FFAE6A] hover:border-[rgba(255,138,61,0.5)] transition-[border-color,color,transform] duration-150 active:scale-[0.97]"
+      >
+        <span className="material-symbols-outlined text-[18px] leading-none">
+          event_upcoming
+        </span>
+      </button>
+      <div
+        role="menu"
+        className={`absolute right-0 top-full mt-2 w-48 origin-top-right rounded-xl bg-[rgba(26,22,19,0.98)] border border-white/10 shadow-2xl z-50 overflow-hidden transition-[transform,opacity] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] ${
+          open
+            ? "opacity-100 scale-100 pointer-events-auto"
+            : "opacity-0 scale-95 pointer-events-none"
+        }`}
+      >
+        <a
+          href={googleUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          role="menuitem"
+          onClick={() => setOpen(false)}
+          className="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-warm-200 hover:bg-white/[0.06] hover:text-[#FFAE6A] transition-colors duration-150"
+        >
+          <span className="material-symbols-outlined text-[16px] leading-none">
+            open_in_new
+          </span>
+          Google Calendar
+        </a>
+        <button
+          type="button"
+          role="menuitem"
+          onClick={handleIcsDownload}
+          className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-warm-200 hover:bg-white/[0.06] hover:text-[#FFAE6A] transition-colors duration-150"
+        >
+          <span className="material-symbols-outlined text-[16px] leading-none">
+            download
+          </span>
+          Download .ics
+        </button>
       </div>
     </div>
   );
