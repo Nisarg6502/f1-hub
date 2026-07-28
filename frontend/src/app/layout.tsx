@@ -138,9 +138,19 @@ export default function RootLayout({
                 · 2026 F1 season hub
               </span>
             </div>
-            <span className="font-medium text-xs text-warm-500">
-              Concept prototype · not affiliated with Formula 1
-            </span>
+            <div className="flex items-center gap-4">
+              <a
+                href="https://github.com/Nisarg6502/f1-hub"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-xs text-warm-500 underline hover:text-warm-300 transition-colors"
+              >
+                GitHub
+              </a>
+              <span className="font-medium text-xs text-warm-500">
+                Concept prototype · not affiliated with Formula 1
+              </span>
+            </div>
           </div>
         </footer>
 
