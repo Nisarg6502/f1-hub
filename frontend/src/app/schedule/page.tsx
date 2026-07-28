@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { getActiveSeasonYear, getSeasonRaces, resolveSeasonYear } from "@/lib/api";
 import { getCountryFlagPath } from "@/lib/flags";
 import ScheduleBoard, { type ScheduleRow } from "@/components/schedule-board";
@@ -8,6 +9,18 @@ export const dynamic = "force-dynamic";
 
 interface PageProps {
   searchParams: Promise<{ season?: string }>;
+}
+
+// Mirrors the ?season= resolution the page itself uses, so the <title> and
+// description reflect whichever season is actually being viewed instead of
+// the root layout's hardcoded fallback.
+export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
+  const { season } = await searchParams;
+  const year = resolveSeasonYear(season);
+  return {
+    title: `APEX | ${year} F1 Season Hub`,
+    description: `APEX — a warm, high-clarity home for the ${year} Formula 1 season: schedule, standings, drivers, teams and circuits.`,
+  };
 }
 
 export default async function SchedulePage({ searchParams }: PageProps) {

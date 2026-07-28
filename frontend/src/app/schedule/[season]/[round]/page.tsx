@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import {
@@ -26,6 +27,16 @@ interface PageProps {
 // Rendered per request: whether a round counts as completed depends on the
 // current time, and results land during the weekend itself.
 export const dynamic = "force-dynamic";
+
+// The [season] path segment is the season being viewed, verbatim — no need
+// to re-derive it via resolveSeasonYear the way the query-param routes do.
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { season } = await params;
+  return {
+    title: `APEX | ${season} F1 Season Hub`,
+    description: `APEX — a warm, high-clarity home for the ${season} Formula 1 season: schedule, standings, drivers, teams and circuits.`,
+  };
+}
 
 export default async function RaceDetailPage({ params }: PageProps) {
   const { season, round } = await params;
