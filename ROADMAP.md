@@ -32,8 +32,24 @@ The original plan's CP15-19 (driver/team head-to-head compare, championship calc
 ## Current batch
 
 Batch 8 is complete and merged (CP32 global search PR #50, CP33 Pitwall Race Control PR #47, CP34
-Circuit DNA comparison PR #49), plus the ad-hoc select-all/clear-all fix (PR #48). Batch 9 is not
-yet planned — see Backlog below for candidates.
+Circuit DNA comparison PR #49), plus the ad-hoc select-all/clear-all fix (PR #48).
+
+**Batch 9 (CP35-37)** is in flight — pulls from two Backlog themes ("Race weekend enrichment" and
+the Known-gaps cleanup implied by `FEATURES.md`'s Known Gaps section), built as three parallel
+worktree agents on disjoint files, each opening an independent PR, same pattern as Batches 6-8:
+
+- **CP35 — Circuit/team image coverage.** Fill gaps in `circuit-images.ts` (circuits missing an
+  outline mapping) and re-check whether Ferrari/Red Bull/Racing Bulls logos have gained a
+  freely-licensed source since `team-images.ts` was last touched. Files: `frontend/src/lib/circuit-images.ts`,
+  `frontend/src/lib/team-images.ts`, new assets uploaded to `gs://f1-scratch-assets/`.
+- **CP36 — Footer links.** The footer (`frontend/src/app/layout.tsx`, inline `<footer>` block) is
+  two lines of unclickable text — give it real links (repo/GitHub, attribution) rather than dead
+  text. Touches only the footer block in `layout.tsx`.
+- **CP37 — Surface `/telemetry` in nav.** It already has a friendly "not available in this
+  environment yet" fallback when `NEXT_PUBLIC_RAPIDAPI_KEY` is unset, so linking it no longer risks
+  a broken-looking page for most visitors — add it to the desktop nav (`frontend/src/components/nav-links.tsx`,
+  `navItems`/`NavLinks`). Leave the mobile bottom bar as-is (already at its 5-item ceiling per
+  `FEATURES.md`).
 
 Built the same way as Batches 6-7: three parallel worktree agents on disjoint files
 (navbar/search, Pitwall, circuits page), each opening an independent PR. Two things worth
