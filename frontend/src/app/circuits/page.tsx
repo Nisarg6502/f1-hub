@@ -5,6 +5,7 @@ import {
 } from "@/lib/api";
 import { getCircuitImagePath } from "@/lib/circuit-images";
 import CircuitsGallery from "@/components/circuits-gallery";
+import CircuitDnaCompare from "@/components/circuit-dna-compare";
 import TrackMap from "@/components/track-map";
 
 // Circuit details are filled in by the sync job as the season runs, so this
@@ -78,40 +79,7 @@ export default async function CircuitsPage() {
         </div>
 
         <div className="apex-glass apex-sheen rounded-[22px] p-[26px]">
-          <div className="relative">
-            <div className="font-[family-name:var(--font-headline)] font-bold text-base mb-5">
-              Circuit DNA
-            </div>
-            <div className="flex flex-col">
-              {[
-                { label: "Total circuits", value: races.length || "—", num: true },
-                { label: "Season", value: year, num: true },
-                { label: "Opening round", value: races[0]?.raceName ?? "TBC" },
-                {
-                  label: "Featured country",
-                  value: featured?.Circuit?.Location?.country ?? "TBC",
-                },
-              ].map((row) => (
-                <div
-                  key={row.label}
-                  className="py-3.5 border-t border-[rgba(245,235,222,0.08)]"
-                >
-                  <div className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-500">
-                    {row.label}
-                  </div>
-                  <div
-                    className={`mt-0.5 ${
-                      row.num
-                        ? "font-extrabold text-[22px] tabular-nums"
-                        : "font-bold text-base"
-                    }`}
-                  >
-                    {row.value}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <CircuitDnaCompare races={races} circuitDetails={circuitDetails} />
         </div>
       </section>
 
