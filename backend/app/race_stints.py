@@ -1,18 +1,22 @@
 """Tyre stints per driver for a finished race, sourced from FastF1.
 
-This used to come from OpenF1's `/stints` endpoint, but OpenF1's paid tier now
-covers the *entire* current season rather than just the documented live window
-(`/sessions?year=2026` itself 401s), which left the Pitwall chart permanently
-empty. FastF1's `session.laps` carries `Stint`/`Compound`/`TyreLife`/`LapNumber`
-— the same information — so the chart is re-sourced from there and served with
-the Mongo-first / self-heal pattern used by `circuit_info`.
+This used to come from OpenF1's `/stints` endpoint. It was re-sourced to FastF1
+because OpenF1's paid tier had expanded to cover the *entire* current season
+rather than just the documented live window (`/sessions?year=2026` itself 401'd),
+which left the Pitwall chart permanently empty — that is why the code is shaped
+this way. **That paywall has since lifted** (verified 2026-07-29: `/sessions`,
+`/stints`, `/laps` and `/race_control` all return 200 for 2026), so OpenF1 is a
+viable source again. FastF1's `session.laps` carries
+`Stint`/`Compound`/`TyreLife`/`LapNumber` — the same information — so the chart
+is currently served from there with the Mongo-first / self-heal pattern used by
+`circuit_info`.
 
 One caveat inherited from every other FastF1-backed feature here:
 `livetiming.formula1.com` 403s datacenter IPs, so the live rebuild below only
 succeeds when it runs on a local machine. In production the collection is
 expected to be pre-populated by `data_sync.sync_race_stints`; the endpoint
 reports an empty stint list rather than an error when it isn't, so the frontend
-can say "not synced yet" instead of "you need a subscription".
+can say "not synced yet" rather than surfacing an error.
 """
 
 import fastf1

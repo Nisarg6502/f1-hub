@@ -17,7 +17,11 @@ export async function fetchOpenF1<T>(endpoint: string, params: Record<string, st
     });
     
     if (res.status === 401) {
-      console.warn(`OpenF1 Unauthorized (401): ${url.toString()}. This data likely requires a paid subscription for the current season.`);
+      // OpenF1 returned 401 for the whole current season for a stretch in 2026;
+      // that is no longer the case (verified 2026-07-29), so a 401 here is now
+      // unexpected. The handling stays as a defensive fail-soft in case the
+      // paid window returns or a token is required for some endpoint.
+      console.warn(`OpenF1 Unauthorized (401): ${url.toString()}. Unexpected — current-season data is normally public; check whether OpenF1 has re-gated this endpoint.`);
       return [] as unknown as T;
     }
     

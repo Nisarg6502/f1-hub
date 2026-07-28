@@ -3,7 +3,9 @@
 Deliberately *not* FastF1 or OpenF1. FastF1 reads `livetiming.formula1.com`,
 which 403s datacenter IPs and fails soft (empty frame, no exception), so
 anything built on it only ever populates when the sync job runs from a local
-machine — see `race_stints`. OpenF1 now paywalls the whole current season.
+machine — see `race_stints`. OpenF1 was ruled out when it paywalled the whole
+current season; that paywall has since lifted (verified 2026-07-29), but Ergast
+remains the source here because it is proven to work from Cloud Run.
 Ergast answers from Cloud Run, so this endpoint can genuinely rebuild a cache
 miss in production and the hourly job keeps itself up to date unattended.
 

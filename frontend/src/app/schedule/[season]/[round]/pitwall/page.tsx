@@ -80,9 +80,10 @@ export default async function PitwallPage({ params }: PageProps) {
   }
 
   // None of these depend on each other's result, so fire them together rather
-  // than serially. Stints come from the backend's FastF1-backed cache — OpenF1
-  // paywalled its /stints feed for the entire current season. Pit stops come
-  // from Ergast, which unlike FastF1 answers from Cloud Run.
+  // than serially. Stints come from the backend's FastF1-backed cache — they
+  // were re-sourced from OpenF1 to FastF1 back when OpenF1 returned 401 for the
+  // whole current season (that paywall has since lifted, verified 2026-07-29).
+  // Pit stops come from Ergast, which unlike FastF1 answers from Cloud Run.
   const [racesRes, resultsRes, stintsRes, pitStopsRes, lapsRes] = await Promise.all([
     getSeasonRaces(seasonYear),
     getRaceResults(seasonYear, roundNumber),
@@ -98,11 +99,12 @@ export default async function PitwallPage({ params }: PageProps) {
 
   // Race control goes straight to OpenF1 (unlike the calls above, which go
   // through the backend), so it needs its own session_key lookup by date.
-  // OpenF1 paywalls the entire current season for real-time-shaped endpoints
-  // (see HANDOFF.md) — `getSessionKeyByDate`/`getRaceControl` already fail
-  // soft to `null`/`[]` on a 401 or network error, so this never throws; an
-  // empty result here just means "unavailable", handled below like every
-  // other module's empty state.
+  // OpenF1 used to return 401 for the entire current season; as of 2026-07-29
+  // it serves current-season race control fine, so this normally populates.
+  // `getSessionKeyByDate`/`getRaceControl` still fail soft to `null`/`[]` on
+  // any error, so this never throws; an empty result here just means the
+  // session has no messages yet, handled below like every other module's
+  // empty state.
   const raceControlMessages = await getSessionKeyByDate(seasonYear, race.date, "Race")
     .then((sessionKey) => (sessionKey ? getRaceControl(sessionKey) : []))
     .catch(() => []);
@@ -208,14 +210,14 @@ export default async function PitwallPage({ params }: PageProps) {
               <RaceControlPanel drivers={drivers} messages={raceControlMessages} />
             ) : (
               <ModuleEmptyState
-                title="Race control data is unavailable for this session"
+                title="Race control data not available yet"
                 season={season}
                 round={round}
               >
-                Flag, safety-car, and investigation messages come from OpenF1,
-                which currently paywalls real-time data for the {season}{" "}
-                season. Historical seasons and archived sessions may still
-                have this feed once it clears their paid window.
+                No flag, safety-car, or investigation messages have been
+                published for {race.raceName} yet. Race control appears once
+                the session has run and its timing feed has been archived —
+                check back after the weekend.
               </ModuleEmptyState>
             ),
           },
