@@ -24,26 +24,37 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 5 | CP25 | Lap-by-lap position chart (Pitwall "Lap Telemetry"), plus the compare-drivers dropdown redesign | merged |
 | 6 | CP26-28 | Pitwall dropdown click-outside/Escape backport, circuit history panel (closest finish/most wins/first year raced), season-aware page metadata | merged |
 | 7 | CP29-31 | Gap-to-leader on Pitwall Lap Telemetry, "Add to calendar" for weekend sessions, Championship "Title Decider" calculator | merged |
+| 8 | CP32-34 | Functional global search, Pitwall "Race Control" panel, cross-track "Circuit DNA" comparison | merged |
+| 8 (ad hoc) | unnumbered | Select all / Clear all on the Pitwall driver-compare dropdown (Tire Stints + Lap Telemetry) — built mid-batch in response to a user request | merged |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
 ## Current batch
 
-Batch 8 (CP32-34) is in progress: functional global search (nav search box), Pitwall "Race
-Control" panel (wires up the existing but never-called `getRaceControl`), and a real cross-track
-"Circuit DNA" comparison (the current `/circuits` stat card just borrows the name for a
-single-season summary). Built the same way as Batches 6-7: three parallel worktree agents on
-disjoint files (navbar/search, Pitwall, circuits page), each opening an independent PR.
+Batch 8 is complete and merged (CP32 global search PR #50, CP33 Pitwall Race Control PR #47, CP34
+Circuit DNA comparison PR #49), plus the ad-hoc select-all/clear-all fix (PR #48). Batch 9 is not
+yet planned — see Backlog below for candidates.
 
-- **CP33 (Pitwall Race Control) is merged** (PR #47). CP32 (global search) and CP34 (Circuit DNA
-  comparison) are still in progress.
+Built the same way as Batches 6-7: three parallel worktree agents on disjoint files
+(navbar/search, Pitwall, circuits page), each opening an independent PR. Two things worth
+recording from this batch:
 
-Also fixed mid-batch: Lap Telemetry was showing "not processed yet" for every completed race —
-turned out `race_laps` (FastF1-sourced, unrelated to the OpenF1 paywall) had simply never been
-locally synced since the feature shipped. Ran `data_sync.py` locally to backfill it, then
-manually re-triggered the `f1-frontend` Cloud Build trigger to bust the 1-hour `revalidate` cache
-on `getRaceLaps` so the fix was visible immediately rather than waiting out the cache window.
-No code change was needed for this one.
+- **A background agent can report "finished" without actually finishing.** CP32's agent twice
+  ended a turn with a status update ("waiting for a background build/install to finish") instead
+  of a real completion report, and both times the harness reported it as completed with no live
+  children. Checking its worktree directly showed real, uncommitted work each time — the agent
+  had lost track of its own execution state, not silently failed. The fix was the same as the
+  stray-process pattern documented below: check the worktree and process list directly (`git
+  status`, `git log`, `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match
+  '<worktree-path>' }`), correct the agent's understanding of what's actually running (once it
+  was a genuinely stale `next dev` process left over from its own verification step, not a build
+  at all), and resume with explicit synchronous steps rather than trusting its self-report.
+- Lap Telemetry was separately found showing "not processed yet" for every completed race —
+  turned out `race_laps` (FastF1-sourced, unrelated to the OpenF1 paywall) had simply never been
+  locally synced since the feature shipped. Fixed by running `data_sync.py` locally to backfill
+  it, then manually re-triggering the `f1-frontend` Cloud Build trigger to bust the 1-hour
+  `revalidate` cache on `getRaceLaps` so the fix was visible immediately. No code change was
+  needed for this one — pure operational gap.
 
 Batch 7 was built the same way as Batch 6: three parallel worktree agents (CP29, CP30, CP31),
 each touching disjoint files, all opening independent PRs. The worktree-cleanup discipline from
@@ -59,17 +70,12 @@ it retry indefinitely.
 
 ## Backlog (unscheduled)
 
-### Comparison & analysis
-- Circuit similarity / "Circuit DNA" comparison across tracks
-
 ### Race weekend enrichment
-- Functional global search (nav search input is currently dead)
-- Team radio moments (text, from OpenF1 race_control)
 - F1DB circuit-layout SVGs / team logos to replace incomplete asset host coverage
 
 ### GenAI features
 - "Explain this session" auto-recap after a race/quali/sprint syncs
-- Natural-language query bar (replaces the dead nav search box)
+- Natural-language query bar (a GenAI layer alongside the now-functional keyword nav search)
 - Race strategy commentary on the Pitwall page (grounded in stint data)
 - Driver comparison narrative (pairs with the head-to-head feature)
 - "Ask about this circuit" scoped chat (RAG over cached circuit history + Wikipedia extract)
