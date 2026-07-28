@@ -18,7 +18,7 @@ This document describes what is on `main` today. Anything present in the UI but 
 | `/drivers` | The grid — a card per driver, each opening a profile modal |
 | `/teams` | Constructor cards plus a power-unit grouping |
 | `/circuits` | Featured track, cross-track "Circuit DNA" comparison, and a gallery of every circuit with detail modals |
-| `/telemetry` | Live Timing board (polls a third-party feed while a session is running). **Not linked from any navigation** — reachable only by typing the URL |
+| `/telemetry` | Live Timing board (polls a third-party feed while a session is running). Linked from the desktop nav as "Live" (last item); not in the mobile bottom bar |
 
 ---
 
@@ -184,7 +184,7 @@ This page has no season selector; it always shows the active season.
 
 ## Live Timing (`/telemetry`)
 
-Not linked from any navigation — you have to type the URL.
+Linked from the desktop nav as "Live" (last item, after Circuits); deliberately excluded from the mobile bottom bar, which stays at its 5-item ceiling.
 
 Header reads "APEX Live / Live Timing" with the current session name, a **Live** pill (pulsing red dot) or a **Standby** pill, and a link to the schedule.
 
@@ -239,7 +239,7 @@ Three data sources are called directly from the frontend rather than through the
 These exist in the shipped UI but do not work, or do not work as their label implies.
 
 - **Footer has no links.** It is two lines of text. Nothing in it is clickable — worth knowing if you are looking for an About/GitHub/attribution link there.
-- **`/telemetry` is unreachable through the UI.** It is absent from both the desktop nav and the mobile bottom bar, and nothing links to it. Deliberately left unlinked (see `ROADMAP.md`) until `NEXT_PUBLIC_RAPIDAPI_KEY` is confirmed provisioned in production — the page now shows a friendly "not available in this environment yet" message instead of a raw config-error string when the key is missing.
+- **`/telemetry` is gated by a RapidAPI key at runtime.** It is now linked from the desktop nav ("Live", last item) but deliberately still excluded from the mobile bottom bar (already at its 5-item ceiling). If `NEXT_PUBLIC_RAPIDAPI_KEY` isn't provisioned in an environment, the page shows a friendly "not available in this environment yet" message instead of a raw config-error string.
 - **Season selectors offer 2018 onward, but data quality drops off sharply.** The range is fixed at `MIN_SUPPORTED_SEASON = 2018` regardless of what is actually cached; older seasons will show calendars and standings but largely empty session classifications, circuit details, and no Pitwall data.
 - **Pitwall Race Control is functional but shows its empty state for the current season.** OpenF1 paywalls its real-time-shaped endpoints (`/sessions` for the current year, and by extension `/race_control`) for the entire current season, not just live sessions — confirmed by a live 401 on `GET /v1/sessions?year=2026`. There is no FastF1 equivalent for race-control messages, so unlike Tire Stints this module has no self-heal path; it will start working once a session ages into OpenF1's free historical window.
 

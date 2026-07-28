@@ -11,6 +11,7 @@ const navItems = [
   { href: "/drivers", label: "Drivers" },
   { href: "/teams", label: "Teams" },
   { href: "/circuits", label: "Circuits" },
+  { href: "/telemetry", label: "Live" },
 ];
 
 export default function NavLinks() {
