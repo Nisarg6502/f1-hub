@@ -422,6 +422,31 @@ export async function getPitStops(year: number, round: number) {
   });
 }
 
+export interface RaceLap {
+  driver_number: number;
+  lap_number: number;
+  position: number;
+}
+
+/** Per-lap track position for a finished race, derived from FastF1 and cached in Mongo.
+ *
+ * Same `synced` convention as `getRaceStints` — false means the local sync
+ * job hasn't populated this round yet, not that the round doesn't exist.
+ */
+export async function getRaceLaps(year: number, round: number) {
+  return fetchJson<{
+    year: number;
+    round: number;
+    laps: RaceLap[];
+    synced: boolean;
+  }>("/api/race_laps", {
+    year,
+    round,
+  }, {
+    next: { revalidate: 3600 }, // Cache for 1 hour
+  });
+}
+
 export async function getCircuitInfo(year: number, eventName: string) {
   return fetchJson<CircuitInfo>("/api/circuit_info", {
     year,

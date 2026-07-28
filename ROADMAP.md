@@ -10,6 +10,8 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 
 **Parallelization check, done at batch-planning time:** before starting a batch, check each checkpoint's expected file footprint. Checkpoints that touch disjoint files with no sequential dependency (e.g. Batch 3's weather tile / nav label / telemetry fix) can be built by parallel subagents, each in its own git worktree, with PRs opened and merged independently. Checkpoints that share files or have a real dependency (e.g. two features both touching the Pitwall page) stay sequential — parallel agents on shared files risk merge conflicts and duplicated helpers instead of saving time.
 
+**Skill usage for UI/UX work:** any checkpoint touching visual design, layout, or animation must invoke the `emil-design-eng` skill (animation/interaction polish philosophy — easing, timing, transform-origin, press feedback) before implementing, and `apple-design` when the work involves gesture-driven or physically-feeling interactions. `pick-ui-library` should be invoked before adding any new UI dependency; `review-animations`/`improve-animations`/`find-animation-opportunities` are for auditing existing motion rather than building new UI. These are the only project skills that exist (see `.claude/skills/`) — there is no "ui-ux-pro-max" or "Framer Motion" skill; the app already depends on `motion/react` (Framer Motion) as its animation library, so use it directly rather than introducing a second one. A custom liquid-glass dropdown/popover (`bg-[rgba(26,22,19,0.98)] border border-white/10`, motion-animated open/close, click-outside + Escape handling) already exists in `tire-stints-chart.tsx` and `compare-drivers-panel.tsx` — reuse that pattern instead of a native `<select>`, which does not carry the app's theme.
+
 ## Shipped batches
 
 | Batch | Checkpoints | Theme | Status |
@@ -24,17 +26,29 @@ The original plan's CP15-19 (driver/team head-to-head compare, championship calc
 
 ## Current batch
 
-Batch 4 is complete and merged. Batch 5 is not yet planned — see Backlog below for candidates.
+Batch 5 — CP25, lap-by-lap position chart (the disabled Pitwall "Lap Telemetry" module). A
+single checkpoint: it's the size of the earlier stints/pit-stops work (new backend endpoint +
+sync job wiring + a new chart component), not a quick win to pair with something else.
 
-A pre-existing bug was found (not caused by Batch 4) while verifying CP24: `/standings` can get
-stuck client-side on its loading skeleton indefinitely, even though the server sends fully
-resolved HTML — see the "Known gaps" note in `FEATURES.md`. Flagged as a background task, not
-folded into a batch, since it's a bug fix rather than a planned feature.
+Scoped to **track position per lap only** for this pass, not gap-to-leader in seconds — FastF1's
+`session.laps` already carries a `Position` column for free, while a time-based gap needs
+cumulative race-time reconstruction per driver (accounting for pit stops, retirements, and
+lapped traffic), which is a materially bigger and riskier lift. Position-per-lap is the standard
+"who overtook whom" race chart and ships the disabled button's promise without that risk;
+gap-to-leader can be a follow-up checkpoint if wanted later.
+
+| # | Checkpoint | Status |
+|---|---|---|
+| 25 | Lap-by-lap position chart (Pitwall "Lap Telemetry" module) | ⏳ pushed, PR not opened yet |
+
+The `/standings` client hydration stall found while verifying CP24 (see `FEATURES.md` Known
+gaps) is being investigated as its own background task, run in parallel with this batch rather
+than folded into it, since it's a bug fix rather than a planned feature.
 
 ## Backlog (unscheduled)
 
 ### Comparison & analysis
-- Lap-by-lap position/gap chart (Pitwall "Lap Telemetry" module)
+- Gap-to-leader (seconds) as a Pitwall Lap Telemetry follow-up to CP25's position-only chart
 - Championship "Title Decider" scenario calculator
 - Circuit similarity / "Circuit DNA" comparison across tracks
 

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import {
   getPitStops,
+  getRaceLaps,
   getRaceResults,
   getRaceStints,
   getSeasonRaces,
@@ -9,6 +10,7 @@ import {
 import { getTeamColor } from "@/lib/team-colors";
 import TireStintsChart from "@/components/tire-stints-chart";
 import PitStopsChart from "@/components/pit-stops-chart";
+import LapPositionChart from "@/components/lap-position-chart";
 import PitwallModules from "@/components/pitwall-modules";
 
 interface PageProps {
@@ -79,11 +81,12 @@ export default async function PitwallPage({ params }: PageProps) {
   // than serially. Stints come from the backend's FastF1-backed cache — OpenF1
   // paywalled its /stints feed for the entire current season. Pit stops come
   // from Ergast, which unlike FastF1 answers from Cloud Run.
-  const [racesRes, resultsRes, stintsRes, pitStopsRes] = await Promise.all([
+  const [racesRes, resultsRes, stintsRes, pitStopsRes, lapsRes] = await Promise.all([
     getSeasonRaces(seasonYear),
     getRaceResults(seasonYear, roundNumber),
     getRaceStints(seasonYear, roundNumber).catch(() => null),
     getPitStops(seasonYear, roundNumber).catch(() => null),
+    getRaceLaps(seasonYear, roundNumber).catch(() => null),
   ]);
   const race = (racesRes.races ?? []).find((r) => r.round === String(roundNumber));
 
@@ -106,6 +109,7 @@ export default async function PitwallPage({ params }: PageProps) {
 
   const stints = stintsRes?.stints ?? [];
   const stops = pitStopsRes?.stops ?? [];
+  const laps = lapsRes?.laps ?? [];
 
   return (
     <div className="px-6 md:px-10 pt-8 pb-16">
@@ -130,7 +134,7 @@ export default async function PitwallPage({ params }: PageProps) {
       </div>
 
       <PitwallModules
-        comingSoon={["Lap Telemetry", "Race Control"]}
+        comingSoon={["Race Control"]}
         modules={[
           {
             id: "stints",
@@ -164,6 +168,24 @@ export default async function PitwallPage({ params }: PageProps) {
                 No pit stops have been published for {race.raceName}. Stop
                 times appear alongside the official classification once the
                 race has run — check back after the weekend.
+              </ModuleEmptyState>
+            ),
+          },
+          {
+            id: "laps",
+            label: "Lap Telemetry",
+            panel: laps.length ? (
+              <LapPositionChart drivers={drivers} initialLaps={laps} />
+            ) : (
+              <ModuleEmptyState
+                title="Lap data not available yet"
+                season={season}
+                round={round}
+              >
+                Track position for {race.raceName} hasn&apos;t been processed
+                yet. Positions are derived from timing data once the race has
+                finished and its data has been archived — check back after
+                the weekend.
               </ModuleEmptyState>
             ),
           },
