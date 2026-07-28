@@ -45,11 +45,6 @@ export async function getStints(sessionKey: number, driverNumbers: number[]) {
   return stints.filter(s => driverNumbers.includes(s.driver_number));
 }
 
-export async function getLaps(sessionKey: number, driverNumbers: number[]) {
-  const laps = await fetchOpenF1<any[]>("/laps", { session_key: sessionKey });
-  return laps.filter(l => driverNumbers.includes(l.driver_number));
-}
-
 export async function getRaceControl(sessionKey: number) {
   return fetchOpenF1<any[]>("/race_control", { session_key: sessionKey });
 }

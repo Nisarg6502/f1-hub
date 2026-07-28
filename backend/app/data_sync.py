@@ -427,6 +427,42 @@ def sync_race_stints(db, year: int, races: list[dict]) -> None:
     print(f"  race stints: synced {synced} new round(s)")
 
 
+def sync_race_laps(db, year: int, races: list[dict]) -> None:
+    """Per-driver, per-lap track position via FastF1, for the Pitwall position chart.
+
+    Same FastF1-on-Cloud-Run caveat as `sync_race_stints`: this only populates
+    when run from a local machine. The API serves whatever is here and reports
+    an empty result rather than an error when a round is missing.
+    """
+    from .race_laps import build_race_laps
+
+    synced = 0
+    for race in races:
+        round_number = int(race.get("round", 0))
+        if not FORCE_RESYNC and db.race_laps.find_one(
+            {"season": year, "round": str(round_number)}
+        ):
+            continue
+
+        laps = build_race_laps(year, round_number)
+        if not laps:
+            continue
+
+        db.race_laps.update_one(
+            {"season": year, "round": str(round_number)},
+            {"$set": {
+                "season": year,
+                "round": str(round_number),
+                "laps": laps,
+                "synced_at": _utcnow_iso(),
+            }},
+            upsert=True,
+        )
+        synced += 1
+
+    print(f"  race laps: synced {synced} new round(s)")
+
+
 def sync_pit_stops(db, year: int, races: list[dict]) -> None:
     """Per-driver pit stops from Ergast.
 
@@ -513,6 +549,7 @@ def create_indexes(db) -> None:
     db.circuit_details.create_index([("season", 1), ("round", 1)], unique=True)
     db.race_stints.create_index([("season", 1), ("round", 1)], unique=True)
     db.pit_stops.create_index([("season", 1), ("round", 1)], unique=True)
+    db.race_laps.create_index([("season", 1), ("round", 1)], unique=True)
     db.weather_cache.create_index([("season", 1), ("round", 1)], unique=True)
     # Populated lazily by /api/driver_bio on demand, not by this batch job.
     db.driver_bios.create_index([("driverId", 1)], unique=True)
@@ -557,6 +594,7 @@ def main() -> int:
         sync_circuit_details(db, year, finished)
         sync_race_stints(db, year, finished)
         sync_pit_stops(db, year, finished)
+        sync_race_laps(db, year, finished)
         sync_weather(db, year, finished)
 
     client.close()
