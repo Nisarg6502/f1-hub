@@ -22,28 +22,23 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 3 | CP20-22 | Weather conditions tile, dynamic nav season label, telemetry error-leak fix | merged |
 | 4 | CP23-24 | Driver head-to-head compare, teammate battle panel | merged |
 | 5 | CP25 | Lap-by-lap position chart (Pitwall "Lap Telemetry"), plus the compare-drivers dropdown redesign | merged |
+| 6 | CP26-28 | Pitwall dropdown click-outside/Escape backport, circuit history panel (closest finish/most wins/first year raced), season-aware page metadata | merged |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
 ## Current batch
 
-Batch 5 is complete and merged. Batch 6 is not yet planned — see Backlog below for candidates.
+Batch 6 is complete and merged. Batch 7 is not yet planned — see Backlog below for candidates.
 
-The `/standings` client hydration stall flagged while verifying CP24 turned out not to be a real
-app bug: the Claude_Browser preview pane keeps its tab `document.hidden === true` permanently,
-which starves `requestAnimationFrame` and stalls the Suspense reveal on any route with a
-`loading.tsx` — real users never hit this. Documented as an environment quirk in `HANDOFF.md`
-rather than a product gap.
+Batch 6 was built as three parallel worktree agents (CP26, CP27, CP28), each touching disjoint
+files with no shared dependency, per this file's parallelization-check convention — all three
+opened independent PRs and merged cleanly with no collisions.
 
-**A note on parallel sessions:** Batch 5 (CP25) and this investigation were both run as separate
-Claude Code sessions started from this same checkout at the same time. The `/standings`
-investigation used an isolated git worktree as intended, but the CP25 session did not — it ran
-`git commit`/`git push` directly in this working directory while another session (this one) was
-also editing files here, causing several confusing but ultimately harmless collisions (a stray
-duplicate variable declaration, files appearing to change without local edits). Both sessions'
-work converged to the same final content with no data loss, but the lesson stands: **a second
-session working on this project should always run from its own git worktree**, not this same
-checkout, even for "just a quick fix."
+**Worktree cleanup note:** two of Batch 6's agent worktrees left their `next dev` processes
+running after finishing (verification step didn't tear the server down), which held file locks
+that made `git worktree remove` hang for several minutes until the leftover `node.exe` processes
+were killed manually. If a post-batch worktree cleanup hangs, check for orphaned dev-server
+processes still pointing at that worktree's path before assuming the removal itself is stuck.
 
 ## Backlog (unscheduled)
 
@@ -53,7 +48,6 @@ checkout, even for "just a quick fix."
 - Circuit similarity / "Circuit DNA" comparison across tracks
 
 ### Race weekend enrichment
-- Circuit history panel (closest finish, most wins, first year raced)
 - "Add to calendar" reminders for sessions
 - Functional global search (nav search input is currently dead)
 - Team radio moments (text, from OpenF1 race_control)
@@ -75,4 +69,3 @@ checkout, even for "just a quick fix."
 - Personal "watch party" second-screen mode
 - Constructor budget cap tracker (manually updated, no live feed exists)
 - Fantasy / prediction game (bigger scope — needs auth + persistence; v2 milestone)
-- Metadata title/description hardcoded to 2026 (same root cause as CP21, deferred there)

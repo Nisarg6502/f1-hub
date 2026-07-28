@@ -2,16 +2,25 @@
 
 ## Where things stand
 
-Batches 1 and 2 are fully merged, including two ad-hoc additions built mid-batch (pit-stop
-analysis module, driver-bio rate-limit fix). A durable roadmap-tracking system now exists at
-`ROADMAP.md` — **current batch and checkpoint status live there** (see "Current batch"), not in
-this file. This file only carries session-specific working memory: recent gotchas, environment
-quirks, and the immediate next action.
+Batches 1 through 6 are fully merged (see `ROADMAP.md`'s "Shipped batches" table for the full
+history, including two ad-hoc Batch 2 additions built mid-batch). A durable roadmap-tracking
+system exists at `ROADMAP.md` — **current batch and checkpoint status live there** (see "Current
+batch"), not in this file. This file only carries session-specific working memory: recent
+gotchas, environment quirks, and the immediate next action.
 
 ### Immediate next action
 
-Batch 3 (CP20-22) is planned and approved (see `ROADMAP.md`). Starting CP20: race weather
-"Conditions" tile on the race detail page.
+Batch 6 (CP26-28) is complete and merged. Batch 7 is not yet planned — see `ROADMAP.md`'s Backlog
+section for candidates when starting the next batch-planning pass.
+
+### New this batch: worktree cleanup can hang on orphaned dev servers
+
+Batch 6 ran three checkpoints as parallel agents, each in its own git worktree. Two of them left
+a `next dev` process running in the worktree after finishing verification, which held file locks
+that made `git worktree remove --force` hang for minutes rather than fail outright. If a post-batch
+worktree cleanup seems stuck, check for orphaned `node.exe` processes whose command line still
+points at that worktree's path (PowerShell: `Get-CimInstance Win32_Process | Where-Object {
+$_.CommandLine -match 'worktrees' }`) and kill them before assuming the removal itself is broken.
 
 ## Things learned this batch that will bite you again
 
