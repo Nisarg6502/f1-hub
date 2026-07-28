@@ -21,29 +21,29 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 2 (ad hoc) | unnumbered | Pit-stop analysis module (Pitwall), driver-bio rate-limit fix (Hamilton championship undercount) — built mid-batch in response to user requests, outside the original CP15-19 plan | merged |
 | 3 | CP20-22 | Weather conditions tile, dynamic nav season label, telemetry error-leak fix | merged |
 | 4 | CP23-24 | Driver head-to-head compare, teammate battle panel | merged |
+| 5 | CP25 | Lap-by-lap position chart (Pitwall "Lap Telemetry"), plus the compare-drivers dropdown redesign | merged |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
 ## Current batch
 
-Batch 5 — CP25, lap-by-lap position chart (the disabled Pitwall "Lap Telemetry" module). A
-single checkpoint: it's the size of the earlier stints/pit-stops work (new backend endpoint +
-sync job wiring + a new chart component), not a quick win to pair with something else.
+Batch 5 is complete and merged. Batch 6 is not yet planned — see Backlog below for candidates.
 
-Scoped to **track position per lap only** for this pass, not gap-to-leader in seconds — FastF1's
-`session.laps` already carries a `Position` column for free, while a time-based gap needs
-cumulative race-time reconstruction per driver (accounting for pit stops, retirements, and
-lapped traffic), which is a materially bigger and riskier lift. Position-per-lap is the standard
-"who overtook whom" race chart and ships the disabled button's promise without that risk;
-gap-to-leader can be a follow-up checkpoint if wanted later.
+The `/standings` client hydration stall flagged while verifying CP24 turned out not to be a real
+app bug: the Claude_Browser preview pane keeps its tab `document.hidden === true` permanently,
+which starves `requestAnimationFrame` and stalls the Suspense reveal on any route with a
+`loading.tsx` — real users never hit this. Documented as an environment quirk in `HANDOFF.md`
+rather than a product gap.
 
-| # | Checkpoint | Status |
-|---|---|---|
-| 25 | Lap-by-lap position chart (Pitwall "Lap Telemetry" module) | ⏳ pushed, PR not opened yet |
-
-The `/standings` client hydration stall found while verifying CP24 (see `FEATURES.md` Known
-gaps) is being investigated as its own background task, run in parallel with this batch rather
-than folded into it, since it's a bug fix rather than a planned feature.
+**A note on parallel sessions:** Batch 5 (CP25) and this investigation were both run as separate
+Claude Code sessions started from this same checkout at the same time. The `/standings`
+investigation used an isolated git worktree as intended, but the CP25 session did not — it ran
+`git commit`/`git push` directly in this working directory while another session (this one) was
+also editing files here, causing several confusing but ultimately harmless collisions (a stray
+duplicate variable declaration, files appearing to change without local edits). Both sessions'
+work converged to the same final content with no data loss, but the lesson stands: **a second
+session working on this project should always run from its own git worktree**, not this same
+checkout, even for "just a quick fix."
 
 ## Backlog (unscheduled)
 

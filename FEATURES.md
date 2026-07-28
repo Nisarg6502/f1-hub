@@ -101,15 +101,15 @@ Header reads "<year> FIA Formula One World Championship / Race Calendar", with a
 
 Reached from the "Pitwall analysis" button on a completed round's full-classification table. Header reads "Telemetry lab / Pitwall **Strategy**" with the race name and round, plus a "← Back to race" link.
 
-**Sidebar — "Analysis modules"**: three buttons. "Tire Stints" is styled as the selected module; "Lap Telemetry" and "Race Control" are disabled and labelled "Soon" (see Known gaps).
+**Sidebar — "Analysis modules"**: three working modules — Tire Stints, Pit Stops, Lap Telemetry — switchable instantly (each panel is rendered server-side up front, so switching costs no extra fetch); "Race Control" remains disabled and labelled "Soon". All three working modules are sourced Mongo-first with a FastF1/Ergast self-heal rebuild on a miss (`race_stints`, `pit_stops`, `race_laps` respectively), and each shows its own "not available yet" empty state — rather than an error — when the round hasn't been through the sync job.
 
-**Tyre stints chart.** A horizontal stacked bar chart, one row per driver, each bar segment a stint coloured by compound (Soft red, Medium yellow, Hard white, Intermediate green, Wet blue) with the X axis labelled "Lap number". Controls above it:
-- A **"Compare drivers" dropdown** listing every classified driver with number, three-letter code, a team-colour bar and a checkbox. Multi-select; defaults to the top five finishers. The button label reads "N drivers selected".
-- A **compound legend** (Soft / Medium / Hard / Inter / Wet).
+**Tyre stints chart.** A horizontal stacked bar chart, one row per driver, each bar segment a stint coloured by compound (Soft red, Medium yellow, Hard white, Intermediate green, Wet blue) with the X axis labelled "Lap number". A **"Compare drivers" dropdown** (multi-select, defaults to the top five finishers) and a compound legend sit above it. Hovering a bar opens a tooltip listing the driver's full name and every stint — "Stint 1: 15 laps (SOFT)". Deselecting everyone shows "Select at least one driver to view stints."
 
-Hovering a bar opens a tooltip listing the driver's full name and every stint — "Stint 1: 15 laps (SOFT)" — with a compound dot per row. Deselecting everyone shows "Select at least one driver to view stints."
+**Pit stops module.** Stat tiles (fastest / median / slowest / best crew average), a stacked horizontal bar of total pit-lane time per driver, and a sortable full-stop table. Suspension-length (red-flag) stops are excluded from the stat tiles and called out with a "N stops excluded" note, but still listed in the table.
 
-**When no session can be matched in OpenF1**, the chart is replaced by a lock-icon panel headed "Telemetry data unavailable", claiming stint data for the current season requires a premium OpenF1 subscription and that 2023–2025 are available, with "View schedule" and "OpenF1 website" buttons. This copy and its behaviour are being replaced — see [In flight](#in-flight-not-on-main).
+**Lap Telemetry (position chart).** A line chart, one line per selected driver in their team colour, X axis "Lap number", Y axis "Position" (reversed so P1 sits at the top). Same multi-select driver dropdown as the stints chart. Hovering shows every selected driver's position for that lap, sorted by position. Deselecting everyone shows "Select at least one driver to view positions."
+
+**When a module's data hasn't synced yet** (the FastF1-backed modules — Tire Stints and Lap Telemetry — depend on a local sync job, since FastF1's live-timing archive blocks Cloud Run), the panel shows an hourglass empty state — "Stint data not available yet" / "Lap data not available yet" — explaining that the data appears once the race has finished and been archived, with links back to the race results and schedule. Pit Stops sources from Ergast instead, which is reachable from Cloud Run, so its equivalent empty state ("Pit-stop data not available yet") means the round genuinely has no published stops yet, not a sync gap.
 
 ---
 
@@ -232,13 +232,12 @@ Two data sources are called directly from the frontend rather than through the b
 These exist in the shipped UI but do not work, or do not work as their label implies.
 
 - **Nav search box is decorative.** The "Search drivers, tracks…" input in the top bar (desktop `lg` and up) has no `onChange`, no form, and no submit handler. Typing in it does nothing. There is no search feature anywhere in the app.
-- **Pitwall "Lap Telemetry" and "Race Control" buttons** are `disabled`, dimmed to 50% opacity, and badged "Soon". Helper functions for both (`getLaps`, `getRaceControl` in `frontend/src/lib/openf1.ts`) exist but are never called.
+- **Pitwall "Race Control" button** is `disabled`, dimmed to 50% opacity, and badged "Soon" (Tire Stints, Pit Stops, and Lap Telemetry are all working modules as of Batch 5). `getRaceControl` in `frontend/src/lib/openf1.ts` exists for it but is never called.
 - **Footer has no links.** It is two lines of text. Nothing in it is clickable — worth knowing if you are looking for an About/GitHub/attribution link there.
 - **`/telemetry` is unreachable through the UI.** It is absent from both the desktop nav and the mobile bottom bar, and nothing links to it. Deliberately left unlinked (see `ROADMAP.md`) until `NEXT_PUBLIC_RAPIDAPI_KEY` is confirmed provisioned in production — the page now shows a friendly "not available in this environment yet" message instead of a raw config-error string when the key is missing.
 - **The page `<title>` ("APEX | 2026 F1 Season Hub") and meta description are hardcoded to 2026**, unlike the nav's Season label (which now reflects the active/viewed season) — no route sets its own title.
-- **The Pitwall driver dropdown has no click-outside or Escape handling.** Once opened it stays open until you click the trigger button again.
+- **The Pitwall Tire Stints and Lap Telemetry driver-select dropdowns have no click-outside or Escape handling.** Once opened they stay open until you click the trigger button again — unlike the `/drivers` compare-drivers dropdown, which got this fix in Batch 5 but wasn't back-ported to the Pitwall charts' copy of the same pattern.
 - **Season selectors offer 2018 onward, but data quality drops off sharply.** The range is fixed at `MIN_SUPPORTED_SEASON = 2018` regardless of what is actually cached; older seasons will show calendars and standings but largely empty session classifications, circuit details, and no Pitwall data.
-- **`/standings` can get stuck on its loading skeleton indefinitely.** In some client environments the route's `<div style="opacity:0">` streaming placeholder never gets swapped for the real content, even though the server sends fully-resolved HTML (confirmed via direct fetch) — no console error is thrown. Reproduces on a clean checkout of `main`, so it predates the driver-comparison work in Batch 4. Flagged as a background investigation task, not yet root-caused or fixed.
 
 ---
 
