@@ -10,8 +10,23 @@ quirks, and the immediate next action.
 
 ### Immediate next action
 
-Batch 9 (CP35-37) is complete and merged. Batch 10 is not yet planned — see `ROADMAP.md`'s Backlog
-section for candidates when starting the next batch-planning pass.
+Batch 9 (CP35-37) is complete and merged, plus an ad-hoc fix for the Circuit history panel showing
+wrong "first raced" years (see `ROADMAP.md`'s Current batch section for the root cause — it's a bug
+shape worth knowing about before building anything else that aggregates "across all X"). Batch 10
+is not yet planned — see `ROADMAP.md`'s Backlog section for candidates when starting the next
+batch-planning pass.
+
+### `MONGODB_URI` from the root `.env` can drive a real local backend against Atlas
+
+Ran `cd backend && MONGODB_URI=$(grep ... .env) python -m uvicorn app.main:app --port 8000` to
+verify the circuit-history fix end-to-end — this spins up the actual FastAPI app against the real
+production database, not a mock. Combined with pointing the frontend dev server at it
+(`NEXT_PUBLIC_API_BASE_URL=http://localhost:8000 npm run dev -- -p <port>`), this is a stronger
+verification path than the throwaway-`dev-test-*`-route pattern below for anything that's a pure
+backend logic/data fix rather than a UI change — reach for it first when the bug is "the numbers
+are wrong," not "the component doesn't render right." One snag: a `next dev` process from another
+session can be holding the default port 3113 and/or the `.next/dev/lock` file for this exact
+worktree; if so, pick a different `-p` port rather than fighting the lock.
 
 ### Stray worktree directories can survive `git worktree remove --force`
 
