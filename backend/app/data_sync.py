@@ -32,6 +32,7 @@ from .f1_results import (
     safe_str,
     session_total_laps,
 )
+from .historical_index import normalize_races
 
 try:
     from dotenv import load_dotenv
@@ -540,6 +541,63 @@ def sync_weather(db, year: int, races: list[dict]) -> None:
     print(f"  weather: synced {synced} new round(s)")
 
 
+# --- Historical race index (season-independent; synced once per run, not per year) ---
+
+
+def sync_historical_index(db) -> None:
+    """Keep `historical_race_index` fresh: a full 1950-present backfill the
+    first time the collection is empty (12 paginated Jolpica calls, ~4s),
+    then a cheap current-season-only top-up on every subsequent run — the
+    rest of history never changes once a season is over. Normalisation
+    (de-duplicating shared-drive races, collapsing chassis/engine-era
+    constructor ids, flagging the Indy 500 years) lives in
+    `historical_index.normalize_races` so the sync job and the API's own
+    live-fetch self-heal can never disagree on the shape of a race record.
+    """
+    print("  historical race index...")
+
+    if db.historical_race_index.count_documents({}) == 0:
+        print("    collection empty — full backfill (1950-present)...")
+        raw: list[dict] = []
+        page_size = 100
+        offset = 0
+        while True:
+            payload = fetch_json(f"{ERGAST_BASE}/results/1/?limit={page_size}&offset={offset}")
+            page = _ergast_table(payload, "RaceTable", "Races")
+            if not page:
+                break
+            raw.extend(page)
+            # `total` counts result rows, not races (a few races carry two P1
+            # rows) — advance by page_size regardless, same reasoning as
+            # historical_index._pagination_from.
+            total = int((payload or {}).get("MRData", {}).get("total", 0) or 0)
+            offset += page_size
+            if offset >= total:
+                break
+
+        records = normalize_races(raw)
+        if records:
+            db.historical_race_index.insert_many(records, ordered=False)
+        print(f"    backfilled {len(records)} races")
+        return
+
+    year = _utcnow().year
+    payload = fetch_json(f"{ERGAST_BASE}/{year}/results/1/?limit=100")
+    raw = _ergast_table(payload, "RaceTable", "Races")
+    records = normalize_races(raw)
+
+    synced = 0
+    for record in records:
+        result = db.historical_race_index.update_one(
+            {"season": record["season"], "round": record["round"]},
+            {"$set": record},
+            upsert=True,
+        )
+        if result.upserted_id is not None:
+            synced += 1
+    print(f"    top-up: {len(records)} race(s) checked for {year}, {synced} new")
+
+
 def create_indexes(db) -> None:
     db.races.create_index([("season", 1), ("round", 1)], unique=True)
     db.driver_standings.create_index([("season", 1)], unique=True)
@@ -557,6 +615,9 @@ def create_indexes(db) -> None:
     db.weather_cache.create_index([("season", 1), ("round", 1)], unique=True)
     # Populated lazily by /api/driver_bio on demand, not by this batch job.
     db.driver_bios.create_index([("driverId", 1)], unique=True)
+    db.historical_race_index.create_index([("season", 1), ("round", 1)], unique=True)
+    # Populated lazily by /api/constructor_seasons on demand, not by this batch job.
+    db.constructor_seasons_cache.create_index([("constructor_id", 1)], unique=True)
 
 
 def _years_to_sync() -> list[int]:
@@ -580,6 +641,11 @@ def main() -> int:
 
     db = client[DB_NAME]
     create_indexes(db)
+
+    # Season-independent — synced once per run, not once per year in the loop
+    # below. History past the current season never changes.
+    print("\n--- historical index (all seasons) ---")
+    sync_historical_index(db)
 
     for year in years:
         print(f"\n--- {year} ---")

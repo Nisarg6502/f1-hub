@@ -12,6 +12,7 @@ const navItems = [
   { href: "/teams", label: "Teams" },
   { href: "/circuits", label: "Circuits" },
   { href: "/telemetry", label: "Live" },
+  { href: "/history", label: "History" },
 ];
 
 export default function NavLinks() {
