@@ -16,6 +16,7 @@ import LapPositionChart from "@/components/lap-position-chart";
 import RaceControlPanel from "@/components/race-control-panel";
 import RaceReplayView from "@/components/race-replay";
 import PitwallModules from "@/components/pitwall-modules";
+import StrategyCommentaryCard from "@/components/strategy-commentary-card";
 
 interface PageProps {
   params: Promise<{
@@ -199,6 +200,29 @@ export default async function PitwallPage({ params, searchParams }: PageProps) {
                 No pit stops have been published for {race.raceName}. Stop
                 times appear alongside the official classification once the
                 race has run — check back after the weekend.
+              </ModuleEmptyState>
+            ),
+          },
+          {
+            id: "strategy-commentary",
+            label: "Strategy Commentary",
+            // StrategyCommentaryCard self-fetches/streams (like SessionRecapCard)
+            // and renders null once it's clear there's nothing to show, but that
+            // reads as a blank panel below the sidebar for a module a reader might
+            // click before the backing data exists — an explicit empty state,
+            // gated on the same stints/laps data this endpoint requires, reads
+            // better here than a silently blank card.
+            panel: stints.length && laps.length ? (
+              <StrategyCommentaryCard year={seasonYear} round={roundNumber} />
+            ) : (
+              <ModuleEmptyState
+                title="Strategy commentary not available yet"
+                season={season}
+                round={round}
+              >
+                Strategy commentary for {race.raceName} needs tyre stint and
+                lap-position data that hasn&apos;t been processed yet — check
+                back after the weekend.
               </ModuleEmptyState>
             ),
           },
