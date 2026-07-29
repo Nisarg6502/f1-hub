@@ -32,13 +32,15 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 10 (ad hoc) | unnumbered | Accuracy overhaul of CP38 after a user caught a hallucinated teammate claim: pre-compute relational facts in code, add OpenF1 race-control events (penalties, VSC, stewards' decisions), upgrade to `gpt-oss:120b`, add inline citations and Markdown rendering. Also discovered OpenF1's current-season paywall has lifted. PR #60 | merged |
 | 11 | CP39-41 | Corrected the stale OpenF1 paywall claims across docs and user-facing copy (PR #64), self-healed `race_stints`/`race_laps` from OpenF1 with FastF1 as fallback (PR #65), extended AI recaps to Qualifying and Sprint (PR #66) | merged |
 | 12 | CP42-44 | Race replay: lap-indexed `/api/race_replay` endpoint (PR #68), timing tower + lap scrubber component (PR #69), Pitwall integration with `?lap=N` deep-linking from race-control citations (PR #70) | merged |
+| 12 (ad hoc) | unnumbered | Two fixes from live user testing against the Hungarian GP: moved play/pause + scrub track above the timing tower, and fixed the field visibly shrinking near the end of the race — first for lapped classified finishers (`race_laps` has no row for a car that finished fewer laps than the winner) PR #72, then for genuine retirees, who were dropped entirely rather than shown as retired PR #73. `REPLAY_VERSION` bumped twice (2, then 3) for the underlying data-shape fixes | merged |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
 ## Current batch
 
-No batch is currently planned — Batch 12 shipped and merged (PRs #68, #69, #70); the next batch has
-not been scoped yet. See Backlog below for candidates.
+No batch is currently planned — Batch 12 and its ad-hoc follow-up fixes are shipped and merged
+(PRs #68, #69, #70, #72, #73); the next batch has not been scoped yet. See Backlog below for
+candidates.
 
 ## Batch 12 retrospective — Race replay (CP42-44)
 
@@ -46,6 +48,26 @@ not been scoped yet. See Backlog below for candidates.
 replay / session playback" item, made buildable by CP40's self-heal work: before it, `race_laps`/
 `race_stints` only ever populated when someone ran `data_sync.py` locally, so a replay would have
 been empty in production for most rounds.
+
+**Two ad-hoc fixes followed from live user testing against the Hungarian GP** (PRs #72, #73), both
+the same underlying shape of bug: the timing tower's field visibly thinned out over the last few
+laps, reading as a wave of retirements when most of the missing cars had actually finished.
+`race_laps` simply has no row for a car once it stops being tracked — for a classified finisher
+who's a lap down, that's *before* the winner's actual final lap (it took the flag on an earlier
+lap, so it never raced the winner's last one); for a genuine retiree, that's whenever it left the
+track. `build_replay()` now carries every driver's last known row forward through to the winner's
+final lap, tagging a genuine retirement `retired: true` (frozen gap, sorted below every actively
+racing car, shown as "RETIRED" rather than a live number) so the two cases render distinctly rather
+than both just vanishing. `REPLAY_VERSION` bumped twice (2, then 3) so cached rounds rebuilt with
+each fix. The controls + scrub track also moved above the timing tower per direct feedback, so the
+scrubber doesn't shift under the cursor as the tower's height changes lap to lap.
+
+**Verification gotcha worth remembering:** after the retirement fix, a backend restart plus a
+frontend dev-server restart still served the pre-fix payload. The culprit was Next.js's Turbopack
+dev cache under `.next/dev/cache`, which persists fetch responses across dev-server restarts —
+clearing `.next/cache/fetch-cache` alone did nothing; only `rm -rf .next` actually busted it. If a
+backend fix doesn't seem to show up in the browser after restarting both servers, suspect this
+before suspecting the fix itself.
 
 **What the cached data actually supports** (verified against the 2026 British GP, round 9):
 
