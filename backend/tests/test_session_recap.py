@@ -41,6 +41,12 @@ class FakeDb:
         self.race_results = race_results or FakeCollection()
         self.session_recap = session_recap or FakeCollection()
 
+    def __getitem__(self, name):
+        # get_session_recap resolves the results collection dynamically via
+        # SESSION_COLLECTIONS (db["race_results"], db["qualifying_results"],
+        # ...) rather than a fixed attribute, to support Qualifying/Sprint.
+        return getattr(self, name, self.race_results)
+
 
 def result_row(
     position,
@@ -245,9 +251,89 @@ class GenerateRecapTests(unittest.TestCase):
         self.assertEqual(text, "")
 
 
+class QualifyingVocabularyTests(unittest.TestCase):
+    """Qualifying must not be narrated as a race.
+
+    Regression: v4 shipped "Lewis Hamilton completed the podium in third"
+    despite the prompt banning "podium" twice, which is why this is enforced
+    in code rather than left to the prompt.
+    """
+
+    def test_race_vocabulary_is_reported_as_a_violation(self):
+        violations = session_recap._qualifying_violations(
+            "Hamilton completed the podium in third."
+        )
+
+        self.assertEqual(violations, ["podium"])
+
+    def test_clean_qualifying_prose_has_no_violations(self):
+        violations = session_recap._qualifying_violations(
+            "Antonelli took pole, 0.175s clear of Leclerc, who qualified second."
+        )
+
+        self.assertEqual(violations, [])
+
+    def test_word_boundaries_prevent_false_positives(self):
+        # "unfinished" contains no banned word; matching on substrings would
+        # reject legitimate prose and trigger a pointless regeneration.
+        violations = session_recap._qualifying_violations(
+            "An unfinished lap left him wondering what might have been."
+        )
+
+        self.assertEqual(violations, [])
+
+
 class SessionRecapEndpointTests(unittest.TestCase):
     async def _drain_response(self, response):
         return "".join([chunk async for chunk in response.body_iterator])
+
+    def test_a_qualifying_recap_using_banned_vocabulary_is_regenerated_once(self):
+        quali = FakeCollection(
+            find_one_result={"race": {"raceName": "British GP"}, "results": [result_row(1, "Kimi", "Antonelli")]}
+        )
+        fake_db = FakeDb(session_recap=FakeCollection(find_one_result=None))
+        fake_db.qualifying_results = quali
+
+        attempts = []
+
+        async def fake_generate(facts, system_prompt=None):
+            attempts.append(system_prompt)
+            yield "He completed the podium." if len(attempts) == 1 else "He qualified third."
+
+        with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
+            session_recap, "fetch_race_control", return_value=[]
+        ), patch.object(session_recap, "_generate_recap", side_effect=fake_generate):
+            response = asyncio.run(
+                session_recap.get_session_recap(year=2026, round=9, session="qualifying")
+            )
+            body = asyncio.run(self._drain_response(response))
+
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(body, "He qualified third.")
+
+    def test_a_clean_qualifying_recap_is_not_regenerated(self):
+        quali = FakeCollection(
+            find_one_result={"race": {"raceName": "British GP"}, "results": [result_row(1, "Kimi", "Antonelli")]}
+        )
+        fake_db = FakeDb(session_recap=FakeCollection(find_one_result=None))
+        fake_db.qualifying_results = quali
+
+        attempts = []
+
+        async def fake_generate(facts, system_prompt=None):
+            attempts.append(system_prompt)
+            yield "Antonelli took pole."
+
+        with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
+            session_recap, "fetch_race_control", return_value=[]
+        ), patch.object(session_recap, "_generate_recap", side_effect=fake_generate):
+            response = asyncio.run(
+                session_recap.get_session_recap(year=2026, round=9, session="qualifying")
+            )
+            body = asyncio.run(self._drain_response(response))
+
+        self.assertEqual(len(attempts), 1)
+        self.assertEqual(body, "Antonelli took pole.")
 
     def test_a_cache_hit_replays_stored_text_without_calling_ollama(self):
         cache = FakeCollection(find_one_result={"text": "Norris dominated."})
@@ -256,7 +342,7 @@ class SessionRecapEndpointTests(unittest.TestCase):
         with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
             session_recap, "_generate_recap"
         ) as generate_mock:
-            response = asyncio.run(session_recap.get_session_recap(year=2026, round=11))
+            response = asyncio.run(session_recap.get_session_recap(year=2026, round=11, session="race"))
             body = asyncio.run(self._drain_response(response))
 
         generate_mock.assert_not_called()
@@ -270,13 +356,13 @@ class SessionRecapEndpointTests(unittest.TestCase):
         )
         fake_db = FakeDb(race_results=race_results, session_recap=cache)
 
-        async def fake_generate(facts):
+        async def fake_generate(facts, system_prompt=None):
             yield "text"
 
         with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
             session_recap, "fetch_race_control", return_value=[]
         ), patch.object(session_recap, "_generate_recap", side_effect=fake_generate):
-            response = asyncio.run(session_recap.get_session_recap(year=2026, round=11))
+            response = asyncio.run(session_recap.get_session_recap(year=2026, round=11, session="race"))
             asyncio.run(self._drain_response(response))
 
         written_key = cache.update_one_calls[0][0]
@@ -286,7 +372,7 @@ class SessionRecapEndpointTests(unittest.TestCase):
         fake_db = FakeDb(race_results=FakeCollection(find_one_result=None))
 
         with patch.object(session_recap, "get_db", return_value=fake_db):
-            response = asyncio.run(session_recap.get_session_recap(year=2026, round=11))
+            response = asyncio.run(session_recap.get_session_recap(year=2026, round=11, session="race"))
             body = asyncio.run(self._drain_response(response))
 
         self.assertEqual(body, "")
@@ -301,14 +387,14 @@ class SessionRecapEndpointTests(unittest.TestCase):
         cache = FakeCollection(find_one_result=None)
         fake_db = FakeDb(race_results=race_results, session_recap=cache)
 
-        async def fake_generate(facts):
+        async def fake_generate(facts, system_prompt=None):
             yield "Norris "
             yield "won."
 
         with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
             session_recap, "fetch_race_control", return_value=[]
         ), patch.object(session_recap, "_generate_recap", side_effect=fake_generate):
-            response = asyncio.run(session_recap.get_session_recap(year=2026, round=11))
+            response = asyncio.run(session_recap.get_session_recap(year=2026, round=11, session="race"))
             body = asyncio.run(self._drain_response(response))
 
         self.assertEqual(body, "Norris won.")
@@ -321,14 +407,14 @@ class SessionRecapEndpointTests(unittest.TestCase):
         cache = FakeCollection(find_one_result=None)
         fake_db = FakeDb(race_results=race_results, session_recap=cache)
 
-        async def fake_generate(facts):
+        async def fake_generate(facts, system_prompt=None):
             return
             yield  # pragma: no cover
 
         with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
             session_recap, "fetch_race_control", return_value=[]
         ), patch.object(session_recap, "_generate_recap", side_effect=fake_generate):
-            response = asyncio.run(session_recap.get_session_recap(year=2026, round=11))
+            response = asyncio.run(session_recap.get_session_recap(year=2026, round=11, session="race"))
             body = asyncio.run(self._drain_response(response))
 
         self.assertEqual(body, "")

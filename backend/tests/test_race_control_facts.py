@@ -80,12 +80,30 @@ class InvestigationTests(unittest.TestCase):
 
 
 class SafetyCarTests(unittest.TestCase):
-    def test_vsc_and_safety_car_messages_are_kept(self):
+    def test_vsc_and_safety_car_deployments_are_kept_as_a_distinct_kind(self):
+        # Deployment/ending are their own kind, distinct from a mere mention
+        # of "safety car" in an infringement message (e.g. "FAILURE TO
+        # ADHERE TO SAFETY CAR PROCEDURES") — that distinction is the whole
+        # point of splitting this out from a single generic "safety_car".
         messages = [message("VSC DEPLOYED", lap=56), message("SAFETY CAR DEPLOYED", lap=12)]
 
         kinds = {e["kind"] for e in summarize_race_control(messages, RESULTS)["events"]}
 
-        self.assertEqual(kinds, {"safety_car"})
+        self.assertEqual(kinds, {"safety_car_deployed"})
+
+    def test_a_safety_car_procedure_infringement_is_not_classified_as_a_deployment(self):
+        messages = [
+            message(
+                "FIA STEWARDS: INCIDENT INVOLVING CAR 44 (HAM) UNDER INVESTIGATION - "
+                "FAILURE TO ADHERE TO SAFETY CAR PROCEDURES",
+                lap=20,
+            )
+        ]
+
+        kinds = {e["kind"] for e in summarize_race_control(messages, RESULTS)["events"]}
+
+        self.assertNotIn("safety_car_deployed", kinds)
+        self.assertIn("investigation", kinds)
 
     def test_events_are_ordered_by_lap(self):
         messages = [message("VSC DEPLOYED", lap=56), message("SAFETY CAR DEPLOYED", lap=12)]
