@@ -36,8 +36,11 @@ class FakeCollection:
 
 
 class FakeDb:
-    def __init__(self, race_stints=None):
+    def __init__(self, race_stints=None, race_date="2026-07-26"):
         self.race_stints = race_stints or FakeCollection()
+        # The OpenF1 path looks a round's date up here before it can find a
+        # session key; a None date means "no date on file" and skips OpenF1.
+        self.races = FakeCollection({"date": race_date} if race_date else None)
 
 
 def lap(driver, stint, lap_number, compound="SOFT", tyre_life=1):
@@ -115,6 +118,197 @@ class StintsFromLapsTests(unittest.TestCase):
         self.assertEqual(race_stints.stints_from_laps([]), [])
 
 
+def openf1_stint(driver, stint, lap_start, lap_end, compound="SOFT", age=0):
+    """One row in the shape OpenF1's `/stints` endpoint actually returns."""
+    return {
+        "meeting_key": 1291,
+        "session_key": 11342,
+        "driver_number": driver,
+        "stint_number": stint,
+        "lap_start": lap_start,
+        "lap_end": lap_end,
+        "compound": compound,
+        "tyre_age_at_start": age,
+    }
+
+
+class StintsFromOpenF1Tests(unittest.TestCase):
+    def test_maps_rows_onto_the_same_document_shape_as_the_fastf1_path(self):
+        rows = race_stints.stints_from_openf1([openf1_stint(1, 1, 1, 17, "MEDIUM", 0)])
+
+        # Exact key parity with `stints_from_laps` is the whole point: the
+        # frontend must not be able to tell which source filled the cache.
+        self.assertEqual(rows, [{
+            "driver_number": 1,
+            "stint_number": 1,
+            "lap_start": 1,
+            "lap_end": 17,
+            "compound": "MEDIUM",
+            "tyre_age_at_start": 0,
+        }])
+        self.assertEqual(
+            set(rows[0]),
+            set(race_stints.stints_from_laps([lap("1", 1, 1)])[0]),
+        )
+
+    def test_orders_by_driver_then_stint(self):
+        rows = race_stints.stints_from_openf1([
+            openf1_stint(44, 2, 20, 40),
+            openf1_stint(1, 1, 1, 19),
+            openf1_stint(44, 1, 1, 19),
+        ])
+
+        self.assertEqual(
+            [(r["driver_number"], r["stint_number"]) for r in rows],
+            [(1, 1), (44, 1), (44, 2)],
+        )
+
+    def test_a_null_compound_falls_back_to_unknown(self):
+        rows = race_stints.stints_from_openf1([openf1_stint(1, 1, 1, 5, compound=None)])
+
+        self.assertEqual(rows[0]["compound"], "UNKNOWN")
+
+    def test_a_null_tyre_age_falls_back_to_zero(self):
+        rows = race_stints.stints_from_openf1([openf1_stint(1, 1, 1, 5, age=None)])
+
+        self.assertEqual(rows[0]["tyre_age_at_start"], 0)
+
+    def test_drops_rows_missing_any_of_the_four_numeric_fields(self):
+        rows = race_stints.stints_from_openf1([
+            openf1_stint(None, 1, 1, 5),
+            openf1_stint(1, None, 1, 5),
+            openf1_stint(1, 1, None, 5),
+            openf1_stint(1, 1, 1, None),
+            openf1_stint(1, 1, 1, 5),
+        ])
+
+        self.assertEqual(len(rows), 1)
+
+    def test_a_lap_end_before_lap_start_is_clamped_to_a_single_lap_stint(self):
+        # The chart derives a bar length from `lap_end - lap_start + 1`; a
+        # negative length would render as a missing bar rather than an error.
+        rows = race_stints.stints_from_openf1([openf1_stint(1, 3, 40, 39)])
+
+        self.assertEqual(rows[0]["lap_start"], 40)
+        self.assertEqual(rows[0]["lap_end"], 40)
+
+    def test_no_rows_yields_no_stints(self):
+        self.assertEqual(race_stints.stints_from_openf1([]), [])
+
+
+class BuildRaceStintsOpenF1Tests(unittest.TestCase):
+    def test_looks_up_the_session_by_date_then_fetches_its_stints(self):
+        calls = []
+
+        def fake_fetch(url, params=None, timeout=20.0):
+            calls.append((url, params))
+            if url.endswith("/sessions"):
+                return [
+                    {"session_key": 11334, "date_start": "2026-07-19T13:00:00+00:00"},
+                    {"session_key": 11342, "date_start": "2026-07-26T13:00:00+00:00"},
+                ]
+            return [openf1_stint(1, 1, 1, 17)]
+
+        with patch.object(race_stints, "_fetch_json", side_effect=fake_fetch):
+            stints = race_stints.build_race_stints_openf1("2026-07-26")
+
+        self.assertEqual(calls[0][1], {"year": "2026", "session_type": "Race"})
+        self.assertEqual(calls[1][1], {"session_key": 11342})
+        self.assertEqual(len(stints), 1)
+
+    def test_a_date_with_no_matching_session_returns_none(self):
+        with patch.object(race_stints, "_fetch_json", return_value=[
+            {"session_key": 11342, "date_start": "2026-07-26T13:00:00+00:00"},
+        ]):
+            self.assertIsNone(race_stints.build_race_stints_openf1("2026-08-23"))
+
+    def test_a_season_openf1_does_not_cover_returns_none(self):
+        # OpenF1 404s (-> None from `_fetch_json`) for anything before 2023,
+        # which is exactly what has to hand off to the FastF1 fallback.
+        with patch.object(race_stints, "_fetch_json", return_value=None):
+            self.assertIsNone(race_stints.build_race_stints_openf1("2018-07-26"))
+
+    def test_an_empty_stint_feed_returns_none_rather_than_an_empty_list(self):
+        # None/empty both have to read as "OpenF1 has nothing" so the caller
+        # falls through to FastF1 instead of caching an empty document.
+        def fake_fetch(url, params=None, timeout=20.0):
+            if url.endswith("/sessions"):
+                return [{"session_key": 11342, "date_start": "2026-07-26T13:00:00+00:00"}]
+            return []
+
+        with patch.object(race_stints, "_fetch_json", side_effect=fake_fetch):
+            self.assertIsNone(race_stints.build_race_stints_openf1("2026-07-26"))
+
+    def test_no_race_date_returns_none_without_calling_openf1(self):
+        with patch.object(race_stints, "_fetch_json") as fetch:
+            self.assertIsNone(race_stints.build_race_stints_openf1(""))
+
+        fetch.assert_not_called()
+
+
+class RaceStintsSourceOrderTests(unittest.TestCase):
+    """OpenF1 is tried before FastF1, and the winner is recorded on the doc."""
+
+    def test_openf1_is_tried_first_and_fastf1_is_never_reached_when_it_answers(self):
+        fake_db = FakeDb(FakeCollection(None))
+        built = [openf1_stint(1, 1, 1, 17)]
+
+        with patch.object(race_stints, "get_db", return_value=fake_db), \
+             patch.object(
+                 race_stints, "build_race_stints_openf1", return_value=built
+             ) as openf1, \
+             patch.object(race_stints, "build_race_stints") as fastf1_build:
+            response = asyncio.run(race_stints.get_race_stints(year=2026, round_number=11))
+
+        openf1.assert_called_once_with("2026-07-26")
+        fastf1_build.assert_not_called()
+        self.assertTrue(json.loads(response.body)["synced"])
+        self.assertEqual(fake_db.race_stints.update["update"]["$set"]["source"], "openf1")
+
+    def test_falls_back_to_fastf1_and_marks_the_source_when_openf1_has_nothing(self):
+        fake_db = FakeDb(FakeCollection(None))
+        built = [{
+            "driver_number": 1,
+            "stint_number": 1,
+            "lap_start": 1,
+            "lap_end": 20,
+            "compound": "SOFT",
+            "tyre_age_at_start": 1,
+        }]
+
+        with patch.object(race_stints, "get_db", return_value=fake_db), \
+             patch.object(race_stints, "build_race_stints_openf1", return_value=None), \
+             patch.object(race_stints, "build_race_stints", return_value=built) as fastf1_build:
+            asyncio.run(race_stints.get_race_stints(year=2026, round_number=11))
+
+        fastf1_build.assert_called_once_with(2026, 11)
+        self.assertEqual(fake_db.race_stints.update["update"]["$set"]["source"], "fastf1")
+
+    def test_a_round_with_no_known_date_skips_openf1_and_uses_fastf1(self):
+        # Nothing to look a session key up by, so the OpenF1 stage can't run
+        # at all -- it must not block the FastF1 path that used to be the only one.
+        fake_db = FakeDb(FakeCollection(None), race_date=None)
+
+        with patch.object(race_stints, "get_db", return_value=fake_db), \
+             patch.object(race_stints, "build_race_stints_openf1") as openf1, \
+             patch.object(race_stints, "build_race_stints", return_value=None):
+            response = asyncio.run(race_stints.get_race_stints(year=1998, round_number=3))
+
+        openf1.assert_not_called()
+        self.assertFalse(json.loads(response.body)["synced"])
+
+    def test_a_cached_document_short_circuits_both_sources(self):
+        cached = FakeCollection({"season": 2026, "round": "11", "stints": [openf1_stint(1, 1, 1, 5)]})
+
+        with patch.object(race_stints, "get_db", return_value=FakeDb(cached)), \
+             patch.object(race_stints, "build_race_stints_openf1") as openf1, \
+             patch.object(race_stints, "build_race_stints") as fastf1_build:
+            asyncio.run(race_stints.get_race_stints(year=2026, round_number=11))
+
+        openf1.assert_not_called()
+        fastf1_build.assert_not_called()
+
+
 class RaceStintsEndpointTests(unittest.TestCase):
     def test_serves_cached_stints_without_calling_fastf1(self):
         cached = FakeCollection({
@@ -131,6 +325,7 @@ class RaceStintsEndpointTests(unittest.TestCase):
         })
 
         with patch.object(race_stints, "get_db", return_value=FakeDb(cached)), \
+             patch.object(race_stints, "build_race_stints_openf1", return_value=None), \
              patch.object(race_stints, "build_race_stints") as build:
             response = asyncio.run(race_stints.get_race_stints(year=2026, round_number=3))
 
@@ -151,6 +346,7 @@ class RaceStintsEndpointTests(unittest.TestCase):
         }]
 
         with patch.object(race_stints, "get_db", return_value=fake_db), \
+             patch.object(race_stints, "build_race_stints_openf1", return_value=None), \
              patch.object(race_stints, "build_race_stints", return_value=built) as build:
             response = asyncio.run(race_stints.get_race_stints(year=2026, round_number=3))
 
@@ -171,6 +367,7 @@ class RaceStintsEndpointTests(unittest.TestCase):
         fake_db = FakeDb(FakeCollection(None))
 
         with patch.object(race_stints, "get_db", return_value=fake_db), \
+             patch.object(race_stints, "build_race_stints_openf1", return_value=None), \
              patch.object(race_stints, "build_race_stints", return_value=None):
             response = asyncio.run(race_stints.get_race_stints(year=2026, round_number=3))
 
@@ -184,6 +381,7 @@ class RaceStintsEndpointTests(unittest.TestCase):
         fake_db = FakeDb(FakeCollection({"season": 2026, "round": "3", "stints": []}))
 
         with patch.object(race_stints, "get_db", return_value=fake_db), \
+             patch.object(race_stints, "build_race_stints_openf1", return_value=None), \
              patch.object(race_stints, "build_race_stints", return_value=None) as build:
             asyncio.run(race_stints.get_race_stints(year=2026, round_number=3))
 
