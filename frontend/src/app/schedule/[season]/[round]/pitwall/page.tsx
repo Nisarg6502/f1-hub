@@ -3,6 +3,7 @@ import Link from "next/link";
 import {
   getPitStops,
   getRaceLaps,
+  getRaceReplay,
   getRaceResults,
   getRaceStints,
   getSeasonRaces,
@@ -13,12 +14,20 @@ import TireStintsChart from "@/components/tire-stints-chart";
 import PitStopsChart from "@/components/pit-stops-chart";
 import LapPositionChart from "@/components/lap-position-chart";
 import RaceControlPanel from "@/components/race-control-panel";
+import RaceReplayView from "@/components/race-replay";
 import PitwallModules from "@/components/pitwall-modules";
 
 interface PageProps {
   params: Promise<{
     season: string;
     round: string;
+  }>;
+  // Populated by a `[RC L66]`-style recap citation linking to
+  // `?module=race-replay&lap=66`, or typed in directly. Both are optional —
+  // this page must render the same without them.
+  searchParams: Promise<{
+    module?: string;
+    lap?: string;
   }>;
 }
 
@@ -70,8 +79,9 @@ function ModuleEmptyState({
   );
 }
 
-export default async function PitwallPage({ params }: PageProps) {
+export default async function PitwallPage({ params, searchParams }: PageProps) {
   const { season, round } = await params;
+  const { module: moduleParam, lap: lapParam } = await searchParams;
   const seasonYear = Number(season);
   const roundNumber = Number(round);
 
@@ -84,12 +94,13 @@ export default async function PitwallPage({ params }: PageProps) {
   // were re-sourced from OpenF1 to FastF1 back when OpenF1 returned 401 for the
   // whole current season (that paywall has since lifted, verified 2026-07-29).
   // Pit stops come from Ergast, which unlike FastF1 answers from Cloud Run.
-  const [racesRes, resultsRes, stintsRes, pitStopsRes, lapsRes] = await Promise.all([
+  const [racesRes, resultsRes, stintsRes, pitStopsRes, lapsRes, replayRes] = await Promise.all([
     getSeasonRaces(seasonYear),
     getRaceResults(seasonYear, roundNumber),
     getRaceStints(seasonYear, roundNumber).catch(() => null),
     getPitStops(seasonYear, roundNumber).catch(() => null),
     getRaceLaps(seasonYear, roundNumber).catch(() => null),
+    getRaceReplay(seasonYear, roundNumber).catch(() => null),
   ]);
   const race = (racesRes.races ?? []).find((r) => r.round === String(roundNumber));
 
@@ -126,6 +137,9 @@ export default async function PitwallPage({ params }: PageProps) {
   const stops = pitStopsRes?.stops ?? [];
   const laps = lapsRes?.laps ?? [];
 
+  const lapNumber = lapParam ? Number(lapParam) : undefined;
+  const initialLap = Number.isFinite(lapNumber) ? lapNumber : undefined;
+
   return (
     <div className="px-6 md:px-10 pt-8 pb-16">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-6">
@@ -149,6 +163,9 @@ export default async function PitwallPage({ params }: PageProps) {
       </div>
 
       <PitwallModules
+        // A `?lap=` link implies the reader wants the replay open even if
+        // `?module=` wasn't set explicitly (typed URLs, older citation links).
+        initialModuleId={moduleParam ?? (initialLap !== undefined ? "race-replay" : undefined)}
         modules={[
           {
             id: "stints",
@@ -201,6 +218,28 @@ export default async function PitwallPage({ params }: PageProps) {
                 finished and its data has been archived — check back after
                 the weekend.
               </ModuleEmptyState>
+            ),
+          },
+          {
+            id: "race-replay",
+            label: "Race Replay",
+            // RaceReplayView renders its own "not available yet" state for an
+            // unsynced round, so — unlike the other modules — this doesn't
+            // need a ModuleEmptyState wrapper here.
+            panel: (
+              <RaceReplayView
+                replay={
+                  replayRes ?? {
+                    year: seasonYear,
+                    round: roundNumber,
+                    total_laps: 0,
+                    drivers: {},
+                    laps: [],
+                    synced: false,
+                  }
+                }
+                initialLap={initialLap}
+              />
             ),
           },
           {

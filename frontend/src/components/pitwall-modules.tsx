@@ -14,13 +14,20 @@ interface PitwallModulesProps {
   modules: PitwallModule[];
   /** Labels for modules that aren't built yet, shown disabled below the rest. */
   comingSoon?: string[];
+  /** Opens a specific module on load — how a `?module=` deep link (e.g. from
+   * a race-control citation) lands on the right panel instead of always the
+   * first one. Falls back to the first module if the id doesn't match any. */
+  initialModuleId?: string;
 }
 
 export default function PitwallModules({
   modules,
   comingSoon = [],
+  initialModuleId,
 }: PitwallModulesProps) {
-  const [activeId, setActiveId] = useState(modules[0]?.id);
+  const [activeId, setActiveId] = useState(
+    modules.some((m) => m.id === initialModuleId) ? initialModuleId : modules[0]?.id
+  );
   const active = modules.find((module) => module.id === activeId) ?? modules[0];
 
   // No `items-start` on this grid: `<main>` must stretch to the row's full

@@ -8,6 +8,12 @@ import { getTeamColor } from "@/lib/team-colors";
 
 interface RaceReplayViewProps {
   replay: RaceReplay;
+  /** Opens the scrubber straight to this lap — how a `[RC L66]` citation or a
+   * `?lap=` deep link lands on the moment it's about, instead of lap 1. A lap
+   * with no matching row (out of range, or the round hasn't reached it in the
+   * data) is ignored rather than clamped, so an odd link fails quietly to the
+   * default start instead of guessing at a nearby lap. */
+  initialLap?: number;
 }
 
 /** Strong ease-out, matching `--ease-out-apex` and the rest of the app's motion. */
@@ -72,12 +78,18 @@ function formatGap(gap: number | null | undefined, isLeader: boolean): string {
   return `+${gap.toFixed(3)}`;
 }
 
-export default function RaceReplayView({ replay }: RaceReplayViewProps) {
+export default function RaceReplayView({ replay, initialLap }: RaceReplayViewProps) {
   const reduce = useReducedMotion();
   const laps = replay.laps;
   const lastLapIndex = Math.max(0, laps.length - 1);
 
-  const [lapIndex, setLapIndex] = useState(0);
+  const initialIndex = useMemo(() => {
+    if (initialLap === undefined) return 0;
+    const found = laps.findIndex((lap) => lap.lap === initialLap);
+    return found >= 0 ? found : 0;
+  }, [initialLap, laps]);
+
+  const [lapIndex, setLapIndex] = useState(initialIndex);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
   const [scrubbing, setScrubbing] = useState(false);

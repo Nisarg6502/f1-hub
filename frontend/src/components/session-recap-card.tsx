@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useState, type ReactNode } from "react";
+import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import { useReducedMotion } from "motion/react";
 import { getSessionRecapUrl, type RecapSession } from "@/lib/api";
@@ -34,7 +35,17 @@ const GENERATING_LABEL: Record<RecapSession, string> = {
 // "[P1]" and "[ P1 ]" depending on the sentence.
 const CITATION_RE = /\[\s*(?:Q\d[^\]]*?|P\d+[^\]]*?|FL|RC[^\]]*?)\s*\]/g;
 
-function decorateCitations(children: ReactNode): ReactNode {
+// A race-control citation with a lap points at a real moment in the race
+// replay's scrubber; one with no lap ("RC", a lap deletion or a session-wide
+// note) has nowhere on the timeline to land, so it stays a plain chip like
+// every other citation. The prompt's documented format is "RC L66", but the
+// model doesn't reliably follow it — live recaps have been observed emitting
+// bare "RC 66" instead (the same instruction-drift session_recap.py's own
+// vocabulary validator exists to catch on the generation side). The `L` is
+// therefore optional here rather than assumed.
+const RC_WITH_LAP_RE = /^RC\s*L?\s*(\d+)$/i;
+
+function decorateCitations(children: ReactNode, replayHref?: (lap: number) => string): ReactNode {
   return (
     <>
       {(Array.isArray(children) ? children : [children]).map((child, index) => {
@@ -48,11 +59,24 @@ function decorateCitations(children: ReactNode): ReactNode {
             {parts.map((part, i) => (
               <Fragment key={i}>
                 {part}
-                {matches[i] && (
-                  <span className="inline-block align-baseline font-semibold text-[10px] tracking-[0.04em] text-[#FF9A5A]/70 bg-[rgba(255,90,31,0.08)] rounded px-1 py-px mx-0.5">
-                    {matches[i].slice(1, -1).trim()}
-                  </span>
-                )}
+                {matches[i] && (() => {
+                  const label = matches[i].slice(1, -1).trim();
+                  const lapMatch = replayHref ? label.match(RC_WITH_LAP_RE) : null;
+                  const chipClass =
+                    "inline-block align-baseline font-semibold text-[10px] tracking-[0.04em] text-[#FF9A5A]/70 bg-[rgba(255,90,31,0.08)] rounded px-1 py-px mx-0.5";
+
+                  return lapMatch ? (
+                    <Link
+                      href={replayHref!(Number(lapMatch[1]))}
+                      className={`${chipClass} hover:text-[#FF9A5A] hover:bg-[rgba(255,90,31,0.16)] transition-colors`}
+                      title={`Jump to lap ${lapMatch[1]} in the race replay`}
+                    >
+                      {label}
+                    </Link>
+                  ) : (
+                    <span className={chipClass}>{label}</span>
+                  );
+                })()}
               </Fragment>
             ))}
           </Fragment>
@@ -118,6 +142,15 @@ export default function SessionRecapCard({
 
   if (!isStreaming && !text) return null;
 
+  // The race replay's lap timeline is built from the Race session only
+  // (see race_replay.py) — a qualifying or sprint recap's `[RC L#]` laps
+  // belong to a different session and don't correspond to it, so only the
+  // race recap's citations get the link.
+  const replayHref =
+    session === "race"
+      ? (lap: number) => `/schedule/${year}/${round}/pitwall?module=race-replay&lap=${lap}`
+      : undefined;
+
   return (
     <div className="apex-glass-soft rounded-2xl p-[22px] mb-6">
       <div className="flex items-center gap-2 mb-3.5">
@@ -137,7 +170,7 @@ export default function SessionRecapCard({
           <ReactMarkdown
             components={{
               p: ({ children }) => (
-                <p className="mb-3.5 last:mb-0">{decorateCitations(children)}</p>
+                <p className="mb-3.5 last:mb-0">{decorateCitations(children, replayHref)}</p>
               ),
               strong: ({ children }) => (
                 <strong className="font-bold text-on-background">{children}</strong>
