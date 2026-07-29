@@ -30,15 +30,80 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 9 (ad hoc) | unnumbered | Fixed the Circuit history panel (CP27) reporting wrong "first raced" years, e.g. "2024" for Silverstone (on the calendar since 1950) — it aggregated only over whichever seasons this app's own sync job happened to have cached, not full circuit history. Re-sourced `/api/circuit_history` from Ergast/Jolpica's circuit-scoped endpoints (full result history back to 1950), cached in a new `circuit_history_cache` collection. Found via a user bug report on `/circuits`, not backlog-planned. PR #57 | merged |
 | 10 | CP38 | "AI Recap" on the race-detail page — an LLM-generated, streamed race summary grounded in cached classification data (Ollama Cloud), generated once per race and cached forever | merged |
 | 10 (ad hoc) | unnumbered | Accuracy overhaul of CP38 after a user caught a hallucinated teammate claim: pre-compute relational facts in code, add OpenF1 race-control events (penalties, VSC, stewards' decisions), upgrade to `gpt-oss:120b`, add inline citations and Markdown rendering. Also discovered OpenF1's current-season paywall has lifted. PR #60 | merged |
+| 11 | CP39-41 | Corrected the stale OpenF1 paywall claims across docs and user-facing copy (PR #64), self-healed `race_stints`/`race_laps` from OpenF1 with FastF1 as fallback (PR #65), extended AI recaps to Qualifying and Sprint (PR #66) | merged |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
 ## Current batch
 
-Batch 10 is complete and merged: CP38 AI race recap (PR #59) plus its accuracy overhaul (PR #60).
+**Batch 12 (CP42-44) — Race replay.** The backlog's "race replay / session playback" item, now
+buildable because CP40 made `race_laps`/`race_stints` self-heal from OpenF1: before it, that data
+only ever populated when someone ran `data_sync.py` locally, so a replay would have been empty in
+production for most rounds.
 
-**Batch 11 (CP39-41)** is scoped around a single discovery: **OpenF1's current-season paywall has
-fully lifted.** Not just `/race_control` (found during CP38's overhaul) — `/stints`, `/laps` and
+**What the cached data actually supports** (verified against the 2026 British GP, round 9):
+
+| Source | Row shape | Rows |
+|---|---|---|
+| `race_laps` | `{driver_number, lap_number, position, gap_seconds}` | 1111 (22 drivers × 52 laps) |
+| `race_stints` | `{driver_number, stint_number, lap_start, lap_end, compound, tyre_age_at_start}` | 73 |
+| `pit_stops` | `{driver_id, lap, stop, duration_seconds}` | 51 |
+| `race_control` | lap-tagged events, already distilled by `race_control_facts.py` | ~80 raw |
+
+Everything keys by lap, so a lap-indexed replay is well supported. Two constraints shape the scope:
+
+1. **There is no GPS or coordinate data anywhere in this app.** `track-map.tsx` is a static circuit
+   outline image. So this is a *timing-tower* replay — running order, gaps, tyres, flags, scrubbed
+   by lap — **not** cars animating around a circuit. Worth stating plainly, because "race replay"
+   invites the wrong mental image and would set up an impossible-to-meet expectation.
+2. **`pit_stops` keys on `driver_id` (`"albon"`), while `race_laps`/`race_stints` key on
+   `driver_number` (`23`).** A join written without noticing that silently drops every pit marker
+   with no error — the same *plausible-but-wrong* failure shape as the circuit-history bug below.
+   `race_results` carries both fields and is the bridge.
+
+- **CP42 — `/api/race_replay` endpoint.** One lap-indexed payload joining laps, stints, pit stops
+  and race control, resolving `driver_id`↔`driver_number` **once, server-side**. This is CP38's
+  precompute lesson applied to a join rather than a prompt: the client should never re-derive a key
+  mapping that has a silent failure mode. Cached like the other collections.
+- **CP43 — Timing tower + lap scrubber.** Lap slider, running order at the scrubbed lap with
+  position/gap/tyre compound, pit and flag markers on the scrub track, play/pause with a speed
+  control. Per this file's own skill rule, `emil-design-eng` and `apple-design` must be invoked
+  before implementing — a scrubber is exactly the gesture-driven, physically-feeling interaction
+  that rule exists for.
+- **CP44 — Pitwall integration and deep-linking.** Surface it as a Pitwall module with `?lap=N`
+  deep links, so a recap citation like `[RC L8]` can eventually jump straight to that moment.
+
+**Parallelization: none — this batch is sequential.** Unlike Batches 6-9, CP43 consumes CP42's
+payload shape and CP44 consumes CP43's component. Running these as parallel worktree agents would
+have each guessing at the payload contract and produce three incompatible answers.
+
+**Batch 11 (CP39-41) is complete and merged** (PRs #64, #65, #66). It was scoped around a single
+discovery: **OpenF1's current-season paywall has fully lifted.**
+
+CP41 (Qualifying/Sprint recaps) is worth reading before the next GenAI checkpoint, because it
+found the limit of prompt-based grounding. Two rules the model broke under live testing:
+
+- It called a `gap_to_cutoff` value *"the closest margin of the segment"* — a ranked comparison the
+  data never makes. Those arrays hold individually-true numbers that are not sorted against each
+  other, and the prompt now says so explicitly.
+- It wrote *"completed the podium in third"* in a **qualifying** recap, despite "podium" being
+  banned twice in that prompt including an ALL-CAPS block. **Restating a rule more forcefully did
+  not work; a second restatement did not work either.** The fix was to stop trusting the prompt:
+  `SESSION_VALIDATORS` checks the assembled qualifying text in Python and regenerates once with a
+  corrective message. Generalized — CP38 showed a model will confabulate a *fact* it was asked to
+  derive; CP41 shows it will also break a *constraint* it was asked to remember while writing.
+  Anything that must be true of the output belongs in code, not only in the prompt.
+- Third, smaller lesson: the first fix for the ranking problem was written too broadly ("do not
+  compare gaps"), and the model over-corrected into reciting every driver's time and gap in turn,
+  blowing the word limit and reproducing the classification table in prose. A rule that forbids a
+  behaviour should say what to do *instead* — rule 16 ("select, do not enumerate") restored it.
+
+The validator costs the qualifying recap its token-by-token streaming: the text must be complete
+before it can be checked, and a violation must not reach the reader first. Only the first viewer of
+a session pays that wait, since every one after replays from cache — the same trade the 120b model
+was chosen under. Race and Sprint still stream.
+
+**The original Batch 11 scope, for reference:** Not just `/race_control` (found during CP38's overhaul) — `/stints`, `/laps` and
 `/pit` all return 200 for 2026 as well, verified 2026-07-29. This invalidates a constraint that has
 shaped the architecture since Batch 2 and is asserted in many places across the docs and code.
 
@@ -205,12 +270,6 @@ it retry indefinitely.
   appearing.
 
 ### GenAI features
-- "Explain this session" for Qualifying and Sprint — the Race-only version shipped in Batch 10
-  (CP38); extending to the other session types is a smaller follow-up now that the Ollama Cloud
-  integration, streaming pattern, fact-precomputation approach and caching shape all exist. Race
-  Control context (penalties, safety cars, flags) is already wired in for the Race recap and is
-  reachable for the current season again — the OpenF1 paywall that previously blocked it has
-  lifted.
 - Natural-language query bar (a GenAI layer alongside the now-functional keyword nav search)
 - Race strategy commentary on the Pitwall page (grounded in stint data)
 - Driver comparison narrative (pairs with the head-to-head feature)

@@ -1,4 +1,4 @@
-# F1 Hub — Handoff (2026-07-28)
+# F1 Hub — Handoff (2026-07-29)
 
 ## Where things stand
 
@@ -10,11 +10,22 @@ quirks, and the immediate next action.
 
 ### Immediate next action
 
-Batch 10 (CP38, the AI race recap) is complete and merged, including a follow-up accuracy overhaul.
-Batch 11 is not yet planned — see `ROADMAP.md`'s Backlog section for candidates. **Read
-`ROADMAP.md`'s Current batch section before building any further GenAI feature** — the CP38
-hallucination post-mortem there (precompute relational facts in code; never let the model derive
-them) is the single most transferable lesson from this batch.
+Batch 11 (CP39-41) is complete and merged (PRs #64, #65, #66). Batch 12 (CP42-44, race replay) is
+planned in `ROADMAP.md`'s Current batch section — **read it before starting**, especially the note
+that there is no GPS/coordinate data anywhere in this app (this is a timing-tower replay, not
+animated cars) and the `driver_id`/`driver_number` join-key mismatch between `pit_stops` and
+`race_laps`/`race_stints`. This batch is sequential (CP43 consumes CP42's payload shape), unlike
+the last several parallel-worktree batches.
+
+**CP41's finding matters for any future GenAI checkpoint, not just this one:** a prompt rule that
+tells the model what NOT to do can fail even after being restated twice (the qualifying recap kept
+writing "podium" despite an explicit ban including an ALL-CAPS block). `SESSION_VALIDATORS` in
+`session_recap.py` now checks the assembled qualifying text in code and regenerates once on a
+violation — the same "don't trust the model to self-police, verify in code" lesson CP38 established
+for *facts*, now shown to also apply to *vocabulary constraints*. See `ROADMAP.md`'s Current batch
+section for the full writeup, including a second lesson: a rule that forbids a behaviour without
+saying what to do instead can cause a worse regression (banning comparative gap language made the
+model recite every driver's time in turn, blowing the word limit).
 
 ### OpenF1's current-season paywall has lifted — several docs are stale on this
 
