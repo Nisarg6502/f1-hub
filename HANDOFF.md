@@ -1,4 +1,4 @@
-# F1 Hub — Handoff (2026-07-29)
+# F1 Hub — Handoff (2026-07-30)
 
 ## Where things stand
 
@@ -10,8 +10,28 @@ quirks, and the immediate next action.
 
 ### Immediate next action
 
-Batch 12 (CP42-44, race replay) is complete and merged (PRs #68, #69, #70). No batch is currently
-planned — see `ROADMAP.md`'s Backlog section for candidates before starting the next one.
+Batch 12 (CP42-44, race replay) plus its two ad-hoc follow-up fixes are complete and merged (PRs
+#68, #69, #70, #72, #73). No batch is currently planned — see `ROADMAP.md`'s Backlog section for
+candidates before starting the next one.
+
+**The ad-hoc fixes (PRs #72, #73) are worth reading before touching `race_replay.py` again.** Both
+were the same shape of bug found via live user testing, not planned work: the timing tower's field
+visibly thinned near the end of a race, reading as a wave of retirements when most of the missing
+cars had actually finished — first for classified finishers who are a lap down (`race_laps` has no
+row for a car once it stops being tracked, and a lapped car stops being tracked *before* the
+winner's actual final lap), then for genuine retirees (dropped entirely rather than shown as
+retired). `build_replay()` now carries every driver's last row forward to the winner's final lap,
+tagging a genuine retirement `retired: true` so the frontend can render it distinctly (dimmed,
+sorted last, "RETIRED" instead of a live gap) rather than both cases just vanishing identically.
+Full writeup in `ROADMAP.md`'s Batch 12 retrospective.
+
+**Verification gotcha from PR #73, worth remembering for any backend fix:** after restarting both
+the backend (`uvicorn`) and the frontend dev server, the browser kept showing the pre-fix data.
+The cause was Next.js's Turbopack dev cache under `frontend/.next/dev/cache`, which persists fetch
+responses **across dev-server restarts** — clearing `.next/cache/fetch-cache` did nothing;
+`rm -rf frontend/.next` (the whole directory, not just that one subfolder) was needed to actually
+bust it. If a backend change doesn't seem to show up in the browser after restarting both servers,
+suspect this cache before suspecting the fix.
 
 **CP44 extended CP41's finding to a third failure class: output *format*, not just vocabulary.**
 `session_recap.py`'s prompt documents race-control citations as `[RC L66]`, but live recaps emit
@@ -110,6 +130,14 @@ is fine — the hourly `f1-data-sync-hourly` Cloud Run Job keeps data fresher th
 ever matters — but if you need a fix to show up on the live site *immediately* after a manual
 backfill, you need to force a fresh Cloud Run revision (re-run the existing Cloud Build trigger,
 e.g. `gcloud builds triggers run <trigger-name> --branch=main`), not just wait or re-request.
+
+**Locally, this same cache is backed by disk under Turbopack, not just memory, and survives a dev
+server restart.** Verifying the race-replay retirement fix (PR #73), restarting both `uvicorn` and
+`next dev` still served the pre-fix payload — the fetch response was cached on disk under
+`frontend/.next/dev/cache`, and clearing the more obviously-named `.next/cache/fetch-cache` did
+nothing. Only `rm -rf frontend/.next` (the whole directory) actually busted it. If a backend fix
+doesn't show up in the browser after restarting both servers, suspect this before suspecting the
+fix — check `.next/dev/cache` exists, don't just assume a restart cleared it.
 
 ### A background agent's "waiting on X" report can be stale — verify against the worktree directly
 
