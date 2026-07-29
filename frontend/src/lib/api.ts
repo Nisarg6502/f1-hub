@@ -683,3 +683,14 @@ export function getSessionRecapUrl(
   url.searchParams.set("session", session);
   return url.toString();
 }
+
+// The Pitwall "Strategy Commentary" module streams plain text the same way
+// the session recap does, so it's fetched directly by its client component
+// (strategy-commentary-card.tsx) rather than through fetchJson — this just
+// centralizes the base-URL logic, mirroring getSessionRecapUrl above.
+export function getStrategyCommentaryUrl(year: number, round: number): string {
+  const url = new URL("/api/strategy_commentary", API_BASE_URL);
+  url.searchParams.set("year", String(year));
+  url.searchParams.set("round", String(round));
+  return url.toString();
+}

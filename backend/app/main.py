@@ -13,6 +13,7 @@ from . import race_laps
 from . import circuit_history
 from . import session_recap
 from . import race_replay
+from . import strategy_commentary
 
 app = FastAPI(title="F1 API")
 
@@ -37,6 +38,7 @@ app.include_router(race_laps.router)
 app.include_router(circuit_history.router)
 app.include_router(session_recap.router)
 app.include_router(race_replay.router)
+app.include_router(strategy_commentary.router)
 
 
 @app.get("/health")
