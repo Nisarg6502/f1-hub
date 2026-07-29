@@ -364,19 +364,23 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
                 transform: `translateY(${order * ROW_HEIGHT}px)`,
                 // Reduced motion drops the positional travel but keeps the
                 // colour fade: the movement is what causes discomfort, and
-                // losing the pit highlight's transition would only make the
-                // change harder to follow, not gentler.
+                // losing the pit/retired highlight's transition would only
+                // make the change harder to follow, not gentler.
                 transition: rowTransitionMs
-                  ? `transform ${rowTransitionMs}ms ${EASE_OUT}, background-color 200ms ease`
-                  : "background-color 200ms ease",
+                  ? `transform ${rowTransitionMs}ms ${EASE_OUT}, background-color 200ms ease, opacity 200ms ease`
+                  : "background-color 200ms ease, opacity 200ms ease",
                 background: runner.pit ? "rgba(255,90,31,0.14)" : "transparent",
+                // A retired car's row is carried forward from its last real
+                // lap rather than live — dimmed so it doesn't read as an
+                // active, current gap.
+                opacity: runner.retired ? 0.5 : 1,
               }}
             >
               <span
                 className="font-extrabold text-[13px] tabular-nums w-6 text-right"
-                style={{ color: order === 0 ? "#FFAE6A" : "#8f867a" }}
+                style={{ color: runner.retired ? "#8f867a" : order === 0 ? "#FFAE6A" : "#8f867a" }}
               >
-                {runner.position ?? "—"}
+                {runner.retired ? "—" : runner.position ?? "—"}
               </span>
               <span
                 className="w-[3px] h-5 rounded-[2px] flex-none"
@@ -391,13 +395,16 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
               <span
                 className="font-bold text-[10px] tabular-nums px-1.5 py-0.5 rounded flex-none"
                 style={{ color: compound, border: `1px solid ${compound}44` }}
-                title={runner.compound ?? "Unknown compound"}
+                title={runner.retired ? "Tyre at the time of retirement" : runner.compound ?? "Unknown compound"}
               >
                 {(runner.compound ?? "?").slice(0, 1)}
                 {runner.tyre_age !== null ? ` ${runner.tyre_age}` : ""}
               </span>
-              <span className="font-semibold text-[12px] tabular-nums text-warm-300 w-[76px] text-right flex-none">
-                {runner.pit ? "IN PIT" : formatGap(runner.gap_seconds, order === 0)}
+              <span
+                className="font-semibold text-[12px] tabular-nums w-[76px] text-right flex-none"
+                style={{ color: runner.retired ? "#c98a8a" : "#c9c0b4" }}
+              >
+                {runner.retired ? "RETIRED" : runner.pit ? "IN PIT" : formatGap(runner.gap_seconds, order === 0)}
               </span>
             </div>
           );

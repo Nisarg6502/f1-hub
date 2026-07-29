@@ -486,6 +486,10 @@ export interface ReplayRunner {
   stint_number: number | null;
   /** The stop made on this lap, or null for "no stop this lap". */
   pit: ReplayPit | null;
+  /** True once this driver has retired — the row is carried forward from
+   * their last real lap rather than live, so `gap_seconds`/`position` are
+   * frozen at the moment they stopped, not a current gap. */
+  retired: boolean;
 }
 
 export interface ReplayEvent {

@@ -24,11 +24,15 @@ first sourcing that data.
 
 A car finishing a lap or more down completes fewer laps than the race winner —
 that's what "lapped" means — so its last `race_laps` row sits before the
-race's actual final lap; it never raced that lap. `build_replay()` carries a
-classified finisher's last known row forward through to the winner's final
-lap, so the tower doesn't visibly thin out over the closing laps as if those
-cars had retired. A genuine retirement is *not* carried forward — it should
-disappear at the lap it actually happened.
+race's actual final lap; it never raced that lap. A car that retires stops
+having any rows at all once it's off track. Both would otherwise make the
+tower visibly thin out over the rest of the race, looking like a wave of
+retirements even when most of the missing cars actually finished.
+`build_replay()` carries every driver's last known row forward through to the
+winner's final lap either way, but tags a genuinely retired driver's carried
+rows `retired: true` — its gap and position are frozen at the moment it
+stopped, not a live number, and the frontend renders it accordingly (dimmed,
+sorted below every car still actually racing).
 
 Cached in `race_replay` because a finished race's replay is immutable, the same
 argument `session_recap` makes for caching recaps forever. `REPLAY_VERSION` is
@@ -52,11 +56,11 @@ from .pit_stops import get_pit_stops
 router = APIRouter(prefix="/api")
 
 # Bump when the payload shape *or* how it's derived changes. Existing cached
-# replays stop matching and rebuild on next view. Bumped to 2 for the
-# classified-finisher carry-forward fix below: same shape, but old cached
-# rows are missing data a fresh build now includes, so they must not keep
-# being served as if they were already correct.
-REPLAY_VERSION = 2
+# replays stop matching and rebuild on next view. 2 added the
+# classified-finisher carry-forward fix; 3 adds a `retired` flag per runner
+# and carries retired drivers forward too, instead of dropping them from the
+# tower the moment they stop.
+REPLAY_VERSION = 3
 
 
 async def _endpoint_payload(coroutine) -> dict:
@@ -228,41 +232,58 @@ def build_replay(
             # Present-but-null rather than omitted, so the frontend can treat
             # "no stop this lap" and "no pit data at all" the same way.
             "pit": stop,
+            # True only on a carried-forward row for a driver who has
+            # actually retired (see below) — never on a row built from a
+            # real `race_laps` entry, since the car was still racing then.
+            "retired": False,
         }
         by_lap.setdefault(lap, []).append(runner)
         seen = last_row_by_number.get(number)
         if not seen or lap > seen[0]:
             last_row_by_number[number] = (lap, runner)
 
-    # A car finishing a lap (or more) down completes fewer laps than the
-    # leader, so its last real `race_laps` row sits before the race's final
-    # lap — it never raced that lap, the race ended first. Left alone, the
-    # timing tower would visibly thin out over the last few laps as if those
-    # cars had retired, when they in fact took the chequered flag; a real
-    # broadcast timing screen keeps every classified finisher visible until
-    # the race actually ends. Retirements are deliberately excluded — only a
-    # driver whose classification status marks them a finisher
-    # (`_FINISHER_STATUSES`, shared with session_recap.py's retirement
-    # detection) gets their last known row repeated forward, with no new pit
-    # stop, through the lap the leader actually finished on.
+    # Every driver's last real `race_laps` row can sit before the race's
+    # actual final lap, for two different reasons that need two different
+    # treatments:
+    #
+    # 1. A car finishing a lap (or more) down completes fewer laps than the
+    #    leader — it took the chequered flag on an earlier lap than the
+    #    leader did, so it never raced the leader's final lap. It's still a
+    #    classified finisher, so its last known row (gap, tyre, position) is
+    #    carried forward unmarked, exactly as if it were still there.
+    # 2. A car that actually retired stopped being a car on track. Carrying
+    #    its last row forward *unmarked* would silently freeze its gap while
+    #    time keeps passing — reading as "still racing, just stationary,"
+    #    which is wrong. It's carried forward too (so the field doesn't
+    #    visibly thin out and look like more retirements happened), but
+    #    tagged `retired: True` so the frontend can show it as off-track
+    #    rather than as a live gap.
+    #
+    # Both branches share `_FINISHER_STATUSES` (session_recap.py's own
+    # retirement classification) as the split between the two.
     last_lap = max(by_lap) if by_lap else 0
     for number, (last_seen, last_row) in last_row_by_number.items():
         entry = directory.get(number) or {}
         status = str(entry.get("finish_status") or "").strip().lower()
-        if not status.startswith(_FINISHER_STATUSES):
-            continue
+        retired = not status.startswith(_FINISHER_STATUSES)
         for lap in range(last_seen + 1, last_lap + 1):
-            by_lap.setdefault(lap, []).append({**last_row, "pit": None})
+            by_lap.setdefault(lap, []).append({**last_row, "pit": None, "retired": retired})
 
     ordered_laps = [
         {
             # Runners are sorted here so every consumer sees the same order and
-            # none of them has to re-sort 52 times while scrubbing. A row with
-            # no position sorts last rather than crashing the comparison.
+            # none of them has to re-sort 52 times while scrubbing. A retired
+            # car's `position` is frozen at wherever it was running when it
+            # stopped — sorting on that number alone could put it above cars
+            # still actually racing, so `retired` sorts first (active runners
+            # before retired ones) and position only breaks ties within each
+            # group. A row with no position sorts last within its group
+            # rather than crashing the comparison.
             "lap": lap,
             "runners": sorted(
                 by_lap[lap],
                 key=lambda r: (
+                    r["retired"],
                     r["position"] is None,
                     int(r["position"]) if str(r["position"] or "").isdigit() else 0,
                 ),
