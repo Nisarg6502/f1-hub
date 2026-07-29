@@ -31,15 +31,21 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 10 | CP38 | "AI Recap" on the race-detail page — an LLM-generated, streamed race summary grounded in cached classification data (Ollama Cloud), generated once per race and cached forever | merged |
 | 10 (ad hoc) | unnumbered | Accuracy overhaul of CP38 after a user caught a hallucinated teammate claim: pre-compute relational facts in code, add OpenF1 race-control events (penalties, VSC, stewards' decisions), upgrade to `gpt-oss:120b`, add inline citations and Markdown rendering. Also discovered OpenF1's current-season paywall has lifted. PR #60 | merged |
 | 11 | CP39-41 | Corrected the stale OpenF1 paywall claims across docs and user-facing copy (PR #64), self-healed `race_stints`/`race_laps` from OpenF1 with FastF1 as fallback (PR #65), extended AI recaps to Qualifying and Sprint (PR #66) | merged |
+| 12 | CP42-44 | Race replay: lap-indexed `/api/race_replay` endpoint (PR #68), timing tower + lap scrubber component (PR #69), Pitwall integration with `?lap=N` deep-linking from race-control citations (PR #70) | merged |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
 ## Current batch
 
-**Batch 12 (CP42-44) — Race replay.** The backlog's "race replay / session playback" item, now
-buildable because CP40 made `race_laps`/`race_stints` self-heal from OpenF1: before it, that data
-only ever populated when someone ran `data_sync.py` locally, so a replay would have been empty in
-production for most rounds.
+No batch is currently planned — Batch 12 shipped and merged (PRs #68, #69, #70); the next batch has
+not been scoped yet. See Backlog below for candidates.
+
+## Batch 12 retrospective — Race replay (CP42-44)
+
+**Batch 12 (CP42-44) is complete and merged** (PRs #68, #69, #70). It was the backlog's "race
+replay / session playback" item, made buildable by CP40's self-heal work: before it, `race_laps`/
+`race_stints` only ever populated when someone ran `data_sync.py` locally, so a replay would have
+been empty in production for most rounds.
 
 **What the cached data actually supports** (verified against the 2026 British GP, round 9):
 
@@ -72,6 +78,18 @@ Everything keys by lap, so a lap-indexed replay is well supported. Two constrain
   that rule exists for.
 - **CP44 — Pitwall integration and deep-linking.** Surface it as a Pitwall module with `?lap=N`
   deep links, so a recap citation like `[RC L8]` can eventually jump straight to that moment.
+
+**CP44 found the same instruction-drift failure class CP41 documented, this time in citation
+formatting rather than vocabulary.** `session_recap.py`'s prompt documents the race-control
+citation format as `[RC L66]`, but live recaps were observed emitting bare `[RC 5]`, `[RC 18]`,
+etc. — no `L`. Generalizing CP41's lesson further: **a prompt rule describing an output *format*
+is just as unreliable under generation as a rule describing forbidden *vocabulary* or a
+*constraint to remember while writing*.** This time the fix stayed on the display side rather than
+adding another code-side validator to `session_recap.py` — the frontend's lap-extraction regex
+(`session-recap-card.tsx`) was made tolerant of both forms, since the lap number is unambiguous
+either way and turning a citation into a working link is a rendering concern, not a generation
+one. Worth remembering before adding another citation-style feature: verify the *actual* emitted
+format against a live cached recap, not the prompt's documented example.
 
 **Parallelization: none — this batch is sequential.** Unlike Batches 6-9, CP43 consumes CP42's
 payload shape and CP44 consumes CP43's component. Running these as parallel worktree agents would
@@ -277,7 +295,9 @@ it retry indefinitely.
 - Pre-race prediction with transparent reasoning (framed as commentary, not a promise)
 
 ### Replay & media
-- Race replay / session playback (lap-by-lap scrub, timing tower, track status flags)
+- Race replay / session playback shipped in Batch 12 (CP42-44) — a lap-indexed timing tower, not
+  cars on track (no GPS/coordinate data exists in this app). Track-position animation would need a
+  new coordinate data source before it could be built, not just more UI work on top of this.
 - Strategy "what-if" pit-stop replay (drag a stop to a different lap, estimate position impact)
 
 ### Other

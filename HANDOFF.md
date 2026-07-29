@@ -10,22 +10,28 @@ quirks, and the immediate next action.
 
 ### Immediate next action
 
-Batch 11 (CP39-41) is complete and merged (PRs #64, #65, #66). Batch 12 (CP42-44, race replay) is
-planned in `ROADMAP.md`'s Current batch section — **read it before starting**, especially the note
-that there is no GPS/coordinate data anywhere in this app (this is a timing-tower replay, not
-animated cars) and the `driver_id`/`driver_number` join-key mismatch between `pit_stops` and
-`race_laps`/`race_stints`. This batch is sequential (CP43 consumes CP42's payload shape), unlike
-the last several parallel-worktree batches.
+Batch 12 (CP42-44, race replay) is complete and merged (PRs #68, #69, #70). No batch is currently
+planned — see `ROADMAP.md`'s Backlog section for candidates before starting the next one.
 
-**CP41's finding matters for any future GenAI checkpoint, not just this one:** a prompt rule that
-tells the model what NOT to do can fail even after being restated twice (the qualifying recap kept
-writing "podium" despite an explicit ban including an ALL-CAPS block). `SESSION_VALIDATORS` in
-`session_recap.py` now checks the assembled qualifying text in code and regenerates once on a
-violation — the same "don't trust the model to self-police, verify in code" lesson CP38 established
-for *facts*, now shown to also apply to *vocabulary constraints*. See `ROADMAP.md`'s Current batch
-section for the full writeup, including a second lesson: a rule that forbids a behaviour without
-saying what to do instead can cause a worse regression (banning comparative gap language made the
-model recite every driver's time in turn, blowing the word limit).
+**CP44 extended CP41's finding to a third failure class: output *format*, not just vocabulary.**
+`session_recap.py`'s prompt documents race-control citations as `[RC L66]`, but live recaps emit
+bare `[RC 5]`, `[RC 18]` — no `L`. Unlike CP41 (fixed with a code-side validator + regenerate),
+this one was fixed on the display side: `session-recap-card.tsx`'s lap-extraction regex was made
+tolerant of both forms, since the lap number is unambiguous either way. **Before building on top of
+any documented prompt-output format, check what a live cached recap actually contains** — the
+prompt's example is not proof of what the model reliably produces. See `ROADMAP.md`'s Batch 12
+retrospective for the full writeup.
+
+**CP41's finding matters for any future GenAI checkpoint:** a prompt rule that tells the model what
+NOT to do can fail even after being restated twice (the qualifying recap kept writing "podium"
+despite an explicit ban including an ALL-CAPS block). `SESSION_VALIDATORS` in `session_recap.py`
+now checks the assembled qualifying text in code and regenerates once on a violation — the same
+"don't trust the model to self-police, verify in code" lesson CP38 established for *facts*, now
+shown to also apply to *vocabulary constraints* (and, per CP44 above, to *format*). See
+`ROADMAP.md`'s Batch 11 section for the full writeup, including a second lesson: a rule that
+forbids a behaviour without saying what to do instead can cause a worse regression (banning
+comparative gap language made the model recite every driver's time in turn, blowing the word
+limit).
 
 ### OpenF1's current-season paywall has lifted — several docs are stale on this
 
