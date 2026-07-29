@@ -710,3 +710,53 @@ export function getDriverComparisonRecapUrl(
   url.searchParams.set("driver2", driver2);
   return url.toString();
 }
+
+// --- Historical index (Batch 14: 75-Season Barcode + Constructor Genealogy) ---
+//
+// Both endpoints are backed by `historical_index.py`'s Mongo-cached,
+// pre-normalised data (shared-drive de-duplication, chassis/engine-era
+// constructor-id collapsing, per-era `alfa` splitting, Indy 500 flagging —
+// see that module's docstring). History barely changes, so these use a long
+// revalidate window rather than the default 5 minutes.
+
+export interface HistoricalRace {
+  season: number;
+  round: number;
+  date?: string;
+  race_name?: string;
+  circuit_id?: string;
+  driver?: string;
+  constructor_key: string;
+  constructor_name?: string;
+  indy500: boolean;
+}
+
+export interface HistoricalRaceIndexResponse {
+  races: HistoricalRace[];
+  count: number;
+}
+
+export async function getHistoricalRaceIndex(
+  detail: "full" | "compact" = "full"
+): Promise<HistoricalRaceIndexResponse> {
+  return fetchJson<HistoricalRaceIndexResponse>(
+    "/api/historical_race_index",
+    { detail },
+    { next: { revalidate: 86400 } } // 24h — 1950-present is static, only today's season tail moves
+  );
+}
+
+export interface ConstructorSeasonsResponse {
+  constructor_id: string;
+  seasons: number[];
+}
+
+export async function getConstructorSeasons(
+  constructorId: string
+): Promise<ConstructorSeasonsResponse> {
+  return fetchJson<ConstructorSeasonsResponse>(
+    "/api/constructor_seasons",
+    { constructor_id: constructorId },
+    { next: { revalidate: 86400 } }
+  );
+}
