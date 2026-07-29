@@ -694,3 +694,19 @@ export function getStrategyCommentaryUrl(year: number, round: number): string {
   url.searchParams.set("round", String(round));
   return url.toString();
 }
+
+// Same streamed-plain-text convention as getSessionRecapUrl, for the
+// driver-comparison narrative (driver-comparison-recap.tsx). driver1/driver2
+// are Ergast driverIds (e.g. "verstappen", "norris") -- the same identifiers
+// already used to key DriverStanding.Driver.driverId.
+export function getDriverComparisonRecapUrl(
+  year: number,
+  driver1: string,
+  driver2: string
+): string {
+  const url = new URL("/api/driver_comparison_recap", API_BASE_URL);
+  url.searchParams.set("year", String(year));
+  url.searchParams.set("driver1", driver1);
+  url.searchParams.set("driver2", driver2);
+  return url.toString();
+}
