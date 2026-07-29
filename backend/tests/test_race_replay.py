@@ -186,10 +186,13 @@ class BuildReplayTests(unittest.TestCase):
 
 
 class CarryForwardFinisherTests(unittest.TestCase):
-    """A classified finisher who's a lap down has fewer `race_laps` rows than
-    the winner — they never raced the winner's final lap. Without carrying
-    their last row forward, the tower would show them vanishing as if they'd
-    retired. A genuine retirement must NOT be carried forward.
+    """Every driver's last real `race_laps` row can sit before the race's
+    actual final lap, for two different reasons: a classified finisher who's
+    a lap down never raced the leader's final lap, and a car that retired
+    stopped having any rows at all. Both are carried forward so the tower
+    doesn't visibly thin out and look like a wave of retirements — but a
+    retirement is tagged `retired: True` (frozen gap, no longer live) while a
+    lapped finisher's carried row is indistinguishable from a real one.
     """
 
     RESULTS = [
@@ -200,33 +203,50 @@ class CarryForwardFinisherTests(unittest.TestCase):
 
     def _replay(self):
         laps = [
-            {"driver_number": 12, "lap_number": 1, "position": 1, "gap_seconds": 0.0},
-            {"driver_number": 23, "lap_number": 1, "position": 2, "gap_seconds": 1.5},
-            {"driver_number": 44, "lap_number": 1, "position": 3, "gap_seconds": 3.0},
+            # 44 leads lap 1, then retires — its frozen position (1) is
+            # numerically as good as or better than the actively-racing
+            # cars' positions on every later lap, which is exactly the case
+            # that would sort it above them without the `retired`-first key.
+            {"driver_number": 44, "lap_number": 1, "position": 1, "gap_seconds": 0.0},
+            {"driver_number": 12, "lap_number": 1, "position": 2, "gap_seconds": 1.0},
+            {"driver_number": 23, "lap_number": 1, "position": 3, "gap_seconds": 2.0},
             {"driver_number": 12, "lap_number": 2, "position": 1, "gap_seconds": 0.0},
-            {"driver_number": 23, "lap_number": 2, "position": 2, "gap_seconds": 2.1},
-            # 44 retires after lap 1 — no more rows for it, ever.
+            {"driver_number": 23, "lap_number": 2, "position": 2, "gap_seconds": 1.5},
+            # 44 retires after lap 1 — no more real rows for it, ever.
             {"driver_number": 12, "lap_number": 3, "position": 1, "gap_seconds": 0.0},
             # 23 is a lap down — it never races lap 3, same as the real data.
         ]
         return race_replay.build_replay(RACE, self.RESULTS, laps, [], [], {"events": []})
 
-    def test_a_lapped_finisher_is_carried_forward_to_the_final_lap(self):
+    def test_a_lapped_finisher_is_carried_forward_unmarked(self):
         replay = self._replay()
 
         lap3 = {r["number"]: r for r in replay["laps"][2]["runners"]}
         self.assertIn("23", lap3)
-        self.assertEqual(lap3["23"]["gap_seconds"], 2.1)
+        self.assertEqual(lap3["23"]["gap_seconds"], 1.5)
         self.assertEqual(lap3["23"]["position"], 2)
         self.assertIsNone(lap3["23"]["pit"])
+        self.assertFalse(lap3["23"]["retired"])
 
-    def test_a_retirement_is_not_carried_forward(self):
+    def test_a_retirement_is_carried_forward_but_tagged_retired(self):
         replay = self._replay()
 
         lap2 = {r["number"]: r for r in replay["laps"][1]["runners"]}
         lap3 = {r["number"]: r for r in replay["laps"][2]["runners"]}
-        self.assertNotIn("44", lap2)
-        self.assertNotIn("44", lap3)
+        for lap in (lap2, lap3):
+            self.assertIn("44", lap)
+            self.assertTrue(lap["44"]["retired"])
+            self.assertEqual(lap["44"]["gap_seconds"], 0.0)  # frozen, not live
+
+    def test_a_retired_driver_sorts_below_every_active_runner(self):
+        """44's frozen position (1) ties or beats the active runners' real
+        positions on laps 2 and 3 — proving the sort is keyed on `retired`
+        first, not just on the numbers themselves."""
+        replay = self._replay()
+
+        for lap in replay["laps"][1:]:
+            numbers = [r["number"] for r in lap["runners"]]
+            self.assertEqual(numbers[-1], "44")
 
     def test_the_leader_who_races_every_lap_is_unaffected(self):
         replay = self._replay()
