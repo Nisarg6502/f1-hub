@@ -24,13 +24,20 @@ re-deriving from FastF1 only works from a local sync; forcing a rebuild on
 Cloud Run would turn an already-working position chart into "not synced yet"
 until the next local sync runs.
 
-Same FastF1-on-Cloud-Run caveat as every other FastF1-backed feature here:
-`livetiming.formula1.com` 403s datacenter IPs, so the live rebuild below only
-succeeds when it runs on a local machine. In production the collection is
-expected to be pre-populated by `data_sync.sync_race_laps`.
+On a cache miss the rebuild is two-stage. **OpenF1** is tried first — its
+`/laps` and `/position` feeds are joined on time by `positions_from_openf1` to
+reconstruct both fields, and unlike FastF1 it is reachable from a datacenter
+IP, which is what makes the self-heal actually fire in production. **FastF1**
+sits behind it, for pre-2023 seasons (OpenF1 has no data before then) and any
+round OpenF1 is missing; `livetiming.formula1.com` 403s datacenter IPs *and
+fails soft*, so that stage only succeeds from a local machine.
+`data_sync.sync_race_laps` also pre-populates the collection when run locally.
 """
 
+import datetime
+
 import fastf1
+import httpx
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
@@ -38,6 +45,8 @@ from .db import get_db
 from .f1_results import enable_cache
 
 router = APIRouter(prefix="/api")
+
+OPENF1_BASE = "https://api.openf1.org/v1"
 
 # Columns of `session.laps` this endpoint reads. Anything else on the frame is
 # lap timing detail the position/gap chart has no use for. `LapTime` is a
@@ -165,6 +174,183 @@ def positions_from_laps(laps: list[dict]) -> list[dict]:
     return rows
 
 
+def _fetch_json(url: str, params: dict | None = None, timeout: float = 20.0):
+    """GET `url` and decode JSON, or None on any failure.
+
+    Mirrors `session_recap._fetch_json` — same upstream, same "never a hard
+    dependency" posture: a failure here falls through to the FastF1 path.
+    """
+    try:
+        response = httpx.get(url, params=params, timeout=timeout)
+        if response.status_code != 200:
+            return None
+        return response.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+
+
+def _parse_iso(value) -> datetime.datetime | None:
+    """Parse one of OpenF1's ISO-8601 timestamps, or None if it isn't one."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _lap_end_times(driver_laps: list[dict]) -> dict[int, datetime.datetime | None]:
+    """Map each of one driver's lap numbers to the instant they completed it.
+
+    `driver_laps` must be sorted by lap number. The preferred answer is the
+    *next* lap's `date_start`, which is the same crossing of the line and so
+    needs no arithmetic. Falling back to `date_start + lap_duration` covers the
+    final lap (there is no next one) and any gap in the sequence; a lap with
+    neither — OpenF1 leaves `lap_duration` null on a handful of laps per race,
+    typically red-flag or pit-lane-entry edge cases — maps to None, which
+    propagates to a null `gap_seconds` for that row rather than a wrong number.
+    """
+    ends: dict[int, datetime.datetime | None] = {}
+
+    for index, row in enumerate(driver_laps):
+        lap_number = _as_int(row.get("lap_number"))
+        if lap_number is None:
+            continue
+
+        end = None
+        following = driver_laps[index + 1] if index + 1 < len(driver_laps) else None
+        if following is not None and _as_int(following.get("lap_number")) == lap_number + 1:
+            end = _parse_iso(following.get("date_start"))
+        if end is None:
+            start = _parse_iso(row.get("date_start"))
+            duration = row.get("lap_duration")
+            if start is not None and isinstance(duration, (int, float)):
+                end = start + datetime.timedelta(seconds=float(duration))
+        ends[lap_number] = end
+
+    return ends
+
+
+def positions_from_openf1(lap_rows: list[dict], position_rows: list[dict]) -> list[dict]:
+    """Build this app's per-lap rows from OpenF1's `/laps` and `/position` feeds.
+
+    OpenF1's `/laps` has no position column and its `/position` feed is a
+    stream of timestamped position *changes* rather than a per-lap snapshot, so
+    the two have to be joined on time: a driver's position at lap N is whatever
+    their most recent position event at or before their lap-N line crossing
+    said. Before their first event (which is emitted well before lights out)
+    that earliest event stands in, so lap 1 reads as the grid slot.
+
+    `gap_seconds` is the difference between two line-crossing instants — this
+    driver's, and that of whoever was leading at that same lap number — so it
+    is a true elapsed-time gap rather than the FastF1 path's running sum of
+    lap times. It agrees with that path to within ~0.05s median on a clean
+    round, and is *more* accurate where FastF1 has to skip a null lap time.
+    Same contract as `_attach_gap_seconds`: 0 for the leader, None when either
+    side's crossing instant is unknown — which the frontend already reads as
+    "no gap data" rather than a crash.
+    """
+    by_driver: dict[int, list[dict]] = {}
+    for row in lap_rows:
+        driver_number = _as_int(row.get("driver_number"))
+        if driver_number is None or _as_int(row.get("lap_number")) is None:
+            continue
+        by_driver.setdefault(driver_number, []).append(row)
+
+    events: dict[int, list[tuple[datetime.datetime, int]]] = {}
+    for event in position_rows:
+        driver_number = _as_int(event.get("driver_number"))
+        position = _as_int(event.get("position"))
+        moment = _parse_iso(event.get("date"))
+        if driver_number is None or position is None or moment is None:
+            continue
+        events.setdefault(driver_number, []).append((moment, position))
+    for series in events.values():
+        series.sort(key=lambda pair: pair[0])
+
+    rows: list[dict] = []
+    for driver_number, driver_laps in by_driver.items():
+        driver_laps.sort(key=lambda r: _as_int(r.get("lap_number")))
+        ends = _lap_end_times(driver_laps)
+        series = events.get(driver_number)
+        if not series:
+            # No position stream for this driver: every row would be position-less,
+            # and a position-less row is dropped anyway (see `positions_from_laps`).
+            continue
+
+        for row in driver_laps:
+            lap_number = _as_int(row.get("lap_number"))
+            end = ends.get(lap_number)
+            position = series[0][1]
+            if end is not None:
+                for moment, value in series:
+                    if moment > end:
+                        break
+                    position = value
+            rows.append({
+                "driver_number": driver_number,
+                "lap_number": lap_number,
+                "position": position,
+                "_end": end,
+            })
+
+    leader_end_by_lap: dict[int, datetime.datetime] = {}
+    for row in rows:
+        if row["position"] == 1 and row["_end"] is not None:
+            leader_end_by_lap[row["lap_number"]] = row["_end"]
+
+    for row in rows:
+        end = row.pop("_end")
+        leader_end = leader_end_by_lap.get(row["lap_number"])
+        if end is None or leader_end is None:
+            row["gap_seconds"] = None
+        else:
+            row["gap_seconds"] = round((end - leader_end).total_seconds(), 3)
+
+    rows.sort(key=lambda r: (r["driver_number"], r["lap_number"]))
+    return rows
+
+
+def build_race_laps_openf1(race_date: str) -> list[dict] | None:
+    """Per-lap positions and gaps for the race on `race_date` via OpenF1, or None.
+
+    Unlike the FastF1 path this works from a datacenter IP, which is what makes
+    the endpoint's self-heal reachable in production at all. Coverage starts at
+    2023 — `/sessions?year=2022` 404s — so older seasons still need FastF1.
+    """
+    from .race_stints import fetch_openf1_session_key
+
+    session_key = fetch_openf1_session_key(race_date)
+    if session_key is None:
+        return None
+
+    lap_rows = _fetch_json(f"{OPENF1_BASE}/laps", {"session_key": session_key})
+    if not isinstance(lap_rows, list) or not lap_rows:
+        return None
+
+    position_rows = _fetch_json(f"{OPENF1_BASE}/position", {"session_key": session_key})
+    if not isinstance(position_rows, list) or not position_rows:
+        return None
+
+    return positions_from_openf1(lap_rows, position_rows) or None
+
+
+async def _race_date(db, year: int, round_number: int) -> str | None:
+    """The `YYYY-MM-DD` date of a round, from the already-synced `races` collection.
+
+    OpenF1 has no notion of a championship round number, so its session lookup
+    has to go through the date.
+    """
+    try:
+        race = await db.races.find_one(
+            {"season": year, "round": str(round_number)}, {"_id": 0, "date": 1}
+        )
+    except Exception as error:
+        print(f"Failed to read race date for {year} R{round_number}: {error}")
+        return None
+    return (race or {}).get("date")
+
+
 def build_race_laps(year: int, round_number: int) -> list[dict] | None:
     """Load a race from FastF1 and derive its per-lap positions and gaps.
 
@@ -197,11 +383,11 @@ async def get_race_laps(
     year: int = Query(..., description="Season year, e.g. 2026"),
     round_number: int = Query(..., alias="round", description="Round number within the season"),
 ):
-    """Per-lap track position and gap-to-leader for a race, Mongo-first with a FastF1 rebuild on a miss.
+    """Per-lap track position and gap-to-leader for a race, Mongo-first with an OpenF1-then-FastF1 rebuild on a miss.
 
-    A miss that can't be rebuilt is not an error: on Cloud Run the rebuild is
-    always blocked, and the honest answer is that the local sync hasn't run for
-    this round yet. `synced` tells the frontend which case it's looking at.
+    A miss neither source can fill is not an error — the honest answer is that
+    this round hasn't been processed yet. `synced` tells the frontend which case
+    it's looking at.
 
     A cached doc from before `gap_seconds` existed is served as-is: its rows
     just won't have that key, which reads as "no gap data" on the frontend
@@ -221,7 +407,16 @@ async def get_race_laps(
             "synced": True,
         })
 
-    laps = build_race_laps(year, round_number)
+    laps = None
+    source = "openf1"
+    race_date = await _race_date(db, year, round_number)
+    if race_date:
+        laps = build_race_laps_openf1(race_date)
+
+    if not laps:
+        source = "fastf1"
+        laps = build_race_laps(year, round_number)
+
     if not laps:
         return JSONResponse(content={
             "year": year,
@@ -233,7 +428,12 @@ async def get_race_laps(
     try:
         await db.race_laps.update_one(
             {"season": year, "round": str(round_number)},
-            {"$set": {"season": year, "round": str(round_number), "laps": laps}},
+            {"$set": {
+                "season": year,
+                "round": str(round_number),
+                "laps": laps,
+                "source": source,
+            }},
             upsert=True,
         )
     except Exception as error:

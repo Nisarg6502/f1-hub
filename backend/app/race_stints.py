@@ -1,25 +1,32 @@
-"""Tyre stints per driver for a finished race, sourced from FastF1.
+"""Tyre stints per driver for a finished race, sourced from OpenF1 or FastF1.
 
-This used to come from OpenF1's `/stints` endpoint. It was re-sourced to FastF1
-because OpenF1's paid tier had expanded to cover the *entire* current season
-rather than just the documented live window (`/sessions?year=2026` itself 401'd),
-which left the Pitwall chart permanently empty — that is why the code is shaped
-this way. **That paywall has since lifted** (verified 2026-07-29: `/sessions`,
-`/stints`, `/laps` and `/race_control` all return 200 for 2026), so OpenF1 is a
-viable source again. FastF1's `session.laps` carries
-`Stint`/`Compound`/`TyreLife`/`LapNumber` — the same information — so the chart
-is currently served from there with the Mongo-first / self-heal pattern used by
-`circuit_info`.
+This originally came from OpenF1's `/stints`, was re-sourced to FastF1 when
+OpenF1's paid tier expanded to cover the *entire* current season rather than
+just the documented live window (`/sessions?year=2026` itself 401'd), leaving
+the Pitwall chart permanently empty — that history is why the FastF1 path
+exists. **That paywall has since lifted** (verified 2026-07-29: `/sessions`,
+`/stints`, `/laps` and `/race_control` all return 200 for 2026), so OpenF1 is
+the primary source again.
 
-One caveat inherited from every other FastF1-backed feature here:
-`livetiming.formula1.com` 403s datacenter IPs, so the live rebuild below only
-succeeds when it runs on a local machine. In production the collection is
-expected to be pre-populated by `data_sync.sync_race_stints`; the endpoint
-reports an empty stint list rather than an error when it isn't, so the frontend
-can say "not synced yet" rather than surfacing an error.
+Served Mongo-first, with a two-stage rebuild on a cache miss:
+
+1. **OpenF1 `/stints`** — one row per (driver, stint) with exactly the fields
+   this app stores, and reachable from a datacenter IP. This is what makes the
+   self-heal work in production. It only covers 2023 onwards.
+2. **FastF1** — `session.laps` carries `Stint`/`Compound`/`TyreLife`/`LapNumber`,
+   which `stints_from_laps` collapses into the same shape. Reads
+   `livetiming.formula1.com`, which 403s datacenter IPs *and fails soft* (empty
+   frames, no exception), so in practice this only succeeds from a local
+   machine — which is why it sits behind OpenF1 rather than in front of it.
+   It remains the only option for pre-2023 seasons.
+
+The whole rebuild failing is still not an error: the endpoint reports an empty
+stint list so the frontend can say "not synced yet". `data_sync.sync_race_stints`
+also pre-populates the collection when run locally.
 """
 
 import fastf1
+import httpx
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
@@ -27,6 +34,8 @@ from .db import get_db
 from .f1_results import enable_cache
 
 router = APIRouter(prefix="/api")
+
+OPENF1_BASE = "https://api.openf1.org/v1"
 
 # Columns of `session.laps` this endpoint reads. Anything else on the frame is
 # lap timing detail the stint chart has no use for.
@@ -97,6 +106,122 @@ def stints_from_laps(laps: list[dict]) -> list[dict]:
     return ordered
 
 
+def _fetch_json(url: str, params: dict | None = None, timeout: float = 20.0):
+    """GET `url` and decode JSON, or None on any failure.
+
+    Mirrors `session_recap._fetch_json` — same upstream (OpenF1), same
+    "enrichment, never a hard dependency" posture: a failure here just falls
+    through to the FastF1 path rather than surfacing as an error.
+    """
+    try:
+        response = httpx.get(url, params=params, timeout=timeout)
+        if response.status_code != 200:
+            return None
+        return response.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+
+
+def fetch_openf1_session_key(race_date: str) -> int | None:
+    """OpenF1's `session_key` for the race held on `race_date` (YYYY-MM-DD).
+
+    Sessions are matched on the `date_start` date prefix rather than by index,
+    because `session_type=Race` also returns sprint races — a sprint weekend
+    contributes two entries for one round, so positional indexing would drift.
+    """
+    if not race_date:
+        return None
+
+    sessions = _fetch_json(
+        f"{OPENF1_BASE}/sessions", {"year": race_date[:4], "session_type": "Race"}
+    )
+    if not isinstance(sessions, list):
+        return None
+
+    session = next(
+        (s for s in sessions if str(s.get("date_start", "")).startswith(race_date)), None
+    )
+    if not session:
+        return None
+    return _as_int(session.get("session_key"))
+
+
+def stints_from_openf1(rows: list[dict]) -> list[dict]:
+    """Reshape OpenF1 `/stints` rows into this app's stint documents.
+
+    OpenF1 already publishes one row per (driver, stint) with exactly the
+    fields the chart needs, so unlike `stints_from_laps` there is no grouping
+    to do — only coercion, defaulting, and ordering, so that a document built
+    here is indistinguishable in shape from one built from FastF1 laps.
+
+    One convention difference worth knowing: OpenF1's `tyre_age_at_start` is
+    0 for a fresh set, whereas FastF1's `TyreLife` counts the stint's opening
+    lap as 1, so the same stint reads one lower here. The value is carried
+    through verbatim rather than shifted — the field is named after OpenF1's
+    and this shape originated there — and the chart does not render it.
+    """
+    stints: list[dict] = []
+
+    for row in rows:
+        driver_number = _as_int(row.get("driver_number"))
+        stint_number = _as_int(row.get("stint_number"))
+        lap_start = _as_int(row.get("lap_start"))
+        lap_end = _as_int(row.get("lap_end"))
+        if driver_number is None or stint_number is None:
+            continue
+        if lap_start is None or lap_end is None:
+            continue
+
+        compound = row.get("compound")
+        tyre_age = _as_int(row.get("tyre_age_at_start"))
+        stints.append({
+            "driver_number": driver_number,
+            "stint_number": stint_number,
+            "lap_start": lap_start,
+            "lap_end": max(lap_start, lap_end),
+            "compound": str(compound).upper() if compound else "UNKNOWN",
+            "tyre_age_at_start": tyre_age if tyre_age is not None else 0,
+        })
+
+    stints.sort(key=lambda s: (s["driver_number"], s["stint_number"]))
+    return stints
+
+
+def build_race_stints_openf1(race_date: str) -> list[dict] | None:
+    """Stints for the race on `race_date` via OpenF1, or None if it has none.
+
+    Unlike the FastF1 path this works from a datacenter IP, which is what makes
+    the endpoint's self-heal reachable in production at all. Coverage starts at
+    2023 — `/sessions?year=2022` 404s — so older seasons still need FastF1.
+    """
+    session_key = fetch_openf1_session_key(race_date)
+    if session_key is None:
+        return None
+
+    rows = _fetch_json(f"{OPENF1_BASE}/stints", {"session_key": session_key})
+    if not isinstance(rows, list) or not rows:
+        return None
+
+    return stints_from_openf1(rows) or None
+
+
+async def _race_date(db, year: int, round_number: int) -> str | None:
+    """The `YYYY-MM-DD` date of a round, from the already-synced `races` collection.
+
+    OpenF1 has no notion of a championship round number, so its session lookup
+    has to go through the date. `races` is populated for every season the app
+    serves, so this is a local read rather than another upstream call.
+    """
+    try:
+        race = await db.races.find_one(
+            {"season": year, "round": str(round_number)}, {"_id": 0, "date": 1}
+        )
+    except Exception as error:
+        print(f"Failed to read race date for {year} R{round_number}: {error}")
+        return None
+    return (race or {}).get("date")
+
+
 def build_race_stints(year: int, round_number: int) -> list[dict] | None:
     """Load a race from FastF1 and derive its stints.
 
@@ -129,11 +254,13 @@ async def get_race_stints(
     year: int = Query(..., description="Season year, e.g. 2026"),
     round_number: int = Query(..., alias="round", description="Round number within the season"),
 ):
-    """Tyre stints for a race, Mongo-first with a FastF1 rebuild on a miss.
+    """Tyre stints for a race, Mongo-first with an OpenF1-then-FastF1 rebuild on a miss.
 
-    A miss that can't be rebuilt is not an error: on Cloud Run the rebuild is
-    always blocked, and the honest answer is that the local sync hasn't run for
-    this round yet. `synced` tells the frontend which case it's looking at.
+    Order matters. OpenF1 is tried first because it is reachable from Cloud Run,
+    which makes the self-heal actually able to fire in production; FastF1 stays
+    behind it for seasons OpenF1 doesn't cover (pre-2023) and for any round it
+    happens to be missing. A miss neither source can fill is still not an error:
+    `synced` tells the frontend it's looking at "not synced yet", not a failure.
     """
     db = get_db()
 
@@ -148,7 +275,16 @@ async def get_race_stints(
             "synced": True,
         })
 
-    stints = build_race_stints(year, round_number)
+    stints = None
+    source = "openf1"
+    race_date = await _race_date(db, year, round_number)
+    if race_date:
+        stints = build_race_stints_openf1(race_date)
+
+    if not stints:
+        source = "fastf1"
+        stints = build_race_stints(year, round_number)
+
     if not stints:
         return JSONResponse(content={
             "year": year,
@@ -160,7 +296,12 @@ async def get_race_stints(
     try:
         await db.race_stints.update_one(
             {"season": year, "round": str(round_number)},
-            {"$set": {"season": year, "round": str(round_number), "stints": stints}},
+            {"$set": {
+                "season": year,
+                "round": str(round_number),
+                "stints": stints,
+                "source": source,
+            }},
             upsert=True,
         )
     except Exception as error:
