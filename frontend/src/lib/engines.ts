@@ -46,11 +46,32 @@ export const teamEnginesMap: Record<string, string> = {
   Ferrari: "Ferrari",
   Haas: "Ferrari",
   "Aston Martin": "Honda",
-  Alpine: "Renault",
-  Sauber: "Audi",
+  // Sauber ran Ferrari power units for its entire modern history — the Audi
+  // buyout only became a full works engine supply from the 2026 rules reset,
+  // by which point the constructor itself is renamed to "Audi" (see below),
+  // so this entry only ever needs to cover pre-2026 seasons.
+  Sauber: "Ferrari",
+  Audi: "Audi",
+  // New 2026 entrant, a Ferrari customer team.
+  Cadillac: "Ferrari",
 };
 
-export function getEngineForTeam(teamName: string): EngineProvider | null {
+// 2026's regulation reset moved Alpine off Renault power units onto Mercedes
+// — the constructor name itself doesn't change, so a flat name→engine map
+// can't represent the switch. `year` defaults to undefined (treated as
+// "current/unknown", i.e. post-switch) so existing call sites that don't
+// pass one keep the up-to-date answer.
+const ALPINE_ENGINE_BY_YEAR = (year?: number): string =>
+  year !== undefined && year < 2026 ? "Renault" : "Mercedes";
+
+export function getEngineForTeam(
+  teamName: string,
+  year?: number
+): EngineProvider | null {
+  if (teamName.toLowerCase().includes("alpine")) {
+    return engineProviders[ALPINE_ENGINE_BY_YEAR(year)] || null;
+  }
+
   const key = Object.keys(teamEnginesMap).find((k) =>
     teamName.toLowerCase().includes(k.toLowerCase())
   );
