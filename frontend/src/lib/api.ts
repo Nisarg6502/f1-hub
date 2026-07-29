@@ -458,6 +458,82 @@ export async function getRaceLaps(year: number, round: number) {
   });
 }
 
+/** Static per-driver identity for a replay, sent once rather than repeated on
+ * every one of that driver's ~50 lap rows. */
+export interface ReplayDriver {
+  number: string;
+  driver_id: string | null;
+  code: string | null;
+  name: string;
+  team: string | null;
+  grid: string | null;
+  finish_position: string | null;
+  finish_status: string | null;
+}
+
+export interface ReplayPit {
+  stop_number: number | null;
+  duration_seconds: number | null;
+}
+
+export interface ReplayRunner {
+  /** Car number, the key into `RaceReplay.drivers`. */
+  number: string;
+  position: number | null;
+  gap_seconds?: number | null;
+  compound: string | null;
+  tyre_age: number | null;
+  stint_number: number | null;
+  /** The stop made on this lap, or null for "no stop this lap". */
+  pit: ReplayPit | null;
+}
+
+export interface ReplayEvent {
+  kind: string;
+  drivers: string[];
+  message: string;
+}
+
+export interface ReplayLap {
+  lap: number;
+  /** Pre-sorted by position server-side, so nothing re-sorts while scrubbing. */
+  runners: ReplayRunner[];
+  events: ReplayEvent[];
+}
+
+/** A finished race as a lap-indexed timeline.
+ *
+ * Composed backend-side from `race_laps`, `race_stints`, `pit_stops` and race
+ * control (see `race_replay.py`) — chiefly because pit stops key on
+ * `driver_id` while laps and stints key on `driver_number`, a join with a
+ * silent failure mode that shouldn't be re-derived per caller.
+ *
+ * Deliberately carries no track coordinates: nothing in this app caches GPS
+ * data, so this drives a timing tower, not cars moving around a circuit.
+ * `synced: false` with no laps means the round hasn't been processed yet —
+ * the same convention as `getRaceLaps`, and not an error.
+ */
+export interface RaceReplay {
+  year: number;
+  round: number;
+  race_name?: string;
+  circuit?: string;
+  date?: string;
+  total_laps: number;
+  drivers: Record<string, ReplayDriver>;
+  laps: ReplayLap[];
+  synced: boolean;
+}
+
+export async function getRaceReplay(year: number, round: number) {
+  return fetchJson<RaceReplay>("/api/race_replay", {
+    year,
+    round,
+  }, {
+    next: { revalidate: 3600 }, // Cache for 1 hour
+  });
+}
+
 export async function getCircuitInfo(year: number, eventName: string) {
   return fetchJson<CircuitInfo>("/api/circuit_info", {
     year,
