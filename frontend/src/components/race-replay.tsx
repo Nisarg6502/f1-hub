@@ -235,6 +235,111 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
         </span>
       </div>
 
+      {/* Controls + scrub track sit above the tower: the interactive part of
+          the replay is what you reach for first, and it stays put as the
+          tower's height changes lap to lap (field size, event chips) instead
+          of the controls shifting under your cursor mid-drag. */}
+      <div className="flex items-center gap-2 mb-4">
+        <button
+          type="button"
+          onClick={() => {
+            if (lapIndex >= lastLapIndex) setLapIndex(0);
+            setPlaying((p) => !p);
+          }}
+          aria-label={playing ? "Pause replay" : "Play replay"}
+          className="flex items-center justify-center w-10 h-10 rounded-xl text-[#1a1210] transition-transform duration-150 ease-out active:scale-[0.97]"
+          style={{ background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)" }}
+        >
+          {playing ? <Pause size={17} /> : <Play size={17} />}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setPlaying(false);
+            setLapIndex(0);
+          }}
+          aria-label="Restart replay"
+          className="flex items-center justify-center w-10 h-10 rounded-xl bg-[rgba(245,235,222,0.06)] border border-white/10 text-warm-300 hover:text-[#FFAE6A] transition-[color,transform] duration-150 ease-out active:scale-[0.97]"
+        >
+          <SkipBack size={16} />
+        </button>
+
+        <div className="ml-auto flex items-center gap-1">
+          {SPEEDS.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setSpeed(option)}
+              aria-pressed={speed === option}
+              className={`font-bold text-[11px] px-2.5 py-1.5 rounded-lg transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] ${
+                speed === option
+                  ? "bg-[rgba(255,90,31,0.18)] text-[#FFAE6A]"
+                  : "text-warm-400 hover:text-on-background"
+              }`}
+            >
+              {option}×
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Scrub track */}
+      <div
+        ref={trackRef}
+        role="slider"
+        tabIndex={0}
+        aria-label="Race lap"
+        aria-valuemin={1}
+        aria-valuemax={replay.total_laps}
+        aria-valuenow={current?.lap ?? 1}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={endScrub}
+        onPointerCancel={endScrub}
+        onKeyDown={handleTrackKeyDown}
+        className="relative h-9 mb-5 cursor-pointer touch-none select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7A3D] rounded-lg"
+      >
+        <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-white/[0.08]" />
+        <div
+          className="absolute top-1/2 -translate-y-1/2 h-1.5 rounded-l-full"
+          style={{
+            left: 0,
+            width: `calc(${THUMB_INSET}px + ${progress} * (100% - ${THUMB_INSET * 2}px))`,
+            background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)",
+            // No transition while dragging: the fill must stay glued to the
+            // pointer. It only eases when playback moves it.
+            transition: scrubbing || !rowTransitionMs ? "none" : `width ${rowTransitionMs}ms linear`,
+          }}
+        />
+
+        {markers.pit.map((index) => (
+          <span
+            key={`pit-${index}`}
+            className="absolute top-1/2 -translate-y-1/2 w-px h-2.5 bg-white/25 pointer-events-none"
+            style={{ left: markerLeft(index) }}
+          />
+        ))}
+        {markers.notable.map((index) => (
+          <span
+            key={`ev-${index}`}
+            className="absolute top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-full pointer-events-none"
+            style={{ left: markerLeft(index), background: "#FF6B6B" }}
+          />
+        ))}
+
+        <span
+          className="absolute top-1/2 w-4 h-4 rounded-full bg-white shadow-[0_2px_8px_rgba(0,0,0,0.5)] pointer-events-none"
+          style={{
+            left: `calc(${THUMB_INSET}px + ${progress} * (100% - ${THUMB_INSET * 2}px))`,
+            transform: `translate(-50%, -50%) scale(${scrubbing ? 1.15 : 1})`,
+            transition: scrubbing
+              ? "transform 120ms " + EASE_OUT
+              : `left ${rowTransitionMs || 0}ms linear, transform 120ms ${EASE_OUT}`,
+          }}
+        />
+      </div>
+
       {/* Timing tower. Rows are absolutely positioned and moved with transform
           only: 22 rows re-sorting on every lap would thrash layout if they were
           reordered in the DOM, and transform keeps it on the compositor. */}
@@ -300,8 +405,8 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
       </div>
 
       {/* Race-control events for the current lap. Fixed min-height so the
-          controls below don't jump as events come and go while scrubbing. */}
-      <div className="min-h-[42px] mb-3">
+          layout doesn't shift as events come and go while scrubbing. */}
+      <div className="min-h-[42px]">
         {current && current.events.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {current.events.map((event, index) => {
@@ -331,107 +436,6 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
             })}
           </div>
         )}
-      </div>
-
-      {/* Scrub track */}
-      <div
-        ref={trackRef}
-        role="slider"
-        tabIndex={0}
-        aria-label="Race lap"
-        aria-valuemin={1}
-        aria-valuemax={replay.total_laps}
-        aria-valuenow={current?.lap ?? 1}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={endScrub}
-        onPointerCancel={endScrub}
-        onKeyDown={handleTrackKeyDown}
-        className="relative h-9 mb-3 cursor-pointer touch-none select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7A3D] rounded-lg"
-      >
-        <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-white/[0.08]" />
-        <div
-          className="absolute top-1/2 -translate-y-1/2 h-1.5 rounded-l-full"
-          style={{
-            left: 0,
-            width: `calc(${THUMB_INSET}px + ${progress} * (100% - ${THUMB_INSET * 2}px))`,
-            background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)",
-            // No transition while dragging: the fill must stay glued to the
-            // pointer. It only eases when playback moves it.
-            transition: scrubbing || !rowTransitionMs ? "none" : `width ${rowTransitionMs}ms linear`,
-          }}
-        />
-
-        {markers.pit.map((index) => (
-          <span
-            key={`pit-${index}`}
-            className="absolute top-1/2 -translate-y-1/2 w-px h-2.5 bg-white/25 pointer-events-none"
-            style={{ left: markerLeft(index) }}
-          />
-        ))}
-        {markers.notable.map((index) => (
-          <span
-            key={`ev-${index}`}
-            className="absolute top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-full pointer-events-none"
-            style={{ left: markerLeft(index), background: "#FF6B6B" }}
-          />
-        ))}
-
-        <span
-          className="absolute top-1/2 w-4 h-4 rounded-full bg-white shadow-[0_2px_8px_rgba(0,0,0,0.5)] pointer-events-none"
-          style={{
-            left: `calc(${THUMB_INSET}px + ${progress} * (100% - ${THUMB_INSET * 2}px))`,
-            transform: `translate(-50%, -50%) scale(${scrubbing ? 1.15 : 1})`,
-            transition: scrubbing
-              ? "transform 120ms " + EASE_OUT
-              : `left ${rowTransitionMs || 0}ms linear, transform 120ms ${EASE_OUT}`,
-          }}
-        />
-      </div>
-
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => {
-            if (lapIndex >= lastLapIndex) setLapIndex(0);
-            setPlaying((p) => !p);
-          }}
-          aria-label={playing ? "Pause replay" : "Play replay"}
-          className="flex items-center justify-center w-10 h-10 rounded-xl text-[#1a1210] transition-transform duration-150 ease-out active:scale-[0.97]"
-          style={{ background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)" }}
-        >
-          {playing ? <Pause size={17} /> : <Play size={17} />}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setPlaying(false);
-            setLapIndex(0);
-          }}
-          aria-label="Restart replay"
-          className="flex items-center justify-center w-10 h-10 rounded-xl bg-[rgba(245,235,222,0.06)] border border-white/10 text-warm-300 hover:text-[#FFAE6A] transition-[color,transform] duration-150 ease-out active:scale-[0.97]"
-        >
-          <SkipBack size={16} />
-        </button>
-
-        <div className="ml-auto flex items-center gap-1">
-          {SPEEDS.map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setSpeed(option)}
-              aria-pressed={speed === option}
-              className={`font-bold text-[11px] px-2.5 py-1.5 rounded-lg transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] ${
-                speed === option
-                  ? "bg-[rgba(255,90,31,0.18)] text-[#FFAE6A]"
-                  : "text-warm-400 hover:text-on-background"
-              }`}
-            >
-              {option}×
-            </button>
-          ))}
-        </div>
       </div>
     </div>
   );

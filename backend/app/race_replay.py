@@ -22,6 +22,14 @@ replay built on this is a timing tower scrubbed by lap, not cars animating
 around a circuit. Don't add a `x`/`y` field expecting to fill it later without
 first sourcing that data.
 
+A car finishing a lap or more down completes fewer laps than the race winner —
+that's what "lapped" means — so its last `race_laps` row sits before the
+race's actual final lap; it never raced that lap. `build_replay()` carries a
+classified finisher's last known row forward through to the winner's final
+lap, so the tower doesn't visibly thin out over the closing laps as if those
+cars had retired. A genuine retirement is *not* carried forward — it should
+disappear at the lap it actually happened.
+
 Cached in `race_replay` because a finished race's replay is immutable, the same
 argument `session_recap` makes for caching recaps forever. `REPLAY_VERSION` is
 part of the cache key so a change to the payload shape retires existing
@@ -36,17 +44,19 @@ from fastapi.responses import JSONResponse
 
 from .db import get_db
 from .race_control_facts import summarize_race_control
-from .session_recap import fetch_race_control
+from .session_recap import _FINISHER_STATUSES, fetch_race_control
 from .race_laps import get_race_laps
 from .race_stints import get_race_stints
 from .pit_stops import get_pit_stops
 
 router = APIRouter(prefix="/api")
 
-# Bump when the payload shape changes. Existing cached replays stop matching
-# and rebuild on next view, rather than feeding a stale shape to a frontend
-# built against the new one.
-REPLAY_VERSION = 1
+# Bump when the payload shape *or* how it's derived changes. Existing cached
+# replays stop matching and rebuild on next view. Bumped to 2 for the
+# classified-finisher carry-forward fix below: same shape, but old cached
+# rows are missing data a fresh build now includes, so they must not keep
+# being served as if they were already correct.
+REPLAY_VERSION = 2
 
 
 async def _endpoint_payload(coroutine) -> dict:
@@ -197,6 +207,9 @@ def build_replay(
     events = _events_by_lap(race_control)
 
     by_lap: dict[int, list[dict]] = {}
+    # Tracks each driver's most recent row so a classified-but-lapped finisher
+    # can be carried forward below — see the comment after this loop.
+    last_row_by_number: dict[str, tuple[int, dict]] = {}
     for row in laps:
         number = str(row.get("driver_number") or "").strip()
         lap = row.get("lap_number")
@@ -205,7 +218,7 @@ def build_replay(
         lap = int(lap)
         state = tyre.get((number, lap)) or {}
         stop = pits.get((number, lap))
-        by_lap.setdefault(lap, []).append({
+        runner = {
             "number": number,
             "position": row.get("position"),
             "gap_seconds": row.get("gap_seconds"),
@@ -215,7 +228,31 @@ def build_replay(
             # Present-but-null rather than omitted, so the frontend can treat
             # "no stop this lap" and "no pit data at all" the same way.
             "pit": stop,
-        })
+        }
+        by_lap.setdefault(lap, []).append(runner)
+        seen = last_row_by_number.get(number)
+        if not seen or lap > seen[0]:
+            last_row_by_number[number] = (lap, runner)
+
+    # A car finishing a lap (or more) down completes fewer laps than the
+    # leader, so its last real `race_laps` row sits before the race's final
+    # lap — it never raced that lap, the race ended first. Left alone, the
+    # timing tower would visibly thin out over the last few laps as if those
+    # cars had retired, when they in fact took the chequered flag; a real
+    # broadcast timing screen keeps every classified finisher visible until
+    # the race actually ends. Retirements are deliberately excluded — only a
+    # driver whose classification status marks them a finisher
+    # (`_FINISHER_STATUSES`, shared with session_recap.py's retirement
+    # detection) gets their last known row repeated forward, with no new pit
+    # stop, through the lap the leader actually finished on.
+    last_lap = max(by_lap) if by_lap else 0
+    for number, (last_seen, last_row) in last_row_by_number.items():
+        entry = directory.get(number) or {}
+        status = str(entry.get("finish_status") or "").strip().lower()
+        if not status.startswith(_FINISHER_STATUSES):
+            continue
+        for lap in range(last_seen + 1, last_lap + 1):
+            by_lap.setdefault(lap, []).append({**last_row, "pit": None})
 
     ordered_laps = [
         {
