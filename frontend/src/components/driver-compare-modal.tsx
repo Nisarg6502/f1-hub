@@ -10,6 +10,7 @@ import { buildHeadToHead } from "@/lib/driver-compare";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { getFlagPath } from "@/lib/flags";
 import { getTeamColor } from "@/lib/team-colors";
+import DriverComparisonRecap from "./driver-comparison-recap";
 import FlagImg from "./flag-img";
 
 interface DriverCompareModalProps {
@@ -272,6 +273,12 @@ export default function DriverCompareModal({
                   </>
                 )}
               </div>
+
+              <DriverComparisonRecap
+                year={seasonYear}
+                driver1={driverAId ?? ""}
+                driver2={driverBId ?? ""}
+              />
             </div>
           )}
         </div>
