@@ -33,14 +33,85 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 11 | CP39-41 | Corrected the stale OpenF1 paywall claims across docs and user-facing copy (PR #64), self-healed `race_stints`/`race_laps` from OpenF1 with FastF1 as fallback (PR #65), extended AI recaps to Qualifying and Sprint (PR #66) | merged |
 | 12 | CP42-44 | Race replay: lap-indexed `/api/race_replay` endpoint (PR #68), timing tower + lap scrubber component (PR #69), Pitwall integration with `?lap=N` deep-linking from race-control citations (PR #70) | merged |
 | 12 (ad hoc) | unnumbered | Two fixes from live user testing against the Hungarian GP: moved play/pause + scrub track above the timing tower, and fixed the field visibly shrinking near the end of the race — first for lapped classified finishers (`race_laps` has no row for a car that finished fewer laps than the winner) PR #72, then for genuine retirees, who were dropped entirely rather than shown as retired PR #73. `REPLAY_VERSION` bumped twice (2, then 3) for the underlying data-shape fixes | merged |
+| 13 | CP45-46 | GenAI: Pitwall "Strategy Commentary" module (undercut/overcut narrative, PR #75), driver comparison head-to-head narrative on the Drivers compare modal (PR #76) — built as two parallel worktree agents | merged |
+| 13 (ad hoc) | unnumbered | Fixed the Teams page's Power units panel showing wrong 2026 supplier data: Alpine mapped to Renault (switched to Mercedes for 2026 — the lookup is now season-aware since the constructor name didn't change), Sauber mapped to Audi (it ran Ferrari its whole modern history; Audi's works supply only starts once the constructor is renamed "Audi" for 2026), and two new 2026 entrants (Audi, Cadillac) were missing entirely. Found via user inspection, not backlog-planned. PR #77 | merged |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
 ## Current batch
 
-No batch is currently planned — Batch 12 and its ad-hoc follow-up fixes are shipped and merged
-(PRs #68, #69, #70, #72, #73); the next batch has not been scoped yet. See Backlog below for
-candidates.
+No batch is currently planned — Batch 13 and its ad-hoc follow-up fix are shipped and merged
+(PRs #75, #76, #77); the next batch has not been scoped yet. See Backlog below for candidates.
+
+## Batch 13 retrospective — GenAI: strategy commentary + driver comparison narrative (CP45-46)
+
+**Batch 13 (CP45-46) is complete and merged** (PRs #75, #76), plus one ad-hoc fix found by direct
+user inspection (PR #77, see below). It was scoped from the GenAI backlog, picking the two items
+that could reuse `session_recap.py`'s already-proven grounding/streaming/caching pattern most
+directly rather than needing new infrastructure (a query bar or RAG chat would have).
+
+**Built as two parallel worktree agents**, per this file's parallelization-check rule: CP45
+(`backend/app/strategy_commentary.py` + a new Pitwall module) and CP46
+(`backend/app/driver_comparison_recap.py` + an addition to the Drivers compare modal) touch
+disjoint feature files, with the only overlap being one-line additive appends to
+`backend/app/main.py` (router registration) and `frontend/src/lib/api.ts` (URL helper) — the same
+class of low-risk shared-file overlap Batches 6-9 already tolerated. Both agents pushed branches
+independently; the second PR opened against `main` after the first had already merged genuinely
+conflicted in exactly those two shared files (nothing else), resolved with a straightforward
+rebase keeping both sides' additions — worth expecting this exact conflict shape (not a surprise,
+not a sign anything went wrong) whenever two parallel checkpoints both add a router/URL-helper.
+
+**Both checkpoints reuse `session_recap.py`'s central lesson rather than reinventing it**: every
+relational or comparative fact a recap narrates must be computed in Python, never left for the
+model to derive.
+- CP45's strategy commentary determines undercut/overcut outcomes by comparing track position
+  from `race_laps` just before and a few laps after a pit-stop pair's window, and flags "strategy
+  outliers" (a stop count that differs from the field's most common one) by comparing counts
+  across the field — both are exactly the kind of cross-driver comparison a model would otherwise
+  get subtly wrong. It reuses `race_replay.py`'s `driver_id`↔`driver_number` resolution rather than
+  re-deriving that join a third time (`race_replay.py` was the first to solve it, for `pit_stops`
+  vs `race_laps`/`race_stints`).
+- CP46's driver-comparison narrative ports `compare-drivers-panel.tsx`'s existing client-side
+  head-to-head logic (`buildHeadToHead`) into Python verbatim, so the narrative's counts are
+  guaranteed to agree with what the modal displays next to it — not just independently accurate,
+  but *consistent* with the number the user is already looking at.
+
+**A genuinely new caching problem, distinct from anything CP38-44 hit**: `session_recap.py` and
+CP45's strategy commentary both cache forever because a finished race's facts never change. CP46's
+inputs (season standings, per-round results) change every time either driver races again, so
+"cache forever" would go stale mid-season. The fix folds `rounds_compared` into the Mongo cache
+key instead of a TTL: a new shared race result changes that number, which naturally produces a
+fresh cache row without a manual purge or a clock-based expiry to manage — a third pattern
+alongside `session_recap`'s "cache forever" and `circuit_history_cache`'s "cache with a staleness
+timestamp".
+
+**Two background-agent "waiting" self-reports this batch, both checked directly rather than taken
+on faith** (the same discipline Batches 6/8/9 already established) — with two different outcomes,
+worth recording because they show the check matters both ways:
+- CP46's agent first reported "waiting on a background npm install" after a genuinely long
+  research/implementation stretch. Checking the worktree directly found real uncommitted work, a
+  completed install (`node_modules/.package-lock.json` present, `next --version` ran fine), and no
+  npm/node process alive anywhere pointed at that worktree path — the report was stale, same
+  lost-track-of-own-state failure mode as Batch 8's CP32 agent. Resumed with the corrected facts
+  and it proceeded immediately.
+- The same agent later reported "waiting on the frontend dev-server readiness monitor." This time
+  the check found a real `next dev` process alive and already answering `curl` with 200 — a
+  genuine wait, not a stale one. Resumed with confirmation it was actually ready rather than
+  assuming the first stale report meant every report from this agent would be stale.
+
+**Ad-hoc fix (PR #77):** the user directly inspected the Teams page's power-unit tiles and caught
+three factual errors at once — Alpine shown as Renault-powered (switched to Mercedes for the 2026
+rules reset; the constructor name didn't change, so the existing flat `teamName → engine` map
+couldn't represent the mid-history switch, and `getEngineForTeam` had to become season-aware),
+Sauber shown as Audi-powered (it ran Ferrari for its entire modern history — the Audi works supply
+only begins once the constructor is renamed "Audi" for 2026, a fact easy to get backwards if you
+assume the Audi *ownership* announcement and the Audi *engine* supply started at the same time),
+and two new 2026 entrants (Audi's own works team, Cadillac as a Ferrari customer) missing from the
+map entirely. Verified with a standalone `tsx` script exercising `getEngineForTeam` directly for
+every team/year combination, rather than through a browser — the shared dev-server port and
+Turbopack lock were both held by another concurrent session at the time, and this being pure data-
+mapping logic with no rendering behavior made a direct function-call check just as conclusive as a
+screenshot would have been.
 
 ## Batch 12 retrospective — Race replay (CP42-44)
 
@@ -311,8 +382,8 @@ it retry indefinitely.
 
 ### GenAI features
 - Natural-language query bar (a GenAI layer alongside the now-functional keyword nav search)
-- Race strategy commentary on the Pitwall page (grounded in stint data)
-- Driver comparison narrative (pairs with the head-to-head feature)
+- Race strategy commentary on the Pitwall page (grounded in stint data) — shipped in Batch 13 (CP45)
+- Driver comparison narrative (pairs with the head-to-head feature) — shipped in Batch 13 (CP46)
 - "Ask about this circuit" scoped chat (RAG over cached circuit history + Wikipedia extract)
 - Pre-race prediction with transparent reasoning (framed as commentary, not a promise)
 
