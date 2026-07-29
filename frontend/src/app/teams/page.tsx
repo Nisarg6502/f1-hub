@@ -46,7 +46,7 @@ export default async function TeamsPage({ searchParams }: PageProps) {
   const engineGroups = new Map<string, string[]>();
   for (const t of list) {
     const name = t.Constructor.name ?? "";
-    const engine = getEngineForTeam(name);
+    const engine = getEngineForTeam(name, year);
     if (!engine) continue;
     const arr = engineGroups.get(engine.name) ?? [];
     arr.push(name);
@@ -82,7 +82,7 @@ export default async function TeamsPage({ searchParams }: PageProps) {
         {list.map((team, idx) => {
           const name = team.Constructor.name ?? "—";
           const color = getTeamColor(name);
-          const engine = getEngineForTeam(name);
+          const engine = getEngineForTeam(name, year);
           const mono = name.slice(0, 2).toUpperCase();
           const logoPath = getTeamLogoPath(name);
 
