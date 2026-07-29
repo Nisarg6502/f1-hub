@@ -152,26 +152,43 @@ export default function SessionTabs({
 
       {/* Non-Race Sessions */}
       {activeSession !== "Race" && (
-        <SessionInfo
-          race={race}
-          sessionKey={activeSession}
-          nowMs={nowMs}
-          sessionResults={
-            activeSession === "Qualifying"
-              ? qualifyingResults
-              : activeSession === "SprintQualifying"
-              ? sprintQualiResults
-              : activeSession === "Sprint"
-              ? sprintResults
-              : activeSession === "FirstPractice"
-              ? fp1Results
-              : activeSession === "SecondPractice"
-              ? fp2Results
-              : activeSession === "ThirdPractice"
-              ? fp3Results
-              : []
-          }
-        />
+        <>
+          {/* AI Recap only exists for Qualifying and Sprint (see
+              session_recap.py's SESSION_FACT_BUILDERS) — Practice sessions
+              aren't classified results in the same sense and have no recap. */}
+          {Number.isFinite(seasonYear) &&
+            (activeSession === "Qualifying" ? qualifyingResults.length > 0 : false) && (
+              <SessionRecapCard
+                year={seasonYear}
+                round={Number(race.round)}
+                session="qualifying"
+              />
+            )}
+          {Number.isFinite(seasonYear) &&
+            (activeSession === "Sprint" ? sprintResults.length > 0 : false) && (
+              <SessionRecapCard year={seasonYear} round={Number(race.round)} session="sprint" />
+            )}
+          <SessionInfo
+            race={race}
+            sessionKey={activeSession}
+            nowMs={nowMs}
+            sessionResults={
+              activeSession === "Qualifying"
+                ? qualifyingResults
+                : activeSession === "SprintQualifying"
+                ? sprintQualiResults
+                : activeSession === "Sprint"
+                ? sprintResults
+                : activeSession === "FirstPractice"
+                ? fp1Results
+                : activeSession === "SecondPractice"
+                ? fp2Results
+                : activeSession === "ThirdPractice"
+                ? fp3Results
+                : []
+            }
+          />
+        </>
       )}
     </div>
   );

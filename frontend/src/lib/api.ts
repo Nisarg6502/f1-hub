@@ -585,12 +585,21 @@ export async function getCircuitHistory(
   }
 }
 
-// The AI race recap streams plain text rather than JSON, so it's fetched
+// The AI session recap streams plain text rather than JSON, so it's fetched
 // directly by the client component (session-recap-card.tsx) via this URL
 // rather than through fetchJson — this just centralizes the base-URL logic.
-export function getSessionRecapUrl(year: number, round: number): string {
+// `session` defaults to "race" to match the backend's default, so every
+// existing call site (Race tab) keeps working unchanged.
+export type RecapSession = "race" | "qualifying" | "sprint";
+
+export function getSessionRecapUrl(
+  year: number,
+  round: number,
+  session: RecapSession = "race"
+): string {
   const url = new URL("/api/session_recap", API_BASE_URL);
   url.searchParams.set("year", String(year));
   url.searchParams.set("round", String(round));
+  url.searchParams.set("session", session);
   return url.toString();
 }

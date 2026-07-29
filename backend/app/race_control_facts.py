@@ -24,12 +24,31 @@ _PENALTY_PATTERNS = [
     ("penalty", re.compile(r"\b(?:DRIVE THROUGH|STOP AND GO|GRID PENALTY)\b", re.I)),
 ]
 
-_INVESTIGATION_RE = re.compile(r"UNDER INVESTIGATION|WILL BE INVESTIGATED", re.I)
+_INVESTIGATION_RE = re.compile(
+    r"UNDER INVESTIGATION|WILL BE INVESTIGATED|INCIDENT .*\bNOTED\b", re.I
+)
 _NO_ACTION_RE = re.compile(r"NO FURTHER (?:ACTION|INVESTIGATION)", re.I)
-_SAFETY_CAR_RE = re.compile(r"\b(?:SAFETY CAR|VSC|VIRTUAL SAFETY CAR)\b", re.I)
+
+# "SAFETY CAR" appears in two unrelated kinds of message: the deployment/ending
+# status calls, and stewards' lines about a *safety-car infringement* by one
+# driver. Lumping them together produced a confidently wrong sprint recap
+# ("safety-car periods were deployed on laps 13, 16, 17 and 19" — there was
+# one). Deployment and ending are also split so the model never has to work out
+# which a given call was.
+_SAFETY_CAR_DEPLOYED_RE = re.compile(
+    r"\b(?:SAFETY CAR|VSC|VIRTUAL SAFETY CAR)\b.*\b(?:DEPLOYED)\b", re.I
+)
+_SAFETY_CAR_ENDING_RE = re.compile(
+    r"\b(?:SAFETY CAR|VSC|VIRTUAL SAFETY CAR)\b.*\b(?:IN THIS LAP|ENDING)\b", re.I
+)
 _RED_FLAG_RE = re.compile(r"\bRED FLAG\b", re.I)
 _LAP_DELETED_RE = re.compile(r"(?:LAP|TIME .*?) DELETED", re.I)
-_CAR_RE = re.compile(r"CAR (\d+)\s*\(([A-Z]{3})\)", re.I)
+# A car is named as `<number> (<CODE>)`. Anchoring on a literal "CAR " prefix
+# missed every multi-car incident — "CARS 44 (HAM) AND 81 (PIA)" resolved to no
+# drivers at all, handing the model bare car numbers it could not map to people
+# and inviting it to guess. Matching the number/code pair itself catches the
+# "CAR", "CARS … AND …" and bare-continuation forms alike.
+_CAR_RE = re.compile(r"\b(\d{1,3})\s*\(([A-Z]{3})\)")
 
 # Blue flags and sector yellow/clear churn are the bulk of the message log and
 # carry no recap value on their own.
@@ -66,17 +85,68 @@ def _classify(message: str) -> str | None:
             return kind
     if _RED_FLAG_RE.search(text):
         return "red_flag"
-    if _SAFETY_CAR_RE.search(text):
-        return "safety_car"
+    # Stewards' outcomes are checked before the safety-car status calls: a line
+    # like "INCIDENT INVOLVING CAR 11 (PER) NOTED - SAFETY CAR INFRINGEMENT" is
+    # a stewards' decision, not a safety-car period.
     if _NO_ACTION_RE.search(text):
         return "no_further_action"
     if _INVESTIGATION_RE.search(text):
         return "investigation"
+    if _SAFETY_CAR_DEPLOYED_RE.search(text):
+        return "safety_car_deployed"
+    if _SAFETY_CAR_ENDING_RE.search(text):
+        return "safety_car_ending"
     return None
 
 
+# The reason an incident was logged, e.g. "IMPEDING" from
+# "TURN 1 INCIDENT INVOLVING CARS 44 (HAM) AND 81 (PIA) NOTED - IMPEDING
+# (16:59:46)". The trailing wall-clock stamp is dropped so the same incident
+# reads the same across the messages that report it.
+_TIMESTAMP_RE = re.compile(r"\(\s*\d{1,2}:\d{2}:\d{2}\s*\)\s*$")
+
+
+def _incident_key(event: dict) -> tuple:
+    _, _, reason = (event.get("message") or "").partition(" - ")
+    reason = _TIMESTAMP_RE.sub("", reason).strip().upper()
+    return (tuple(event.get("drivers") or ()), reason)
+
+
+def _collapse_investigations(events: list[dict]) -> list[dict]:
+    """One entry per incident, not one per race-control message about it.
+
+    The FIA logs the same incident repeatedly as it progresses: first
+    "… NOTED - IMPEDING", then "… WILL BE INVESTIGATED AFTER THE SESSION -
+    IMPEDING", and sometimes a "NO FURTHER ACTION" outcome. Left as three
+    events they read like three separate incidents, and a recap will happily
+    narrate them as such. Only the latest investigation line for an incident
+    survives, and a resolved incident drops its investigation entirely.
+
+    Penalties are untouched: "PENALTY" and "PENALTY SERVED" are genuinely two
+    moments in the session and both are worth narrating.
+    """
+    resolved = {
+        _incident_key(e) for e in events if e.get("kind") == "no_further_action"
+    }
+    latest: dict[tuple, int] = {}
+    for index, event in enumerate(events):
+        if event.get("kind") == "investigation":
+            latest[_incident_key(event)] = index
+
+    kept = []
+    for index, event in enumerate(events):
+        if event.get("kind") != "investigation":
+            kept.append(event)
+            continue
+        key = _incident_key(event)
+        if key in resolved or latest.get(key) != index:
+            continue
+        kept.append(event)
+    return kept
+
+
 def summarize_race_control(
-    messages: list[dict], results: list[dict]
+    messages: list[dict], results: list[dict], min_deletions: int = 2
 ) -> dict:
     """Reduce raw race-control rows to `{events, track_limit_deletions}`.
 
@@ -86,6 +156,11 @@ def summarize_race_control(
     `track_limit_deletions` is a per-driver count, since the individual
     deletions are too granular to narrate but the tally can be a real story
     ("three of Albon's laps were deleted").
+
+    `min_deletions` is the tally a driver needs before they are reported. Two
+    is right for a race, where a single scrubbed lap among 60+ is noise; the
+    qualifying recap passes 1, because there a driver only sets a handful of
+    laps and losing one of them is the story.
     """
     lookup = _driver_lookup(results)
     events: list[dict] = []
@@ -115,6 +190,7 @@ def summarize_race_control(
             "message": message,
         })
 
+    events = _collapse_investigations(events)
     events.sort(key=lambda e: (e.get("lap") is None, e.get("lap") or 0))
 
     return {
@@ -122,6 +198,6 @@ def summarize_race_control(
         "track_limit_deletions": [
             {"driver": name, "count": count}
             for name, count in sorted(deletions.items(), key=lambda kv: -kv[1])
-            if count > 1
+            if count >= min_deletions
         ],
     }
