@@ -24,12 +24,12 @@ from app import race_replay
 RACE = {"raceName": "British Grand Prix", "Circuit": {"circuitName": "Silverstone"}, "date": "2026-07-05"}
 
 
-def result_row(number, driver_id, given, family, team="Mercedes", position="1", grid="2"):
+def result_row(number, driver_id, given, family, team="Mercedes", position="1", grid="2", status="Finished"):
     return {
         "number": number,
         "position": position,
         "grid": grid,
-        "status": "Finished",
+        "status": status,
         "Driver": {"driverId": driver_id, "code": family[:3].upper(), "givenName": given, "familyName": family},
         "Constructor": {"name": team},
     }
@@ -183,6 +183,57 @@ class BuildReplayTests(unittest.TestCase):
         runner = replay["laps"][0]["runners"][0]
         self.assertNotIn("x", runner)
         self.assertNotIn("y", runner)
+
+
+class CarryForwardFinisherTests(unittest.TestCase):
+    """A classified finisher who's a lap down has fewer `race_laps` rows than
+    the winner — they never raced the winner's final lap. Without carrying
+    their last row forward, the tower would show them vanishing as if they'd
+    retired. A genuine retirement must NOT be carried forward.
+    """
+
+    RESULTS = [
+        result_row("12", "antonelli", "Kimi", "Antonelli", position="1", grid="1"),
+        result_row("23", "albon", "Alexander", "Albon", team="Williams", position="2", grid="4", status="Lapped"),
+        result_row("44", "hamilton", "Lewis", "Hamilton", team="Ferrari", position="20", grid="10", status="Retired"),
+    ]
+
+    def _replay(self):
+        laps = [
+            {"driver_number": 12, "lap_number": 1, "position": 1, "gap_seconds": 0.0},
+            {"driver_number": 23, "lap_number": 1, "position": 2, "gap_seconds": 1.5},
+            {"driver_number": 44, "lap_number": 1, "position": 3, "gap_seconds": 3.0},
+            {"driver_number": 12, "lap_number": 2, "position": 1, "gap_seconds": 0.0},
+            {"driver_number": 23, "lap_number": 2, "position": 2, "gap_seconds": 2.1},
+            # 44 retires after lap 1 — no more rows for it, ever.
+            {"driver_number": 12, "lap_number": 3, "position": 1, "gap_seconds": 0.0},
+            # 23 is a lap down — it never races lap 3, same as the real data.
+        ]
+        return race_replay.build_replay(RACE, self.RESULTS, laps, [], [], {"events": []})
+
+    def test_a_lapped_finisher_is_carried_forward_to_the_final_lap(self):
+        replay = self._replay()
+
+        lap3 = {r["number"]: r for r in replay["laps"][2]["runners"]}
+        self.assertIn("23", lap3)
+        self.assertEqual(lap3["23"]["gap_seconds"], 2.1)
+        self.assertEqual(lap3["23"]["position"], 2)
+        self.assertIsNone(lap3["23"]["pit"])
+
+    def test_a_retirement_is_not_carried_forward(self):
+        replay = self._replay()
+
+        lap2 = {r["number"]: r for r in replay["laps"][1]["runners"]}
+        lap3 = {r["number"]: r for r in replay["laps"][2]["runners"]}
+        self.assertNotIn("44", lap2)
+        self.assertNotIn("44", lap3)
+
+    def test_the_leader_who_races_every_lap_is_unaffected(self):
+        replay = self._replay()
+
+        self.assertEqual(len(replay["laps"]), 3)
+        for lap in replay["laps"]:
+            self.assertIn("12", {r["number"] for r in lap["runners"]})
 
 
 if __name__ == "__main__":
