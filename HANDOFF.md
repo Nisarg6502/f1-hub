@@ -10,9 +10,34 @@ quirks, and the immediate next action.
 
 ### Immediate next action
 
-Batch 12 (CP42-44, race replay) plus its two ad-hoc follow-up fixes are complete and merged (PRs
-#68, #69, #70, #72, #73). No batch is currently planned — see `ROADMAP.md`'s Backlog section for
-candidates before starting the next one.
+Batch 13 (CP45-46, GenAI strategy commentary + driver comparison narrative) plus its one ad-hoc
+fix (Teams page power-unit accuracy) are complete and merged (PRs #75, #76, #77). No batch is
+currently planned — see `ROADMAP.md`'s Backlog section for candidates before starting the next
+one.
+
+**Two parallel-checkpoint lessons worth reading before running the next multi-agent batch** (full
+writeup in `ROADMAP.md`'s Batch 13 retrospective):
+- When two parallel worktree agents each add a router registration (`backend/app/main.py`) and a
+  URL helper (`frontend/src/lib/api.ts`), the second PR to open against `main` after the first
+  merges **will** conflict in exactly those two files — this is expected, not a sign of a bad
+  parallelization call. Resolve by rebasing the second branch onto `main` and keeping both sides'
+  additions (they're always independently-additive one-liners); do this directly in the agent's
+  own worktree if it still exists, run the test suite + build afterward with both changes present
+  together (not just each branch individually), then force-push.
+- A background agent's "waiting on X" self-report needs the same direct-verification discipline
+  every time, in both directions. This batch, one agent's first "waiting on npm install" was stale
+  (no process alive, install had already finished) — resumed with corrected facts. Its very next
+  "waiting on the dev-server readiness monitor" was genuinely real (a live `next dev` process
+  already answering `curl` with 200) — don't let one stale report make you assume every later
+  report from the same agent is also stale; check each one on its own.
+
+**When the Claude_Browser preview pane is unusable** (port/lock held by another concurrent
+session, or the rAF-stall issue below) **and the change is pure logic with no rendering
+behavior**, a standalone `npx tsx some-script.mjs` run from `frontend/` that imports the changed
+module directly and exercises it with representative inputs is just as conclusive as a screenshot
+— used to verify the Teams-page power-unit fix (`getEngineForTeam`) end-to-end without a browser at
+all. Write the script inside `frontend/` (not the OS temp dir) so relative imports resolve, and
+delete it before committing.
 
 **The ad-hoc fixes (PRs #72, #73) are worth reading before touching `race_replay.py` again.** Both
 were the same shape of bug found via live user testing, not planned work: the timing tower's field
