@@ -10,26 +10,55 @@ quirks, and the immediate next action.
 
 ### Immediate next action
 
-Batch 13 (CP45-46, GenAI strategy commentary + driver comparison narrative) plus its one ad-hoc
-fix (Teams page power-unit accuracy) are complete and merged (PRs #75, #76, #77). No batch is
-currently planned — see `ROADMAP.md`'s Backlog section for candidates before starting the next
-one.
+Batch 14 (CP47-49, F1 Heritage: historical race index foundation, 75-Season Barcode, Constructor
+Genealogy) is complete and merged (PRs #79, #80, #81). No batch is currently planned — see
+`ROADMAP.md`'s Backlog section for candidates before starting the next one.
+
+**Raw Ergast/Jolpica data is not clean enough to render across full history — read this before
+touching `historical_index.py` or reading any Ergast endpoint beyond a single season/circuit
+scope again.** Full writeup in `ROADMAP.md`'s Batch 14 retrospective, but the durable facts:
+- Ergast's pagination `total` counts *result rows*, not races — a handful of 1950s races carry two
+  P1 rows each (shared drives; a driver swapped into a teammate's car mid-race and both were
+  classified 1st), so `total` (1163) exceeds the real race count (1160). Always advance pagination
+  offset by `limit`, never by `len(page)` — `circuit_history.py`'s `_fetch_all_races` already did
+  this correctly; `historical_index.py` mirrors it.
+- The `alfa` constructorId is reused across three unrelated teams 70+ years apart (1950-51 works
+  team, a separate 1979-85 works team, and the rebadged Sauber 2019-23) — split by era in
+  `historical_index.canonical_key`, not just left as one identity.
+- Ergast splits one team's chassis/engine combinations into several constructorIds in the early
+  decades (Lotus alone as `team_lotus`/`lotus-climax`/`lotus-ford`/`lotus-brm`) — collapsed via
+  `historical_index.CONSTRUCTOR_ALIASES`.
+- **A name that looks like a chassis-era variant is not proof it's the same team** — `lotus_f1`
+  (Ergast's id for the 2012-15 Räikkönen-era team) looks like another Lotus variant but is
+  genealogically the Renault-descended constructor, confirmed by checking
+  `/constructors/lotus_f1/seasons` directly (`[2012,2013,2014,2015]`, nowhere near classic Lotus's
+  1958-94 span) before committing a merge that would have been wrong. Verify any non-obvious
+  team-identity claim against the raw per-constructor season list before trusting it, the same
+  "don't trust it, verify in code" discipline CP38 established for LLM output.
+- The 1950-1960 Indianapolis 500 counted toward the World Championship — four American roadster
+  builders (`kurtis_kraft`, `epperly`, `kuzma`, `watson`) appear as race winners despite never
+  entering a Grand Prix; keep them but flag `indy500: true` rather than silently colouring them
+  like an ordinary GP win.
 
 **Two parallel-checkpoint lessons worth reading before running the next multi-agent batch** (full
-writeup in `ROADMAP.md`'s Batch 13 retrospective):
-- When two parallel worktree agents each add a router registration (`backend/app/main.py`) and a
-  URL helper (`frontend/src/lib/api.ts`), the second PR to open against `main` after the first
-  merges **will** conflict in exactly those two files — this is expected, not a sign of a bad
-  parallelization call. Resolve by rebasing the second branch onto `main` and keeping both sides'
-  additions (they're always independently-additive one-liners); do this directly in the agent's
-  own worktree if it still exists, run the test suite + build afterward with both changes present
-  together (not just each branch individually), then force-push.
+writeup in `ROADMAP.md`'s Batch 13 retrospective, reconfirmed by Batch 14):
+- When two parallel worktree agents both edit the same file for unrelated reasons (Batch 13: a
+  router registration + URL helper; Batch 14: two different `<section>` placeholders in the same
+  page component), the second PR to open against `main` after the first merges **will** conflict
+  in exactly that file — this is expected, not a sign of a bad parallelization call. Resolve by
+  rebasing the second branch onto `main` and keeping both sides' additions; do this directly in
+  the agent's own worktree if it still exists, run the test suite + build afterward with **both**
+  changes present together (not just each branch individually — a clean text merge doesn't prove
+  the two components' logic actually works side by side), then force-push.
 - A background agent's "waiting on X" self-report needs the same direct-verification discipline
-  every time, in both directions. This batch, one agent's first "waiting on npm install" was stale
-  (no process alive, install had already finished) — resumed with corrected facts. Its very next
-  "waiting on the dev-server readiness monitor" was genuinely real (a live `next dev` process
-  already answering `curl` with 200) — don't let one stale report make you assume every later
-  report from the same agent is also stale; check each one on its own.
+  every time, in both directions. Batch 13: one agent's first "waiting on npm install" was stale
+  (no process alive, install had already finished) — resumed with corrected facts; its very next
+  "waiting on the dev-server readiness monitor" was genuinely real. Batch 14 added a new variant of
+  this same lesson: both parallel agents hit an account-level API session-limit interruption
+  simultaneously, which surfaced as a "failed" task notification for both — that failure summary
+  named the real cause (an external session cap, not a code/tool problem), so both were resumed
+  via `SendMessage` to continue from their transcript rather than restarted from scratch. Read what
+  the failure notification actually says before assuming a full restart is needed.
 
 **When the Claude_Browser preview pane is unusable** (port/lock held by another concurrent
 session, or the rAF-stall issue below) **and the change is pure logic with no rendering
