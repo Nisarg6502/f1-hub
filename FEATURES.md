@@ -1,6 +1,6 @@
 # APEX — Feature Inventory
 
-**What this app is.** APEX is a Formula 1 season hub: a dark, warm-orange "glassmorphism" web app that answers *when is the next race, who is winning, what happened last weekend, and who/what is on the grid*. It is built as a Next.js App Router frontend talking to a FastAPI backend, which in turn caches data from the Ergast API (via the Jolpica mirror), FastF1, and OpenF1 into MongoDB. There are nine user-facing routes covering the calendar, per-race results down to individual practice sessions, both championship tables, driver and team profiles, circuit maps, a strategy "Pitwall" view, a live-timing board, and a 75-year cross-season heritage page. Everything is read-only — there are no accounts, no writes, and no user-generated content. It self-describes in the footer as a "Concept prototype · not affiliated with Formula 1".
+**What this app is.** APEX is a Formula 1 season hub: a dark, warm-orange "glassmorphism" web app that answers *when is the next race, who is winning, what happened last weekend, and who/what is on the grid*. It is built as a Next.js App Router frontend talking to a FastAPI backend, which in turn caches data from the Ergast API (via the Jolpica mirror), FastF1, and OpenF1 into MongoDB. There are ten user-facing routes covering the calendar, per-race results down to individual practice sessions, both championship tables, driver and team profiles, circuit maps, a WebGL 3D elevation model for circuits with baked geometry, a strategy "Pitwall" view, a live-timing board, and a 75-year cross-season heritage page. Everything is read-only — there are no accounts, no writes, and no user-generated content. It self-describes in the footer as a "Concept prototype · not affiliated with Formula 1".
 
 This document describes what is on `main` today. Anything present in the UI but non-functional is collected in [Known gaps](#known-gaps--not-yet-functional) rather than mixed in below.
 
@@ -18,6 +18,7 @@ This document describes what is on `main` today. Anything present in the UI but 
 | `/drivers` | The grid — a card per driver, each opening a profile modal |
 | `/teams` | Constructor cards plus a power-unit grouping |
 | `/circuits` | Featured track, cross-track "Circuit DNA" comparison, and a gallery of every circuit with detail modals |
+| `/circuits/[circuitId]` | 3D elevation model of one circuit, rendered in WebGL from baked geometry. Only exists for circuits with a payload in `frontend/public/tracks/` (currently Spa, Austin, Interlagos, Zandvoort); any other `circuitId` 404s |
 | `/telemetry` | Live Timing board (polls a third-party feed while a session is running). Linked from the desktop nav as "Live"; not in the mobile bottom bar |
 | `/history` | F1 Heritage — the 75-Season Barcode (every championship race since 1950, one stripe per race, coloured by winning constructor) and the Constructor Genealogy (curated team-lineage timeline, e.g. Tyrrell→BAR→Honda→Brawn→Mercedes). Linked from the desktop nav as "History" (last item); not in the mobile bottom bar |
 
@@ -192,6 +193,30 @@ This page has no season selector; it always shows the active season.
 
 ---
 
+## 3D elevation viewer (`/circuits/[circuitId]`)
+
+A WebGL model of one circuit built from its real centreline and an open elevation model — elevation being the one thing a 2D outline cannot convey, and much of why Eau Rouge, COTA's Turn 1 and the Interlagos bowl matter.
+
+**Only four circuits have geometry today**: Spa, Austin, Interlagos and Zandvoort. Each is a static JSON payload baked offline by `scripts/trackgeo/` and served from `frontend/public/tracks/`; the pipeline never runs in the API. Any circuit without a payload 404s rather than rendering an empty scene.
+
+**The scene** is a track ribbon with kerbs, DEM terrain with topographic contours, the TUMFTM optimal racing line, instanced elevation posts dropping to the datum, a gradient sky dome and drifting embers matching the app's hero treatment. Bloom and vignette are decorative and are switched off under sustained load by `PerformanceMonitor`, along with terrain and posts.
+
+**Vertical exaggeration defaults to 2× and is always labelled on screen** — 100 m over a 7 km lap is a 1.5% slope and reads as dead flat at true scale. Track width carries a separate, also-labelled 3× presentation multiplier, since a true 13.5 m road is about four pixels wide at whole-circuit framing. A 1:1 button returns both to reality.
+
+**Camera**: four presets (three-quarter, overhead, profile, driver eye) with interruptible transitions — a drag or an arrow key always cancels an in-flight tween. Arrow keys orbit, `+`/`-` zoom, `1`-`4` pick a preset, `F` flies a lap, and Space stops a running tour. Wheel zoom stays off until the canvas is clicked, so the page can still be scrolled past the viewer.
+
+**Guided motion** comes in three forms. **Fly the lap** runs the whole circuit from the current playhead, with a live panel showing the nearest named corner and distance covered. **Clicking a named corner or a highlight card** flies just that stretch. Both ease onto the track over ~1.15 s before moving off, ramp up from a standstill, and brake out at the end rather than cutting. **Scrubbing the elevation profile** walks the camera along the lap while preserving the viewer's own angle and zoom — it moves the orbit target, not the whole pose. This can be turned off with the "Follow scrub" toggle. Hovering the 3D ribbon moves the profile playhead but deliberately does *not* move the camera.
+
+**Named corner markers** are curated per circuit and snapped at build time to the nearest detected curvature apex. They sit on pins above the tarmac, are hidden when terrain is physically in front of them, and are nudged into free rows when they would overlap each other, so no name is ever lost to crowding. Clicking one flies that corner. This is deliberately not official corner numbering — raw curvature peaks and F1's numbering disagree structurally (Spa detects 30 apexes against 19 numbered corners, because official numbering merges multi-apex complexes).
+
+**The elevation profile strip** below the scene is a hand-rolled SVG showing the full lap, with shaded bands for each named highlight and a draggable playhead. Highlight cards underneath give the climb or drop in metres, the gradient, and a one-line blurb.
+
+**Without WebGL**, the page falls back to the static circuit outline plus a fully working elevation profile — the numbers are the content, the 3D is the presentation. Screen readers get the elevation figures and every highlight as text rather than a canvas. Under `prefers-reduced-motion` the intro flight and flythroughs resolve without animating.
+
+**Provenance is stated on the page**: centrelines from `bacinger/f1-circuits` (MIT), elevation from OpenTopoData (EU-DEM / NED / SRTM), widths and racing line from `TUMFTM/racetrack-database`, and banking curated from published figures — a 25 m elevation grid cannot resolve camber across a 15 m road. A badge shows the source dataset and a confidence grade for each circuit.
+
+---
+
 ## Live Timing (`/telemetry`)
 
 Linked from the desktop nav as "Live", after Circuits; deliberately excluded from the mobile bottom bar, which stays at its 5-item ceiling.
@@ -257,6 +282,8 @@ Both visualisations source their colours from a single canonical constructor-ide
 | `GET /api/historical_race_index` | History — the 75-Season Barcode and its Home-page teaser. Every championship race 1950-present, one normalised winner record per race (constructor identity already de-duplicated/normalised server-side); Mongo-first, backfilled once then topped up per-season by `data_sync.py` |
 | `GET /api/constructor_seasons` | History — Constructor Genealogy. Active-year span for one raw Ergast constructorId, resolving each curated lineage node's real band width rather than a hand-typed year range |
 | `GET /health` | Not used by the UI (deployment health check) |
+
+The 3D elevation viewer consumes **no backend endpoint at all**. Its geometry is a static JSON payload per circuit under `frontend/public/tracks/`, baked offline by `scripts/trackgeo/` and fetched client-side so the browser and CDN cache it — inlining a 26-63 KB payload into the RSC stream on every navigation would be worse. The route still reads `/api/races` for the circuit's name and round.
 
 Three data sources are called directly from the frontend rather than through the backend: **OpenF1** (`/sessions`, `/stints`, server-side, for the Pitwall chart; `/sessions`, `/race_control`, server-side, for the Pitwall Race Control module) and a **RapidAPI live-timing feed** (client-side, for `/telemetry`).
 

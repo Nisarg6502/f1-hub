@@ -1,4 +1,4 @@
-# F1 Hub — Handoff (2026-07-30)
+# F1 Hub — Handoff (2026-07-31)
 
 ## Where things stand
 
@@ -10,9 +10,10 @@ quirks, and the immediate next action.
 
 ### Immediate next action
 
-Batch 14 (CP47-49, F1 Heritage: historical race index foundation, 75-Season Barcode, Constructor
-Genealogy) is complete and merged (PRs #79, #80, #81). No batch is currently planned — see
-`ROADMAP.md`'s Backlog section for candidates before starting the next one.
+Batch 15 (CP50-54, 3D Elevation Track: offline geometry pipeline, WebGL viewer, corner markers,
+Constructor Genealogy current-grid polish, viewer polish pass) is complete and merged
+(PRs #83-#89). No batch is currently planned — see `ROADMAP.md`'s Backlog section for candidates
+before starting the next one.
 
 **Raw Ergast/Jolpica data is not clean enough to render across full history — read this before
 touching `historical_index.py` or reading any Ergast endpoint beyond a single season/circuit
@@ -106,6 +107,42 @@ shown to also apply to *vocabulary constraints* (and, per CP44 above, to *format
 forbids a behaviour without saying what to do instead can cause a worse regression (banning
 comparative gap language made the model recite every driver's time in turn, blowing the word
 limit).
+
+### NEVER run `taskkill /F /IM chrome.exe` — it closes the user's own browser
+
+Done during Batch 15 to clear strays between headless test runs, and it shut the user's real Chrome
+session mid-work. `/IM` matches on image name, so it kills every Chrome process on the machine,
+not just spawned ones. Kill a test browser by its own PID or via the child process handle
+(`child.kill()`), and give it an isolated `--user-data-dir` so it can never touch the real profile.
+The same applies to any `/IM`-style sweep — `node.exe`, `python.exe` — on a developer's workstation.
+
+### For WebGL or multi-step interaction, drive headless Chrome over CDP rather than `--screenshot`
+
+Extends the headless-Chrome recipe in "How to verify work in this environment" below. The
+one-shot `--screenshot` flag is fine for a static render, but the 3D viewer needed a *sequence*
+(click a corner marker, wait, sample the camera mid-flight, drag the elevation profile). The
+preview pane cannot do this at all — it never composites frames and starves `requestAnimationFrame`,
+so an r3f canvas never renders there; see the rAF-stall note below.
+
+No npm dependencies are needed: Node 22 has a global `WebSocket`, so a plain `.mjs` script can
+spawn Chrome with `--remote-debugging-port`, poll `http://127.0.0.1:<port>/json/list` for the page
+target, connect to its `webSocketDebuggerUrl`, and drive `Page.navigate`, `Runtime.evaluate`,
+`Input.dispatchMouseEvent` and `Page.captureScreenshot` directly. Subscribe to
+`Runtime.consoleAPICalled` and `Runtime.exceptionThrown` to assert a clean run.
+
+Four traps, all of which cost real time in Batch 15:
+- **`--user-data-dir` must be an absolute path.** Chrome silently refuses to start on a relative
+  one and the only symptom is DevTools never coming up. Give it an isolated directory anyway, so
+  the test browser can never touch the real profile.
+- **WebGL needs `--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader`**, otherwise
+  WebGL2 is unavailable and the viewer renders its no-WebGL fallback instead of the scene.
+- **Under swiftshader, `PerformanceMonitor` drops to low-power within seconds**, so terrain, bloom
+  and posts vanish from screenshots. That is correct behaviour reading as a regression — check
+  whether what's missing is perf-gated before chasing it.
+- **Elements below the fold need an explicit `scrollIntoView`** before `Input.dispatchMouseEvent`,
+  or the synthetic drag lands outside the viewport and does nothing at all. This produced two
+  byte-identical before/after screenshots that looked like a broken feature and were actually a
+  broken test.
 
 ### OpenF1's current-season paywall has lifted — several docs are stale on this
 
@@ -324,6 +361,15 @@ sessions; just `preview_start` again.
   motion-animated, click-outside + Escape) now appears in `tire-stints-chart.tsx`,
   `lap-position-chart.tsx`, `compare-drivers-panel.tsx`, `global-search.tsx` (CP32), and
   `circuit-dna-compare.tsx` (CP34) — reuse it rather than a native `<select>`.
+- `frontend/src/components/track3d/` — the WebGL stack (three + @react-three/fiber + drei +
+  postprocessing), behind a `next/dynamic({ssr:false})` boundary in `track-viewer-mount.tsx` so no
+  other route pays for it. `three` is pinned exactly; r3f and drei track specific revisions.
+  `build-ribbon.ts` is the one place ENU becomes world space. Two rules learned the hard way in
+  CP54: **use `occlude={[ref]}` (raycast), never `occlude="blending"`, on drei `<Html>`** — the
+  blending path renders an opaque black backing plane and clips the label (full explanation in
+  `ROADMAP.md`'s Batch 15 retrospective); and React's compiler lint treats anything produced during
+  render as frozen, so per-frame mutable scratch must live in a `useRef` (or a JSX material mutated
+  through a ref, as `atmosphere.tsx` already does), not in a `useMemo`.
 
 ## Stale docs warning
 

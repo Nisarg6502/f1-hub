@@ -36,13 +36,73 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 13 | CP45-46 | GenAI: Pitwall "Strategy Commentary" module (undercut/overcut narrative, PR #75), driver comparison head-to-head narrative on the Drivers compare modal (PR #76) — built as two parallel worktree agents | merged |
 | 13 (ad hoc) | unnumbered | Fixed the Teams page's Power units panel showing wrong 2026 supplier data: Alpine mapped to Renault (switched to Mercedes for 2026 — the lookup is now season-aware since the constructor name didn't change), Sauber mapped to Audi (it ran Ferrari its whole modern history; Audi's works supply only starts once the constructor is renamed "Audi" for 2026), and two new 2026 entrants (Audi, Cadillac) were missing entirely. Found via user inspection, not backlog-planned. PR #77 | merged |
 | 14 | CP47-49 | F1 Heritage: historical race index + constructor identity foundation (PR #79), "The 75-Season Barcode" — every championship race 1950-2026 as one colour-coded stripe, plus a Home-page teaser (PR #80), Constructor Genealogy — 15 curated team lineages as a horizontal band timeline (PR #81). New top-level `/history` page, 8th nav item. CP48/CP49 built as two parallel worktree agents | merged |
+| 15 | CP50-54 | 3D Elevation Track: offline geometry/elevation pipeline baking four circuits to static JSON (PR #83, #88), WebGL viewer on a new `/circuits/[circuitId]` route (PR #84, #87), named corner markers + keyboard orbit (PR #85), Constructor Genealogy filtered to the current grid with labelled eras and hover (PR #86), and a polish pass on the viewer's tour, scrub and corner labels from user testing (PR #89). First 3D/WebGL work in the project | merged |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
 ## Current batch
 
-No batch is currently planned — Batch 14 (CP47-49) is shipped and merged (PRs #79, #80, #81); the
-next batch has not been scoped yet. See Backlog below for candidates.
+No batch is currently planned — Batch 15 (CP50-54) is shipped and merged (PRs #83-#89); the next
+batch has not been scoped yet. See Backlog below for candidates.
+
+## Batch 15 retrospective — 3D Elevation Track (CP50-54)
+
+**Batch 15 (CP50-54) is complete and merged.** It was not scoped from the Backlog below — it came
+from a direct user request for a 3D elevation view of circuits, and is the first WebGL work in the
+project. CP53 (Constructor Genealogy polish) rode along in the same batch as a user-driven
+follow-up to Batch 14's CP49 rather than a theme fit.
+
+**The pipeline is offline and the payload is static, deliberately.** `scripts/trackgeo/` bakes each
+circuit to a JSON file in `frontend/public/tracks/` and never runs in the API. Elevation comes from
+OpenTopoData, which is a courtesy-rate public service — putting it behind a request path would have
+been both slow and rude. The frontend fetches the payload client-side rather than having the server
+component read it from disk, so the browser and CDN cache it instead of inlining 26-63 KB into the
+RSC stream on every navigation.
+
+**Three data lessons from CP50 worth not re-deriving:**
+- **Interlagos is `br-1940`, not `br-1977`.** The latter is Jacarepaguá, at sea level. A DEM
+  returning 3-11 m ASL for a track that sits at 765 m is what caught it.
+- **`confidence` grades data quality, not agreement with a published number.** Austin reads 30.9 m
+  against a published 41 m, and that is not a defect: `ned10m` is bare-earth lidar, while the 30 m
+  DSM products report 36-37 m because they include the Turn 1 grandstands. Agreement with a
+  published scalar is reported separately as `published_ratio`.
+- **There is no pit-lane geometry in the source**, and no pit-lane defect either — all 40 features
+  are clean closed rings.
+
+**Curated corner names are snapped to detected apexes, not indexed against them.** Raw curvature
+peaks and F1's official numbering disagree structurally: Spa detects 30 apexes against 19 numbered
+corners, because official numbering merges multi-apex complexes (Eau Rouge/Raidillon is one number,
+not three) and ignores gentle kinks. Names are curated by approximate arc length and snapped to the
+nearest real apex at build time with a 130 m tolerance, so a bad guess fails loudly at build rather
+than quietly labelling a straight.
+
+**CP54 was a polish pass driven entirely by the user actually using the viewer**, and every item in
+it was invisible to the checkpoint that shipped it. The most instructive one: corner labels drew
+stray opaque black quads and were clipped by terrain, both caused by a single prop. drei's
+`<Html occlude="blending">` renders a real backing `planeGeometry` whose shader writes
+`vec4(0,0,0,0)` *without* setting `transparent: true` — so the alpha is discarded and it draws as a
+solid black plane — and it sizes that plane by `1/viewport.factor` while the label itself is scaled
+by `distanceFactor`, so the two disagree and clip the label. Raycast occlusion (`occlude={[ref]}`)
+renders no plane at all and resolves visibility per label. **Prefer raycast occlusion for `<Html>`
+in this project.** The other CP54 findings: a translucent glass control over a dark bloom-lit 3D
+scene is effectively invisible (the flythrough button now gets the only filled treatment in the
+viewer); a camera move that cuts straight to its destination reads as broken even when the
+destination is right, so corner and highlight runs now ease on over ~1.15 s and ramp from a
+standstill; and page copy promised "scrub the profile to move the camera" while nothing was wired
+up, which is the kind of gap only a real user hits.
+
+**Performance gating has to distinguish cost from affordance.** `PerformanceMonitor`'s low-power
+mode originally dropped corner labels along with terrain, bloom and posts — but the labels are ten
+DOM nodes and the only route into a corner flythrough, so weak machines lost the feature entirely
+while saving nothing. Gate the expensive layers, never the only way in.
+
+**Verification could not use the usual browser preview.** The Claude_Browser preview pane does not
+composite frames for this route, so screenshots time out and an r3f canvas never renders — see
+HANDOFF.md. CP54 was verified instead by driving headless Chrome over the DevTools Protocol with a
+software GL stack (`--use-angle=swiftshader --enable-unsafe-swiftshader`), scripted with Node 22's
+built-in `WebSocket` and no added dependencies. That harness clicked corner markers, ran the lap
+tour, dragged the elevation profile and captured staged screenshots across Spa and Zandvoort. It is
+the right pattern for any future WebGL checkpoint here.
 
 ## Batch 14 retrospective — F1 Heritage: 75-Season Barcode + Constructor Genealogy (CP47-49)
 
