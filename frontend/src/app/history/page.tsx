@@ -1,6 +1,13 @@
 import type { Metadata } from "next";
-import { getActiveSeasonYear, getHistoricalRaceIndex, getSeasonRaces } from "@/lib/api";
+import {
+  getActiveSeasonYear,
+  getHistoricalRaceIndex,
+  getSeasonRaces,
+  getConstructorSeasons,
+} from "@/lib/api";
+import { getAllErgastIds, resolveLineages } from "@/lib/constructor-lineages";
 import SeasonBarcode from "@/components/season-barcode";
+import ConstructorGenealogy from "@/components/constructor-genealogy";
 
 // Historical data barely changes (see api.ts's 24h revalidate on this
 // endpoint) but the current season's tail does, race by race — render per
@@ -44,6 +51,48 @@ export default async function HistoryPage() {
     ghostSlots = Math.max((scheduled?.length ?? 0) - runRounds, 0);
   } catch {
     // Schedule unavailable — barcode just renders the races it has.
+  }
+
+  // Constructor Genealogy: resolve every curated lineage node's real
+  // active-year span from /api/constructor_seasons, one call per unique raw
+  // Ergast constructorId referenced anywhere in constructor-lineages.ts, so
+  // the chart's geometry is always real data rather than hand-typed years.
+  //
+  // A handful of these ids (whichever are still active this season —
+  // mercedes, aston_martin, alpine, red_bull, rb, audi, williams, ferrari,
+  // mclaren) have a most-recent season equal to the current year, so the
+  // backend never caches them in Mongo and live-fetches Jolpica on every
+  // call instead (see historical_index.py's /constructor_seasons
+  // docstring). Firing all ~40 ids at once occasionally trips a transient
+  // Jolpica rate-limit for one of those live ids, which the backend fails
+  // soft on (200 OK, empty `seasons`) rather than erroring — indistinguishable
+  // from a real empty result at the HTTP level. One retry after a short
+  // delay resolves it without risking a false "no data" flag for what's
+  // actually a good id (verified live against /api/constructor_seasons for
+  // every id in this file before shipping).
+  let genealogyLineages: ReturnType<typeof resolveLineages> = [];
+  try {
+    const ids = getAllErgastIds();
+    const results = await Promise.all(
+      ids.map(async (id) => {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const { seasons } = await getConstructorSeasons(id);
+            if (seasons.length > 0 || attempt === 1) {
+              return [id, seasons] as const;
+            }
+          } catch {
+            // fall through to retry / final empty result below
+          }
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+        return [id, []] as const;
+      })
+    );
+    const seasonsById = Object.fromEntries(results);
+    genealogyLineages = resolveLineages(seasonsById);
+  } catch {
+    // Backend offline — the genealogy section renders its own empty state.
   }
 
   return (
@@ -90,9 +139,13 @@ export default async function HistoryPage() {
           Tyrrell became BAR became Honda became Brawn became Mercedes —
           the family tree behind the grid.
         </div>
-        <div className="rounded-xl border border-white/10 bg-[rgba(255,255,255,0.03)] p-8 text-center text-warm-500 text-sm">
-          Genealogy tree coming in CP49.
-        </div>
+        {genealogyLineages.length > 0 ? (
+          <ConstructorGenealogy lineages={genealogyLineages} />
+        ) : (
+          <div className="rounded-xl border border-white/10 bg-[rgba(255,255,255,0.03)] p-8 text-center text-warm-500 text-sm">
+            Historical data unavailable.
+          </div>
+        )}
       </section>
     </div>
   );
