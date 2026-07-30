@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { Vector3 } from "three";
+import { Spherical, Vector3 } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 import type { TrackFrames } from "./build-ribbon";
@@ -269,12 +269,75 @@ export default function CameraRig({
 
   const reach = frames.diagonal;
 
+  // OrbitControls' built-in `keys` binds arrows to PAN, which fights the
+  // canvas-level Escape/preset handling and is not what "arrow keys orbit"
+  // means for this viewer. Rotation is driven manually via a spherical offset
+  // around the current target — OrbitControls' own rotateLeft/rotateUp are
+  // internal to three-stdlib and not part of its public type, so this uses only
+  // documented Object3D/Spherical API. A keypress cancels any in-flight tween
+  // exactly like a drag does.
+  const spherical = useRef(new Spherical());
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    const rotateStep = 0.06;
+    const zoomStep = 1.06;
+    const handler = (event: KeyboardEvent) => {
+      const offset = camera.position.clone().sub(controls.target);
+      spherical.current.setFromVector3(offset);
+
+      switch (event.key) {
+        case "ArrowLeft":
+          cancelMotion();
+          spherical.current.theta -= rotateStep;
+          break;
+        case "ArrowRight":
+          cancelMotion();
+          spherical.current.theta += rotateStep;
+          break;
+        case "ArrowUp":
+          cancelMotion();
+          spherical.current.phi = Math.max(0.05, spherical.current.phi - rotateStep);
+          break;
+        case "ArrowDown":
+          cancelMotion();
+          spherical.current.phi = Math.min(
+            Math.PI / 2 - 0.035,
+            spherical.current.phi + rotateStep,
+          );
+          break;
+        case "+":
+        case "=":
+          spherical.current.radius /= zoomStep;
+          break;
+        case "-":
+        case "_":
+          spherical.current.radius *= zoomStep;
+          break;
+        default:
+          return;
+      }
+      event.preventDefault();
+      offset.setFromSpherical(spherical.current);
+      camera.position.copy(controls.target).add(offset);
+      controls.update();
+    };
+    // Scoped to the canvas's focusable wrapper, not window — this must not
+    // steal arrow keys from the rest of the page.
+    const host = controls.domElement?.closest('[role="application"]');
+    host?.addEventListener("keydown", handler as EventListener);
+    return () => host?.removeEventListener("keydown", handler as EventListener);
+  }, [cancelMotion, camera]);
+
   return (
     <OrbitControls
       ref={controlsRef}
       makeDefault
       enableDamping
       dampingFactor={reducedMotion ? 0.2 : 0.08}
+      // No `keys`/`keyEvents` prop is set, so OrbitControls' own keyboard
+      // handling never attaches — arrow keys are handled entirely by the
+      // effect above instead.
       // Never let the camera go under the terrain.
       maxPolarAngle={Math.PI / 2 - 0.035}
       minDistance={reach * 0.05}

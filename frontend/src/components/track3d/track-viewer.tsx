@@ -6,7 +6,7 @@ import { PerformanceMonitor } from "@react-three/drei";
 import { Bloom, EffectComposer, Vignette } from "@react-three/postprocessing";
 
 import TrackMap from "@/components/track-map";
-import type { TrackHighlight } from "@/lib/circuit-geometry";
+import type { TrackCorner, TrackHighlight } from "@/lib/circuit-geometry";
 import CameraRig, { type CameraPresetId, type CameraRigHandle } from "./camera-rig";
 import ElevationProfile from "./elevation-profile";
 import TrackScene from "./track-scene";
@@ -57,15 +57,36 @@ export default function TrackViewer({
   const [preset, setPreset] = useState<CameraPresetId>("three-quarter");
   const [flying, setFlying] = useState(false);
   const [activeHighlight, setActiveHighlight] = useState<string | null>(null);
+  const [activeCorner, setActiveCorner] = useState<string | null>(null);
   const [activated, setActivated] = useState(false);
   const [showTerrain, setShowTerrain] = useState(true);
   const [showRaceline, setShowRaceline] = useState(true);
+  const [showCorners, setShowCorners] = useState(true);
   const [lowPower, setLowPower] = useState(false);
 
   const selectHighlight = useCallback((highlight: TrackHighlight) => {
     setActiveHighlight(highlight.id);
+    setActiveCorner(null);
     rig.current?.flyHighlight(highlight.s_start_m, highlight.s_end_m);
   }, []);
+
+  const selectCorner = useCallback((corner: TrackCorner) => {
+    setActiveCorner(corner.name);
+    setActiveHighlight(null);
+    // A named corner is a point, not a range — frame roughly 90 m either side
+    // so the flythrough shows the entry and exit, not just the apex.
+    rig.current?.flyHighlight(corner.s_m - 90, corner.s_m + 90);
+  }, []);
+
+  // Hovering the ribbon drives the profile playhead the same way scrubbing the
+  // strip does — both write through the same store, so neither view has to
+  // know which one is the source of truth.
+  const handleHoverDistance = useCallback(
+    (metres: number | null) => {
+      if (metres !== null) scrub.set(metres);
+    },
+    [scrub],
+  );
 
   const choosePreset = useCallback((id: CameraPresetId) => {
     // Side-on view auto-boosts exaggeration: at 1:1 a 100 m rise over a 7 km lap
@@ -129,7 +150,7 @@ export default function TrackViewer({
           onPointerDown={() => setActivated(true)}
           onFocus={() => setActivated(true)}
           role="application"
-          aria-label={`Interactive 3D elevation model of ${circuitName}. Arrow keys orbit, plus and minus zoom, keys 1 to 4 change view.`}
+          aria-label={`Interactive 3D elevation model of ${circuitName}. Arrow keys orbit, plus and minus zoom, keys 1 to 4 change view, space stops a flythrough.`}
           onKeyDown={(event) => {
             const index = ["1", "2", "3", "4"].indexOf(event.key);
             if (index >= 0) {
@@ -161,6 +182,10 @@ export default function TrackViewer({
               showTerrain={showTerrain && !lowPower}
               showRaceline={showRaceline}
               showPosts={!lowPower}
+              showCorners={showCorners && !lowPower}
+              activeCornerName={activeCorner}
+              onSelectCorner={selectCorner}
+              onHoverDistance={handleHoverDistance}
               reducedMotion={reducedMotion}
             />
             <CameraRig
@@ -294,6 +319,13 @@ export default function TrackViewer({
             disabled={!bundle.raceline}
           >
             Racing line
+          </Chip>
+          <Chip
+            active={showCorners}
+            onClick={() => setShowCorners((v) => !v)}
+            disabled={payload.corners.length === 0}
+          >
+            Corners
           </Chip>
         </ControlGroup>
       </div>
