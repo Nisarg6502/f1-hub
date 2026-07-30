@@ -1,0 +1,9 @@
+# Dependencies for the offline track-geometry build (scripts/build_track_geometry.py).
+#
+# Deliberately separate from backend/requirements.txt: this pipeline never runs
+# inside the API, and numpy/scipy would add ~100 MB to the Cloud Run images built
+# from Dockerfile.backend and Dockerfile.sync for no runtime benefit.
+#
+# HTTP uses urllib from the stdlib, so there is no httpx here either.
+numpy>=1.24
+scipy>=1.10
