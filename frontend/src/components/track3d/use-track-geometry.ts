@@ -129,16 +129,32 @@ export function useTrackGeometry(
  * state would re-render the entire 3D tree on every event. `useFrame` reads
  * `current` directly; only discrete UI (labels, active highlight) subscribes.
  */
+/**
+ * Who moved the playhead.
+ *
+ * The camera follows `"user"` scrubs only.
+ *
+ * `"fly"` must be excluded or a flythrough writes the playhead, the camera
+ * chases the value it just wrote, and the two fight into a feedback loop.
+ * `"hover"` is excluded for a different reason: hovering the ribbon to read a
+ * gradient should not yank the camera somewhere the user did not ask to go.
+ */
+export type ScrubOrigin = "user" | "hover" | "fly";
+
+export type ScrubListener = (metres: number, origin: ScrubOrigin) => void;
+
 export class TrackScrubStore {
   current = 0;
-  private listeners = new Set<(metres: number) => void>();
+  origin: ScrubOrigin = "user";
+  private listeners = new Set<ScrubListener>();
 
-  set(metres: number) {
+  set(metres: number, origin: ScrubOrigin = "user") {
     this.current = metres;
-    this.listeners.forEach((listener) => listener(metres));
+    this.origin = origin;
+    this.listeners.forEach((listener) => listener(metres, origin));
   }
 
-  subscribe(listener: (metres: number) => void) {
+  subscribe(listener: ScrubListener) {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);

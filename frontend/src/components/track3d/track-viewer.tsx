@@ -1,12 +1,16 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { PerformanceMonitor } from "@react-three/drei";
 import { Bloom, EffectComposer, Vignette } from "@react-three/postprocessing";
 
 import TrackMap from "@/components/track-map";
-import type { TrackCorner, TrackHighlight } from "@/lib/circuit-geometry";
+import type {
+  TrackCorner,
+  TrackGeometryPayload,
+  TrackHighlight,
+} from "@/lib/circuit-geometry";
 import CameraRig, { type CameraPresetId, type CameraRigHandle } from "./camera-rig";
 import ElevationProfile from "./elevation-profile";
 import TrackScene from "./track-scene";
@@ -17,6 +21,7 @@ import {
   useTrackGeometry,
   useTrackPayload,
   useWebglSupported,
+  type TrackScrubStore,
 } from "./use-track-geometry";
 
 const PRESETS: { id: CameraPresetId; label: string; hint: string }[] = [
@@ -63,6 +68,7 @@ export default function TrackViewer({
   const [showRaceline, setShowRaceline] = useState(true);
   const [showCorners, setShowCorners] = useState(true);
   const [lowPower, setLowPower] = useState(false);
+  const [followScrub, setFollowScrub] = useState(true);
 
   const selectHighlight = useCallback((highlight: TrackHighlight) => {
     setActiveHighlight(highlight.id);
@@ -78,12 +84,23 @@ export default function TrackViewer({
     rig.current?.flyHighlight(corner.s_m - 90, corner.s_m + 90);
   }, []);
 
+  const toggleLap = useCallback(() => {
+    if (flying) {
+      rig.current?.stopFly();
+      return;
+    }
+    setActiveHighlight(null);
+    setActiveCorner(null);
+    rig.current?.flyLap();
+  }, [flying]);
+
   // Hovering the ribbon drives the profile playhead the same way scrubbing the
   // strip does — both write through the same store, so neither view has to
-  // know which one is the source of truth.
+  // know which one is the source of truth. Tagged `hover` so it moves the
+  // playhead without dragging the camera along with the pointer.
   const handleHoverDistance = useCallback(
     (metres: number | null) => {
-      if (metres !== null) scrub.set(metres);
+      if (metres !== null) scrub.set(metres, "hover");
     },
     [scrub],
   );
@@ -150,12 +167,16 @@ export default function TrackViewer({
           onPointerDown={() => setActivated(true)}
           onFocus={() => setActivated(true)}
           role="application"
-          aria-label={`Interactive 3D elevation model of ${circuitName}. Arrow keys orbit, plus and minus zoom, keys 1 to 4 change view, space stops a flythrough.`}
+          aria-label={`Interactive 3D elevation model of ${circuitName}. Arrow keys orbit, plus and minus zoom, keys 1 to 4 change view, F flies a lap, space stops a flythrough.`}
           onKeyDown={(event) => {
             const index = ["1", "2", "3", "4"].indexOf(event.key);
             if (index >= 0) {
               event.preventDefault();
               choosePreset(PRESETS[index].id);
+            }
+            if (event.key === "f" || event.key === "F") {
+              event.preventDefault();
+              toggleLap();
             }
             if (event.key === " " && flying) {
               event.preventDefault();
@@ -182,11 +203,16 @@ export default function TrackViewer({
               showTerrain={showTerrain && !lowPower}
               showRaceline={showRaceline}
               showPosts={!lowPower}
-              showCorners={showCorners && !lowPower}
+              // Corner labels are NOT dropped under load. They are ten DOM nodes
+              // and the only way to reach a corner flythrough — dropping them
+              // takes the feature away on exactly the machines that most need a
+              // guided tour, while saving nothing next to terrain and bloom.
+              showCorners={showCorners}
               activeCornerName={activeCorner}
               onSelectCorner={selectCorner}
               onHoverDistance={handleHoverDistance}
               reducedMotion={reducedMotion}
+              scrub={scrub}
             />
             <CameraRig
               frames={bundle.frames}
@@ -194,6 +220,7 @@ export default function TrackViewer({
               reducedMotion={reducedMotion}
               scrub={scrub}
               enableZoom={activated}
+              followScrub={followScrub}
               handleRef={rig}
               onPresetChange={setPreset}
               onFlyStateChange={setFlying}
@@ -220,8 +247,9 @@ export default function TrackViewer({
         </div>
 
         {/* Exaggeration readout is always visible — never show scaled terrain
-            without saying by how much. */}
-        <div className="absolute top-4 left-4 flex items-center gap-2">
+            without saying by how much. Wraps rather than running under the
+            flythrough control on narrow viewports. */}
+        <div className="absolute top-4 left-4 right-4 flex flex-wrap items-center gap-2">
           <span
             className={`apex-glass-soft rounded-lg px-2.5 py-1.5 font-bold text-[10px] tracking-[0.12em] uppercase ${
               exaggeration === 1 ? "text-[#ffae6a]" : "text-warm-300"
@@ -239,23 +267,39 @@ export default function TrackViewer({
           </span>
         </div>
 
-        {!activated && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center">
+        {/*
+          The flythrough control is a solid, opaque button rather than another
+          glass chip. Every other overlay here is translucent, and over a dark
+          scene with bloom the previous glass "Stop flythrough" pill in the top
+          corner disappeared into the terrain behind it. This is the one control
+          that must always be findable, so it gets the only filled treatment in
+          the viewer and a fixed seat in the bottom bar.
+        */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 p-4 flex flex-wrap items-end justify-between gap-3">
+          <div className="pointer-events-auto flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={toggleLap}
+              aria-pressed={flying}
+              className={`rounded-xl px-4 py-2.5 font-bold text-[11px] tracking-[0.1em] uppercase border transition-transform duration-150 active:scale-[0.97] ${
+                flying
+                  ? "bg-[#181310] border-[rgba(255,174,106,0.5)] text-[#ffae6a] shadow-[0_6px_20px_rgba(0,0,0,0.6)]"
+                  : "bg-[#ff5a1f] border-[rgba(255,174,106,0.8)] text-[#160b04] shadow-[0_6px_22px_rgba(255,90,31,0.42)] hover:bg-[#ff6f36]"
+              }`}
+            >
+              {flying ? "Stop tour" : "Fly the lap"}
+            </button>
+            {flying && (
+              <LapProgress payload={payload} scrub={scrub} />
+            )}
+          </div>
+
+          {!activated && (
             <span className="apex-glass-soft rounded-lg px-3 py-1.5 font-medium text-[11px] text-warm-400">
               Click to orbit · scroll to zoom once active
             </span>
-          </div>
-        )}
-
-        {flying && (
-          <button
-            type="button"
-            onClick={() => rig.current?.stopFly()}
-            className="absolute top-4 right-4 apex-glass-soft rounded-lg px-3 py-1.5 font-semibold text-[11px] text-warm-200 transition-transform duration-150 active:scale-[0.97]"
-          >
-            Stop flythrough
-          </button>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Controls */}
@@ -328,6 +372,12 @@ export default function TrackViewer({
             Corners
           </Chip>
         </ControlGroup>
+
+        <ControlGroup label="Camera">
+          <Chip active={followScrub} onClick={() => setFollowScrub((v) => !v)}>
+            Follow scrub
+          </Chip>
+        </ControlGroup>
       </div>
 
       {/* Elevation profile + highlights */}
@@ -398,6 +448,71 @@ export default function TrackViewer({
         </p>
       </div>
     </div>
+  );
+}
+
+/**
+ * Live lap position during a flythrough.
+ *
+ * Subscribes to the scrub store and writes to the DOM through refs rather than
+ * holding the position in React state: the store ticks every frame while flying,
+ * and re-rendering the viewer (and therefore the Canvas subtree) at 60 Hz to
+ * update a progress bar would be self-defeating.
+ */
+function LapProgress({
+  payload,
+  scrub,
+}: {
+  payload: TrackGeometryPayload;
+  scrub: TrackScrubStore;
+}) {
+  const barRef = useRef<HTMLSpanElement>(null);
+  const labelRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    const paint = (metres: number) => {
+      const total = payload.length_m;
+      const wrapped = ((metres % total) + total) % total;
+      if (barRef.current) {
+        barRef.current.style.transform = `scaleX(${(wrapped / total).toFixed(4)})`;
+      }
+      if (labelRef.current) {
+        // Nearest named corner behind the camera, so the readout says where you
+        // are in words and not only in metres.
+        let nearest: string | null = null;
+        let best = Infinity;
+        for (const corner of payload.corners) {
+          const gap = wrapped - corner.s_m;
+          if (gap >= -40 && gap < best) {
+            best = gap;
+            nearest = corner.name;
+          }
+        }
+        labelRef.current.textContent = nearest
+          ? `${nearest} · ${(wrapped / 1000).toFixed(2)} km`
+          : `${(wrapped / 1000).toFixed(2)} km`;
+      }
+    };
+    paint(scrub.current);
+    return scrub.subscribe(paint);
+  }, [scrub, payload]);
+
+  // Solid, not glass: a flythrough runs low over brightly lit tarmac, and a
+  // translucent panel there is unreadable at exactly the moment it matters.
+  return (
+    <span className="rounded-lg px-3 py-2 flex flex-col gap-1.5 min-w-[150px] bg-[#181310] border border-white/12 shadow-[0_6px_20px_rgba(0,0,0,0.6)]">
+      <span
+        ref={labelRef}
+        className="font-semibold text-[10px] tracking-[0.06em] uppercase text-warm-200 tabular-nums"
+      />
+      <span className="block h-[3px] w-full rounded-full bg-white/15 overflow-hidden">
+        <span
+          ref={barRef}
+          className="block h-full w-full origin-left rounded-full bg-[#ff7a3d]"
+          style={{ transform: "scaleX(0)" }}
+        />
+      </span>
+    </span>
   );
 }
 
