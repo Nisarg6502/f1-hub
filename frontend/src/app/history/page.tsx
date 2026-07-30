@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { getHistoricalRaceIndex } from "@/lib/api";
+import { getActiveSeasonYear, getHistoricalRaceIndex, getSeasonRaces } from "@/lib/api";
+import SeasonBarcode from "@/components/season-barcode";
 
 // Historical data barely changes (see api.ts's 24h revalidate on this
 // endpoint) but the current season's tail does, race by race — render per
@@ -17,9 +18,14 @@ export default async function HistoryPage() {
   let raceCount = 0;
   let firstSeason: number | null = null;
   let lastSeason: number | null = null;
+  let fullRaces: Awaited<ReturnType<typeof getHistoricalRaceIndex>>["races"] = [];
+  let ghostSlots = 0;
+
+  const activeSeason = getActiveSeasonYear();
 
   try {
-    const { races } = await getHistoricalRaceIndex("compact");
+    const { races } = await getHistoricalRaceIndex("full");
+    fullRaces = races;
     raceCount = races.length;
     if (races.length > 0) {
       firstSeason = races[0].season;
@@ -27,6 +33,17 @@ export default async function HistoryPage() {
     }
   } catch {
     // Backend offline — sections below render their own empty states.
+  }
+
+  // The active season is partial — figure out how many scheduled rounds
+  // haven't been run yet so the barcode can render deliberate "ghost slots"
+  // for them instead of just stopping abruptly.
+  try {
+    const { races: scheduled } = await getSeasonRaces(activeSeason);
+    const runRounds = fullRaces.filter((r) => r.season === activeSeason).length;
+    ghostSlots = Math.max((scheduled?.length ?? 0) - runRounds, 0);
+  } catch {
+    // Schedule unavailable — barcode just renders the races it has.
   }
 
   return (
@@ -55,9 +72,13 @@ export default async function HistoryPage() {
         <div className="font-medium text-[13px] text-warm-400 mb-[18px]">
           Every race, one stripe, coloured by winning constructor.
         </div>
-        <div className="rounded-xl border border-white/10 bg-[rgba(255,255,255,0.03)] p-8 text-center text-warm-500 text-sm">
-          {raceCount > 0 ? `${raceCount} races indexed — barcode coming in CP48.` : "Historical data unavailable."}
-        </div>
+        {fullRaces.length > 0 ? (
+          <SeasonBarcode races={fullRaces} ghostSlots={ghostSlots} activeSeason={activeSeason} />
+        ) : (
+          <div className="rounded-xl border border-white/10 bg-[rgba(255,255,255,0.03)] p-8 text-center text-warm-500 text-sm">
+            Historical data unavailable.
+          </div>
+        )}
       </section>
 
       {/* Constructor Genealogy — built in CP49 (constructor-genealogy.tsx). */}
