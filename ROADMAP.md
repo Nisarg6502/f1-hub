@@ -42,8 +42,74 @@ The original plan's CP15-19 (driver/team head-to-head compare, championship calc
 
 ## Current batch
 
-No batch is currently planned — Batch 15 (CP50-54) is shipped and merged (PRs #83-#89); the next
-batch has not been scoped yet. See Backlog below for candidates.
+**Batch 16 — On-demand track geometry generation (CP55-58). Planned, not started.**
+
+Batch 15 (CP50-54) is shipped and merged (PRs #83-#89). Batch 16 extends its 3D viewer from the
+four hand-baked circuits to the whole calendar, with the expensive elevation build triggered by a
+**public-facing button** rather than run offline by a maintainer.
+
+**The constraint that shapes everything: a build needs a `CircuitSpec` that already exists.** The
+pipeline cannot bake an arbitrary circuit from an id alone. Each spec in `scripts/trackgeo/
+curated.py` carries researched data — which upstream GeoJSON feature is the right one (the
+`br-1940`/`br-1977` trap from Batch 15), which DEM dataset, rotation direction, and any curated
+banking, corner names and highlight windows. Only `sf_lat`/`sf_lon` is derived automatically, from
+the TUMFTM alignment. So "a user generates a circuit" means **triggering the elevation build for a
+circuit already curated**; the curation itself stays a repo change. CP55 therefore has to land
+before the button is useful for anything.
+
+**Two scope decisions, taken deliberately rather than defaulted:**
+- **The service is built even though pre-baking is cheaper.** All 18 remaining circuits could be
+  baked offline for roughly 415 OpenTopoData calls (~23 each) and about 720 KB of static JSON, with
+  no new infrastructure at all. The on-demand service was chosen anyway, for the interaction itself
+  and so a changed calendar needs no redeploy. Recorded here because the cheaper option is real and
+  a future reader should not have to re-derive it. Circuits stay unbuilt until someone clicks.
+- **Curation is deep for marquee circuits only.** Full treatment (corner names, highlight windows,
+  banking) for **Monaco, Austria, Japan, Great Britain, Italy, Hungary**; geometry + elevation only
+  for the other twelve. A circuit without curated extras still renders correctly — it simply has no
+  corner markers or highlight cards, which is much better than a confidently mislabelled corner.
+
+**The 18 pending circuits:** Abu Dhabi, Australia, Austria, Baku, Canada, China, Great Britain,
+Hungary, Italy, Japan, Las Vegas, Madrid, Mexico, Miami, Monaco, Qatar, Singapore, Spain. Already
+built: Spa (Belgium), Interlagos (Brazil), Zandvoort (Netherlands), Austin (USA).
+
+**Frozen contract — agreed before any checkpoint starts, so all four can be built against it:**
+- Output: `gs://f1-scratch-assets/tracks/<key>.json`, served through the existing
+  `NEXT_PUBLIC_ASSET_BASE_URL`. This replaces `frontend/public/tracks/`, which is baked into the
+  frontend image at build time and so can never show a payload written at runtime.
+- Mongo `track_geometry_builds`:
+  `{circuit_id, status: queued|running|done|failed, phase, progress_pct, message, started_at, updated_at, error}`
+- `POST /api/track_geometry/build {circuit_id}` → `202` with the status doc, or **`409` naming the
+  circuit already building**. One build at a time, globally; a second click is told to wait rather
+  than queued.
+- `GET /api/track_geometry/status?circuit_id=` → the status doc.
+- `GET /api/track_geometry/available` → ids that already have a payload, so the frontend stops
+  needing a hardcoded list.
+
+| CP | Scope | File footprint |
+|---|---|---|
+| CP55 | `CircuitSpec` entries for the 18 pending circuits — full curation for the six marquee tracks, geometry + elevation for the rest. Verify each `bacinger_id` against the upstream index rather than guessing it | `scripts/trackgeo/curated.py` only |
+| CP56 | Cloud Run Job: containerise the pipeline, write output to GCS, report phase/progress to Mongo as it runs, and **move the daily quota counter from `.cache/trackgeo/quota.json` into Mongo** — a job's local disk is ephemeral, so a per-run counter would let every run believe it has a fresh 900 calls and quietly blow the real limit | `scripts/trackgeo/cache.py`, new `scripts/trackgeo/storage.py`, `scripts/build_track_geometry.py`, new `Dockerfile.trackgeo`, new `cloudbuild-trackgeo.yaml` |
+| CP57 | Trigger + status endpoints, the single-build lock behind the 409, and the IAM to let the backend's service account invoke a Cloud Run Job | new `backend/app/track_geometry.py`, `backend/app/main.py` (one-line router registration) |
+| CP58 | "Generate 3D view" button, phased loader driven by the status doc, and replacing the static `GEOMETRY_BY_CIRCUIT_ID` map with runtime availability | `frontend/src/lib/circuit-geometry.ts`, `frontend/src/components/circuit-details-modal.tsx`, `frontend/src/app/circuits/[circuitId]/`, new loader component |
+
+**Parallelization check (per the rule at the top of this file): CP55, CP56 and CP57 have genuinely
+disjoint footprints and should run as three parallel worktree agents.** CP55 touches only
+`curated.py`; CP56 touches `cache.py`/`storage.py`/the Dockerfiles; CP57 is a new backend module.
+CP58 can run as a fourth agent against the frozen contract above and be integrated last, since its
+only real dependency is the endpoint shape, not the endpoint's existence. The single shared file is
+`main.py`'s one-line router registration — the same low-risk additive overlap Batches 13 and 14
+both absorbed, and the second PR to open after the first merges should be expected to conflict
+there and nowhere else.
+
+**Why this is free on GCP.** Cloud Run Jobs' free tier (180k vCPU-seconds, 360k GiB-seconds per
+month) dwarfs a few minutes of occasional building, and 22 payloads under 1 MB total sit well
+inside the 5 GB Cloud Storage free tier. The existing `f1-data-sync` job and `f1-scratch-assets`
+bucket already prove both paths in this project.
+
+**Sequencing note.** CP55 must merge before the button does anything useful, and CP56's GCS output
+path must exist before CP58's viewer stops reading `public/tracks/`. Bake at least one marquee
+circuit through the deployed job before CP58 ships, so the frontend is verified against a real
+runtime-written payload rather than a file copied by hand.
 
 ## Batch 15 retrospective — 3D Elevation Track (CP50-54)
 
