@@ -76,6 +76,12 @@ class CircuitSpec:
     highlights: tuple[Highlight, ...] = ()
     want_terrain: bool = True
     notes: str = ""
+    # (approximate arc length from S/F, name). Snapped to the nearest detected
+    # curvature apex at build time, so the label lands on real geometry and a
+    # wrong guess fails loudly rather than sitting on a straight. Positions were
+    # read off the detected layout, not recalled — only corners that are both
+    # famous and unambiguous in the geometry are named, because a confidently
+    # mislabelled corner is worse than an unlabelled one.
     corner_names: tuple[tuple[float, str], ...] = ()
 
 
@@ -148,6 +154,21 @@ SPECS: tuple[CircuitSpec, ...] = (
                 ),
             ),
         ),
+        # Read off the detected apexes: La Source is the 12 m hairpin at s~385,
+        # the Bus Stop is the 14 m chicane at s~6742, and Eau Rouge/Raidillon is
+        # the L-R-L at s~1050-1274 that opens the big climb.
+        corner_names=(
+            (385.0, "La Source"),
+            (1050.0, "Eau Rouge"),
+            (1274.0, "Raidillon"),
+            (2424.0, "Les Combes"),
+            (3274.0, "Rivage"),
+            (3788.0, "Pouhon"),
+            (4483.0, "Fagnes"),
+            (4923.0, "Stavelot"),
+            (5943.0, "Blanchimont"),
+            (6742.0, "Bus Stop"),
+        ),
         notes="Validated: 107.2 m measured against 102.2 m published (ratio 1.05).",
     ),
     CircuitSpec(
@@ -197,6 +218,11 @@ SPECS: tuple[CircuitSpec, ...] = (
                 ),
             ),
         ),
+        # Only Turn 1 is named: it is the 13 m uphill left at s~665, unambiguous
+        # in the geometry and corroborated by the Turn 1 climb highlight ending
+        # at s=675. COTA's remaining corners are mostly unnamed in common usage
+        # and its numbering does not map cleanly onto detected apexes.
+        corner_names=((665.0, "Turn 1"),),
         notes=(
             "ned10m (10 m bare-earth lidar) measures 30.9 m; the 30 m DSM products "
             "report 36-37 m because they include the Turn 1 grandstands and tower. "
@@ -255,6 +281,16 @@ SPECS: tuple[CircuitSpec, ...] = (
                 ),
             ),
         ),
+        # Senna S is the left-right at s~345-455 opening the lap; Juncao is the
+        # tight left at s~3245 that begins the climb back to the line — which the
+        # Subida highlight independently places starting at s=3165.
+        corner_names=(
+            (345.0, "Senna S"),
+            (580.0, "Curva do Sol"),
+            (1420.0, "Descida do Lago"),
+            (2755.0, "Bico de Pato"),
+            (3245.0, "Junção"),
+        ),
         notes="Validated: 43.5 m measured against 43 m published (ratio 1.01).",
     ),
     CircuitSpec(
@@ -296,6 +332,14 @@ SPECS: tuple[CircuitSpec, ...] = (
                     "25 m elevation grid cannot resolve camber across a 15 m road."
                 ),
             ),
+        ),
+        # Tarzanbocht is the 30 m banked right at s~360 closing the pit straight;
+        # Hugenholtzbocht is the wide banked left at s~610, which the banking
+        # range and the detected highlight both independently place there.
+        corner_names=(
+            (360.0, "Tarzanbocht"),
+            (610.0, "Hugenholtzbocht"),
+            (3925.0, "Arie Luyendykbocht"),
         ),
         want_terrain=True,
         notes=(

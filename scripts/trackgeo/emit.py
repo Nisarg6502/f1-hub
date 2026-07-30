@@ -62,6 +62,7 @@ def build_payload(
     z_ref_m: float,
     origin: tuple[float, float],
     elevation_stats: dict,
+    corners: list[dict],
     highlights: list[dict],
     segments: list[dict],
     diagnostics: dict,
@@ -103,9 +104,7 @@ def build_payload(
         ),
         "terrain": terrain,
         "elevation": elevation_stats,
-        "corners": [
-            {"s_m": round(s_m, 1), "name": name} for s_m, name in spec.corner_names
-        ],
+        "corners": corners,
         "highlights": highlights,
         "segments": segments,
         "diagnostics": diagnostics,

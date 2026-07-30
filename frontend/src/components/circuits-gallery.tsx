@@ -38,6 +38,10 @@ export default function CircuitsGallery({
     detail: CircuitDetail;
     circuitImagePath: string | null;
     flagPath: string | null;
+    // CircuitDetail is keyed by round and carries no Ergast circuitId, so it is
+    // threaded through from the race the card was built from — the 3D viewer
+    // route is keyed by circuitId.
+    circuitId: string | null;
   } | null>(null);
 
   const reduce = useReducedMotion();
@@ -69,7 +73,12 @@ export default function CircuitsGallery({
               variants={revealItem}
               onClick={() =>
                 detail &&
-                setSelected({ detail, circuitImagePath, flagPath })
+                setSelected({
+                  detail,
+                  circuitImagePath,
+                  flagPath,
+                  circuitId: race.Circuit?.circuitId ?? null,
+                })
               }
               whileHover={detail && !reduce ? { y: -6 } : undefined}
               whileTap={detail && !reduce ? { scale: 0.97 } : undefined}
@@ -139,6 +148,7 @@ export default function CircuitsGallery({
           circuit={selected.detail}
           circuitImagePath={selected.circuitImagePath}
           flagPath={selected.flagPath}
+          circuitId={selected.circuitId}
         />
       )}
     </>
