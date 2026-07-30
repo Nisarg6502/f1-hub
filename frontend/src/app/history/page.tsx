@@ -5,7 +5,11 @@ import {
   getSeasonRaces,
   getConstructorSeasons,
 } from "@/lib/api";
-import { getAllErgastIds, resolveLineages } from "@/lib/constructor-lineages";
+import {
+  filterToCurrentGrid,
+  getAllErgastIds,
+  resolveLineages,
+} from "@/lib/constructor-lineages";
 import SeasonBarcode from "@/components/season-barcode";
 import ConstructorGenealogy from "@/components/constructor-genealogy";
 
@@ -90,7 +94,18 @@ export default async function HistoryPage() {
       })
     );
     const seasonsById = Object.fromEntries(results);
-    genealogyLineages = resolveLineages(seasonsById);
+    // Only the lineages that end on a constructor still racing this season —
+    // "Sauber → BMW Sauber → Sauber → Alfa Romeo → Kick Sauber → Audi" earns
+    // its row because Audi is on the grid; Vanwall and classic Lotus don't.
+    // The test is `final era's endYear >= activeSeason` against real
+    // /api/constructor_seasons data, not a hardcoded team list — see
+    // filterToCurrentGrid. Cross-checked against
+    // /api/constructorstandings?year=2026, which returns exactly the same
+    // eleven constructors this leaves standing.
+    genealogyLineages = filterToCurrentGrid(
+      resolveLineages(seasonsById),
+      activeSeason
+    );
   } catch {
     // Backend offline — the genealogy section renders its own empty state.
   }
@@ -136,11 +151,15 @@ export default async function HistoryPage() {
           Constructor Genealogy
         </div>
         <div className="font-medium text-[13px] text-warm-400 mb-[18px]">
-          Tyrrell became BAR became Honda became Brawn became Mercedes —
-          the family tree behind the grid.
+          Tyrrell became BAR became Honda became Brawn became Mercedes — every
+          constructor on the {activeSeason} grid, traced back to the team it
+          started life as.
         </div>
         {genealogyLineages.length > 0 ? (
-          <ConstructorGenealogy lineages={genealogyLineages} />
+          <ConstructorGenealogy
+            lineages={genealogyLineages}
+            races={fullRaces}
+          />
         ) : (
           <div className="rounded-xl border border-white/10 bg-[rgba(255,255,255,0.03)] p-8 text-center text-warm-500 text-sm">
             Historical data unavailable.
