@@ -1,6 +1,6 @@
 # APEX — Feature Inventory
 
-**What this app is.** APEX is a Formula 1 season hub: a dark, warm-orange "glassmorphism" web app that answers *when is the next race, who is winning, what happened last weekend, and who/what is on the grid*. It is built as a Next.js App Router frontend talking to a FastAPI backend, which in turn caches data from the Ergast API (via the Jolpica mirror), FastF1, and OpenF1 into MongoDB. There are eight user-facing routes covering the calendar, per-race results down to individual practice sessions, both championship tables, driver and team profiles, circuit maps, a strategy "Pitwall" view, and a live-timing board. Everything is read-only — there are no accounts, no writes, and no user-generated content. It self-describes in the footer as a "Concept prototype · not affiliated with Formula 1".
+**What this app is.** APEX is a Formula 1 season hub: a dark, warm-orange "glassmorphism" web app that answers *when is the next race, who is winning, what happened last weekend, and who/what is on the grid*. It is built as a Next.js App Router frontend talking to a FastAPI backend, which in turn caches data from the Ergast API (via the Jolpica mirror), FastF1, and OpenF1 into MongoDB. There are nine user-facing routes covering the calendar, per-race results down to individual practice sessions, both championship tables, driver and team profiles, circuit maps, a strategy "Pitwall" view, a live-timing board, and a 75-year cross-season heritage page. Everything is read-only — there are no accounts, no writes, and no user-generated content. It self-describes in the footer as a "Concept prototype · not affiliated with Formula 1".
 
 This document describes what is on `main` today. Anything present in the UI but non-functional is collected in [Known gaps](#known-gaps--not-yet-functional) rather than mixed in below.
 
@@ -18,13 +18,14 @@ This document describes what is on `main` today. Anything present in the UI but 
 | `/drivers` | The grid — a card per driver, each opening a profile modal |
 | `/teams` | Constructor cards plus a power-unit grouping |
 | `/circuits` | Featured track, cross-track "Circuit DNA" comparison, and a gallery of every circuit with detail modals |
-| `/telemetry` | Live Timing board (polls a third-party feed while a session is running). Linked from the desktop nav as "Live" (last item); not in the mobile bottom bar |
+| `/telemetry` | Live Timing board (polls a third-party feed while a session is running). Linked from the desktop nav as "Live"; not in the mobile bottom bar |
+| `/history` | F1 Heritage — the 75-Season Barcode (every championship race since 1950, one stripe per race, coloured by winning constructor) and the Constructor Genealogy (curated team-lineage timeline, e.g. Tyrrell→BAR→Honda→Brawn→Mercedes). Linked from the desktop nav as "History" (last item); not in the mobile bottom bar |
 
 ---
 
 ## Global chrome (present on every page)
 
-**Top navigation bar** — sticky, translucent, blurred. On the left: the APEX wordmark with a glowing dot (links home) and six desktop links — Home, Schedule, Standings, Drivers, Teams, Circuits. The active link is marked with an orange underline that animates between items as you navigate. On the right: a functional search input (desktop `lg` and up — see below) and a "Season 2026" label.
+**Top navigation bar** — sticky, translucent, blurred. On the left: the APEX wordmark with a glowing dot (links home) and eight desktop links — Home, Schedule, Standings, Drivers, Teams, Circuits, Live, History. The active link is marked with an orange underline that animates between items as you navigate. On the right: a functional search input (desktop `lg` and up — see below) and a "Season 2026" label.
 
 **Global search** — the nav search box filters the current season's drivers, constructors, and circuits client-side (reusing the same standings/races/circuit-details data other pages already fetch) as you type, in a liquid-glass dropdown matching the compare-drivers/tire-stints popover pattern. Requires 2+ characters; shows a "No results" state otherwise. Selecting a driver or circuit opens that entity's existing modal (`driver-modal.tsx` / `circuit-details-modal.tsx`); selecting a team navigates to `/teams`. Escape and click-outside close it; respects `prefers-reduced-motion`.
 
@@ -193,7 +194,7 @@ This page has no season selector; it always shows the active season.
 
 ## Live Timing (`/telemetry`)
 
-Linked from the desktop nav as "Live" (last item, after Circuits); deliberately excluded from the mobile bottom bar, which stays at its 5-item ceiling.
+Linked from the desktop nav as "Live", after Circuits; deliberately excluded from the mobile bottom bar, which stays at its 5-item ceiling.
 
 Header reads "APEX Live / Live Timing" with the current session name, a **Live** pill (pulsing red dot) or a **Standby** pill, and a link to the schedule.
 
@@ -202,6 +203,18 @@ The page derives whether a session is live from the season calendar plus assumed
 **When no session is live**, it shows "Live timing polling is paused because no session is currently active." plus "Next session: <race> · <session> · <date/time>".
 
 **When a session is live**, it polls a third-party RapidAPI feed every 10 seconds and renders a timing table: Pos, No, Driver (three-letter code in the team's colour), Gap, Interval, Last Lap, three **sector bars** (purple = overall fastest, green = personal best, orange otherwise), a **tyre** column (compound-coloured dot plus tyre age), and a Status column showing PIT / DRS / RUN. Rows are sorted by position. Loading, error, and "No timing rows available yet." states are all handled.
+
+---
+
+## F1 Heritage (`/history`)
+
+Linked from the desktop nav as "History", the last item; deliberately excluded from the mobile bottom bar, which stays at its 5-item ceiling (reachable there via a teaser on Home instead — see below). Header states the season span and total race count ("1160 championship races, 1950–2026 …") pulled live from the backend.
+
+**The 75-Season Barcode** — every F1 championship race since 1950 as one thin vertical stripe in a single scaling SVG, coloured by winning constructor, 1950 on the left and the present on the right. Hovering or tapping a stripe opens a tooltip with the race name, year, winning driver and constructor; the four Indianapolis-500-only constructors (`kurtis_kraft`, `epperly`, `kuzma`, `watson` — the 1950-1960 Indy 500 counted toward the World Championship despite never being a Grand Prix) render as a visually distinct muted chrome with a tooltip explaining why they're there rather than looking like unexplained one-off colours. A legend of the top constructors by win count plus a dedicated "Indy 500" entry lets you hover (or tap-pin, for touch) to isolate one constructor's stripes across all 75 years — this is what makes eras like the unbroken 2014-2021 Mercedes run or the single-season 2009 Brawn cluster legible as a pattern. The active season's unraced remaining rounds render as hatched "ghost slots" rather than the barcode just stopping abruptly. Stripes reveal left-to-right on scroll-into-view; fully respects `prefers-reduced-motion`. A compact, non-interactive version of the same barcode appears as a full-width teaser strip on Home, linking through to this page.
+
+**Constructor Genealogy** — a hand-rolled horizontal band timeline (1950-present, no charting library) of 15 curated team lineages, each node's active-year span resolved live from the backend rather than hand-typed: Tyrrell→BAR→Honda→Brawn→Mercedes, Jordan→Midland→Spyker→Force India→Racing Point→Aston Martin, Sauber→BMW Sauber→Sauber→Alfa Romeo Racing→Kick Sauber→Audi, Minardi→Toro Rosso→AlphaTauri→RB, Stewart→Jaguar→Red Bull, Benetton→Renault→Lotus F1 Team→Renault→Alpine, plus single-node lineages (Ferrari, McLaren, Williams, Brabham, classic Lotus, Cooper, BRM, Vanwall) shown as unbroken bands for contrast. Every rename is marked directly on the band with a visible divider and year label, not hidden in a tooltip. Hovering a lineage dims all others to ~15% opacity; clicking a band segment opens a liquid-glass popover with years active and a one-line note on why the team was renamed.
+
+Both visualisations source their colours from a single canonical constructor-identity map (`frontend/src/lib/constructor-identity.ts`) that defers to the same team-colour map `/standings` and `/teams` use for any constructor still on the grid, so a team's colour never disagrees between this page and the rest of the app.
 
 ---
 
@@ -241,6 +254,8 @@ The page derives whether a session is live from the season calendar plus assumed
 | `GET /api/race_replay` | Pitwall — Race Replay module. Lap-indexed payload joining `race_laps`, `race_stints`, `pit_stops` and race control server-side |
 | `GET /api/strategy_commentary` | Pitwall — Strategy Commentary module. Streams Markdown; reads only already-cached `race_stints`/`pit_stops`/`race_laps`/`race_results`, no self-heal |
 | `GET /api/driver_comparison_recap` | Drivers — compare-drivers modal's head-to-head narrative. Streams Markdown; reads cached standings/race/qualifying results |
+| `GET /api/historical_race_index` | History — the 75-Season Barcode and its Home-page teaser. Every championship race 1950-present, one normalised winner record per race (constructor identity already de-duplicated/normalised server-side); Mongo-first, backfilled once then topped up per-season by `data_sync.py` |
+| `GET /api/constructor_seasons` | History — Constructor Genealogy. Active-year span for one raw Ergast constructorId, resolving each curated lineage node's real band width rather than a hand-typed year range |
 | `GET /health` | Not used by the UI (deployment health check) |
 
 Three data sources are called directly from the frontend rather than through the backend: **OpenF1** (`/sessions`, `/stints`, server-side, for the Pitwall chart; `/sessions`, `/race_control`, server-side, for the Pitwall Race Control module) and a **RapidAPI live-timing feed** (client-side, for `/telemetry`).

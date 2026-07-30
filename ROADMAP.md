@@ -10,7 +10,7 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 
 **Parallelization check, done at batch-planning time:** before starting a batch, check each checkpoint's expected file footprint. Checkpoints that touch disjoint files with no sequential dependency (e.g. Batch 3's weather tile / nav label / telemetry fix) can be built by parallel subagents, each in its own git worktree, with PRs opened and merged independently. Checkpoints that share files or have a real dependency (e.g. two features both touching the Pitwall page) stay sequential — parallel agents on shared files risk merge conflicts and duplicated helpers instead of saving time.
 
-**Skill usage for UI/UX work:** any checkpoint touching visual design, layout, or animation must invoke the `emil-design-eng` skill (animation/interaction polish philosophy — easing, timing, transform-origin, press feedback) before implementing, and `apple-design` when the work involves gesture-driven or physically-feeling interactions. `pick-ui-library` should be invoked before adding any new UI dependency; `review-animations`/`improve-animations`/`find-animation-opportunities` are for auditing existing motion rather than building new UI. These are the only project skills that exist (see `.claude/skills/`) — there is no "ui-ux-pro-max" or "Framer Motion" skill; the app already depends on `motion/react` (Framer Motion) as its animation library, so use it directly rather than introducing a second one. A custom liquid-glass dropdown/popover (`bg-[rgba(26,22,19,0.98)] border border-white/10`, motion-animated open/close, click-outside + Escape handling) already exists in `tire-stints-chart.tsx` and `compare-drivers-panel.tsx` — reuse that pattern instead of a native `<select>`, which does not carry the app's theme.
+**Skill usage for UI/UX work:** any checkpoint touching visual design, layout, or animation must invoke the `emil-design-eng` skill (animation/interaction polish philosophy — easing, timing, transform-origin, press feedback) before implementing, and `apple-design` when the work involves gesture-driven or physically-feeling interactions. `pick-ui-library` should be invoked before adding any new UI dependency; `review-animations`/`improve-animations`/`find-animation-opportunities` are for auditing existing motion rather than building new UI. `dataviz` is relevant to any checkpoint that is itself a data visualisation (charts, colour-by-category encodings, axes/legends) — first used in Batch 14 for the 75-Season Barcode and Constructor Genealogy, both genuinely new territory for this project (every earlier chart-like UI in this app, e.g. the lap-position chart, was built before this skill was in scope for this file). These project-relevant skills exist alongside a broader `ui-ux-pro-max:*` skill family and others available in this environment generally — this paragraph only tracks the ones this project's checkpoints have actually used; it is not an exhaustive list of every skill available in a given session. The app already depends on `motion/react` (Framer Motion) as its animation library — use it directly rather than introducing a second one. A custom liquid-glass dropdown/popover (`bg-[rgba(26,22,19,0.98)] border border-white/10`, motion-animated open/close, click-outside + Escape handling) already exists in `tire-stints-chart.tsx` and `compare-drivers-panel.tsx` — reuse that pattern instead of a native `<select>`, which does not carry the app's theme.
 
 ## Shipped batches
 
@@ -35,13 +35,100 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 12 (ad hoc) | unnumbered | Two fixes from live user testing against the Hungarian GP: moved play/pause + scrub track above the timing tower, and fixed the field visibly shrinking near the end of the race — first for lapped classified finishers (`race_laps` has no row for a car that finished fewer laps than the winner) PR #72, then for genuine retirees, who were dropped entirely rather than shown as retired PR #73. `REPLAY_VERSION` bumped twice (2, then 3) for the underlying data-shape fixes | merged |
 | 13 | CP45-46 | GenAI: Pitwall "Strategy Commentary" module (undercut/overcut narrative, PR #75), driver comparison head-to-head narrative on the Drivers compare modal (PR #76) — built as two parallel worktree agents | merged |
 | 13 (ad hoc) | unnumbered | Fixed the Teams page's Power units panel showing wrong 2026 supplier data: Alpine mapped to Renault (switched to Mercedes for 2026 — the lookup is now season-aware since the constructor name didn't change), Sauber mapped to Audi (it ran Ferrari its whole modern history; Audi's works supply only starts once the constructor is renamed "Audi" for 2026), and two new 2026 entrants (Audi, Cadillac) were missing entirely. Found via user inspection, not backlog-planned. PR #77 | merged |
+| 14 | CP47-49 | F1 Heritage: historical race index + constructor identity foundation (PR #79), "The 75-Season Barcode" — every championship race 1950-2026 as one colour-coded stripe, plus a Home-page teaser (PR #80), Constructor Genealogy — 15 curated team lineages as a horizontal band timeline (PR #81). New top-level `/history` page, 8th nav item. CP48/CP49 built as two parallel worktree agents | merged |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
 ## Current batch
 
-No batch is currently planned — Batch 13 and its ad-hoc follow-up fix are shipped and merged
-(PRs #75, #76, #77); the next batch has not been scoped yet. See Backlog below for candidates.
+No batch is currently planned — Batch 14 (CP47-49) is shipped and merged (PRs #79, #80, #81); the
+next batch has not been scoped yet. See Backlog below for candidates.
+
+## Batch 14 retrospective — F1 Heritage: 75-Season Barcode + Constructor Genealogy (CP47-49)
+
+**Batch 14 (CP47-49) is complete and merged** (PRs #79, #80, #81). It came from two user-proposed
+ideas rather than the backlog — a data-dense "poster piece" and a genuinely novel visualisation
+neither existed anywhere in this app: a barcode of every championship race since 1950 colour-coded
+by winning constructor, and a horizontal band timeline of team lineages (Tyrrell→Mercedes,
+Jordan→Aston Martin, Sauber→Audi, Minardi→RB, …). Both landed on a new top-level `/history` page,
+8th item in the desktop nav.
+
+**Raw Ergast/Jolpica data is not clean enough to render directly, and this batch is the first time
+this repo has hit that.** Every earlier checkpoint that reads Ergast (`circuit_history.py`,
+`races.py`, `session_results.py`) reads it scoped to one circuit or one season, where the data is
+already well-formed. Reading the *entire* 75-year history surfaced five real defects that a
+single-season read never would: (1) three 1950s races carry two P1 result rows each because a
+driver swapped into a teammate's car mid-race and both were classified 1st (Ergast's own `total`
+count is 1163 result rows for 1160 actual races — pagination has to advance by `limit`, not by
+`len(page)`, exactly the lesson `circuit_history.py` already encoded but easy to get wrong again
+at this scale); (2) the `alfa` constructorId is reused across three unrelated teams 70+ years
+apart (the 1950-51 works team, a separate 1979-85 works team, and the rebadged Sauber 2019-23);
+(3) Ergast splits one team's chassis/engine combinations into several constructorIds in the early
+decades (Lotus alone as `team_lotus`/`lotus-climax`/`lotus-ford`/`lotus-brm`); (4) the 1950-1960
+Indianapolis 500 counted toward the World Championship, so four American roadster builders who
+never entered a Grand Prix appear as race winners; (5) the active season is partial and needs
+deliberate handling rather than just stopping mid-year. All five are fixed once, server-side, in
+`backend/app/historical_index.py` — CP48 and CP49 (and anything built on this data later) consume
+already-normalised `constructor_key`s and never re-solve any of this.
+
+**A sixth defect, not in the original plan, was caught only by checking live data during CP47
+before committing:** the initial normalisation merged `lotus_f1` (Ergast's id for the 2012-15
+Räikkönen-era team, chosen because the name looks like a Lotus chassis-era variant) into the same
+canonical key as classic 1958-94 Team Lotus. Checking `/constructors/lotus_f1/seasons` directly
+showed `[2012, 2013, 2014, 2015]` — that team is genealogically the **Renault**-descended
+constructor, briefly renamed, completely unrelated to Colin Chapman's team decades earlier. Fixed
+before the first commit, with a regression test (`test_lotus_f1_team_is_not_folded_into_classic_lotus`)
+and a code comment flagging the trap for CP49's curated lineages, which reference the same id.
+**The general lesson: a plausible-looking id/name match is not proof of genealogical continuity —
+verify every non-obvious team-identity claim against the raw per-constructor season list before
+trusting it**, the same discipline CP38's "don't trust the model, verify in code" applies just as
+much to hand-curated historical facts as to LLM output.
+
+**CP47 store-once-then-top-up strategy, chosen deliberately over both a build-time static file and
+a lazy 24h-staleness cache** (all three were presented to the user as options): 1950-2025 is
+immutable and will never change again, so `historical_race_index` is backfilled once (measured:
+1160 races, ~10s against the real Atlas database) and topped up on every subsequent `data_sync.py`
+run by re-fetching only the current season's per-season endpoint (`/2026/results/1/`, cheap — one
+call) rather than the full 75-year endpoint. The static-file option was rejected because the
+current season would freeze at build time; the lazy-cache option was rejected only because a
+brand-new race could be up to a day late, a real (if small) cost the store-once approach avoids
+entirely. Verified idempotent: re-running the sync against an already-populated collection produces
+0 duplicate `(season, round)` pairs.
+
+**CP48 and CP49 built as two parallel worktree agents off CP47**, per this file's
+parallelization-check rule — the same low-risk shared-file overlap pattern as Batch 13 (both add
+an import line and replace a different placeholder `<div>` inside `history/page.tsx`). The second
+PR to open after the first merged conflicted in exactly that one file and nowhere else, resolved by
+rebasing the second branch onto `main` in its own worktree, keeping both sides (merged import list,
+kept both `try` blocks), then re-running `npm run build`/`npm run lint` with **both** features
+present together before force-pushing — not just re-running each branch's own build in isolation,
+which would not have caught a real conflict between the two components' logic even if the text
+merge itself were clean.
+
+**Both background agents hit a mid-task API session-limit interruption simultaneously** (unrelated
+to their own work — an account-level session cap, not an error in either agent), which surfaced as
+a "failed" task notification for both. Both resumed cleanly via `SendMessage` to the same agent ID
+with a note explaining the interruption was external and instructing them to continue exactly
+where their transcript left off; both picked back up and finished normally. Worth remembering this
+failure mode is possible and is not, by itself, evidence anything went wrong with the agent's actual
+work — check whether the failure summary names a real code/tool problem before assuming a restart
+from scratch is needed.
+
+**CP48's data-accuracy note, found during its own visual verification:** the original brief assumed
+the 2009 Brawn season would render as "exactly one stripe." Real data shows Brawn won 8 of that
+season's 17 races (interspersed with Red Bull, Ferrari and McLaren wins), so it correctly renders
+as several grey stripes clustered only within 2009, never appearing in any other season — the
+agent kept this data-accurate rather than forcing the literal one-stripe framing from the brief,
+which would have misrepresented the season. The "one season, one team, a handful of races" story
+still reads clearly in the rendered barcode; only the exact stripe count differed from the
+brief's assumption.
+
+**CP49 scoped down from the brief's suggested ~40 hand-curated edges to ~23**, deliberately: 8 of
+the 15 final lineages (Ferrari, McLaren, Williams, Brabham, classic Lotus, Cooper, BRM, Vanwall)
+are intentionally one-node lineages for visual contrast against the ones that kept renaming, and
+the agent declined to invent additional multi-rename lineages it couldn't fully verify against
+Ergast's own per-constructor season data rather than pad the count — consistent with this batch's
+central lesson about not trusting plausible-looking but unverified genealogical claims.
 
 ## Batch 13 retrospective — GenAI: strategy commentary + driver comparison narrative (CP45-46)
 
