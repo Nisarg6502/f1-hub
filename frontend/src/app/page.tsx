@@ -5,6 +5,7 @@ import {
   getDriverStandings,
   getSeasonRaces,
   getRaceResults,
+  getHistoricalRaceIndex,
 } from "@/lib/api";
 import CountdownTimer from "@/components/countdown-timer";
 import HeroFX from "@/components/hero-fx";
@@ -14,6 +15,7 @@ import LocalDateTime from "@/components/local-datetime";
 import { AnimatedNumber } from "@/components/animated-number";
 import { AnimatedRing } from "@/components/animated-ring";
 import Tooltip from "@/components/tooltip";
+import SeasonBarcodeTeaser from "@/components/season-barcode-teaser";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion-primitives";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { getCircuitImagePath } from "@/lib/circuit-images";
@@ -41,6 +43,8 @@ export default async function Home() {
     ReturnType<typeof getDriverStandings>
   >["driver_standings"] = [];
 
+  let historicalRaces: Awaited<ReturnType<typeof getHistoricalRaceIndex>>["races"] = [];
+
   try {
     const [racesRes, driverStandingsRes] = await Promise.all([
       getSeasonRaces(seasonYear),
@@ -50,6 +54,13 @@ export default async function Home() {
     driverStandings = driverStandingsRes.driver_standings ?? [];
   } catch {
     // Backend offline — render with empty data
+  }
+
+  try {
+    const { races: histRaces } = await getHistoricalRaceIndex("compact");
+    historicalRaces = histRaces;
+  } catch {
+    // Barcode teaser just doesn't render without this — non-critical.
   }
 
   const withTs = races
@@ -296,6 +307,11 @@ export default async function Home() {
           </TiltCard>
         </div>
       </section>
+
+      {/* ===================== HISTORY TEASER ===================== */}
+      <div className="mt-2 mb-9">
+        <SeasonBarcodeTeaser races={historicalRaces} />
+      </div>
 
       {/* ===================== BENTO ===================== */}
       <section className="px-6 md:px-10 [perspective:1200px]">
