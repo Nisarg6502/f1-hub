@@ -7,6 +7,10 @@ f1_cache/
 backend/f1_cache/
 backend/app/f1_cache/
 
+# Track-geometry build cache (GeoJSON + DEM responses + intermediate stages).
+# Deleting this is safe but costs OpenTopoData quota to rebuild — see scripts/README.md.
+.cache/
+
 # Node
 node_modules/
 .next/
