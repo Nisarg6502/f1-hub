@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type RefObject } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import {
   CylinderGeometry,
   DoubleSide,
   Fog,
+  Group,
   InstancedMesh,
   Matrix4,
   Mesh,
   MeshStandardMaterial,
   Object3D,
+  RingGeometry,
   Color as ThreeColor,
   TubeGeometry,
   Vector3,
@@ -20,7 +22,8 @@ import type { TrackCorner } from "@/lib/circuit-geometry";
 import { Embers, SkyDome } from "./atmosphere";
 import CornerMarkers from "./corner-markers";
 import { createTerrainUniforms, patchTerrainMaterial } from "./terrain-shader";
-import type { TrackGeometryBundle } from "./use-track-geometry";
+import type { TrackFrames } from "./build-ribbon";
+import type { TrackGeometryBundle, TrackScrubStore } from "./use-track-geometry";
 import {
   createTrackUniforms,
   patchKerbMaterial,
@@ -53,6 +56,8 @@ export interface TrackSceneProps {
   /** Called with arc length in metres as the pointer moves over the ribbon. */
   onHoverDistance?: (metres: number | null) => void;
   onRevealDone?: () => void;
+  /** Drives the on-track playhead puck. */
+  scrub: TrackScrubStore;
 }
 
 export default function TrackScene({
@@ -69,9 +74,23 @@ export default function TrackScene({
   onSelectCorner,
   onHoverDistance,
   onRevealDone,
+  scrub,
 }: TrackSceneProps) {
   const { frames, payload } = bundle;
   const { scene } = useThree();
+
+  // Everything physically present in the world lives under this group, so corner
+  // labels can raycast against a single stable object for occlusion instead of
+  // an array of per-layer refs that go null whenever a layer is toggled off.
+  // The cast is drei's type being stricter than its runtime: `occlude` is typed
+  // `RefObject<Object3D>[]` (never null) but every React ref to a rendered object
+  // is null until mount. drei only dereferences it inside useFrame, which cannot
+  // run before the group exists.
+  const worldRef = useRef<Group>(null);
+  const occluders = useMemo(
+    () => [worldRef as RefObject<Object3D>],
+    [],
+  );
 
   const uniforms = useMemo(
     () => createTrackUniforms(frames.min.y, frames.elevationRange),
@@ -284,7 +303,7 @@ export default function TrackScene({
         correct, and terrain, ribbon, racing line and posts all stay mutually
         consistent for free.
       */}
-      <group scale={[1, exaggeration, 1]}>
+      <group ref={worldRef} scale={[1, exaggeration, 1]}>
         {showTerrain && bundle.terrain && (
           <mesh geometry={bundle.terrain} material={terrainMaterial} renderOrder={-1} />
         )}
@@ -336,10 +355,103 @@ export default function TrackScene({
           frames={frames}
           exaggeration={exaggeration}
           activeName={activeCornerName}
+          occluders={occluders}
           onSelect={onSelectCorner}
         />
       )}
+
+      <ScrubMarker frames={frames} exaggeration={exaggeration} scrub={scrub} />
     </>
+  );
+}
+
+/**
+ * The playhead, on the track.
+ *
+ * Scrubbing the 2D profile moves the camera, but without something visible at
+ * the scrub position there is nothing to anchor that motion to — you cannot tell
+ * whether the camera moved 50 m or 500 m. This puck is that anchor, and it makes
+ * the profile and the 3D scene legibly the same object.
+ *
+ * Position is written straight to the object3d in `useFrame` from the store's
+ * mutable `current`. Routing a 60 Hz pointer stream through React state instead
+ * would re-render the whole scene tree on every pointer move.
+ */
+function ScrubMarker({
+  frames,
+  exaggeration,
+  scrub,
+}: {
+  frames: TrackFrames;
+  exaggeration: number;
+  scrub: TrackScrubStore;
+}) {
+  const groupRef = useRef<Group>(null);
+  const { camera } = useThree();
+
+  const size = Math.max(3, frames.diagonal / 260);
+  const ringGeometry = useMemo(() => new RingGeometry(0.62, 1, 28), []);
+  useEffect(() => () => ringGeometry.dispose(), [ringGeometry]);
+
+  // Declared as JSX and mutated through a ref, matching `atmosphere.tsx`: the
+  // opacity is written every frame, and anything produced during render is
+  // frozen as far as React's compiler lint is concerned.
+  const ringMaterial = useRef<MeshStandardMaterial>(null);
+
+  useFrame(() => {
+    const node = groupRef.current;
+    const material = ringMaterial.current;
+    if (!node || !material) return;
+    const total = frames.length;
+    const wrapped = (((scrub.current % total) + total) % total) / frames.spacing;
+    const i = Math.min(frames.count - 1, Math.max(0, Math.round(wrapped)));
+    node.position.set(
+      frames.center[i * 3] + frames.normal[i * 3] * 0.6,
+      frames.center[i * 3 + 1] * exaggeration + frames.normal[i * 3 + 1] * 0.6,
+      frames.center[i * 3 + 2] + frames.normal[i * 3 + 2] * 0.6,
+    );
+    // Lie the ring flat on the road surface rather than facing the camera — a
+    // billboarded disc floating over a banked corner breaks the illusion that it
+    // is painted on the track. `up` must be the tangent, not the normal: lookAt
+    // builds its basis from (direction x up), so an `up` parallel to the look
+    // direction degenerates the matrix and the ring flickers or vanishes.
+    node.up.set(
+      frames.tangent[i * 3],
+      frames.tangent[i * 3 + 1],
+      frames.tangent[i * 3 + 2],
+    );
+    node.lookAt(
+      node.position.x + frames.normal[i * 3],
+      node.position.y + frames.normal[i * 3 + 1],
+      node.position.z + frames.normal[i * 3 + 2],
+    );
+
+    // Fade out at close range. During a flythrough the camera rides ~14 m behind
+    // this exact point, so the ring fills the lower half of the frame while
+    // telling you nothing you cannot already see — the view *is* the playhead.
+    const distance = camera.position.distanceTo(node.position);
+    const near = size * 4;
+    const far = size * 11;
+    material.opacity =
+      0.9 * Math.min(1, Math.max(0, (distance - near) / (far - near)));
+    node.visible = material.opacity > 0.01;
+  });
+
+  return (
+    <group ref={groupRef}>
+      <mesh geometry={ringGeometry} scale={size}>
+        <meshStandardMaterial
+          ref={ringMaterial}
+          color="#fff1e0"
+          emissive="#ff7a3d"
+          emissiveIntensity={2.4}
+          transparent
+          opacity={0.9}
+          side={DoubleSide}
+          depthWrite={false}
+        />
+      </mesh>
+    </group>
   );
 }
 
