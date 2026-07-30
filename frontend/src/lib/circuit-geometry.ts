@@ -32,6 +32,14 @@ export interface TrackHighlight {
   within_expectation?: boolean;
 }
 
+export interface TrackCorner {
+  name: string;
+  s_m: number;
+  /** Apex radius in metres — smaller is tighter. */
+  radius_m: number;
+  direction: "left" | "right";
+}
+
 export interface TrackSegment {
   s_start_m: number;
   s_end_m: number;
@@ -105,7 +113,14 @@ export interface TrackGeometryPayload {
   raceline: { e_dm: number[]; n_dm: number[] } | null;
   terrain: TrackTerrain | null;
   elevation: TrackElevationStats;
-  corners: { s_m: number; name: string }[];
+  /**
+   * Named corners, snapped to detected curvature apexes.
+   *
+   * Only famous, unambiguous corners are named — this is not an attempt to
+   * reproduce official corner numbering, which merges multi-apex complexes and
+   * does not correspond to raw curvature peaks.
+   */
+  corners: TrackCorner[];
   highlights: TrackHighlight[];
   segments: TrackSegment[];
   diagnostics: Record<string, unknown>;

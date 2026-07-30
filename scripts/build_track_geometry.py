@@ -57,6 +57,85 @@ def curvature(e: np.ndarray, n: np.ndarray, spacing_m: float) -> np.ndarray:
     return (de * ddn - dn * dde) / np.maximum(denominator, 1e-12)
 
 
+def detect_corners(
+    curvature_values: np.ndarray,
+    s: np.ndarray,
+    spacing_m: float,
+    min_radius_m: float = 250.0,
+    min_gap_m: float = 80.0,
+) -> list[dict]:
+    """Find corner apexes as local maxima of |curvature|.
+
+    Deliberately NOT an attempt to reproduce official corner numbering. Raw
+    curvature peaks and F1's numbering do not agree: Spa detects 30 apexes
+    against 19 numbered corners, because the official scheme merges multi-apex
+    complexes (Eau Rouge/Raidillon is one number, not three) and ignores gentle
+    kinks. Matching curated names to detected peaks by index would therefore be
+    wrong for most of the lap.
+
+    Instead this returns every apex with its radius and direction, and the
+    curation table names them by approximate arc length (see snap_corner_names).
+    """
+    magnitude = np.abs(curvature_values)
+    threshold = 1.0 / min_radius_m
+    gap = max(1, int(round(min_gap_m / spacing_m)))
+    count = len(magnitude)
+
+    taken = np.zeros(count, dtype=bool)
+    peaks: list[int] = []
+    for index in np.argsort(-magnitude):
+        if magnitude[index] < threshold:
+            break
+        window = np.arange(index - gap, index + gap + 1) % count
+        if taken[window].any():
+            continue
+        taken[index] = True
+        peaks.append(int(index))
+
+    return [
+        {
+            "s_m": round(float(s[i]), 1),
+            "radius_m": round(float(1.0 / max(magnitude[i], 1e-9)), 1),
+            "direction": "left" if curvature_values[i] > 0 else "right",
+        }
+        for i in sorted(peaks)
+    ]
+
+
+def snap_corner_names(
+    corners: list[dict],
+    named: tuple[tuple[float, str], ...],
+    tolerance_m: float = 130.0,
+) -> tuple[list[dict], list[str]]:
+    """Attach curated names to the nearest detected apex.
+
+    Snapping rather than trusting the curated arc length directly: the name then
+    lands on real geometry, and a curated position that drifts (or was simply
+    wrong) fails loudly instead of quietly placing a label on a straight.
+    """
+    warnings: list[str] = []
+    if not corners:
+        return [], warnings
+
+    positions = np.array([c["s_m"] for c in corners], dtype=float)
+    out: list[dict] = []
+    for approx_s, name in named:
+        distances = np.abs(positions - approx_s)
+        best = int(np.argmin(distances))
+        if distances[best] > tolerance_m:
+            warnings.append(
+                f"corner {name!r}: no apex within {tolerance_m:.0f} m of "
+                f"s={approx_s:.0f} m (nearest is {distances[best]:.0f} m away)"
+            )
+            continue
+        entry = dict(corners[best])
+        entry["name"] = name
+        out.append(entry)
+
+    out.sort(key=lambda c: c["s_m"])
+    return out, warnings
+
+
 def banking_profile(
     s: np.ndarray, ranges: tuple[tuple[float, float, float], ...]
 ) -> np.ndarray | None:
@@ -402,6 +481,13 @@ def build_circuit(
         h for h in (measure_highlight(hl, s, z, spacing_m) for hl in spec.highlights) if h
     ]
 
+    apexes = detect_corners(curv, s, spacing_m)
+    corners, corner_warnings = snap_corner_names(apexes, spec.corner_names)
+    diagnostics["apexes_detected"] = len(apexes)
+    diagnostics["corners_named"] = len(corners)
+    if corner_warnings:
+        diagnostics["corner_warnings"] = corner_warnings
+
     sources = {
         "centerline": "bacinger/f1-circuits (MIT)",
         "elevation": f"{spec.dem_dataset} via OpenTopoData",
@@ -431,6 +517,7 @@ def build_circuit(
         z_ref_m=z_ref_m,
         origin=(lat0, lon0),
         elevation_stats=stats,
+        corners=corners,
         highlights=highlights,
         segments=derive_segments(s, z),
         diagnostics=diagnostics,
@@ -491,6 +578,17 @@ def print_report(payload: dict) -> None:
     )
     if "sf_seed_warning" in diag:
         print(f"              WARNING: {diag['sf_seed_warning']}")
+    print(
+        f"  corners     {diag['corners_named']} named of "
+        f"{diag['apexes_detected']} apexes detected"
+        + (
+            "   " + ", ".join(f"{c['name']} @ {c['s_m']:.0f} m" for c in payload["corners"])
+            if payload["corners"]
+            else ""
+        )
+    )
+    for warning in diag.get("corner_warnings", []):
+        print(f"              WARNING: {warning}")
     for h in payload["highlights"]:
         ok = h.get("within_expectation")
         mark = "" if ok is None else ("  OK" if ok else "  <<< OUTSIDE EXPECTATION")

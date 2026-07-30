@@ -16,7 +16,9 @@ import {
   Vector3,
 } from "three";
 
+import type { TrackCorner } from "@/lib/circuit-geometry";
 import { Embers, SkyDome } from "./atmosphere";
+import CornerMarkers from "./corner-markers";
 import { createTerrainUniforms, patchTerrainMaterial } from "./terrain-shader";
 import type { TrackGeometryBundle } from "./use-track-geometry";
 import {
@@ -45,6 +47,11 @@ export interface TrackSceneProps {
   showPosts: boolean;
   /** Skip the intro sweep's motion; the colour reveal still resolves. */
   reducedMotion: boolean;
+  showCorners: boolean;
+  activeCornerName?: string | null;
+  onSelectCorner?: (corner: TrackCorner) => void;
+  /** Called with arc length in metres as the pointer moves over the ribbon. */
+  onHoverDistance?: (metres: number | null) => void;
   onRevealDone?: () => void;
 }
 
@@ -57,6 +64,10 @@ export default function TrackScene({
   showRaceline,
   showPosts,
   reducedMotion,
+  showCorners,
+  activeCornerName,
+  onSelectCorner,
+  onHoverDistance,
   onRevealDone,
 }: TrackSceneProps) {
   const { frames, payload } = bundle;
@@ -278,7 +289,27 @@ export default function TrackScene({
           <mesh geometry={bundle.terrain} material={terrainMaterial} renderOrder={-1} />
         )}
 
-        <mesh geometry={bundle.ribbon} material={trackMaterial} />
+        {/*
+          Hovering the ribbon reports arc length, which drives the playhead on
+          the 2D profile. The distance is read from the aDist attribute at the
+          hit triangle rather than recomputed from the hit point — the attribute
+          is the same value the geometry was built from, so the two views can
+          never disagree.
+        */}
+        <mesh
+          geometry={bundle.ribbon}
+          material={trackMaterial}
+          onPointerMove={(event) => {
+            if (!onHoverDistance) return;
+            event.stopPropagation();
+            const attribute = bundle.ribbon.getAttribute("aDist");
+            const vertex = event.face?.a;
+            if (attribute && vertex !== undefined) {
+              onHoverDistance(attribute.getX(vertex));
+            }
+          }}
+          onPointerOut={() => onHoverDistance?.(null)}
+        />
         <mesh geometry={bundle.kerbLeft} material={kerbMaterial} />
         <mesh geometry={bundle.kerbRight} material={kerbMaterial} />
 
@@ -293,6 +324,21 @@ export default function TrackScene({
           />
         )}
       </group>
+
+      {/*
+        Corner labels sit OUTSIDE the exaggerated group and apply the multiplier
+        to their own Y instead. Inside it, the non-uniform scale would stretch
+        the label geometry vertically along with the terrain.
+      */}
+      {showCorners && payload.corners.length > 0 && (
+        <CornerMarkers
+          corners={payload.corners}
+          frames={frames}
+          exaggeration={exaggeration}
+          activeName={activeCornerName}
+          onSelect={onSelectCorner}
+        />
+      )}
     </>
   );
 }
