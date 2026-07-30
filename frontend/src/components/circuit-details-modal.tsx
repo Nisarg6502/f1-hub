@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { type CircuitDetail, type CircuitHistory, getCircuitHistory } from "@/lib/api";
+import { hasTrackGeometry } from "@/lib/circuit-geometry";
 import TrackMap from "./track-map";
 import FlagImg from "./flag-img";
 
@@ -12,6 +14,8 @@ interface CircuitDetailsModalProps {
   flagPath: string | null;
   isOpen: boolean;
   onClose: () => void;
+  /** Ergast circuitId, used to offer the 3D elevation view where one exists. */
+  circuitId?: string | null;
 }
 
 // Renders an Ergast-style gap in seconds as "0.088s" or "1:02.345" once past
@@ -29,6 +33,7 @@ export default function CircuitDetailsModal({
   flagPath,
   isOpen,
   onClose,
+  circuitId,
 }: CircuitDetailsModalProps) {
   const [entered, setEntered] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -179,6 +184,25 @@ export default function CircuitDetailsModal({
               </button>
             )}
           </div>
+
+          {hasTrackGeometry(circuitId) && (
+            <Link
+              href={`/circuits/${circuitId}`}
+              className="group flex items-center justify-between gap-3 mb-[22px] rounded-[14px] px-4 py-3.5 bg-[rgba(255,90,31,0.14)] border border-[rgba(255,174,106,0.32)] transition-transform duration-150 active:scale-[0.98]"
+            >
+              <span>
+                <span className="block font-semibold text-[13px] text-[#ffae6a]">
+                  Explore in 3D
+                </span>
+                <span className="block font-medium text-[11px] text-warm-400 mt-0.5">
+                  Real elevation — see what the flat map hides
+                </span>
+              </span>
+              <span className="material-symbols-outlined text-[20px] text-[#ffae6a] transition-transform duration-200 group-hover:translate-x-0.5">
+                arrow_forward
+              </span>
+            </Link>
+          )}
 
           {stats.length > 0 || info?.lap_record ? (
             <div className="grid grid-cols-3 gap-3">
