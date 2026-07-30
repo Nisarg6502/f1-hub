@@ -5,7 +5,11 @@ import {
   getSeasonRaces,
   getConstructorSeasons,
 } from "@/lib/api";
-import { getAllErgastIds, resolveLineages } from "@/lib/constructor-lineages";
+import {
+  filterToCurrentGrid,
+  getAllErgastIds,
+  resolveLineages,
+} from "@/lib/constructor-lineages";
 import SeasonBarcode from "@/components/season-barcode";
 import ConstructorGenealogy from "@/components/constructor-genealogy";
 
@@ -14,6 +18,37 @@ import ConstructorGenealogy from "@/components/constructor-genealogy";
 // request rather than pinning to a build-time snapshot, matching every
 // other data-backed page in the app.
 export const dynamic = "force-dynamic";
+
+/**
+ * Run an async map over `items` with at most `limit` in flight at once.
+ *
+ * The genealogy fetch below needs this: ~9 of its ~40 ids are for
+ * still-active constructors, which the backend never caches and re-resolves
+ * from Jolpica on every call (see historical_index.py). Firing all of them
+ * through a flat Promise.all sends a burst of ~9 simultaneous live requests,
+ * which reliably trips Jolpica's rate limiter for more than one of them at
+ * once — confirmed by hand: the same id that fails inside the burst returns
+ * correct data instantly on its own, sequential request. A per-id retry does
+ * not fix a burst problem; capping how many are ever in flight together does.
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await fn(items[index]);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker)
+  );
+  return results;
+}
 
 export const metadata: Metadata = {
   title: "APEX | F1 Heritage — 75 Seasons",
@@ -63,34 +98,54 @@ export default async function HistoryPage() {
   // mclaren) have a most-recent season equal to the current year, so the
   // backend never caches them in Mongo and live-fetches Jolpica on every
   // call instead (see historical_index.py's /constructor_seasons
-  // docstring). Firing all ~40 ids at once occasionally trips a transient
-  // Jolpica rate-limit for one of those live ids, which the backend fails
-  // soft on (200 OK, empty `seasons`) rather than erroring — indistinguishable
-  // from a real empty result at the HTTP level. One retry after a short
-  // delay resolves it without risking a false "no data" flag for what's
-  // actually a good id (verified live against /api/constructor_seasons for
-  // every id in this file before shipping).
+  // docstring). The backend does not retry a Jolpica 429 itself — it fails
+  // soft to 200 OK with empty `seasons`, indistinguishable at the HTTP level
+  // from a real empty result — so all of the resilience has to live here.
+  //
+  // A flat Promise.all over all ~40 ids fires all ~9 "live" ones at once,
+  // which reliably trips Jolpica's rate limiter for MULTIPLE of them
+  // simultaneously, not just one: confirmed by hand, the same id that comes
+  // back empty inside that burst returns correct data instantly on its own,
+  // sequential request immediately afterward. A per-id retry cannot fix a
+  // burst problem on its own, because a short fixed delay can land the retry
+  // inside the same still-active rate-limit window as every other retry
+  // firing at the same moment. So this both caps how many requests are ever
+  // in flight together (mapWithConcurrency) AND backs off with increasing,
+  // jittered delays per id — every id's real data was verified live against
+  // /api/constructor_seasons before this file shipped, so an empty result
+  // here is Jolpica's limiter, not a bad id.
   let genealogyLineages: ReturnType<typeof resolveLineages> = [];
   try {
     const ids = getAllErgastIds();
-    const results = await Promise.all(
-      ids.map(async (id) => {
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try {
-            const { seasons } = await getConstructorSeasons(id);
-            if (seasons.length > 0 || attempt === 1) {
-              return [id, seasons] as const;
-            }
-          } catch {
-            // fall through to retry / final empty result below
+    const results = await mapWithConcurrency(ids, 4, async (id) => {
+      const maxAttempts = 4;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const { seasons } = await getConstructorSeasons(id);
+          if (seasons.length > 0 || attempt === maxAttempts - 1) {
+            return [id, seasons] as const;
           }
-          await new Promise((resolve) => setTimeout(resolve, 400));
+        } catch {
+          // fall through to retry / final empty result below
         }
-        return [id, []] as const;
-      })
-    );
+        const backoffMs = 300 * 2 ** attempt + Math.random() * 200;
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      }
+      return [id, []] as const;
+    });
     const seasonsById = Object.fromEntries(results);
-    genealogyLineages = resolveLineages(seasonsById);
+    // Only the lineages that end on a constructor still racing this season —
+    // "Sauber → BMW Sauber → Sauber → Alfa Romeo → Kick Sauber → Audi" earns
+    // its row because Audi is on the grid; Vanwall and classic Lotus don't.
+    // The test is `final era's endYear >= activeSeason` against real
+    // /api/constructor_seasons data, not a hardcoded team list — see
+    // filterToCurrentGrid. Cross-checked against
+    // /api/constructorstandings?year=2026, which returns exactly the same
+    // eleven constructors this leaves standing.
+    genealogyLineages = filterToCurrentGrid(
+      resolveLineages(seasonsById),
+      activeSeason
+    );
   } catch {
     // Backend offline — the genealogy section renders its own empty state.
   }
@@ -136,11 +191,15 @@ export default async function HistoryPage() {
           Constructor Genealogy
         </div>
         <div className="font-medium text-[13px] text-warm-400 mb-[18px]">
-          Tyrrell became BAR became Honda became Brawn became Mercedes —
-          the family tree behind the grid.
+          Tyrrell became BAR became Honda became Brawn became Mercedes — every
+          constructor on the {activeSeason} grid, traced back to the team it
+          started life as.
         </div>
         {genealogyLineages.length > 0 ? (
-          <ConstructorGenealogy lineages={genealogyLineages} />
+          <ConstructorGenealogy
+            lineages={genealogyLineages}
+            races={fullRaces}
+          />
         ) : (
           <div className="rounded-xl border border-white/10 bg-[rgba(255,255,255,0.03)] p-8 text-center text-warm-500 text-sm">
             Historical data unavailable.

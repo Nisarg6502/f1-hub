@@ -38,6 +38,10 @@ const ACTIVE_KEY_TO_TEAM_COLOR_NAME: Record<string, string> = {
   williams: "williams",
   alpine: "alpine",
   racing_point: "aston martin", // Racing Point -> Aston Martin, same current entry
+  // Neither has ever won a race, so neither can appear in the barcode — they
+  // are here for the genealogy tree, which draws every current-grid entry.
+  haas: "haas",
+  cadillac: "cadillac",
   toro_rosso: "racing bulls", // Faenza outfit's earlier name, same current entry
   alphatauri: "racing bulls",
   bmw_sauber: "sauber",
