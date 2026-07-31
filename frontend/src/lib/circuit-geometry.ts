@@ -129,34 +129,66 @@ export interface TrackGeometryPayload {
 }
 
 /**
- * Ergast `circuitId` -> geometry file id.
+ * Ergast `circuitId` -> geometry file id, for the circuits baked offline in
+ * Batch 15 and committed to `frontend/public/tracks/`.
  *
- * Mirrors the shape of `lib/circuit-images.ts`. Only circuits with a baked
- * payload appear here; everything else falls back to the static outline.
+ * This is NO LONGER the list of what the viewer can show — that is now runtime
+ * state, since a payload can be generated on demand into GCS (see
+ * `lib/track-geometry-api.ts`). It survives as a **safety net**: these four
+ * ship inside the frontend image, so they must stay reachable even if the
+ * bucket listing fails or the payloads have not been uploaded to GCS yet.
+ * Without it, a degraded `/available` response would make four working circuits
+ * silently disappear.
  */
-const GEOMETRY_BY_CIRCUIT_ID: Record<string, string> = {
+const BUNDLED_GEOMETRY_BY_CIRCUIT_ID: Record<string, string> = {
   spa: "spa",
   americas: "americas",
   interlagos: "interlagos",
   zandvoort: "zandvoort",
 };
 
-export function getTrackGeometryId(circuitId?: string | null): string | null {
+/** Only the circuits whose payload is committed to the frontend image. */
+export function getBundledTrackGeometryId(
+  circuitId?: string | null,
+): string | null {
   if (!circuitId) return null;
-  return GEOMETRY_BY_CIRCUIT_ID[circuitId.toLowerCase()] ?? null;
+  return BUNDLED_GEOMETRY_BY_CIRCUIT_ID[circuitId.toLowerCase()] ?? null;
 }
 
-export function hasTrackGeometry(circuitId?: string | null): boolean {
-  return getTrackGeometryId(circuitId) !== null;
+/**
+ * @deprecated Bundled payloads only — it cannot see anything generated on
+ * demand. Prefer `resolveTrackGeometry` in `lib/track-geometry.ts`, which
+ * combines this with live availability.
+ */
+export function getTrackGeometryId(circuitId?: string | null): string | null {
+  return getBundledTrackGeometryId(circuitId);
 }
 
-export function trackGeometryUrl(geometryId: string): string {
-  return `/tracks/${geometryId}.json`;
+const ASSET_BASE = process.env.NEXT_PUBLIC_ASSET_BASE_URL ?? "";
+
+/**
+ * Where to fetch a payload from.
+ *
+ * `explicitUrl` is the absolute URL the availability endpoint reported for a
+ * circuit and always wins — it is the authoritative location of a payload that
+ * actually exists. Everything else falls back to the bundled copy under
+ * `public/tracks/`, which is what keeps local development working with no
+ * bucket and no backend configured at all.
+ */
+export function trackGeometryUrl(
+  geometryId: string,
+  explicitUrl?: string | null,
+): string {
+  if (explicitUrl) return explicitUrl;
+  if (getBundledTrackGeometryId(geometryId)) return `/tracks/${geometryId}.json`;
+  return ASSET_BASE
+    ? `${ASSET_BASE}/tracks/${geometryId}.json`
+    : `/tracks/${geometryId}.json`;
 }
 
-/** Every circuit with baked geometry, for listing and prefetch. */
+/** Circuits whose payload ships in the frontend image. */
 export function listTrackGeometryIds(): string[] {
-  return Object.values(GEOMETRY_BY_CIRCUIT_ID);
+  return Object.values(BUNDLED_GEOMETRY_BY_CIRCUIT_ID);
 }
 
 /** Human-readable label for the confidence badge. */

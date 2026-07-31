@@ -32,7 +32,10 @@ export interface TrackGeometryBundle {
  * 26-63 KB and would otherwise be inlined into the RSC stream on every
  * navigation, whereas fetched from `public/` the browser and CDN cache it.
  */
-export function useTrackPayload(geometryId: string | null) {
+export function useTrackPayload(
+  geometryId: string | null,
+  payloadUrl?: string | null,
+) {
   // The loaded id is stored alongside the result rather than being cleared in the
   // effect body. Resetting state synchronously inside an effect triggers a
   // cascading render; deriving staleness during render instead means every
@@ -47,7 +50,7 @@ export function useTrackPayload(geometryId: string | null) {
     if (!geometryId) return;
     let cancelled = false;
 
-    fetch(trackGeometryUrl(geometryId))
+    fetch(trackGeometryUrl(geometryId, payloadUrl))
       .then((response) => {
         if (!response.ok) throw new Error(`track geometry ${response.status}`);
         return response.json() as Promise<TrackGeometryPayload>;
@@ -68,7 +71,7 @@ export function useTrackPayload(geometryId: string | null) {
     return () => {
       cancelled = true;
     };
-  }, [geometryId]);
+  }, [geometryId, payloadUrl]);
 
   const fresh = state.id === geometryId;
   return {

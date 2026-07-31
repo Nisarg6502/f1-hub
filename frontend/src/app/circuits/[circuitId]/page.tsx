@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import GenerateGeometry from "@/components/track3d/generate-geometry";
 import TrackViewer from "@/components/track3d/track-viewer-mount";
 import { getActiveSeasonYear, getSeasonRaces } from "@/lib/api";
 import { getCircuitImagePath } from "@/lib/circuit-images";
-import { getTrackGeometryId } from "@/lib/circuit-geometry";
+import { getBundledTrackGeometryId } from "@/lib/circuit-geometry";
+import {
+  fetchTrackGeometryAvailability,
+  resolveTrackGeometry,
+} from "@/lib/track-geometry-api";
 
 // Circuit metadata comes from the sync job as the season runs, so this must not
 // be pinned to a build-time snapshot.
@@ -23,8 +28,17 @@ export async function generateMetadata({ params }: PageProps) {
 
 export default async function CircuitDetailPage({ params }: PageProps) {
   const { circuitId } = await params;
-  const geometryId = getTrackGeometryId(circuitId);
-  if (!geometryId) notFound();
+
+  // Availability is runtime state now: a payload can be generated on demand, so
+  // the page has three outcomes rather than two — show the viewer, offer to
+  // build it, or 404 because no curated recipe exists for this circuit at all.
+  const availability = await fetchTrackGeometryAvailability();
+  const geometry = resolveTrackGeometry(
+    circuitId,
+    availability,
+    getBundledTrackGeometryId(circuitId),
+  );
+  if (geometry.state === "unavailable") notFound();
 
   const year = getActiveSeasonYear();
   type SeasonRace = NonNullable<
@@ -75,16 +89,26 @@ export default async function CircuitDetailPage({ params }: PageProps) {
           {name}
         </h1>
         <p className="font-medium text-[13px] text-warm-400 mt-2 max-w-2xl">
-          Rendered from the real circuit centreline and an open elevation model.
-          Drag to orbit, scrub the profile to move the camera, or fly a corner.
+          {geometry.state === "ready"
+            ? "Rendered from the real circuit centreline and an open elevation model. Drag to orbit, scrub the profile to move the camera, or fly a corner."
+            : "Built on demand from the real circuit centreline and an open elevation model, then kept forever."}
         </p>
       </header>
 
-      <TrackViewer
-        geometryId={geometryId}
-        fallbackImage={fallbackImage}
-        circuitName={name}
-      />
+      {geometry.state === "ready" ? (
+        <TrackViewer
+          geometryId={geometry.geometryId!}
+          payloadUrl={geometry.url}
+          fallbackImage={fallbackImage}
+          circuitName={name}
+        />
+      ) : (
+        <GenerateGeometry
+          circuitId={geometry.geometryId ?? circuitId}
+          circuitName={name}
+          fallbackImage={fallbackImage}
+        />
+      )}
 
       <p className="font-medium text-[10px] text-warm-500 mt-8 max-w-3xl leading-relaxed">
         Centreline geometry from{" "}
