@@ -77,7 +77,8 @@ All of these are read at import time from the environment:
 | `TRACK_GEOMETRY_BUCKET` | `f1-scratch-assets` | Bucket holding built payloads. |
 | `TRACK_GEOMETRY_PREFIX` | `tracks/` | Object prefix inside that bucket. |
 | `TRACK_GEOMETRY_ASSET_BASE_URL` | `https://storage.googleapis.com/f1-scratch-assets` | Public base URL returned to the frontend. |
-| `TRACK_GEOMETRY_SPECS` | *(unset)* | Optional `key:ergast_id:Display Name` list (comma-separated) that overrides spec discovery entirely — an escape hatch for a deployment that can neither ship `scripts/trackgeo` nor publish specs to Mongo. |
+| `TRACK_GEOMETRY_SPECS` | *(unset)* | Optional `key:ergast_id:Display Name` list (comma-separated) that overrides spec discovery entirely — an escape hatch for a deployment that ships neither `curated.py` nor a spec collection. |
+| `TRACK_GEOMETRY_SPEC_FILE` | *(unset)* | Explicit path to `curated.py`, bypassing the walk-up below. Only needed if the image layout stops mirroring the repo. |
 | `TRACK_GEOMETRY_LOCK_TTL_SECONDS` | `1800` | How long a held lock survives without a terminal status. |
 | `TRACK_GEOMETRY_AVAILABLE_TTL_SECONDS` | `60` | GCS listing cache window. |
 
@@ -103,21 +104,32 @@ Nothing here attempts to modify IAM.
 
 CP55 adds 18 `CircuitSpec` entries in `scripts/trackgeo/curated.py` in parallel
 with this checkpoint, so a list baked in here would be wrong the moment it
-merged. The registry is resolved at runtime, cached briefly, from the first
-available of:
+merged. The registry is resolved at runtime and cached for
+`SPEC_TTL_SECONDS`.
 
-1. `TRACK_GEOMETRY_SPECS`, if set.
-2. `scripts/trackgeo/curated.py`, loaded **by file path** (it imports nothing
-   but `dataclasses`, so it loads standalone without pulling in the pipeline's
-   dependencies) when the repo tree is present — true in local dev and in any
-   image that ships it.
-3. The `track_geometry_specs` Mongo collection, for a deployment where the
-   backend image does not carry `scripts/`. `Dockerfile.backend` currently
-   copies only `backend/app`, so **one of (1) or (3) must be satisfied in
-   production** — that is a deploy-time change outside this checkpoint's file
-   footprint and is called out in the CP57 handoff rather than done here.
+**`curated.py` is the reliable default, and it is baked into the image.**
+`Dockerfile.backend` copies that one file (and only that one — its siblings in
+`scripts/trackgeo` import numpy/scipy, while `curated.py` imports nothing but
+`dataclasses`) to `/app/scripts/trackgeo/curated.py`, mirroring the repo
+layout. `_repo_curated_path()` therefore walks up from this module and finds it
+at the same relative position in both worlds: `<root>/scripts/trackgeo/` where
+`<root>` is the repo checkout locally and `/app` in the container. Nothing here
+hardcodes a path that only works in one of the two, and
+`TRACK_GEOMETRY_SPEC_FILE` can point at it explicitly if a future layout breaks
+the walk-up.
 
-Sources 2 and 3 are merged when both are readable.
+The full order is:
+
+1. `TRACK_GEOMETRY_SPECS`, if set — a total override, for a deployment that
+   somehow has neither of the below.
+2. The curated file. This is the load-bearing source.
+3. The `track_geometry_specs` Mongo collection — optional, consulted only when
+   the curated file is missing entirely. It is deliberately not the primary
+   mechanism: the collection is empty until something publishes to it, so on a
+   fresh deploy every `/build` would 404 — including the first click, which is
+   precisely the flow this feature exists for. Keeping it off the normal path
+   also means a slow or unreachable Mongo cannot delay "which circuits are
+   buildable?" for a deployment that ships `curated.py`.
 """
 
 from __future__ import annotations
@@ -247,13 +259,34 @@ def _specs_from_env() -> dict:
     return specs
 
 
+# Relative to each ancestor of this module. The first is the repo layout, which
+# `Dockerfile.backend` reproduces under /app on purpose so one rule covers both
+# the container and a dev checkout; the second is a flatter layout in case a
+# future image copies the module beside `app/`.
+_CURATED_CANDIDATES = (
+    ("scripts", "trackgeo", "curated.py"),
+    ("trackgeo", "curated.py"),
+)
+
+
 def _repo_curated_path() -> Path | None:
-    """Locate `scripts/trackgeo/curated.py` by walking up from this file."""
+    """Locate the curated `CircuitSpec` module.
+
+    Resolved by walking up from *this file*, never from the process's working
+    directory — uvicorn's cwd is `/app` in the container and `backend/` in dev,
+    so a cwd-relative path would work in exactly one of them.
+    """
+    override = os.getenv("TRACK_GEOMETRY_SPEC_FILE", "").strip()
+    if override:
+        path = Path(override)
+        return path if path.is_file() else None
+
     here = Path(__file__).resolve()
     for parent in here.parents:
-        candidate = parent / "scripts" / "trackgeo" / "curated.py"
-        if candidate.is_file():
-            return candidate
+        for parts in _CURATED_CANDIDATES:
+            candidate = parent.joinpath(*parts)
+            if candidate.is_file():
+                return candidate
     return None
 
 
@@ -301,7 +334,10 @@ async def _specs_from_mongo() -> dict:
     try:
         db = get_db()
         cursor = db[SPECS_COLLECTION].find({})
-        docs = await cursor.to_list(length=200)
+        # Hard timeout: this is a supplement, and a slow or unreachable Mongo
+        # must not turn "which circuits are buildable?" into a 30s hang on the
+        # driver's own server-selection timeout.
+        docs = await asyncio.wait_for(cursor.to_list(length=200), timeout=5.0)
     except Exception as error:
         _log(f"spec collection unavailable: {error}")
         return {}
@@ -334,8 +370,13 @@ async def load_specs(force: bool = False) -> dict:
         specs = _specs_from_env()
         if not specs:
             specs = dict(_specs_from_curated_file())
-            for key, value in (await _specs_from_mongo()).items():
-                specs.setdefault(key, value)
+            if not specs:
+                # Only consulted when the baked-in file is missing. A circuit
+                # published here that has no CircuitSpec could not be built
+                # anyway, so this is a fallback, not an extension point — and
+                # keeping it off the normal path means a Mongo hiccup can never
+                # affect a deployment that ships curated.py.
+                specs = await _specs_from_mongo()
 
         _spec_cache["specs"] = specs
         _spec_cache["at"] = time.monotonic()

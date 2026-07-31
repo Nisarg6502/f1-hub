@@ -9,7 +9,9 @@ APIs are patched out. No GCP call and no database connection happens here.
 import asyncio
 import json
 import os
+import shutil
 import sys
+import tempfile
 import types
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -681,6 +683,78 @@ class SpecRegistryTests(unittest.TestCase):
         for key, spec in specs.items():
             self.assertEqual(tg._normalise_id(key), key)
             self.assertTrue(spec["ergast_circuit_id"])
+
+    def test_specs_load_from_the_container_image_layout(self):
+        """The deployed image must be able to answer "which circuits exist?".
+
+        `Dockerfile.backend` copies `curated.py` to `/app/scripts/trackgeo/`
+        beside `/app/app/`, so this rebuilds that exact layout in a temp dir and
+        loads through it. If the COPY is dropped or the loader stops walking up
+        from its own file, this fails — and without it a fresh deploy would 404
+        every `/build`, including the very first click.
+        """
+        source = tg._repo_curated_path()
+        if source is None:
+            self.skipTest("curated.py not present in this tree")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)  # stands in for the image's /app
+            (root / "app").mkdir()
+            (root / "scripts" / "trackgeo").mkdir(parents=True)
+            shutil.copy(source, root / "scripts" / "trackgeo" / "curated.py")
+
+            # No repo checkout anywhere above this path, exactly as in the image.
+            with patch.object(tg, "__file__", str(root / "app" / "track_geometry.py")):
+                specs = tg._specs_from_curated_file()
+
+        self.assertTrue(specs, "the container layout must yield a spec registry")
+        self.assertIn("spa", specs)
+
+    def test_dockerfile_ships_the_spec_module(self):
+        dockerfile = Path(tg.__file__).resolve().parents[2] / "Dockerfile.backend"
+        if not dockerfile.is_file():
+            self.skipTest("Dockerfile.backend not present in this tree")
+        text = dockerfile.read_text(encoding="utf-8")
+        self.assertIn("COPY scripts/trackgeo/curated.py ./scripts/trackgeo/curated.py", text)
+
+    def test_explicit_spec_file_env_var_wins(self):
+        source = tg._repo_curated_path()
+        if source is None:
+            self.skipTest("curated.py not present in this tree")
+        with patch.dict(os.environ, {"TRACK_GEOMETRY_SPEC_FILE": str(source)}):
+            self.assertEqual(tg._repo_curated_path(), source)
+        with patch.dict(os.environ, {"TRACK_GEOMETRY_SPEC_FILE": "/nope/curated.py"}):
+            self.assertIsNone(tg._repo_curated_path())
+
+    def test_mongo_is_never_consulted_when_the_baked_in_file_is_present(self):
+        """Mongo must never be the primary source — it is empty on a fresh deploy.
+
+        Also keeps a slow or unreachable Mongo off the "which circuits are
+        buildable?" path entirely for any deployment that ships curated.py.
+        """
+        if tg._repo_curated_path() is None:
+            self.skipTest("curated.py not present in this tree")
+
+        async def scenario():
+            with patch.object(tg, "get_db", side_effect=AssertionError("mongo touched")), \
+                    patch.dict(os.environ, {"TRACK_GEOMETRY_SPECS": ""}):
+                return await tg.load_specs(force=True)
+
+        specs = asyncio.run(scenario())
+        self.assertIn("spa", specs)
+
+    def test_mongo_is_the_fallback_when_the_file_is_missing(self):
+        db = FakeDb(
+            specs=[{"key": "monza", "ergast_circuit_id": "monza", "display_name": "Monza"}]
+        )
+
+        async def scenario():
+            with patch.object(tg, "get_db", return_value=db), patch.object(
+                tg, "_specs_from_curated_file", return_value={}
+            ), patch.dict(os.environ, {"TRACK_GEOMETRY_SPECS": ""}):
+                return await tg.load_specs(force=True)
+
+        self.assertEqual(sorted(asyncio.run(scenario())), ["monza"])
 
     def test_mongo_specs_are_used_when_the_repo_tree_is_absent(self):
         db = FakeDb(

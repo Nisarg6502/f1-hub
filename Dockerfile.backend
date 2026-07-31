@@ -15,6 +15,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend app code
 COPY backend/app ./app
 
+# The curated CircuitSpec list, read at runtime by app/track_geometry.py to
+# decide which circuits are buildable. Copied as a single file on purpose: it
+# imports nothing but `dataclasses`, while its siblings in scripts/trackgeo pull
+# in numpy/scipy, so only this one module belongs in the API image. The path
+# mirrors the repo layout (`<root>/scripts/trackgeo/curated.py`) so the loader's
+# walk-up resolves identically in the container and in a dev checkout.
+COPY scripts/trackgeo/curated.py ./scripts/trackgeo/curated.py
+
 # Disable output buffering (useful for logs in Cloud Run)
 ENV PYTHONUNBUFFERED=1
 
