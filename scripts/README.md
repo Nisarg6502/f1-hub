@@ -1,7 +1,13 @@
-# Track geometry build (CP50)
+# Track geometry build (CP50, CP56)
 
-Bakes the 3D circuit geometry that the Elevation Track viewer loads from
-`frontend/public/tracks/<key>.json`. Offline, run by hand, never at request time.
+Bakes the 3D circuit geometry the Elevation Track viewer loads. Runs in two
+places, and never at request time in the API:
+
+- **locally**, writing `frontend/public/tracks/<key>.json` — the CP50 workflow,
+  unchanged;
+- **as the `f1-track-geometry` Cloud Run Job**, writing
+  `gs://f1-scratch-assets/tracks/<key>.json` and reporting progress to Mongo —
+  see [Running as a Cloud Run Job](#running-as-a-cloud-run-job).
 
 ```bash
 pip install -r scripts/requirements.txt
@@ -18,6 +24,18 @@ Useful flags:
 | `--only spa,americas` | build a subset |
 | `--terrain` | include the surrounding DEM terrain grid |
 | `--no-write` | build and validate without writing JSON |
+| `--out <dir\|gs://bucket/prefix>` | where the payload goes (default `$TRACKGEO_OUT`, else `frontend/public/tracks`) |
+| `--no-progress` | never write `track_geometry_builds` documents |
+
+Environment:
+
+| var | effect |
+|---|---|
+| `TRACKGEO_OUT` | default for `--out`. Set to the GCS destination in the job image |
+| `TRACKGEO_CIRCUIT` | default for `--only`. `--only` wins if both are given |
+| `TRACKGEO_CACHE_DIR` | where the HTTP cache lives (default `<repo>/.cache/trackgeo`) |
+| `MONGODB_URI` | when set, the daily quota counter and build progress go to Mongo |
+| `OPENTOPODATA_BASE_URL` | point at a self-hosted instance to remove the daily limit |
 
 Tests: `python -m unittest discover scripts/tests`
 
@@ -35,9 +53,20 @@ Tests: `python -m unittest discover scripts/tests`
 OpenTopoData's public API allows **1000 calls/day, 1 call/sec, 100 locations per
 call**. Every response is cached under `.cache/trackgeo/` (gitignored) keyed by a
 hash of the coordinates actually sent, so the first run spends quota and every
-run after it is free and offline. A daily counter lives in
-`.cache/trackgeo/quota.json`; exhausting it exits cleanly with everything already
-fetched still on disk.
+run after it is free and offline. Exhausting the daily budget (900 of the 1000,
+leaving retry headroom) exits cleanly with everything already fetched still on
+disk — it is a resumable stop, not a crash.
+
+**Where the daily counter lives matters more than it looks.** It is
+`.cache/trackgeo/quota.json` for a local run, and a `track_geometry_quota`
+document in Mongo whenever `MONGODB_URI` is set. That is not a preference: a
+Cloud Run Job's local disk is created fresh for every execution, so a file-backed
+counter would read 0 at the start of every run, each run would believe it had all
+900 calls available, and the real published 1000/day limit would be blown
+silently — nothing on our side would ever observe the overspend. The Mongo store
+increments with a single atomic `$inc`, so two executions racing cannot each read
+the same starting value. With no Mongo configured it falls straight back to the
+file, which is why the CLI still works with no infrastructure at all.
 
 **The one structural decision that makes iteration free:** the DEM query set is
 built from the *deduped raw* polyline resampled by plain linear interpolation at a
@@ -51,6 +80,158 @@ terrain grids. All 24 circuits would be roughly 550.
 To remove the limit entirely, run OpenTopoData locally and set
 `OPENTOPODATA_BASE_URL=http://localhost:5000` — the budget check is skipped for
 any non-public host. Note the honest cost: the global SRTM tile set is ~15 GB.
+
+## Running as a Cloud Run Job
+
+`Dockerfile.trackgeo` + `cloudbuild-trackgeo.yaml` package the same pipeline as
+`f1-track-geometry`, a Cloud Run Job in `f1-dashboard-493015` / `asia-south1`.
+It mirrors the existing `f1-data-sync` job: a batch process that exits, not a
+server. Two things about the cloud context are not preferences and are worth
+understanding before changing them.
+
+**Output goes to GCS, not to `frontend/public/tracks/`.** That directory is
+copied into the frontend Docker image at *build* time. A payload written there
+at *run* time lands on the job's own disk, which nothing serves and which is
+deleted when the execution ends — the running frontend container still holds the
+image's copy. So the job writes `gs://f1-scratch-assets/tracks/<key>.json`, the
+bucket that already serves driver, team and flag images through
+`NEXT_PUBLIC_ASSET_BASE_URL`. The local directory is still a first-class
+destination for CLI use; this is an added sink, not a replacement.
+
+**The quota counter goes to Mongo.** See the section above — a per-execution
+counter on ephemeral disk silently blows the real daily limit.
+
+### Build and deploy
+
+```bash
+# 1. Build and push the image (mirrors cloudbuild-sync.yaml).
+gcloud builds submit --config cloudbuild-trackgeo.yaml .
+
+# 2. Create the job, once. MONGODB_URI comes from Secret Manager, the same way
+#    the backend service and f1-data-sync take it.
+gcloud run jobs create f1-track-geometry \
+  --image gcr.io/f1-dashboard-493015/f1-track-geometry \
+  --region asia-south1 \
+  --set-secrets "MONGODB_URI=MONGODB_URI:latest" \
+  --task-timeout 30m \
+  --max-retries 0 \
+  --memory 1Gi
+
+# Later image updates need nothing but step 1 plus:
+gcloud run jobs update f1-track-geometry --region asia-south1 \
+  --image gcr.io/f1-dashboard-493015/f1-track-geometry
+```
+
+`--max-retries 0` is deliberate. A retry would re-spend OpenTopoData quota on a
+build that already failed for a reason a retry will not fix (a bad spec, a
+missing GeoJSON id), and the shared quota counter makes that cost real rather
+than local. `--task-timeout 30m` covers the worst case comfortably: the pipeline
+is rate-limited to 1 call/sec, so ~23 calls for a centreline plus ~40 for a
+terrain grid is a couple of minutes, not thirty.
+
+### The execution interface
+
+**The circuit key is passed as an argument override at execution time.** The
+image's `ENTRYPOINT` is the build script, so `--args` appends flags to it:
+
+```bash
+gcloud run jobs execute f1-track-geometry --region asia-south1 \
+  --args="--only=monaco,--terrain,--report"
+```
+
+Use the `--only=monaco` form, not `--only monaco`: gcloud splits `--args` on
+commas, and the two-token form would arrive as two separate arguments in a list
+that also uses commas as its separator.
+
+The equivalent env-var override also works, for a caller that finds it easier:
+
+```bash
+gcloud run jobs execute f1-track-geometry --region asia-south1 \
+  --update-env-vars TRACKGEO_CIRCUIT=monaco
+```
+
+An execution with **no** override runs the image's default `CMD`, which is
+`--dry-run` — it prints the call plan and exits 0. That default is a fail-safe:
+the script's own default is "build every curated spec", which is ~500
+OpenTopoData calls, and a forgotten `--args` should not be able to spend over
+half the daily limit.
+
+### Progress reporting
+
+While it runs, the job upserts one document per circuit into
+`track_geometry_builds`:
+
+```js
+{
+  circuit_id: "monaco",
+  status: "queued" | "running" | "done" | "failed",
+  phase: "Sampling elevation",              // shown to the user verbatim
+  progress_pct: 30,
+  message: "Sampling elevation data…",      // shown to the user verbatim
+  started_at: ISODate, updated_at: ISODate,
+  error: null
+}
+```
+
+`phase` and `message` are rendered by the frontend loader as-is, so they are
+written as sentences for a person, never as log lines. Percentages are weighted
+by wall-clock cost rather than spread evenly across stages — elevation sampling
+is ~23 rate-limited HTTP calls and dominates everything else, so it owns 15→55
+and is ticked once per real API call. A fully cached rebuild jumps straight to
+the top of that range, which is honest: there is genuinely no waiting to report.
+
+The document is keyed `_id: <circuit_id>` as well as carrying `circuit_id` as a
+field, so there is exactly one row per circuit and either can be queried. The job
+itself only ever writes `running` / `done` / `failed`; `queued` belongs to the
+trigger endpoint, which creates the row when it accepts a request and before an
+execution actually starts.
+
+A reporting failure never fails a build. Losing a progress row is cosmetic;
+aborting a build that has already spent scarce quota is not.
+
+### Service account IAM
+
+The job runs as the default compute service account
+(`<project-number>-compute@developer.gserviceaccount.com`) unless
+`--service-account` is passed. Whichever identity it uses needs:
+
+| grant | why |
+|---|---|
+| `roles/storage.objectAdmin` on `gs://f1-scratch-assets` | write `tracks/<key>.json`. `objectCreator` alone is not enough — rebuilding a circuit **overwrites** an existing object, which needs delete as well as create |
+| `roles/secretmanager.secretAccessor` on the `MONGODB_URI` secret | read the connection string at start-up |
+| Mongo Atlas network access for the egress IP | Atlas is outside GCP IAM. Either allow `0.0.0.0/0` (as the existing services already do) or attach a VPC connector with a static NAT IP and allowlist that |
+
+```bash
+PROJECT_NUMBER=$(gcloud projects describe f1-dashboard-493015 --format='value(projectNumber)')
+SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+gcloud storage buckets add-iam-policy-binding gs://f1-scratch-assets \
+  --member="serviceAccount:${SA}" --role="roles/storage.objectAdmin"
+
+gcloud secrets add-iam-policy-binding MONGODB_URI \
+  --member="serviceAccount:${SA}" --role="roles/secretmanager.secretAccessor"
+```
+
+Objects must also be publicly readable to be served through
+`NEXT_PUBLIC_ASSET_BASE_URL`. The bucket already grants `allUsers`
+`roles/storage.objectViewer` for the existing image assets, so a newly written
+`tracks/` object inherits that and needs no per-object ACL.
+
+CP57's backend service account additionally needs `roles/run.invoker` on this
+job to trigger it — that grant belongs with the backend and is documented there.
+
+### Running one build by hand
+
+```bash
+# Free and offline against the existing cache — the four CP50 circuits are
+# already fully cached, so rebuilding one of those costs zero API calls.
+python scripts/build_track_geometry.py --only spa --terrain --report --no-write
+
+# Straight to the bucket from a workstation, using your own gcloud credentials.
+MONGODB_URI="mongodb+srv://..." \
+  python scripts/build_track_geometry.py --only monaco --terrain \
+  --out gs://f1-scratch-assets/tracks
+```
 
 ## Pipeline
 

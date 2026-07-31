@@ -1,0 +1,10 @@
+# Builds the track-geometry Cloud Run Job image.
+#
+# Mirrors cloudbuild-sync.yaml: build and push only. The job itself is created
+# once with `gcloud run jobs create` and thereafter picks up the newest image on
+# each execution — see scripts/README.md for the deploy and IAM steps.
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/f1-dashboard-493015/f1-track-geometry', '-f', 'Dockerfile.trackgeo', '.']
+images:
+  - 'gcr.io/f1-dashboard-493015/f1-track-geometry'
