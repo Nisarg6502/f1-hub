@@ -54,6 +54,22 @@ class FakeCollection:
         return self.docs.get(filter["_id"])
 
     def _apply(self, doc: dict, update: dict, *, inserted: bool) -> dict:
+        # Real MongoDB rejects an update where one field path is targeted by
+        # more than one operator in the same call ("Updating the path 'x'
+        # would create a conflict at 'x'"). A silent fixture that just applies
+        # each operator in turn would never have caught the real production
+        # bug this guards against — `_set()` in storage.py once put
+        # `started_at` in both `$set` and `$setOnInsert` at once.
+        seen: dict[str, str] = {}
+        for operator in ("$set", "$setOnInsert", "$inc"):
+            for key in update.get(operator, {}):
+                if key in seen and seen[key] != operator:
+                    raise RuntimeError(
+                        f"Updating the path '{key}' would create a conflict "
+                        f"at '{key}'"
+                    )
+                seen[key] = operator
+
         for key, value in update.get("$set", {}).items():
             doc[key] = value
         if inserted:
