@@ -12,6 +12,7 @@ __pycache__
 node_modules
 .next
 venv
+.cache
 f1_cache
 f1_driver_images
 f1_2026_flags

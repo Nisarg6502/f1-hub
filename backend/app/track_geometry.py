@@ -192,8 +192,16 @@ _CIRCUIT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 
 _METADATA_TOKEN_URL = (
     "http://metadata.google.internal/computeMetadata/v1/"
-    "instance/service_account/default/token"
+    "instance/service-accounts/default/token"
 )
+# NOTE: the path segment is "service-accounts" — hyphenated and PLURAL. A
+# previous version of this constant read "service_account" (underscore,
+# singular), which does not exist on the real metadata server. httpx does not
+# raise on a non-2xx response by default, so that 404 was silently swallowed by
+# the `if response.status_code == 200` check below and fell through to the ADC
+# fallback, which also fails (no google-auth dependency) — the net effect was
+# every trigger returning "credentials_unavailable" with no clue why. Caught in
+# production after CP56/57 deployed; see HANDOFF.md.
 
 
 # --------------------------------------------------------------------------
@@ -429,8 +437,19 @@ async def _access_token() -> str | None:
                 _token_cache["token"] = token
                 _token_cache["expires_at"] = time.monotonic() + max(ttl - 60.0, 30.0)
                 return token
-    except Exception:
-        pass  # not on GCP, or metadata unreachable — try ADC below
+            _log("metadata server returned 200 with no access_token in the body")
+        else:
+            # Logged at non-2xx specifically: this is the case a silent `pass`
+            # previously hid, and it is exactly the failure mode the wrong URL
+            # path produced — see the note on _METADATA_TOKEN_URL above.
+            _log(
+                f"metadata server token request returned {response.status_code}: "
+                f"{response.text[:200]}"
+            )
+    except Exception as error:
+        # Expected off-GCP (local dev, CI) — logged at low volume since it is
+        # the normal path there, not a production alarm.
+        _log(f"metadata server unreachable ({error}); trying ADC")
 
     try:  # pragma: no cover - depends on an optional library and real creds
         import google.auth  # type: ignore
@@ -446,8 +465,10 @@ async def _access_token() -> str | None:
             _token_cache["token"] = credentials.token
             _token_cache["expires_at"] = time.monotonic() + 300.0
             return credentials.token
-    except Exception:
-        pass
+    except ImportError:
+        pass  # google-auth is optional; this path is for local dev only
+    except Exception as error:
+        _log(f"ADC token refresh failed: {error}")
 
     return None
 
