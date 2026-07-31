@@ -6,13 +6,17 @@
     python scripts/build_track_geometry.py --dry-run
     python scripts/build_track_geometry.py --list-remote
 
-Writes frontend/public/tracks/<key>.json. See scripts/README.md for the data
-sources, the OpenTopoData quota rules, and why re-running is free.
+Writes <out>/<key>.json, where <out> defaults to frontend/public/tracks for a
+local run and is `gs://f1-scratch-assets/tracks` in the Cloud Run Job (see
+Dockerfile.trackgeo). See scripts/README.md for the data sources, the
+OpenTopoData quota rules, why re-running is free, and the deploy/IAM steps.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
+import os
 import pathlib
 import sys
 
@@ -20,7 +24,7 @@ import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from trackgeo import align, clean, curated, elevation as elev, emit, terrain as terr
+from trackgeo import align, clean, curated, elevation as elev, emit, storage, terrain as terr
 from trackgeo.cache import CACHE_ROOT, Budget, QuotaExhausted, opentopo_base_url
 from trackgeo.project import centroid, to_enu, to_geo
 from trackgeo.sources import (
@@ -34,7 +38,13 @@ from trackgeo.sources import (
 )
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
-DEFAULT_OUT = REPO_ROOT / "frontend" / "public" / "tracks"
+LOCAL_OUT = REPO_ROOT / "frontend" / "public" / "tracks"
+
+# `frontend/public/tracks` is baked into the frontend image at build time, so a
+# payload written there by a *running* job would never be served. TRACKGEO_OUT
+# is what Dockerfile.trackgeo sets to the GCS bucket; the local default keeps
+# the offline CLI behaving exactly as it did in CP50.
+DEFAULT_OUT = os.getenv("TRACKGEO_OUT") or str(LOCAL_OUT)
 
 GEOM_SPACING_M = 5.0
 DEM_SPACING_M = 10.0
@@ -307,13 +317,71 @@ def grade_confidence(diagnostics: dict) -> tuple[str, list[str]]:
 
 
 # --------------------------------------------------------------------------
+# Progress
+# --------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def _spend_ticker(
+    budget: Budget,
+    progress,
+    phase: str,
+    message: str,
+    pct_from: int,
+    pct_to: int,
+    planned_calls: int,
+):
+    """Advance a progress range in step with real OpenTopoData calls.
+
+    sources.fetch_dem exposes no per-batch hook, and adding one would mean
+    editing a module another checkpoint may be touching. But every network call
+    spends exactly one unit of budget, so Budget.on_spend is already a perfectly
+    faithful per-call tick — and it fires only on a *real* call, so a fully
+    cached rebuild correctly reports no waiting rather than faking a slow crawl.
+    """
+    if not getattr(progress, "enabled", False):
+        yield
+        return
+
+    ticks = 0
+    previous = budget.on_spend
+
+    def tick(_total: int) -> None:
+        nonlocal ticks
+        ticks += 1
+        span = pct_to - pct_from
+        pct = pct_from + int(span * min(1.0, ticks / planned_calls))
+        progress.phase(phase, pct, message)
+        if previous is not None:
+            previous(_total)
+
+    budget.on_spend = tick
+    try:
+        yield
+    finally:
+        budget.on_spend = previous
+        progress.phase(phase, pct_to, message)
+
+
+# --------------------------------------------------------------------------
 # Build one circuit
 # --------------------------------------------------------------------------
 
 
 def build_circuit(
-    spec, index: dict, budget: Budget, want_terrain: bool
+    spec, index: dict, budget: Budget, want_terrain: bool, progress=None
 ) -> tuple[dict, dict]:
+    """Bake one circuit.
+
+    `progress` is a storage.BuildProgress (or a NullProgress for the CLI). Its
+    phase names and messages are shown to a user watching a loader, not written
+    to a log, which is why they read as sentences and why the percentages are
+    weighted by wall-clock cost rather than spread evenly: elevation sampling is
+    ~23 rate-limited HTTP calls and dominates everything else in the pipeline.
+    """
+    progress = progress if progress is not None else storage.NullProgress()
+
+    progress.phase("Reading centreline", 5, "Reading the circuit centreline…")
     feature = index.get(spec.bacinger_id)
     if feature is None:
         raise KeyError(
@@ -334,7 +402,16 @@ def build_circuit(
     dem_s = clean.arc_length(dem_e, dem_n, closed=True)
     dem_spacing = float(dem_s[-1] / len(dem_e))
 
-    raw_z = fetch_dem(spec.dem_dataset, dem_lat, dem_lon, budget)
+    # Elevation sampling: 15% -> 55%, ticked per real API call. A cached circuit
+    # spends nothing and simply jumps to the end of the range, which is honest —
+    # there is genuinely no waiting to report.
+    planned_calls = max(1, dem_call_plan(len(dem_e)))
+    progress.phase("Sampling elevation", 15, "Sampling elevation data…")
+    with _spend_ticker(budget, progress, "Sampling elevation",
+                       "Sampling elevation data…", 15, 55, planned_calls):
+        raw_z = fetch_dem(spec.dem_dataset, dem_lat, dem_lon, budget)
+
+    progress.phase("Filtering elevation", 57, "Cleaning up the elevation profile…")
     filled, n_null, longest_null = elev.fill_nulls(raw_z)
     despiked, outlier_mask = elev.hampel(filled)
     limited = elev.slope_limit(despiked, dem_spacing)
@@ -342,11 +419,13 @@ def build_circuit(
     profile_z, drift = elev.enforce_closure(smoothed, dem_s)
 
     # --- Geometry: spline resample -> plan smooth -> exact uniform resample
+    progress.phase("Building geometry", 63, "Smoothing the track shape…")
     geo_e, geo_n = clean.resample_catmull_rom(e_raw, n_raw, GEOM_SPACING_M)
     geo_e, geo_n = clean.smooth_plan(geo_e, geo_n, window=PLAN_SMOOTH_WINDOW)
     geo_e, geo_n = clean.resample_linear(geo_e, geo_n, GEOM_SPACING_M, closed=True)
 
     # --- TUMFTM fit, done BEFORE orientation because it also locates the S/F line
+    progress.phase("Aligning racing line", 68, "Aligning racing line…")
     track_csv = fetch_tumftm_track(spec.tumftm_name) if spec.tumftm_name else None
     fit = align.align_tumftm(geo_e, geo_n, track_csv) if track_csv is not None else None
 
@@ -398,7 +477,11 @@ def build_circuit(
     if want_terrain and spec.want_terrain:
         meta, grid_e, grid_n = terr.grid_points(geo_e, geo_n)
         grid_lat, grid_lon = to_geo(grid_e, grid_n, lat0, lon0)
-        grid_raw = fetch_dem(spec.dem_dataset, grid_lat, grid_lon, budget)
+        grid_calls = max(1, dem_call_plan(len(grid_lat)))
+        progress.phase("Sampling terrain", 76, "Sampling the surrounding terrain…")
+        with _spend_ticker(budget, progress, "Sampling terrain",
+                           "Sampling the surrounding terrain…", 76, 86, grid_calls):
+            grid_raw = fetch_dem(spec.dem_dataset, grid_lat, grid_lon, budget)
         grid_z, _, _ = elev.fill_nulls(grid_raw)
         grid_z = terr.smooth_grid(grid_z, meta["nx"], meta["ny"])
         grid_z = terr.blend_to_track(grid_z, grid_e, grid_n, geo_e, geo_n, z)
@@ -406,6 +489,7 @@ def build_circuit(
         terrain_json = emit.terrain_payload(meta, grid_z, z_ref_m)
 
     # --- Stats, highlights, validation
+    progress.phase("Measuring corners", 90, "Measuring corners and elevation changes…")
     stats = elev.summarize(z, grad, spacing_m)
     steep_fraction = float(np.mean(np.abs(grad) > 0.15))
     diagnostics = {
@@ -602,6 +686,21 @@ def print_report(payload: dict) -> None:
         print(f"  terrain     {t['nx']}x{t['ny']} @ {t['spacing_m']:.0f} m spacing")
 
 
+def _relative(location: str) -> str:
+    """Human-readable write location: repo-relative + size locally, URI in GCS."""
+    if location.startswith(storage.GCS_SCHEME):
+        return location
+    path = pathlib.Path(location)
+    try:
+        shown = path.relative_to(REPO_ROOT)
+    except ValueError:
+        shown = path
+    try:
+        return f"{shown} ({path.stat().st_size / 1024.0:.0f} KB)"
+    except OSError:
+        return str(shown)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--only", help="comma-separated circuit keys")
@@ -610,7 +709,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list-remote", action="store_true", help="dump every GeoJSON feature id")
     parser.add_argument("--report", action="store_true", help="print the validation report")
     parser.add_argument("--no-write", action="store_true", help="build but do not write JSON")
-    parser.add_argument("--out", default=str(DEFAULT_OUT), help="output directory")
+    parser.add_argument(
+        "--out",
+        default=DEFAULT_OUT,
+        help="output directory, or a gs://bucket/prefix destination "
+        "(default $TRACKGEO_OUT, else frontend/public/tracks)",
+    )
+    parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="never write track_geometry_builds progress documents",
+    )
     args = parser.parse_args(argv)
 
     index = fetch_circuit_index()
@@ -621,9 +730,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{cid:12s} {length:6.0f}  {location:<24s} {name}")
         return 0
 
+    # TRACKGEO_CIRCUIT is the env-var form of --only, so a Cloud Run Job can be
+    # driven either by an execution-time --args override or by an env override,
+    # whichever the caller finds easier. --only always wins.
+    only = args.only or os.getenv("TRACKGEO_CIRCUIT")
     keys = (
-        [k.strip() for k in args.only.split(",") if k.strip()]
-        if args.only
+        [k.strip() for k in only.split(",") if k.strip()]
+        if only
         else [s.key for s in curated.SPECS]
     )
     specs = [curated.get(k) for k in keys]
@@ -653,31 +766,54 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  TOTAL {total} calls (cached batches cost nothing)")
         return 0
 
-    out_dir = pathlib.Path(args.out)
+    sink = storage.resolve_sink(args.out)
     failures = 0
     for spec in specs:
+        progress = (
+            storage.NullProgress() if args.no_progress else storage.make_progress(spec.key)
+        )
+        progress.start()
         try:
-            payload, _ = build_circuit(spec, index, budget, args.terrain)
+            payload, _ = build_circuit(spec, index, budget, args.terrain, progress)
         except QuotaExhausted as exc:
+            # A resumable exit, not a failure: every batch already fetched is on
+            # disk, and re-running tomorrow picks up exactly where this stopped.
+            progress.fail(
+                str(exc),
+                "Ran out of elevation-data quota for today. Please try again tomorrow.",
+            )
             print(f"\n{spec.key}: {exc}")
             return 2
         except Exception as exc:  # noqa: BLE001 - one bad circuit must not stop the run
+            progress.fail(str(exc))
             print(f"\n{spec.key}: FAILED — {exc}")
             failures += 1
             continue
+
         if not args.no_write:
-            path = emit.write_payload(payload, out_dir)
-            size_kb = path.stat().st_size / 1024.0
-            payload_note = f"  -> {path.relative_to(REPO_ROOT)} ({size_kb:.0f} KB)"
+            progress.phase("Publishing", 96, "Publishing the 3D track…")
+            try:
+                location = sink.write(payload)
+            except Exception as exc:  # noqa: BLE001
+                progress.fail(str(exc), "Could not publish the finished 3D track.")
+                print(f"\n{spec.key}: FAILED to write — {exc}")
+                failures += 1
+                continue
+            payload_note = f"  -> {_relative(location)}"
         else:
             payload_note = "  (not written)"
+
+        progress.done()
         if args.report:
             print_report(payload)
             print(payload_note)
         else:
             print(f"{spec.key}: ok{payload_note}")
 
-    print(f"\nDEM calls used today: {budget.calls}/{budget.limit}  cache: {CACHE_ROOT}")
+    print(
+        f"\nDEM calls used today: {budget.calls}/{budget.limit}  "
+        f"cache: {CACHE_ROOT}  out: {sink.describe()}"
+    )
     return 1 if failures else 0
 
 

@@ -1,4 +1,5 @@
-# Dependencies for the offline track-geometry build (scripts/build_track_geometry.py).
+# Dependencies for the track-geometry build (scripts/build_track_geometry.py),
+# used both by the local CLI and by the Cloud Run Job (Dockerfile.trackgeo).
 #
 # Deliberately separate from backend/requirements.txt: this pipeline never runs
 # inside the API, and numpy/scipy would add ~100 MB to the Cloud Run images built
@@ -7,3 +8,12 @@
 # HTTP uses urllib from the stdlib, so there is no httpx here either.
 numpy>=1.24
 scipy>=1.10
+
+# Cloud-only, and both imported lazily inside the code path that needs them
+# (trackgeo/storage.py). A local run writing to a directory with no MONGODB_URI
+# set never touches either, so the CLI still works without them installed.
+#   google-cloud-storage : writing payloads to gs://f1-scratch-assets/tracks
+#   pymongo              : the shared daily quota counter, and the
+#                          track_geometry_builds progress document
+google-cloud-storage>=2.14
+pymongo[srv]>=4.6

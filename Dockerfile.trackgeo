@@ -1,0 +1,49 @@
+# Track-geometry build — runs as a Cloud Run Job, one execution per circuit.
+#
+# Mirrors Dockerfile.sync (the f1-data-sync job) rather than either service
+# image: this is a batch process that exits, not a server.
+#
+# It does NOT reuse backend/requirements.txt. scripts/requirements.txt exists
+# precisely so numpy/scipy stay out of the API and sync images, and the same
+# separation the other way keeps fastf1/pandas out of this one.
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY scripts/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY scripts ./scripts
+
+ENV PYTHONUNBUFFERED=1
+
+# The HTTP cache is worthless in a job (the disk is recreated per execution) but
+# the code writes to it unconditionally, so point it somewhere guaranteed
+# writable rather than at a .cache directory beside a git checkout that is not
+# here. The *quota* counter deliberately does not live here — it goes to Mongo,
+# because a per-execution counter would reset the daily budget on every run.
+ENV TRACKGEO_CACHE_DIR=/tmp/trackgeo-cache
+
+# frontend/public/tracks is baked into the frontend image at build time, so a
+# payload written there at runtime could never be served. Output goes to the
+# bucket that already backs NEXT_PUBLIC_ASSET_BASE_URL.
+ENV TRACKGEO_OUT=gs://f1-scratch-assets/tracks
+
+# MONGODB_URI is supplied at deploy time (secretKeyRef), matching f1-data-sync.
+# Without it the job still builds, but falls back to a file-backed quota counter
+# and reports no progress — fine locally, wrong in the cloud.
+
+# ENTRYPOINT, not CMD, so `gcloud run jobs execute --args=--only=monaco` appends
+# arguments to the build script instead of replacing the interpreter.
+#
+# The default CMD is --dry-run on purpose. An execution with no argument
+# override must not be able to do anything expensive: the script's own default
+# is "build every curated spec", which after CP55 is 22 circuits and roughly 500
+# OpenTopoData calls — over half the daily limit, spent by an accidental
+# `gcloud run jobs execute f1-track-geometry` with a forgotten --args. --dry-run
+# prints the call plan and exits 0.
+ENTRYPOINT ["python", "scripts/build_track_geometry.py"]
+CMD ["--dry-run"]
