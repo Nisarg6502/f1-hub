@@ -39,6 +39,12 @@ const COLOR_MODES: { id: TrackColorMode; label: string }[] = [
 
 interface TrackViewerProps {
   geometryId: string;
+  /**
+   * Absolute payload URL reported by the availability endpoint. Present for
+   * anything generated on demand; null for the bundled circuits, which resolve
+   * to their committed copy under `public/tracks/`.
+   */
+  payloadUrl?: string | null;
   /** Static outline, used for the no-WebGL fallback. */
   fallbackImage?: string | null;
   circuitName: string;
@@ -46,10 +52,11 @@ interface TrackViewerProps {
 
 export default function TrackViewer({
   geometryId,
+  payloadUrl,
   fallbackImage,
   circuitName,
 }: TrackViewerProps) {
-  const { payload, error } = useTrackPayload(geometryId);
+  const { payload, error } = useTrackPayload(geometryId, payloadUrl);
   const [widthScale, setWidthScale] = useState(3);
   const bundle = useTrackGeometry(payload, widthScale);
   const scrub = useScrubStore();

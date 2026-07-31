@@ -4,7 +4,12 @@ import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { type CircuitDetail, type CircuitHistory, getCircuitHistory } from "@/lib/api";
-import { hasTrackGeometry } from "@/lib/circuit-geometry";
+import { getBundledTrackGeometryId } from "@/lib/circuit-geometry";
+import {
+  getClientTrackGeometryAvailability,
+  resolveTrackGeometry,
+  type TrackGeometryState,
+} from "@/lib/track-geometry-api";
 import TrackMap from "./track-map";
 import FlagImg from "./flag-img";
 
@@ -38,11 +43,35 @@ export default function CircuitDetailsModal({
   const [entered, setEntered] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [history, setHistory] = useState<CircuitHistory | null>(null);
+  // Starts at the bundled answer so the four committed circuits offer the link
+  // immediately, with no request and no flash of a missing button; live
+  // availability then upgrades circuits that have since been generated.
+  const [geometryState, setGeometryState] = useState<TrackGeometryState>(() =>
+    getBundledTrackGeometryId(circuitId) ? "ready" : "unavailable",
+  );
 
   useEffect(() => {
     const id = requestAnimationFrame(() => setEntered(true));
     return () => cancelAnimationFrame(id);
   }, []);
+
+  useEffect(() => {
+    if (!isOpen || !circuitId) return;
+    let cancelled = false;
+    void getClientTrackGeometryAvailability().then((availability) => {
+      if (cancelled) return;
+      setGeometryState(
+        resolveTrackGeometry(
+          circuitId,
+          availability,
+          getBundledTrackGeometryId(circuitId),
+        ).state,
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, circuitId]);
 
   // Cross-season history is its own lazy fetch — the round-scoped
   // `circuit_details` data the rest of the modal renders is passed in as a
@@ -185,17 +214,19 @@ export default function CircuitDetailsModal({
             )}
           </div>
 
-          {hasTrackGeometry(circuitId) && (
+          {geometryState !== "unavailable" && (
             <Link
               href={`/circuits/${circuitId}`}
               className="group flex items-center justify-between gap-3 mb-[22px] rounded-[14px] px-4 py-3.5 bg-[rgba(255,90,31,0.14)] border border-[rgba(255,174,106,0.32)] transition-transform duration-150 active:scale-[0.98]"
             >
               <span>
                 <span className="block font-semibold text-[13px] text-[#ffae6a]">
-                  Explore in 3D
+                  {geometryState === "ready" ? "Explore in 3D" : "Generate 3D view"}
                 </span>
                 <span className="block font-medium text-[11px] text-warm-400 mt-0.5">
-                  Real elevation — see what the flat map hides
+                  {geometryState === "ready"
+                    ? "Real elevation — see what the flat map hides"
+                    : "Not built yet — takes a couple of minutes, once"}
                 </span>
               </span>
               <span className="material-symbols-outlined text-[20px] text-[#ffae6a] transition-transform duration-200 group-hover:translate-x-0.5">
