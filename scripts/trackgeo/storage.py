@@ -248,18 +248,23 @@ class BuildProgress:
         self.started_at = _now()
 
     def _set(self, **fields: Any) -> None:
+        # MongoDB rejects an update where the same path is targeted by two
+        # operators at once — `started_at` cannot appear in both `$set` and
+        # `$setOnInsert` in the same call. `start()` deliberately `$set`s it
+        # (a rebuild restarts the clock), so `$setOnInsert` is only added when
+        # the caller has NOT already supplied it via `fields`.
+        update: dict[str, Any] = {
+            "$set": {
+                "circuit_id": self.circuit_id,
+                "updated_at": _now(),
+                **fields,
+            }
+        }
+        if "started_at" not in fields:
+            update["$setOnInsert"] = {"started_at": self.started_at}
         try:
             self.collection.update_one(
-                {"_id": self.circuit_id},
-                {
-                    "$set": {
-                        "circuit_id": self.circuit_id,
-                        "updated_at": _now(),
-                        **fields,
-                    },
-                    "$setOnInsert": {"started_at": self.started_at},
-                },
-                upsert=True,
+                {"_id": self.circuit_id}, update, upsert=True
             )
         except Exception as error:  # noqa: BLE001 - never fail a build over telemetry
             print(f"trackgeo: progress update failed ({error})", file=sys.stderr)
