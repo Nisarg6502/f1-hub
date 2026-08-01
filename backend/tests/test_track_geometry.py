@@ -124,8 +124,18 @@ class FakeCollection:
 
 class FakeDb:
     def __init__(self, builds=None, lock=None, specs=None):
+        # Every real build doc is keyed `_id: <circuit_id>` — both the pipeline
+        # (BuildProgress) and the API upsert that way. A fixture that only sets
+        # `circuit_id` and omits `_id` does not describe a document Mongo would
+        # ever actually contain; defaulting it here means every test doc looks
+        # like production data without having to repeat `"_id": "monaco"` next
+        # to `"circuit_id": "monaco"` in every fixture in this file.
+        normalized_builds = [
+            {**doc, "_id": doc.get("_id", doc.get("circuit_id"))}
+            for doc in (builds or [])
+        ]
         self._collections = {
-            tg.BUILDS_COLLECTION: FakeCollection(builds),
+            tg.BUILDS_COLLECTION: FakeCollection(normalized_builds),
             tg.LOCK_COLLECTION: FakeCollection(lock),
             tg.SPECS_COLLECTION: FakeCollection(specs),
         }
@@ -474,6 +484,63 @@ class TriggerTests(TrackGeometryTestCase):
         ]:
             self.assertIn(field, payload)
         self.assertEqual(db[tg.LOCK_COLLECTION].docs[0]["holder"], "monaco")
+
+    def test_the_queued_doc_is_keyed_by_id_not_only_the_circuit_id_field(self):
+        """Regression test for a real production incident.
+
+        `BuildProgress` in scripts/trackgeo/storage.py always upserts
+        `{"_id": self.circuit_id}` — never `{"circuit_id": self.circuit_id}` as
+        a filter. If this endpoint's queued-doc write filters by the
+        `circuit_id` field instead, Mongo's upsert creates a document with an
+        unrelated auto-generated ObjectId `_id`. The job then upserts a SECOND,
+        separate document under `_id: <circuit_id>` as it runs — two rows for
+        one circuit, and this endpoint keeps reading the first one, which
+        nothing ever updates past "queued" again. In production this stayed
+        invisible for days because an unrelated bug (a Mongo $set/$setOnInsert
+        conflict in storage.py) meant the job's write always failed too, so
+        there was only ever one stuck row and no way to see the split.
+        """
+        db = FakeDb()
+
+        async def scenario():
+            with patch.object(tg, "get_db", return_value=db), patch.object(
+                tg, "available_keys", return_value=(frozenset(), True)
+            ), patch.object(tg, "trigger_job", return_value=(True, "")):
+                return await tg.start_track_geometry_build(
+                    tg.BuildRequest(circuit_id="monaco")
+                )
+
+        asyncio.run(scenario())
+
+        docs = db[tg.BUILDS_COLLECTION].docs
+        self.assertEqual(len(docs), 1, "exactly one row must exist for the circuit")
+        self.assertEqual(docs[0]["_id"], "monaco")
+
+        # The exact write BuildProgress performs once the job starts running —
+        # if the endpoint's own doc has a different `_id`, this creates a
+        # second row instead of updating the one the endpoint already made.
+        async def job_writes_progress():
+            await db[tg.BUILDS_COLLECTION].update_one(
+                {"_id": "monaco"},
+                {"$set": {"status": "running", "phase": "Starting", "progress_pct": 0}},
+                upsert=True,
+            )
+
+        asyncio.run(job_writes_progress())
+
+        docs = db[tg.BUILDS_COLLECTION].docs
+        self.assertEqual(
+            len(docs), 1, "the job's write must land on the same row the API created"
+        )
+        self.assertEqual(docs[0]["status"], "running")
+
+        # And /status must actually see that update, not the stale queued row.
+        async def read_status():
+            with patch.object(tg, "get_db", return_value=db):
+                return await tg.get_track_geometry_status(circuit_id="monaco")
+
+        response = asyncio.run(read_status())
+        self.assertEqual(body(response)["build"]["status"], "running")
 
     def test_a_failed_trigger_marks_the_build_failed_and_frees_the_lock(self):
         db = FakeDb()

@@ -643,8 +643,10 @@ def _synthetic_done_doc(spec: dict) -> dict:
 
 
 async def _read_build(db, key: str) -> dict | None:
+    # Filters by `_id`, NOT the `circuit_id` field — see the note on the
+    # `queued_doc` upsert below for why the two are not interchangeable here.
     try:
-        return await db[BUILDS_COLLECTION].find_one({"circuit_id": key})
+        return await db[BUILDS_COLLECTION].find_one({"_id": key})
     except Exception as error:
         _log(f"build read failed for {key}: {error}")
         return None
@@ -855,9 +857,24 @@ async def start_track_geometry_build(request: BuildRequest):
         "updated_at": now,
         "error": None,
     }
+    # Filtered and upserted by `_id: key`, matching the pipeline's own
+    # `BuildProgress`, which always upserts `{"_id": self.circuit_id}` — see
+    # `scripts/trackgeo/storage.py`. `circuit_id` stays as an ordinary field in
+    # the document (for readability and any query that finds it more natural),
+    # but it must never be the filter for a write or a read: the earlier code
+    # filtered by the `circuit_id` field, which meant the very first upsert
+    # here — before the job ever runs — created a document with an
+    # auto-generated ObjectId `_id`, distinct from the `_id: <circuit_id>`
+    # document the job upserts into moments later. Every build ended up
+    # split across two rows: the one this endpoint could see, permanently
+    # stuck at "queued", and the one actually being updated with real
+    # progress, which nothing ever read. Caught only after a separate,
+    # unrelated fix (the started_at $set/$setOnInsert conflict in
+    # storage.py) let the job's writes start succeeding for the first time —
+    # before that, both rows were equally stuck, and the split was invisible.
     try:
         await db[BUILDS_COLLECTION].update_one(
-            {"circuit_id": key}, {"$set": queued_doc}, upsert=True
+            {"_id": key}, {"$set": queued_doc}, upsert=True
         )
     except Exception as error:
         _log(f"could not write queued doc for {key}: {error}")
@@ -880,7 +897,7 @@ async def start_track_geometry_build(request: BuildRequest):
             "updated_at": _now(),
         }
         try:
-            await db[BUILDS_COLLECTION].update_one({"circuit_id": key}, {"$set": failed})
+            await db[BUILDS_COLLECTION].update_one({"_id": key}, {"$set": failed})
         except Exception as error:
             _log(f"could not mark {key} failed: {error}")
         await release_lock(db, key)
