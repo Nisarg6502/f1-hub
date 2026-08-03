@@ -31,3 +31,6 @@ steps:
 
 images:
   - 'gcr.io/f1-dashboard-493015/f1-track-geometry'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
