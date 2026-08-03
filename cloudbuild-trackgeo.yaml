@@ -1,10 +1,33 @@
-# Builds the track-geometry Cloud Run Job image.
+# Builds, pushes, and redeploys the track-geometry Cloud Run Job image.
 #
-# Mirrors cloudbuild-sync.yaml: build and push only. The job itself is created
-# once with `gcloud run jobs create` and thereafter picks up the newest image on
-# each execution — see scripts/README.md for the deploy and IAM steps.
+# Unlike `cloudbuild-sync.yaml`, this includes a `jobs update` step, added
+# after a real incident where two pushed fixes rebuilt the image but the job
+# kept running the old one until it was explicitly redeployed by hand. See
+# "Do not assume a push alone is enough to redeploy" in scripts/README.md for
+# what is and is not actually confirmed about why — the step is correct and
+# cheap either way, so it stays even though the root cause isn't fully proven.
+#
+# The job itself is created once with `gcloud run jobs create` (see
+# scripts/README.md for that and the IAM grants) — this only updates its image.
 steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'gcr.io/f1-dashboard-493015/f1-track-geometry', '-f', 'Dockerfile.trackgeo', '.']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/f1-dashboard-493015/f1-track-geometry']
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'jobs'
+      - 'update'
+      - 'f1-track-geometry'
+      - '--image'
+      - 'gcr.io/f1-dashboard-493015/f1-track-geometry'
+      - '--region'
+      - 'asia-south1'
+      - '--quiet'
+
 images:
   - 'gcr.io/f1-dashboard-493015/f1-track-geometry'

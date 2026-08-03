@@ -103,12 +103,16 @@ counter on ephemeral disk silently blows the real daily limit.
 
 ### Build and deploy
 
-```bash
-# 1. Build and push the image (mirrors cloudbuild-sync.yaml).
-gcloud builds submit --config cloudbuild-trackgeo.yaml .
+**A push to `main` that touches this pipeline redeploys the job automatically**
+— a Cloud Build trigger runs `cloudbuild-trackgeo.yaml`, same as the frontend
+and backend triggers. That file builds the image, pushes it, and runs
+`gcloud run jobs update --image ...` itself, so a merge is normally enough.
 
-# 2. Create the job, once. MONGODB_URI comes from Secret Manager, the same way
-#    the backend service and f1-data-sync take it.
+The job resource itself only needs creating once, and needs a manual step again
+only if you are standing it up for the first time or changing something the
+trigger doesn't touch (memory, timeout, retries, the secret binding):
+
+```bash
 gcloud run jobs create f1-track-geometry \
   --image gcr.io/f1-dashboard-493015/f1-track-geometry \
   --region asia-south1 \
@@ -116,11 +120,30 @@ gcloud run jobs create f1-track-geometry \
   --task-timeout 30m \
   --max-retries 0 \
   --memory 1Gi
+```
 
-# Later image updates need nothing but step 1 plus:
+To force a rebuild+redeploy without waiting on a push (e.g. to verify a fix
+immediately), run the same two steps the trigger runs:
+
+```bash
+gcloud builds submit --config cloudbuild-trackgeo.yaml .
 gcloud run jobs update f1-track-geometry --region asia-south1 \
   --image gcr.io/f1-dashboard-493015/f1-track-geometry
 ```
+
+**Do not assume a push alone is enough to redeploy — call `jobs update`
+explicitly, every time.** An execution's logged container spec shows an image
+pinned to a resolved digest (`...@sha256:...`), not a bare `:latest` tag, which
+is why this file's deploy step exists rather than build-and-push-only like
+`cloudbuild-sync.yaml`. What is NOT confirmed: whether that resolution happens
+once, at `jobs update` time (in which case a push with no update genuinely
+never takes effect), or fresh at each execution's start (in which case the
+digest in the log is just what got resolved for that run, and a plain push
+might have been enough on its own). `f1-data-sync`'s job resource shows a bare
+`:latest` reference too, which doesn't distinguish between the two theories
+either. Only ever tested with build, push and update run together — never in
+isolation — so don't remove the update step to find out; it is correct and
+sufficient under either theory, whereas skipping it is only safe under one.
 
 `--max-retries 0` is deliberate. A retry would re-spend OpenTopoData quota on a
 build that already failed for a reason a retry will not fix (a bad spec, a
