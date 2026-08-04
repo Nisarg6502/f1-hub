@@ -43,7 +43,50 @@ The original plan's CP15-19 (driver/team head-to-head compare, championship calc
 
 ## Current batch
 
-**None — Batch 16 is closed. The next batch has not been planned yet.**
+**Batch 17 — Agentic chat assistant, foundation (CP59-62). Planned, not started.**
+
+Full architecture in **[`CHAT-AGENT-PLAN.md`](CHAT-AGENT-PLAN.md)** — that document is the source of
+truth for this batch and for Batch 18; this section only carries the summary and the checkpoint
+list.
+
+A conversational surface ("Pitwall Assistant") that answers open-ended F1 questions by orchestrating
+tools over this app's own cached data, reaching the live web only when the answer genuinely is not
+in our database. Built on **deepagents** (LangGraph underneath), traced with **LangSmith**, and
+gated in CI by **deepeval**.
+
+**It is not a chatbot with a system prompt, and the distinction is the whole design.** Tools return
+pre-computed fact bundles rather than raw documents, every tool call appends to an **evidence
+ledger**, and a **deterministic verifier node** — not a subagent, so the orchestrator cannot skip it
+— checks every claim against that ledger with one repair attempt before the answer streams. That
+shape is forced by this project's own post-mortems: CP38 (a teammate relationship invented from
+correct data), CP41 (a prompt ban violated even in ALL CAPS, fixed only by a code validator) and
+CP44 (the model not emitting its own documented format).
+
+**The budget shapes the architecture.** Inference is Ollama Cloud's **free tier**: 1 concurrent
+model, GPU-time metering, level-1/2 models only. So one workhorse model (`qwen3.5:35b`, confirmed by
+a CP59 spike) runs every role, and the agents are separated by prompt, tools and context window
+rather than by weights. To cut model calls per answer from ~6 to ~2, the router is rules-first with
+an LLM fallback only for ambiguous input, and the verifier's core is string/set operations with LLM
+entailment reserved for tier-3 answers. Both became cheaper *and* more deterministic.
+
+| CP | Scope | Done when |
+|---|---|---|
+| CP59 | `f1-agent` Cloud Run service skeleton: Dockerfile, cloudbuild, `/api/chat` SSE, LangSmith tracing, model seam; **tool-calling reliability spike** across 4 candidate models; checkpointer spike | An SSE echo streams from the *deployed* service to the *deployed* frontend and a trace appears in LangSmith |
+| CP60 | Internal tool layer (~16 tools over Mongo), evidence ledger, `resolve_context` — pure Python, unit-tested, no LLM | Every tool has a unit test; `resolve_context` handles "last race" / "next race" / nicknames / ambiguity |
+| CP61 | **Single-agent baseline**: deep agent + internal tools, no subagents, no verifier; minimal dev-flagged chat UI | Answers taxonomy classes 1-7 end to end, with latency, quota burn and cost recorded as the baseline Batch 18 must beat |
+| CP62 | Web research: Tavily search/extract, untrusted-content quarantine, prompt-injection tests | Classes 8-9 answered with sources; injection suite passes |
+
+**Deployment-first ordering is deliberate**, straight out of Batch 16's retrospective: CP59 proves
+SSE through a real deployed service *before* any agent complexity exists, because that batch's cost
+was entirely in the gap between individually-correct systems.
+
+**The honest risk, recorded before starting:** a ~30b model doing nested `task()` dispatch is the
+riskiest assumption in the plan. CP61's single-agent baseline may simply *be* the product. Batch
+18's CP63 adds subagents **only if** the CP59 spike shows the model handles nested dispatch
+reliably; if it does not, we ship single-agent and say why.
+
+**Batch 18 (CP63-66), planned but not committed:** router tiering + four subagents, the verifier and
+citation contract, the deepeval golden set and CI gate, then the production UI and hardening.
 
 ## Batch 16 retrospective — On-demand track geometry (CP55-58)
 
@@ -647,11 +690,18 @@ it retry indefinitely.
   appearing.
 
 ### GenAI features
-- Natural-language query bar (a GenAI layer alongside the now-functional keyword nav search)
+- Natural-language query bar (a GenAI layer alongside the now-functional keyword nav search) —
+  superseded by Batch 17's chat assistant, which subsumes it: a query bar is the same routing and
+  grounding problem with a smaller surface, so it is being built as the chat rather than separately
 - Race strategy commentary on the Pitwall page (grounded in stint data) — shipped in Batch 13 (CP45)
 - Driver comparison narrative (pairs with the head-to-head feature) — shipped in Batch 13 (CP46)
-- "Ask about this circuit" scoped chat (RAG over cached circuit history + Wikipedia extract)
-- Pre-race prediction with transparent reasoning (framed as commentary, not a promise)
+- "Ask about this circuit" scoped chat (RAG over cached circuit history + Wikipedia extract) —
+  carried into `CHAT-AGENT-PLAN.md` as a stretch checkpoint (CP67+), where Atlas Vector Search makes
+  it additive to the chat rather than a second system: Atlas is already the database, so the RAG
+  index adds no new infrastructure
+- Pre-race prediction with transparent reasoning (framed as commentary, not a promise) — covered by
+  Batch 17/18 as taxonomy class 10, with the "commentary, not a promise" framing enforced by the
+  verifier rather than by prompt wording
 
 ### Replay & media
 - Race replay / session playback shipped in Batch 12 (CP42-44) — a lap-indexed timing tower, not

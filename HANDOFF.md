@@ -10,10 +10,32 @@ quirks, and the immediate next action.
 
 ### Immediate next action
 
+**Start Batch 17 (CP59-62) — the agentic chat assistant.** It is planned but not started, and
+**[`CHAT-AGENT-PLAN.md`](CHAT-AGENT-PLAN.md) is the source of truth** for the architecture, the
+agent roster, the tool catalogue, the question taxonomy and the evaluation strategy. `ROADMAP.md`'s
+"Current batch" carries the checkpoint list. Begin with **CP59**, which is deliberately a deployment
+and measurement checkpoint rather than a feature one.
+
+Three things about it that are easy to get wrong on a first read:
+
+- **The inference budget is Ollama Cloud's *free* tier, and it is an architectural constraint rather
+  than a billing note.** 1 concurrent model, GPU-time metering, level-1/2 models only. Hence one
+  workhorse model (`qwen3.5:35b`) for every role, a rules-first router, a deterministic verifier
+  core, sequential subagent dispatch, an in-process semaphore of 1, and `--max-instances=1` on the
+  new service (a per-instance semaphore across two instances guards nothing against one shared
+  quota). Do not "improve" this by assigning a different model per agent — that design was written
+  and then removed for exactly this reason.
+- **CP59 includes a tool-calling reliability spike, and its result can cancel work later in the
+  plan.** A ~30b model doing nested `task()` dispatch is the riskiest assumption in the whole batch.
+  If the spike fails, Batch 18's subagent layer is not built and CP61's single-agent baseline ships
+  instead. That is a planned outcome, not a failure.
+- **The verifier is a deterministic LangGraph node, not a subagent** — precisely so the orchestrator
+  cannot decide to skip it. It is the CP38/CP41 "don't trust the model to self-police, check it in
+  code" lesson promoted from a validator function to an architectural stage.
+
 Batch 16 (CP55-58, on-demand track geometry generation) is complete, merged and **verified in
 production** — PRs #91-#95 for the checkpoints, #96-#102 for the seven production fixes that
-followed. No batch is currently planned — see `ROADMAP.md`'s Backlog section for candidates before
-starting the next one.
+followed.
 
 **Track geometry is live and self-service.** 8 of 22 circuits are built; the rest are curated and
 generate on click, which is the designed steady state, not a backlog item. Full post-mortem of the
