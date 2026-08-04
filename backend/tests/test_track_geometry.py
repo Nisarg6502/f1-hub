@@ -656,6 +656,50 @@ class StatusTests(TrackGeometryTestCase):
         self.assertEqual(payload["status"], "done")
 
 
+    def test_status_done_refreshes_an_availability_listing_that_predates_the_build(self):
+        """`done` must imply `/available` lists the circuit, with no TTL lag.
+
+        The frontend stops polling on `done` and immediately re-reads
+        `/available` to swap the Generate button for the viewer. A build that
+        finishes inside the availability cache window would otherwise report
+        done against a listing taken before the payload existed, and the page
+        would render straight back to the Generate button — for a build that
+        actually succeeded. Observed live on Silverstone.
+        """
+        done = datetime(2026, 8, 4, 18, 50, tzinfo=timezone.utc)
+        db = FakeDb(
+            builds=[
+                {
+                    "circuit_id": "monaco",
+                    "status": "done",
+                    "phase": "Done",
+                    "progress_pct": 100,
+                    "message": "3D view ready.",
+                    "started_at": done,
+                    "updated_at": done,
+                    "error": None,
+                }
+            ]
+        )
+
+        async def scenario():
+            # Prime the cache with a pre-build listing, well inside its TTL.
+            with patch.object(tg, "_list_bucket_keys", return_value=(frozenset(), True)):
+                await tg.available_keys(force=True)
+
+            # The payload now exists in the bucket, but the cache predates it.
+            with patch.object(tg, "get_db", return_value=db), patch.object(
+                tg, "_list_bucket_keys", return_value=(frozenset({"monaco"}), True)
+            ):
+                response = await tg.get_track_geometry_status(circuit_id="monaco")
+                keys, _ok = await tg.available_keys()
+            return response, keys
+
+        response, keys = asyncio.run(scenario())
+        self.assertEqual(body(response)["build"]["status"], "done")
+        self.assertIn("monaco", keys)
+
+
 class AvailabilityTests(TrackGeometryTestCase):
     def test_available_intersects_the_bucket_with_the_spec_registry(self):
         async def scenario():
