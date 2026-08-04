@@ -18,7 +18,7 @@ This document describes what is on `main` today. Anything present in the UI but 
 | `/drivers` | The grid — a card per driver, each opening a profile modal |
 | `/teams` | Constructor cards plus a power-unit grouping |
 | `/circuits` | Featured track, cross-track "Circuit DNA" comparison, and a gallery of every circuit with detail modals |
-| `/circuits/[circuitId]` | 3D elevation model of one circuit, rendered in WebGL from baked geometry. Only exists for circuits with a payload in `frontend/public/tracks/` (currently Spa, Austin, Interlagos, Zandvoort); any other `circuitId` 404s |
+| `/circuits/[circuitId]` | 3D elevation model of one circuit, rendered in WebGL. Any curated circuit works: one without a payload yet offers a "Generate 3D view" button that runs the elevation build on demand. A `circuitId` with no curated spec 404s |
 | `/telemetry` | Live Timing board (polls a third-party feed while a session is running). Linked from the desktop nav as "Live"; not in the mobile bottom bar |
 | `/history` | F1 Heritage — the 75-Season Barcode (every championship race since 1950, one stripe per race, coloured by winning constructor) and the Constructor Genealogy (curated team-lineage timeline, e.g. Tyrrell→BAR→Honda→Brawn→Mercedes). Linked from the desktop nav as "History" (last item); not in the mobile bottom bar |
 
@@ -197,7 +197,13 @@ This page has no season selector; it always shows the active season.
 
 A WebGL model of one circuit built from its real centreline and an open elevation model — elevation being the one thing a 2D outline cannot convey, and much of why Eau Rouge, COTA's Turn 1 and the Interlagos bowl matter.
 
-**Only four circuits have geometry today**: Spa, Austin, Interlagos and Zandvoort. Each is a static JSON payload baked offline by `scripts/trackgeo/` and served from `frontend/public/tracks/`; the pipeline never runs in the API. Any circuit without a payload 404s rather than rendering an empty scene.
+**Any circuit on the calendar can be generated on demand, by anyone.** All 22 are curated in `scripts/trackgeo/curated.py`; a circuit without a payload yet shows a "Generate 3D view" button instead of the viewer. Clicking it runs the real elevation pipeline as a Cloud Run Job, which writes `gs://f1-scratch-assets/tracks/<key>.json` and reports its phase and percentage into Mongo as it works — so the loader shows what is actually happening ("Sampling elevation data…", "Aligning racing line…"), not a fake progress bar. A build takes roughly a minute. It only ever has to happen once: the payload is permanent and every later visitor loads it instantly.
+
+**One build runs at a time, globally**, behind an atomic Mongo lock. A second click while another circuit is building is told which circuit is in the way rather than being queued — OpenTopoData is a courtesy-rate public service, and the daily call budget is shared by everyone using the site.
+
+A circuit with no curated `CircuitSpec` at all 404s rather than rendering an empty scene. Curation is still a repo change: the spec carries the researched upstream feature id, DEM dataset, rotation and any corner names, so "generate" means *run the elevation build for a circuit already curated*, never *invent one from an id*.
+
+**The four Batch 15 circuits (Spa, Austin, Interlagos, Zandvoort) also ship bundled** inside the frontend image and are treated as ready even if the bucket listing fails, so a degraded listing can never take working circuits offline.
 
 **The scene** is a track ribbon with kerbs, DEM terrain with topographic contours, the TUMFTM optimal racing line, instanced elevation posts dropping to the datum, a gradient sky dome and drifting embers matching the app's hero treatment. Bloom and vignette are decorative and are switched off under sustained load by `PerformanceMonitor`, along with terrain and posts.
 
@@ -283,7 +289,17 @@ Both visualisations source their colours from a single canonical constructor-ide
 | `GET /api/constructor_seasons` | History — Constructor Genealogy. Active-year span for one raw Ergast constructorId, resolving each curated lineage node's real band width rather than a hand-typed year range |
 | `GET /health` | Not used by the UI (deployment health check) |
 
-The 3D elevation viewer consumes **no backend endpoint at all**. Its geometry is a static JSON payload per circuit under `frontend/public/tracks/`, baked offline by `scripts/trackgeo/` and fetched client-side so the browser and CDN cache it — inlining a 26-63 KB payload into the RSC stream on every navigation would be worse. The route still reads `/api/races` for the circuit's name and round.
+The 3D elevation viewer's **geometry** is still not an API response: it is a JSON payload per circuit fetched client-side straight from `gs://f1-scratch-assets/tracks/`, so the browser and CDN cache it — inlining a 26-63 KB payload into the RSC stream on every navigation would be worse. The route also reads `/api/races` for the circuit's name and round.
+
+Its **control plane** is three endpoints, which only ever start and observe builds — never build anything themselves:
+
+| Endpoint | Used by |
+|---|---|
+| `GET /api/track_geometry/available` | Which circuits have a payload, and which are curated and therefore buildable. Replaces what used to be a hardcoded frontend list, so a newly built circuit needs no redeploy to appear |
+| `POST /api/track_geometry/build` | "Generate 3D view". `202` with the status doc, or `409` naming the circuit already building |
+| `GET /api/track_geometry/status` | The loader's poll, returning the job's own `phase`/`progress_pct`/`message` verbatim |
+
+**The bucket needs a CORS policy**, not just public-read. The payload is read with `fetch()` (unlike the image assets beside it, loaded via `<img>`, which are exempt), so a bucket without CORS serves the JSON fine to `curl` and blocks it in every browser — presenting as "Track geometry unavailable" for a payload that is demonstrably present. See `scripts/README.md`.
 
 Three data sources are called directly from the frontend rather than through the backend: **OpenF1** (`/sessions`, `/stints`, server-side, for the Pitwall chart; `/sessions`, `/race_control`, server-side, for the Pitwall Race Control module) and a **RapidAPI live-timing feed** (client-side, for `/telemetry`).
 

@@ -1,4 +1,4 @@
-# F1 Hub — Handoff (2026-07-31)
+# F1 Hub — Handoff (2026-08-05)
 
 ## Where things stand
 
@@ -10,10 +10,35 @@ quirks, and the immediate next action.
 
 ### Immediate next action
 
-Batch 15 (CP50-54, 3D Elevation Track: offline geometry pipeline, WebGL viewer, corner markers,
-Constructor Genealogy current-grid polish, viewer polish pass) is complete and merged
-(PRs #83-#89). No batch is currently planned — see `ROADMAP.md`'s Backlog section for candidates
-before starting the next one.
+Batch 16 (CP55-58, on-demand track geometry generation) is complete, merged and **verified in
+production** — PRs #91-#95 for the checkpoints, #96-#102 for the seven production fixes that
+followed. No batch is currently planned — see `ROADMAP.md`'s Backlog section for candidates before
+starting the next one.
+
+**Track geometry is live and self-service.** 8 of 22 circuits are built; the rest are curated and
+generate on click, which is the designed steady state, not a backlog item. Full post-mortem of the
+seven fixes is in `ROADMAP.md`'s Batch 16 retrospective. The three that will cost the most time if
+re-derived:
+
+- **The GCS bucket needs a CORS policy, and nothing in the repo reveals that.** Payloads are read
+  with `fetch()`; the image assets beside them use `<img>` and are exempt. Without CORS the JSON
+  serves fine to `curl` and is blocked in every browser, presenting as "Track geometry
+  unavailable" for a payload that is verifiably present and 200-ing. Applied as `origin: ["*"]`,
+  GET/HEAD. Check it with
+  `gcloud storage buckets describe gs://f1-scratch-assets --format="value(cors_config)"` — an
+  empty result means every circuit page is broken.
+- **The job and the API must agree on the Mongo document key.** Both write
+  `track_geometry_builds` keyed by `{_id: circuit_id}`. Filtering on the `circuit_id` *field*
+  instead silently creates a second document per circuit and the two sides stop seeing each other.
+- **`cloudbuild-*.yaml` needs `options: logging: CLOUD_LOGGING_ONLY` whenever its trigger sets
+  `--service-account`.** To reproduce a trigger failure locally you must pass that same service
+  account explicitly; a plain `gcloud builds submit` uses a different default and succeeds,
+  proving nothing.
+
+**Verifying the deployed viewer:** the Claude_Browser preview pane cannot composite this route (see
+the rAF stall note below) — drive it with headless Chrome over CDP instead. When a circuit misbehaves,
+**load a known-good circuit the same way before blaming the change under test**: two of the seven
+fixes presented as new-circuit bugs and were actually breaking circuits that had worked for weeks.
 
 **Raw Ergast/Jolpica data is not clean enough to render across full history — read this before
 touching `historical_index.py` or reading any Ergast endpoint beyond a single season/circuit
