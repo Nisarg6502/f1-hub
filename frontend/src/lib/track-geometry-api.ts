@@ -95,9 +95,17 @@ export async function fetchTrackGeometryAvailability(
   options?: RequestInit,
 ): Promise<TrackGeometryAvailability> {
   try {
+    // `no-store` rather than a revalidate window. Availability is the value a
+    // just-finished build changes, and the circuit page re-reads it via
+    // `router.refresh()` the instant the build reports done. A cached answer
+    // there is served stale-while-revalidate, so the refresh renders the
+    // pre-build state and drops the user back onto the Generate button with the
+    // progress UI gone — the build having actually succeeded. The only page
+    // that reads this on the server is `force-dynamic` anyway, so the window
+    // bought nothing and cost correctness.
     const response = await fetch(
       new URL("/api/track_geometry/available", API_BASE_URL).toString(),
-      { next: { revalidate: 30 }, ...options },
+      { cache: "no-store", ...options },
     );
     if (!response.ok) return { circuits: [], buildable: [], degraded: true };
     const data = (await response.json()) as TrackGeometryAvailability;

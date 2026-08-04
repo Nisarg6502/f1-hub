@@ -928,6 +928,17 @@ async def get_track_geometry_status(circuit_id: str = Query(...)):
     key = spec["circuit_id"]
     doc = await _read_build(get_db(), key)
     if doc:
+        # `done` is the frontend's cue to stop polling and re-render into the
+        # viewer, which it does by re-reading /available. That listing is cached
+        # for AVAILABLE_TTL_SECONDS, so a build finishing inside the current
+        # window reports done while /available still omits the circuit — and the
+        # page falls back to the Generate button it just came from. Refresh the
+        # listing here so the two endpoints cannot disagree at the one moment
+        # the UI acts on the answer. Costs one GCS list, once per build.
+        if doc.get("status") == "done":
+            built, _ok = await available_keys()
+            if key not in built:
+                await available_keys(force=True)
         return JSONResponse(content={"build": _public_doc(doc, spec)})
 
     built, _ok = await available_keys()
