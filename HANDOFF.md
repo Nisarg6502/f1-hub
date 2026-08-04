@@ -10,28 +10,83 @@ quirks, and the immediate next action.
 
 ### Immediate next action
 
-**Start Batch 17 (CP59-62) — the agentic chat assistant.** It is planned but not started, and
+**Deploy the `f1-agent` service — CP59's code is written and pushed, and its done-criterion is a
+deployment, not a green test run.** Branch `feat/agent-service-skeleton`
+([PR](https://github.com/Nisarg6502/f1-hub/pull/new/feat/agent-service-skeleton)) carries the
+service; CP60 is being built on `feat/agent-tool-layer` on top of it. **CP59 is not done until SSE
+streams from the deployed service to the deployed frontend and a trace appears in LangSmith** —
+locally-verified is explicitly not the bar, which is the whole lesson Batch 16 paid seven PRs for.
+
+What deploying needs, none of which this sandbox can do (no authenticated `gcloud`):
+
+1. **Four Secret Manager secrets** on the project: `OLLAMA_API_KEY` (value already in the root
+   `.env`), `MONGODB_URI`, `LANGSMITH_API_KEY` (new — needs a LangSmith account), `TAVILY_API_KEY`
+   (new, CP62; can be a placeholder for now, but the secret must exist or the deploy step fails).
+2. **A Cloud Build trigger** on `cloudbuild-agent.yaml`. If it sets `--service-account` — every
+   trigger in this project does — the config already carries the mandatory
+   `options: logging: CLOUD_LOGGING_ONLY`, which is the exact omission that cost PRs #99/#100.
+3. **Re-run the frontend trigger** afterwards, so `NEXT_PUBLIC_AGENT_BASE_URL` is baked into the
+   client bundle. It is a build-time var; deploying the agent alone will not make the frontend see
+   it.
+4. **Verify on the real site at `/agent-check`**, which exists for exactly this. It shows the raw
+   event stream and reports how many separate token events arrived — **if that count is 1, streaming
+   is broken even though the answer looks fine.** That is the most likely production-only failure
+   here, and it is invisible in a finished answer.
+
+`LANGSMITH_TRACING` defaults to `true` in `cloudbuild-agent.yaml`, but `tracing.py` fails soft: with
+no API key the service runs untraced rather than erroring, and `/health` reports
+`langsmith_tracing: false`. So a missing trace is a configuration answer, not a debugging mystery —
+check `/health` first.
+
 **[`CHAT-AGENT-PLAN.md`](CHAT-AGENT-PLAN.md) is the source of truth** for the architecture, the
-agent roster, the tool catalogue, the question taxonomy and the evaluation strategy. `ROADMAP.md`'s
-"Current batch" carries the checkpoint list. Begin with **CP59**, which is deliberately a deployment
-and measurement checkpoint rather than a feature one.
+agent roster, the tool catalogue, the question taxonomy and the evaluation strategy — but see the
+correction below: it has already been wrong about one load-bearing fact.
 
-Three things about it that are easy to get wrong on a first read:
+Three things that are easy to get wrong on a first read:
 
+- **The plan's primary model does not exist, and the *shape* of that mistake matters more than the
+  fact.** `qwen3.5:35b` and `qwen3.5:27b` are not on Ollama Cloud (the only Qwen is the level-4
+  `qwen3.5:397b`). The measured replacement is `nemotron-3-nano:30b`. Treat the plan's other
+  specific claims — version numbers, model names, API shapes — as hypotheses to verify rather than
+  facts, the same discipline the Ergast team-identity notes below demand. Re-run
+  `python -m agent.spikes.model_spike` when the catalogue changes.
 - **The inference budget is Ollama Cloud's *free* tier, and it is an architectural constraint rather
   than a billing note.** 1 concurrent model, GPU-time metering, level-1/2 models only. Hence one
-  workhorse model (`qwen3.5:35b`) for every role, a rules-first router, a deterministic verifier
-  core, sequential subagent dispatch, an in-process semaphore of 1, and `--max-instances=1` on the
-  new service (a per-instance semaphore across two instances guards nothing against one shared
-  quota). Do not "improve" this by assigning a different model per agent — that design was written
-  and then removed for exactly this reason.
-- **CP59 includes a tool-calling reliability spike, and its result can cancel work later in the
-  plan.** A ~30b model doing nested `task()` dispatch is the riskiest assumption in the whole batch.
-  If the spike fails, Batch 18's subagent layer is not built and CP61's single-agent baseline ships
-  instead. That is a planned outcome, not a failure.
+  workhorse model for every role, a rules-first router, a deterministic verifier core, sequential
+  subagent dispatch, an in-process semaphore of 1, and `--max-instances=1` on the new service.
+  **The semaphore and the instance cap are one mechanism, not two** — raising `--max-instances`
+  gives each instance its own semaphore of 1 while they share one quota, silently disabling the
+  gate. Do not "improve" this by assigning a different model per agent either; that design was
+  written and then removed for exactly this reason.
 - **The verifier is a deterministic LangGraph node, not a subagent** — precisely so the orchestrator
   cannot decide to skip it. It is the CP38/CP41 "don't trust the model to self-police, check it in
   code" lesson promoted from a validator function to an architectural stage.
+
+### The agent's SSE contract lives in code, and errors never use HTTP status
+
+`backend/agent/sse.py` defines the event vocabulary (`activity`, `token`, `sources`, `done`,
+`error`) and `backend/tests/test_agent_sse.py` asserts the literal wire bytes, not the helper
+return values — CP44's lesson applied to our own output: a documented format is not evidence of the
+produced one. Two consequences worth knowing before touching it:
+
+- **Every failure is an SSE `error` event with a code from a closed set, never a 4xx/5xx.** By the
+  time anything can fail the response is already committed with 200, so a status code cannot carry
+  it. An unknown code degrades to `internal` rather than raising, because raising inside a committed
+  stream truncates it with no terminal event at all.
+- **`X-Accel-Buffering: no` is load-bearing.** Without it Cloud Run buffers the whole response and
+  the client gets one chunk at the end — streaming "works" perfectly on localhost and silently does
+  not in production.
+
+The frontend client (`frontend/src/lib/agent-api.ts`) deliberately does **not** use `EventSource`:
+it only speaks GET, and it silently reconnects on a drop, which for an agent turn would re-run the
+whole thing and double-charge a quota we are already rationing.
+
+**Testing ASGI streaming: a test harness whose `receive()` returns `http.disconnect` will cancel the
+stream mid-flight.** Starlette runs a disconnect listener concurrently with the response and tears
+it down the moment `receive()` reports a disconnect, so the harness must block instead. This cost
+real time in CP59 and presented as the endpoint dropping its terminal events. Relatedly, a fake
+model stream that never `await`s hides the whole class of bug — it runs to completion before any
+concurrent task is scheduled.
 
 Batch 16 (CP55-58, on-demand track geometry generation) is complete, merged and **verified in
 production** — PRs #91-#95 for the checkpoints, #96-#102 for the seven production fixes that

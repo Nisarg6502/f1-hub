@@ -63,27 +63,59 @@ correct data), CP41 (a prompt ban violated even in ALL CAPS, fixed only by a cod
 CP44 (the model not emitting its own documented format).
 
 **The budget shapes the architecture.** Inference is Ollama Cloud's **free tier**: 1 concurrent
-model, GPU-time metering, level-1/2 models only. So one workhorse model (`qwen3.5:35b`, confirmed by
-a CP59 spike) runs every role, and the agents are separated by prompt, tools and context window
-rather than by weights. To cut model calls per answer from ~6 to ~2, the router is rules-first with
-an LLM fallback only for ambiguous input, and the verifier's core is string/set operations with LLM
-entailment reserved for tier-3 answers. Both became cheaper *and* more deterministic.
+model, GPU-time metering, level-1/2 models only. So one workhorse model runs every role, and the
+agents are separated by prompt, tools and context window rather than by weights. To cut model calls
+per answer from ~6 to ~2, the router is rules-first with an LLM fallback only for ambiguous input,
+and the verifier's core is string/set operations with LLM entailment reserved for tier-3 answers.
+Both became cheaper *and* more deterministic.
 
-| CP | Scope | Done when |
-|---|---|---|
-| CP59 | `f1-agent` Cloud Run service skeleton: Dockerfile, cloudbuild, `/api/chat` SSE, LangSmith tracing, model seam; **tool-calling reliability spike** across 4 candidate models; checkpointer spike | An SSE echo streams from the *deployed* service to the *deployed* frontend and a trace appears in LangSmith |
-| CP60 | Internal tool layer (~16 tools over Mongo), evidence ledger, `resolve_context` — pure Python, unit-tested, no LLM | Every tool has a unit test; `resolve_context` handles "last race" / "next race" / nicknames / ambiguity |
-| CP61 | **Single-agent baseline**: deep agent + internal tools, no subagents, no verifier; minimal dev-flagged chat UI | Answers taxonomy classes 1-7 end to end, with latency, quota burn and cost recorded as the baseline Batch 18 must beat |
-| CP62 | Web research: Tavily search/extract, untrusted-content quarantine, prompt-injection tests | Classes 8-9 answered with sources; injection suite passes |
+**The workhorse is `nemotron-3-nano:30b`, not the `qwen3.5:35b` the plan named — that model does not
+exist.** The CP59 spike probed Ollama Cloud's catalogue live and found neither `qwen3.5:35b` nor
+`qwen3.5:27b`; the only Qwen offered is the level-4 `qwen3.5:397b`, which the plan's own budget logic
+excludes. Full scores in [`backend/agent/spikes/README.md`](backend/agent/spikes/README.md).
+
+| CP | Scope | Done when | Status |
+|---|---|---|---|
+| CP59 | `f1-agent` Cloud Run service skeleton: Dockerfile, cloudbuild, `/api/chat` SSE, LangSmith tracing, model seam; **tool-calling reliability spike** across 4 candidate models; checkpointer spike | An SSE echo streams from the *deployed* service to the *deployed* frontend and a trace appears in LangSmith | code merged-pending; **deploy outstanding** |
+| CP60 | Internal tool layer (~16 tools over Mongo), evidence ledger, `resolve_context` — pure Python, unit-tested, no LLM | Every tool has a unit test; `resolve_context` handles "last race" / "next race" / nicknames / ambiguity | in progress |
+| CP61 | **Single-agent baseline**: deep agent + internal tools, no subagents, no verifier; minimal dev-flagged chat UI | Answers taxonomy classes 1-7 end to end, with latency, quota burn and cost recorded as the baseline Batch 18 must beat | not started |
+| CP62 | Web research: Tavily search/extract, untrusted-content quarantine, prompt-injection tests | Classes 8-9 answered with sources; injection suite passes | not started |
 
 **Deployment-first ordering is deliberate**, straight out of Batch 16's retrospective: CP59 proves
 SSE through a real deployed service *before* any agent complexity exists, because that batch's cost
 was entirely in the gap between individually-correct systems.
 
-**The honest risk, recorded before starting:** a ~30b model doing nested `task()` dispatch is the
-riskiest assumption in the plan. CP61's single-agent baseline may simply *be* the product. Batch
-18's CP63 adds subagents **only if** the CP59 spike shows the model handles nested dispatch
-reliably; if it does not, we ship single-agent and say why.
+### What CP59 measured
+
+**The risk the plan called its riskiest is retired: a ~30b model *can* drive nested `task()`
+dispatch.** Two of four candidates did it repeatably, so Batch 18's CP63 subagent layer is **not**
+cancelled. CP61 still ships the single-agent baseline first, so the multi-agent version has a
+measured number to beat rather than an assumption to defend.
+
+Three findings worth not re-deriving:
+
+- **The one-shot ranking was the wrong ranking.** `gemma4:31b` scored 6/6 on single-turn tool
+  calling — argument correctness, selection from a 16-tool catalogue, restraint on out-of-domain
+  questions, all perfect and fastest. It then **failed the multi-hop dispatch loop 2 runs in 3**,
+  re-dispatching to a subagent it had already heard back from. A one-shot test cannot see this, and
+  an intermittent delegation loop burns quota exactly as fast as a reliable one. `nemotron-3-nano:30b`
+  (6/6 and 3/3) is the workhorse; `gpt-oss:120b` (also 3/3, already proven by CP38's recaps) is the
+  fallback. **If a future session adds a test to the battery, add it to the multi-turn class** —
+  that is where the models actually differ.
+- **`AsyncMongoDBSaver` was merged, not moved.** The plan expected the async Mongo checkpointer's
+  import path to have shifted in LangGraph 1.0. It is gone entirely: `MongoDBSaver` now carries both
+  sync and async methods, and `from_conn_string` is a **sync** context manager holding async methods
+  (`async with` fails on a bare `__aenter__` AttributeError that reads like a missing dependency).
+  Round-tripped against real Atlas — CP61 gets real thread memory and the hand-rolled fallback stays
+  unbuilt.
+- **`langgraph-checkpoint-mongodb` 0.4.0 caps `pymongo<4.17`**, and nothing surfaces that until the
+  resolver runs and fails naming only the pin. `requirements-agent.txt` holds `~=4.16.0` for this
+  reason.
+
+**Still outstanding on CP59, and it is the part that matters:** the checkpoint is only done when SSE
+streams from the **deployed** service to the **deployed** frontend and a trace appears in LangSmith.
+Locally-verified is explicitly not the bar here — that is the whole lesson Batch 16 paid for. The
+Cloud Run service, its four secrets and the build trigger still need creating.
 
 **Batch 18 (CP63-66), planned but not committed:** router tiering + four subagents, the verifier and
 citation contract, the deepeval golden set and CI gate, then the production UI and hardening.
