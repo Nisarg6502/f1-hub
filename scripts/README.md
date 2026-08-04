@@ -240,6 +240,29 @@ Objects must also be publicly readable to be served through
 `roles/storage.objectViewer` for the existing image assets, so a newly written
 `tracks/` object inherits that and needs no per-object ACL.
 
+**Public-readable is not sufficient — the bucket also needs CORS.** The images
+around it are loaded via `<img>`, which is not subject to CORS, but the track
+payload is read with `fetch()`, which is. A bucket with no CORS configuration
+serves the JSON happily to `curl` and blocks it in every browser, so the symptom
+is a viewer that reports "Track geometry unavailable" for circuits whose payload
+is verifiably present and 200-ing. Nothing in the repo reveals this — it is
+bucket state, not code — and it silently affected every GCS-backed circuit until
+it was set:
+
+```bash
+cat > cors.json <<'JSON'
+[{"origin": ["*"], "method": ["GET", "HEAD"],
+  "responseHeader": ["Content-Type"], "maxAgeSeconds": 3600}]
+JSON
+gcloud storage buckets update gs://f1-scratch-assets --cors-file=cors.json
+```
+
+`origin: ["*"]` grants nothing that is not already public — these objects are
+world-readable over plain HTTPS regardless — and it keeps working across custom
+domains, preview URLs and local dev without another bucket edit. Verify with
+`gcloud storage buckets describe gs://f1-scratch-assets --format="value(cors_config)"`;
+an empty result means every circuit page is broken in the browser.
+
 CP57's backend service account additionally needs `roles/run.invoker` on this
 job to trigger it — that grant belongs with the backend and is documented there.
 
