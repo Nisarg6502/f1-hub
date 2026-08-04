@@ -36,17 +36,68 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 13 | CP45-46 | GenAI: Pitwall "Strategy Commentary" module (undercut/overcut narrative, PR #75), driver comparison head-to-head narrative on the Drivers compare modal (PR #76) — built as two parallel worktree agents | merged |
 | 13 (ad hoc) | unnumbered | Fixed the Teams page's Power units panel showing wrong 2026 supplier data: Alpine mapped to Renault (switched to Mercedes for 2026 — the lookup is now season-aware since the constructor name didn't change), Sauber mapped to Audi (it ran Ferrari its whole modern history; Audi's works supply only starts once the constructor is renamed "Audi" for 2026), and two new 2026 entrants (Audi, Cadillac) were missing entirely. Found via user inspection, not backlog-planned. PR #77 | merged |
 | 14 | CP47-49 | F1 Heritage: historical race index + constructor identity foundation (PR #79), "The 75-Season Barcode" — every championship race 1950-2026 as one colour-coded stripe, plus a Home-page teaser (PR #80), Constructor Genealogy — 15 curated team lineages as a horizontal band timeline (PR #81). New top-level `/history` page, 8th nav item. CP48/CP49 built as two parallel worktree agents | merged |
+| 16 | CP55-58 | On-demand track geometry: 18 new `CircuitSpec` entries (PR #93), Cloud Run Job with GCS output + Mongo progress/quota (PR #91), trigger/status/available endpoints behind a global build lock (PR #92), and the public "Generate 3D view" button + phased loader (PR #95). CP55-57 built as three parallel worktree agents. Seven follow-ups from live production debugging: metadata token path (#96), Mongo `$set`/`$setOnInsert` conflict (#97), `_id` vs `circuit_id` document split (#98), job auto-deploy trigger (#99) and its missing Cloud Build logging option (#100), completion not revealing the viewer (#101), bucket CORS (#102) | merged |
 | 15 | CP50-54 | 3D Elevation Track: offline geometry/elevation pipeline baking four circuits to static JSON (PR #83, #88), WebGL viewer on a new `/circuits/[circuitId]` route (PR #84, #87), named corner markers + keyboard orbit (PR #85), Constructor Genealogy filtered to the current grid with labelled eras and hover (PR #86), and a polish pass on the viewer's tour, scrub and corner labels from user testing (PR #89). First 3D/WebGL work in the project | merged |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
 ## Current batch
 
-**Batch 16 — On-demand track geometry generation (CP55-58). Planned, not started.**
+**None — Batch 16 is closed. The next batch has not been planned yet.**
 
-Batch 15 (CP50-54) is shipped and merged (PRs #83-#89). Batch 16 extends its 3D viewer from the
-four hand-baked circuits to the whole calendar, with the expensive elevation build triggered by a
-**public-facing button** rather than run offline by a maintainer.
+## Batch 16 retrospective — On-demand track geometry (CP55-58)
+
+**Batch 16 (CP55-58) is complete, merged and verified in production.** All four checkpoints landed
+(PRs #91, #92, #93, #95), CP55-57 as three parallel worktree agents. 8 of 22 circuits are built and
+rendering; the other 14 are curated and one click away, which is the intended steady state rather
+than an unfinished edge.
+
+**The plan was right; the deployment was where all the cost was.** Every checkpoint passed its own
+tests and review, and the feature still did not work end to end — seven follow-up PRs (#96-#102)
+came out of driving the real button on the real site. None were design mistakes. Every one was a
+production-only fault that no unit test could have caught, because each lived in the gap between
+two systems that were individually correct:
+
+- **#96 — the metadata token path.** `instance/service_account/default/token` instead of
+  `instance/service-accounts/default/token`. A swallowed `except Exception: pass` hid the real
+  error for a full debugging cycle; replacing it with real logging found the cause in minutes.
+  **Never let a credentials path fail silently.**
+- **#97 — `$set` and `$setOnInsert` targeting `started_at` together.** Real MongoDB rejects one
+  path touched by two operators; the fake collection in tests did not, so the tests passed against
+  a database that does not exist. The fake now enforces the conflict rule.
+- **#98 — the document split.** The job upserted on `{_id: key}` while the API queried
+  `{circuit_id: key}`, so each circuit got *two* documents: one stuck at "queued" that the
+  frontend read, one progressing correctly that nothing read. Invisible until #97 was fixed,
+  because before that the job's writes failed anyway and masked it.
+- **#99/#100 — no auto-deploy trigger for the job, then a trigger that could not run.** Adding
+  `--service-account` to a Cloud Build trigger makes `options: logging: CLOUD_LOGGING_ONLY`
+  mandatory; `cloudbuild-trackgeo.yaml` was the one config missing it. Reproducing it locally
+  required passing the trigger's *exact* service account — a plain submit uses a different default
+  and succeeds, proving nothing.
+- **#101 — a finished build that hid itself.** Two caches consulted at the one instant the UI acts
+  on `done`: Next's `revalidate: 30` served stale-while-revalidate to the completion `router.refresh()`,
+  and the backend's own 60 s GCS listing could still omit a circuit it had just reported done. The
+  page bounced back to the Generate button for a build that had fully succeeded.
+- **#102 — the bucket had no CORS policy at all.** The images beside it load via `<img>` and are
+  exempt; the payload is read with `fetch()` and is not. It served perfectly to `curl` and was
+  blocked in every browser, and it silently broke the four *previously working* bundled circuits
+  the moment CP58 started preferring the bucket URL over the same-origin copy.
+
+**The lesson worth carrying forward: "all checkpoints merged" is not "the feature works."** The
+only thing that found any of these was clicking the real button on the deployed site and following
+the failure into Cloud Logging, Mongo and GCS. Two of the seven (#98, #102) presented as
+*new-circuit* problems and were actually breaking circuits that had worked for weeks — both were
+only correctly diagnosed by testing a known-good circuit alongside the new one, which is now the
+default move before blaming the change under test.
+
+**Every fix carries a regression test proven by reverting it** — write the test, revert the fix,
+watch it fail with the real error shape, restore. #97 and #98 were both cases where the test
+initially passed *without* the fix, which is exactly the check that catches a test asserting the
+wrong thing.
+
+**Original plan, kept for context.** Batch 16 extended Batch 15's viewer from the four hand-baked
+circuits to the whole calendar, with the expensive elevation build triggered by a **public-facing
+button** rather than run offline by a maintainer.
 
 **The constraint that shapes everything: a build needs a `CircuitSpec` that already exists.** The
 pipeline cannot bake an arbitrary circuit from an id alone. Each spec in `scripts/trackgeo/
@@ -118,7 +169,9 @@ from a direct user request for a 3D elevation view of circuits, and is the first
 project. CP53 (Constructor Genealogy polish) rode along in the same batch as a user-driven
 follow-up to Batch 14's CP49 rather than a theme fit.
 
-**The pipeline is offline and the payload is static, deliberately.** `scripts/trackgeo/` bakes each
+**The pipeline is offline and the payload is static, deliberately.** *(Superseded by Batch 16 —
+the pipeline now also runs as an on-demand Cloud Run Job writing to GCS. It is still never run
+inside the API process, and the reasoning below is why.)* `scripts/trackgeo/` bakes each
 circuit to a JSON file in `frontend/public/tracks/` and never runs in the API. Elevation comes from
 OpenTopoData, which is a courtesy-rate public service — putting it behind a request path would have
 been both slow and rude. The frontend fetches the payload client-side rather than having the server
