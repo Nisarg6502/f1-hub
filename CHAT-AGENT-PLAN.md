@@ -72,7 +72,7 @@ flowchart TB
 
     subgraph Service["f1-agent · Cloud Run"]
         ING["Ingress<br/>POST /api/chat · rate limit · thread_id"]
-        GUARD["Guard + Router<br/>small model, structured output<br/>{tier, entities, needs_web, framing_flags}"]
+        GUARD["Guard + Router<br/>rules-first; model only if ambiguous<br/>{tier, entities, needs_web, framing_flags}"]
         CACHE[("Answer cache<br/>Mongo, keyed by<br/>normalized Q + PROMPT_VERSION")]
 
         subgraph Deep["Orchestrator — deepagents"]
@@ -199,45 +199,75 @@ Straight from the Batch 14 retrospective, so they are never re-derived:
   appear as "race winners" without ever entering a Grand Prix — flag `indy500: true`, never silently
   present them as GP wins.
 
-### 4.2 Model tiering — staying on Ollama Cloud, but not on `gpt-oss:120b`
+### 4.2 Model strategy — one workhorse model, because the budget is the Ollama free tier
 
-**Decision: Ollama Cloud throughout, using the existing `OLLAMA_API_KEY` — but the catalogue has
-moved a long way past `gpt-oss:120b`, and this system should use the newer models.** Every model
-below carries Ollama's `tools` capability tag, and most carry `thinking` too.
+**This constraint shapes more of the design than any other, so it is stated plainly rather than
+buried in a config note.** We are on Ollama Cloud's **free tier**, using the existing
+`OLLAMA_API_KEY`. There is no inference budget beyond it.
 
-Model choice is a single config seam (`provider:model` strings resolved per role from env), so any
-row can change without touching agent code.
+| Free-tier fact | Architectural consequence |
+|---|---|
+| **1 concurrent model** (Pro: 3, Max: 10) | No per-role model assignment. **One model runs every role.** |
+| Requests past the concurrency limit are **queued** to a fixed depth, then **rejected** | The service serializes agent runs itself with an in-process semaphore of 1, rather than letting Ollama's queue reject under load |
+| Usage meters **GPU time**, not tokens — model size × request duration | Every avoidable model *call* is real budget. Call count matters more than prompt length. |
+| Published guidance is to stay on **level 1-2 models** to stretch the quota | The flagship models are off the table for routine traffic |
+| Session limits reset every **5 hours**, weekly limits every **7 days** | A burst of demo traffic can lock the assistant out for hours. Graceful degradation is mandatory, not polish. |
 
-| Role | Model | Why |
-|---|---|---|
-| **Guard / router** | `qwen3.5:9b` | Runs on *every* request. Needs speed and structured output, not depth. Smallest model that reliably emits a typed classification. |
-| **Orchestrator** | `kimi-k3` | The K2.6/K3 family is the strongest reported performer at **long-horizon agent coordination and sub-agent dispatch**, which is exactly this role. Fallback: `glm-5.2`. |
-| **stats-scout / historian** | `qwen3.5:122b` | Tool execution and structured extraction. Big enough to pick the right tool and arguments, cheap enough to run often. |
-| **web-researcher** | `deepseek-v4-flash` | Long context for full page bodies, at roughly 80-90% of V4 Pro's quality for a tenth of the cost. |
-| **race-analyst** | `glm-5.2` | Strongest structured-reasoning tier available here; pairs with the `calculator` tool so it never does arithmetic in-head. |
-| **Verifier** | `nemotron-3-super:120b` | **Deliberately a different model family from the orchestrator.** A checker that shares the writer's blind spots is not a checker. Model diversity is the point. |
-| **deepeval judge** | `glm-5.2`, **pinned** | An eval judge that drifts silently invalidates every historical score. Pinned and changed only with a full re-baseline. |
+#### The assignment
 
-**`deepseek-v4-pro` is deliberately excluded from every narration and verification role** despite
-topping the agentic benchmark tables (GDPval-AA 1554), because the same comparisons report a
-94-96% hallucination rate and verbose output. In a system whose entire premise is factual
-discipline, that trade is wrong at any benchmark score.
+**One workhorse model for every role.** Agents are separated by **prompt, tools and context
+window** — not by weights.
 
-**Two things to verify in CP59 rather than trust:**
+| | |
+|---|---|
+| **Primary candidate** | `qwen3.5:35b` — carries both `tools` and `thinking`, sits in the level-2 class, and the Qwen family punches above its size on tool calling |
+| **Alternates for the CP59 spike** | `qwen3.5:27b` (cheaper), `nemotron-3-nano:30b`, `gemma4:31b` |
+| **Escalation — tier 3 only, quota permitting** | `qwen3.5:122b` or `deepseek-v4-flash` for genuinely hard synthesis |
+| **Explicitly not used** | `kimi-k3`, `nemotron-3-ultra`, `glm-5.2`, `deepseek-v4-pro` — level 3-4 models that would drain a free quota in a handful of conversations. `deepseek-v4-pro` is doubly excluded: the same comparisons that put it top of the agentic tables (GDPval-AA 1554) report a **94-96% hallucination rate and verbose output**, which is disqualifying for a system built on factual discipline. |
 
-1. **These are third-party benchmark claims from published comparisons, not our measurements.** The
-   CP59 spike runs ~20 fixed tool-use prompts against *our own tools* and measures the malformed
-   tool-call rate per candidate model. Whatever the tables say, the number we act on is our own —
-   the same "don't trust it, verify in code" discipline CP38 established for model output.
-2. **Ollama Cloud's concurrency cap is an architectural constraint, not a billing detail.** The free
-   tier allows **1 concurrent model**; Pro ($20/mo) allows 3; Max (sign-ups currently paused) allows
-   10. A seven-role, six-model assignment fanning out subagents in parallel will hit that ceiling.
-   Usage is metered by model difficulty (levels 1-4) with session limits resetting every 5 hours.
+This is a defensible position rather than a compromise to apologise for: **the value of a
+multi-agent design comes from context isolation and specialised prompts, not from running different
+weights per agent.** If budget ever appears, the first — and possibly only — role worth a different
+model family is the **verifier**, since a checker sharing the writer's blind spots is a weaker
+checker. That is the upgrade path, recorded so it is not re-derived.
 
-   **Therefore:** on the free tier, collapse to **two models total** (one strong, one fast) and
-   dispatch subagents **sequentially**. The full table above assumes **Ollama Pro**. This is the one
-   place where $20/month buys real architectural freedom, and CP59 should establish which side of
-   that line we are on before CP63 designs around parallel fan-out.
+#### Cutting model calls per answer from ~6 to ~2
+
+On a GPU-time budget the call count is the cost driver. Three changes, each of which also makes the
+system *more* deterministic — the direction this repo already trusts:
+
+1. **The guard/router becomes rules-first, not a model call.** Entity extraction, season/round
+   resolution and most tier classification are pattern work: a question naming a year and "won" is a
+   point lookup; "latest" / "news" / "rumour" / a future year needs web; a known driver or circuit
+   name resolves against our own id tables. The LLM router becomes the **fallback for genuinely
+   ambiguous input only**, removing one call from the majority of requests.
+2. **The verifier's core becomes fully deterministic.** Citation presence, `evidence_id` existence
+   and number-matching against the ledger are string and set operations — no model needed. The **LLM
+   entailment pass runs on tier 3 answers only**, removing a second call from most requests.
+3. **Answer caching is load-bearing, not an optimisation.** Keyed on normalized question + resolved
+   entities + `PROMPT_VERSION`. On a portfolio site, repeat questions dominate.
+
+Net: a tier-1 lookup costs **one** model call, a tier-2 analysis **two**, and only tier-3 research
+reaches four or five.
+
+#### The risk this creates, stated honestly
+
+**A ~30b model doing nested `task()` dispatch is the single riskiest assumption in this plan.** Deep
+agents lean hard on multi-turn tool calling, and small models are exactly where that breaks —
+malformed arguments, dropped tool results, delegation loops.
+
+The checkpoint order already absorbs that. **CP61 lands a single-agent baseline** (one agent, all
+tools, no subagents) which on this budget may simply *be* the product. CP63 adds subagents **only if
+the CP59 spike shows this model handles nested dispatch reliably** — and if it does not, we ship the
+single-agent version and say so in the write-up.
+
+"We sized the architecture to the budget and measured before scaling" is a stronger interview answer
+than a six-model diagram that was never affordable to run.
+
+#### Demo insurance
+
+A quota lockout during a live demo would be fatal, so **CP66 pre-generates and pins answers for ~30
+showcase questions**. The demo path never depends on live quota; real traffic still runs live.
 
 ---
 
@@ -410,17 +440,22 @@ evaluated.
 | Red-teaming (deepeval's companion suite) | Prompt injection via web results, out-of-scope refusal, jailbreak resistance |
 
 **The honest caveats, which are themselves interview material:**
-- LLM-judge metrics are **non-deterministic and cost money per run**. Mitigation: pin the judge
-  model and its version, run the LLM-judged metrics nightly rather than per-PR, and keep the
-  deterministic metrics (`ToolCorrectness`, `ArgumentCorrectness`, citation presence) as the
-  per-PR gate.
+- LLM-judge metrics are **non-deterministic and cost GPU time we do not have** (§4.2). On the free
+  tier a nightly judged run over 60 goldens would eat the quota the product itself needs.
+  **Therefore the cadence is quota-shaped:** deterministic metrics (`ToolCorrectness`,
+  `ArgumentCorrectness`, citation presence — no model calls at all) gate **every PR**; judged
+  metrics run over a **10-case subset, manually triggered before a batch closes**, never nightly.
+  The judge model is **pinned** — an eval judge that drifts silently invalidates every historical
+  score — and runs on the same workhorse model, accepting that a same-model judge is a weaker judge
+  and saying so rather than pretending otherwise.
 - Thresholds are **regression detectors, not truth**. A score of 0.82 means "same as last week",
   not "82% correct".
 - The golden set must come from **real traces**, not from questions we invented — invented questions
   test the architecture we imagined, not the one users hit.
 
 Target golden set for CP65: ~60 cases spanning all 15 taxonomy classes, including ~10 adversarial
-and ~8 "known-hard" cases lifted directly from the CP38/41/44 post-mortems.
+and ~8 "known-hard" cases lifted directly from the CP38/41/44 post-mortems. Of those, a fixed
+10-case subset is tagged `judged` for the manual LLM-scored run.
 
 ---
 
@@ -436,6 +471,7 @@ This section is the "what could go wrong" answer. Every row is a real risk in th
 | 4 | Ambiguous reference resolved by guessing | `resolve_context` in Python + thread memory |
 | 5 | Context window blowout from lap data | Downsampled tools + virtual-FS offloading + `SummarizationMiddleware` |
 | 6 | Runaway cost / infinite tool loop | Tier routing, max-iteration cap, per-request token budget, hard timeout, answer cache |
+| 6b | **Ollama free-tier quota exhausted mid-demo** | In-process semaphore of 1 (never rely on Ollama's queue); rules-first router and deterministic verifier to cut calls; aggressive answer cache; ~30 pre-generated showcase answers; and a "the assistant is at capacity, here's what I already know" degraded state — never a stack trace. Session limits reset every 5 hours, so the degraded state must be genuinely usable. |
 | 7 | Latency (agents are slow) | Tier 1 bypass for lookups, streaming from the first token, activity events so waiting feels observable |
 | 8 | Tool failure crashes the run | Structured `{"available": false}` returns, never exceptions — matches app-wide fail-soft posture |
 | 9 | FastF1 silently returns empty on Cloud Run | Tools never call FastF1; Mongo + Jolpica only |
@@ -486,6 +522,12 @@ Concrete requirements, including the ones this project has already paid for once
   account explicitly; a plain `gcloud builds submit` uses a different default and proves nothing.
 - Request timeout raised (agents can run 30-60s); concurrency lowered; `min-instances` considered
   for cold-start, weighed against cost.
+- **Cloud Run concurrency must be reconciled with the Ollama free tier's 1 concurrent model.** Two
+  Cloud Run instances happily serving two users will both hit the same single-model quota. The agent
+  run is therefore guarded by an **in-process semaphore of 1** *and* the service is pinned to a
+  single instance (`--max-instances=1`) for as long as we are on the free tier — otherwise the
+  semaphore is per-instance and guards nothing. Queued callers get a "thinking, you're next"
+  streaming state rather than a rejection.
 - CORS configured on the service for the frontend origin — and note the Batch 16 lesson that a
   `fetch()`-read resource needs CORS while an `<img>` does not.
 - New secrets: `TAVILY_API_KEY`, `LANGSMITH_API_KEY` (+ optional frontier-model key).
@@ -538,10 +580,12 @@ consequences of §1's table.
 
 Settled 2026-08-05, before implementation:
 
-1. **Models — Ollama Cloud, on the current-generation catalogue.** Stay on the existing
-   `OLLAMA_API_KEY`; move off `gpt-oss:120b` to the per-role assignment in §4.2 (`kimi-k3`
-   orchestrating, `qwen3.5` for guard and scouts, `deepseek-v4-flash` for web, `glm-5.2` analysing,
-   `nemotron-3-super` verifying). No frontier-model key, no new secret for inference.
+1. **Models — Ollama Cloud free tier, one workhorse model for every role** (§4.2). Primary candidate
+   `qwen3.5:35b`, chosen from the level-1/2 class because free-tier usage meters GPU time and allows
+   only **1 concurrent model**. Agents differ by prompt, tools and context — not by weights. No
+   frontier-model key, no new secret for inference, no Ollama Pro. The knock-on decisions: a
+   rules-first router, a deterministic verifier core, sequential subagent dispatch, and an
+   in-process semaphore of 1.
 2. **Web search — Tavily.** Single-call search *and* extract, relevance-scored and pre-cleaned,
    first-party `langchain-tavily` package. 1,000 free credits/month. Exa's larger free tier does not
    outweigh the second round trip its content API forces on every result the agent actually reads.
@@ -553,17 +597,19 @@ Settled 2026-08-05, before implementation:
 
 ### Still open, to be answered by CP59 rather than by opinion
 
-- **Which Ollama model actually holds up under nested tool calling on our tools** — measured by the
-  spike, not inherited from a benchmark table.
-- **Free tier vs Ollama Pro** — the 1-concurrent-model cap on Free forces sequential subagent
-  dispatch and a two-model collapse. CP59 establishes which side we are on, because CP63's fan-out
-  design depends on the answer.
+- **Which level-1/2 Ollama model actually holds up under nested tool calling on our tools** —
+  measured by the CP59 spike against `qwen3.5:35b`, `qwen3.5:27b`, `nemotron-3-nano:30b` and
+  `gemma4:31b`, not inherited from a benchmark table. **If none of them does, CP63's subagent layer
+  does not get built and CP61's single-agent baseline ships instead.** That is a real possible
+  outcome of this plan, not a hedge.
+- **How far a free-tier quota actually stretches under real traffic** — measure GPU-time burn per
+  question class during CP61 and set the rate limits from data.
 - **`langgraph-checkpoint-mongodb` against the pinned LangGraph version** — the async saver's import
   path moved in 1.0; fall back to a hand-rolled Mongo thread store if unresolved.
 
 ---
 
-## 15. The interview narrative, in five sentences
+## 15. The interview narrative, in six sentences
 
 1. *"It is not a chatbot — it is a tool-orchestration system where the model narrates retrieved
    evidence and never derives facts, because we had already watched a model invent a teammate
@@ -577,7 +623,12 @@ Settled 2026-08-05, before implementation:
    part of CI."*
 5. *"Observability and evaluation are split on purpose: LangSmith traces production and curates
    datasets from real failures; deepeval runs those datasets as pytest gates, with the deterministic
-   metrics blocking merges and the LLM-judged ones running nightly."*
+   metrics blocking every merge and the LLM-judged ones run deliberately, because the eval budget is
+   the same GPU-time budget the product runs on."*
+6. *"The whole thing runs on a free inference tier that allows one concurrent model, so the agents
+   are separated by prompt, tools and context rather than by weights — and the router and the
+   verifier were made deterministic instead of model-driven, which cut the calls per answer from six
+   to two and made the system more predictable at the same time."*
 
 ---
 
