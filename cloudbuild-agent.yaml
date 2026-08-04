@@ -1,0 +1,91 @@
+# Builds, pushes and deploys the `f1-agent` Cloud Run service.
+#
+# `options: logging: CLOUD_LOGGING_ONLY` at the bottom is MANDATORY as soon as
+# the trigger sets `--service-account`, which every trigger in this project
+# does. Omitting it cost two PRs in Batch 16 (#99/#100), and it fails at
+# trigger-run time with an error that says nothing about logging. To reproduce
+# a trigger failure locally you must pass that same service account
+# explicitly — a plain `gcloud builds submit` uses a different default,
+# succeeds, and proves nothing.
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/f1-dashboard-493015/f1-agent'
+      - '-f'
+      - 'Dockerfile.agent'
+      - '.'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/f1-dashboard-493015/f1-agent'
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'f1-agent'
+      - '--image'
+      - 'gcr.io/f1-dashboard-493015/f1-agent'
+      - '--region'
+      - 'asia-south1'
+      - '--platform'
+      - 'managed'
+      - '--port'
+      - '8100'
+      # Agents are memory-heavy: the LangGraph/deepagents tree alone is a large
+      # resident set before a single request arrives.
+      - '--memory'
+      - '1Gi'
+      - '--cpu'
+      - '1'
+      # An agent turn runs far longer than an API call. This must stay well
+      # above agent/config.py's REQUEST_TIMEOUT_SECONDS, or Cloud Run kills the
+      # stream before the service can emit its own SSE error event and the
+      # client sees a truncated answer with no explanation.
+      - '--timeout'
+      - '300'
+      # Ollama's free tier allows ONE concurrent model. `--max-instances=1` is
+      # what makes agent/concurrency.py's in-process semaphore meaningful: a
+      # second instance would hold its own semaphore of 1 and both would
+      # contend for the same shared quota. The two settings are one mechanism.
+      # Raising this without moving off the free tier silently breaks the gate.
+      - '--max-instances'
+      - '1'
+      # Above 1 on purpose. Extra connections are cheap; the semaphore gates
+      # the expensive part. This is what lets a queued caller receive a
+      # "you're next" activity event instead of being refused at the load
+      # balancer, which would look like an outage.
+      - '--concurrency'
+      - '8'
+      # Cold starts are slow with this dependency tree, and the assistant is
+      # an interactive surface. Left at 0 while the free tier is the
+      # constraint — an always-warm instance costs money to avoid a delay the
+      # streaming activity events already make tolerable.
+      - '--min-instances'
+      - '0'
+      - '--set-secrets'
+      - 'OLLAMA_API_KEY=OLLAMA_API_KEY:latest,MONGODB_URI=MONGODB_URI:latest,LANGSMITH_API_KEY=LANGSMITH_API_KEY:latest,TAVILY_API_KEY=TAVILY_API_KEY:latest'
+      - '--set-env-vars'
+      - 'AGENT_MODEL=${_AGENT_MODEL},LANGSMITH_TRACING=${_LANGSMITH_TRACING},LANGSMITH_PROJECT=${_LANGSMITH_PROJECT},AGENT_ALLOWED_ORIGINS=${_AGENT_ALLOWED_ORIGINS}'
+      - '--allow-unauthenticated'
+      - '--quiet'
+
+images:
+  - 'gcr.io/f1-dashboard-493015/f1-agent'
+
+substitutions:
+  # Measured, not chosen from a table. The CP59 spike (agent/spikes/README.md)
+  # scored every level-1/2 model Ollama Cloud actually offers; this is the one
+  # that both converges on a multi-hop dispatch loop and stays cheapest in GPU
+  # time. Note `qwen3.5:35b` from the plan does not exist on the platform.
+  _AGENT_MODEL: 'nemotron-3-nano:30b'
+  _LANGSMITH_TRACING: 'true'
+  _LANGSMITH_PROJECT: 'f1-agent'
+  _AGENT_ALLOWED_ORIGINS: 'https://f1-frontend-1076575666662.asia-south1.run.app'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
