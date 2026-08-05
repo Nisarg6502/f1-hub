@@ -66,11 +66,6 @@ def snapshot() -> dict:
     }
 
 
-def queued_ahead() -> int:
-    """How many callers are already waiting, i.e. this caller's position - 1."""
-    return _state.waiting
-
-
 @dataclass
 class Admission:
     """How this caller got its slot.
@@ -106,6 +101,14 @@ async def run_slot(timeout: float | None = None):
     # during which the caller is counted as `waiting` while `running` is still
     # 0 — which makes `snapshot()` lie, and made the only user on an idle
     # service see "Waiting for a free slot…".
+    #
+    # This is race-free only because of two CPython details, and **the
+    # `python:3.11-slim` base image is therefore load-bearing for correctness
+    # here, not just for compatibility**: `Semaphore.locked()` accounts for
+    # queued waiters (so a newcomer cannot barge past them), and `acquire()`
+    # on an uncontended semaphore returns without an await point (so nothing
+    # can slip in between the check and the acquire). On the older semaphore
+    # implementation this fast path would let a fresh caller jump the queue.
     if not semaphore.locked():
         await semaphore.acquire()
         admission = Admission(waited=0.0, ahead=0)

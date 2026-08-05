@@ -70,18 +70,53 @@ def traced_run(name: str, inputs: dict, **metadata: Any) -> Iterator[Any]:
         yield _NullRun()
         return
 
+    # The `try` covers ONLY opening the trace, never the `yield`. Wrapping the
+    # yield in `except Exception` looks like the same defensive move and is a
+    # different thing entirely: an exception raised by the caller's `with` body
+    # is thrown back in at the yield point, gets swallowed here, and the
+    # generator then yields a second time — which Python reports as
+    # "generator didn't stop after throw()", replacing the caller's real error
+    # with a bogus RuntimeError and leaving the LangSmith run unclosed.
     try:
-        with trace(
+        manager = trace(
             name=name,
             run_type="chain",
             project_name=config.LANGSMITH_PROJECT,
             inputs=inputs,
             metadata=metadata or None,
-        ) as run:
-            yield run
+        )
+        run = manager.__enter__()
     except Exception as error:  # noqa: BLE001 - telemetry must never be fatal
         print(f"LangSmith tracing unavailable, continuing untraced: {error}")
         yield _NullRun()
+        return
+
+    try:
+        yield run
+    finally:
+        # Closing the span must not resurrect a telemetry failure as an
+        # application one — the caller has already streamed its answer.
+        try:
+            manager.__exit__(None, None, None)
+        except Exception as error:  # noqa: BLE001
+            print(f"LangSmith span failed to close: {error}")
+
+
+def end(run: Any, outputs: dict) -> None:
+    """Close a run's outputs, swallowing any telemetry failure.
+
+    Exists because `run.end()` was the one unguarded telemetry call left in the
+    endpoint, and it sat at the end of every `except` handler *and* on the
+    success path. A raise there produced two terminal SSE events for one
+    perfectly good answer — a `done` immediately followed by an `error` — and
+    then escaped the generator, tearing down a response that had already been
+    committed. This module's whole contract is that a tracing outage degrades
+    to "no trace", never to "no answer".
+    """
+    try:
+        run.end(outputs=outputs)
+    except Exception as error:  # noqa: BLE001
+        print(f"LangSmith run.end failed, continuing: {error}")
 
 
 def run_id(run: Any) -> str | None:

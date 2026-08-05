@@ -79,15 +79,34 @@ export function splitFrames(buffer: string): {
   frames: string[];
   rest: string;
 } {
-  const frames: string[] = [];
-  let rest = buffer;
-  let index = rest.indexOf("\n\n");
-  while (index !== -1) {
-    frames.push(rest.slice(0, index));
-    rest = rest.slice(index + 2);
-    index = rest.indexOf("\n\n");
+  // The SSE spec terminates lines with CRLF, CR *or* LF, and intermediaries
+  // rewrite line endings — which is the whole reason this module hand-rolls a
+  // parser instead of using EventSource. An LF-only split against a CRLF
+  // stream finds no frames at all, so the buffer grows without bound and
+  // `streamChat` resolves having called no handler: no answer, no error, and
+  // indistinguishable from success to the caller.
+  //
+  // A trailing "\r" is ambiguous: it may be a complete CR line terminator, or
+  // the first half of a "\r\n" straddling a chunk boundary. Normalising it
+  // eagerly would turn a single mid-frame CRLF into a "\n\n" frame break and
+  // split a frame down the middle.
+  //
+  // It is only ambiguous, though, when a line is actually open. If the
+  // character before it is itself a newline, the preceding line already
+  // ended, so this "\r" is the blank line that terminates the frame and must
+  // NOT be held back — holding it swallowed the second "\r" of a "\r\r"
+  // terminator and lost the final frame of every CR-terminated stream.
+  let pending = "";
+  let working = buffer;
+  if (working.endsWith("\r") && !/[\r\n]\r$/.test(working)) {
+    pending = "\r";
+    working = working.slice(0, -1);
   }
-  return { frames, rest };
+
+  const normalised = working.replace(/\r\n|\r/g, "\n");
+  const parts = normalised.split("\n\n");
+  const rest = (parts.pop() ?? "") + pending;
+  return { frames: parts.filter((frame) => frame.length > 0), rest };
 }
 
 /** Parse one frame into an event name and payload, or null if it is a comment. */
@@ -96,13 +115,22 @@ export function parseFrame(
 ): { event: string; data: unknown } | null {
   let event: string | null = null;
   const dataLines: string[] = [];
-  for (const line of frame.split("\n")) {
-    if (line.startsWith(":")) continue;
-    if (line.startsWith("event: ")) event = line.slice(7);
+  for (const raw of frame.split(/\r\n|\r|\n/)) {
+    if (raw.startsWith(":")) continue;
+    const colon = raw.indexOf(":");
+    if (colon === -1) continue;
+    const field = raw.slice(0, colon);
+    // The space after the colon is optional in the spec — only one leading
+    // space is stripped. Slicing a fixed "event: " length instead drops a
+    // real character from any server that omits it.
+    let value = raw.slice(colon + 1);
+    if (value.startsWith(" ")) value = value.slice(1);
+
+    if (field === "event") event = value;
     // Per the SSE spec multiple `data:` lines in one frame are joined with a
     // newline. The backend only ever emits one, but a client that assumes so
     // breaks silently the first time that stops being true.
-    else if (line.startsWith("data: ")) dataLines.push(line.slice(6));
+    else if (field === "data") dataLines.push(value);
   }
   if (!event) return null;
   try {
@@ -137,6 +165,8 @@ export async function streamChat(
   });
 
   if (!res.ok || !res.body) {
+    // Release the socket rather than leaving an unread body pinned open.
+    await res.body?.cancel().catch(() => {});
     handlers.onError?.(
       "upstream",
       `The assistant is unreachable (HTTP ${res.status}).`

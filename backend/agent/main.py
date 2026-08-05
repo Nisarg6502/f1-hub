@@ -34,9 +34,13 @@ app = FastAPI(title="F1 Agent", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # No cookies, no auth header, nothing credentialed — so allowing
+    # credentials would widen the surface for nothing. It also forbids a
+    # genuine `*` should we ever want one, since the two are mutually
+    # exclusive per the CORS spec.
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type"],
 )
 
 _TRACING_LIVE = tracing.configure()
@@ -178,7 +182,7 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                 prompt_version=config.PROMPT_VERSION,
                 elapsed_ms=int((time.monotonic() - started) * 1000),
             )
-            run.end(outputs={"mode": mode, "chars": chars})
+            tracing.end(run, {"mode": mode, "chars": chars})
 
         except concurrency.AtCapacity as error:
             yield sse.error(
@@ -187,7 +191,7 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                 "answered at a time on the current inference plan. Try again "
                 "in a moment.",
             )
-            run.end(outputs={"error": "queue_timeout", "waited": error.waited})
+            tracing.end(run, {"error": "queue_timeout", "waited": error.waited})
 
         except model.ModelAtCapacity as error:
             yield sse.error(
@@ -196,28 +200,28 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                 "within a few hours — cached answers still work in the "
                 "meantime.",
             )
-            run.end(outputs={"error": "quota", "detail": str(error)})
+            tracing.end(run, {"error": "quota", "detail": str(error)})
 
         except model.ModelTimeout as error:
             yield sse.error("timeout", "The assistant took too long to respond.")
-            run.end(outputs={"error": "timeout", "detail": str(error)})
+            tracing.end(run, {"error": "timeout", "detail": str(error)})
 
         except model.ModelError as error:
             print(f"agent upstream failure: {error}")
             yield sse.error("upstream", "The assistant's model is unavailable.")
-            run.end(outputs={"error": "upstream", "detail": str(error)})
+            tracing.end(run, {"error": "upstream", "detail": str(error)})
 
         except asyncio.CancelledError:
             # The client closed the tab. Re-raised so the slot's `finally`
             # releases and the next queued caller is admitted immediately
             # rather than waiting out the timeout.
-            run.end(outputs={"error": "cancelled"})
+            tracing.end(run, {"error": "cancelled"})
             raise
 
         except Exception as error:  # noqa: BLE001 - a stream must end cleanly
             print(f"agent internal failure: {type(error).__name__}: {error}")
             yield sse.error("internal", "Something went wrong answering that.")
-            run.end(outputs={"error": "internal", "detail": str(error)})
+            tracing.end(run, {"error": "internal", "detail": str(error)})
 
 
 @app.post("/api/chat")

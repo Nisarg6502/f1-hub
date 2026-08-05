@@ -15,24 +15,30 @@ WORKDIR /app
 COPY backend/requirements-agent.txt .
 RUN pip install --no-cache-dir -r requirements-agent.txt
 
-# Both packages, and the layout mirrors `backend/` so that `from app import x`
-# resolves identically here, in a dev checkout and in the test suite.
+# Both packages, and the layout mirrors `backend/` so `from app import x`
+# resolves the same way here, in a dev checkout and in the test suite.
 #
 # `app` is copied because the agent's tools call the existing data modules as
 # **direct Python functions**, not over HTTP. Self-calling our own API would add
 # a network hop, a second failure mode and a serialization round trip to every
 # tool call, for nothing.
+#
+# Not every `app` module is importable here, and that is deliberate rather than
+# an oversight. `requirements-agent.txt` installs neither `fastf1` nor
+# `pandas`, so `app/circuit_info.py`, `app/f1_results.py`, `app/race_laps.py`
+# and `app/race_stints.py` will raise `ModuleNotFoundError` in this image. The
+# agent's tools must never fetch through FastF1 — livetiming.formula1.com 403s
+# datacenter IPs and fails *soft*, returning empty streams with no error, so a
+# FastF1 path would work perfectly in local testing and silently produce empty
+# answers in production (plan §5.1). Leaving the library uninstalled converts
+# that silent failure into a loud import error, which makes "never call
+# FastF1" a property of the image rather than a rule someone has to remember.
+# Shared helpers those modules once owned live in `app/driver_directory.py`,
+# which imports nothing heavier than the standard library.
 COPY backend/app ./app
 COPY backend/agent ./agent
 
 ENV PYTHONUNBUFFERED=1
-
-# FastF1 writes to disk on import; only /tmp is writable on Cloud Run. The
-# agent's tools must never *fetch* through FastF1 — livetiming.formula1.com
-# 403s datacenter IPs and fails soft, so a Cloud Run fetch returns empty
-# streams with no error and silently produces empty answers (plan §5.1). This
-# only keeps the import-time cache directory legal.
-ENV FASTF1_CACHE_DIR=/tmp/f1_cache
 
 EXPOSE 8100
 

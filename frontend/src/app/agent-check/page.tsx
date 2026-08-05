@@ -45,7 +45,14 @@ export default function AgentCheckPage() {
   // Counts how many separate onToken callbacks fired. One means the response
   // was buffered somewhere in the chain — the single most likely production
   // failure for this feature, and invisible in a finished answer.
+  //
+  // Tallied in a ref during the stream so a hundred tokens do not cause a
+  // hundred re-renders, then published to state once at the end. Reading the
+  // ref directly in the JSX would render a value React was never told had
+  // changed, so the count could paint stale — the exact bug
+  // `react-hooks/refs` exists to catch.
   const tokenCount = useRef(0);
+  const [tokenEvents, setTokenEvents] = useState<number | null>(null);
 
   const note = useCallback((kind: string, detail: string) => {
     setLog((entries) => [
@@ -71,6 +78,7 @@ export default function AgentCheckPage() {
 
     startedAt.current = performance.now();
     tokenCount.current = 0;
+    setTokenEvents(null);
     setAnswer("");
     setLog([]);
     setDone(null);
@@ -89,6 +97,7 @@ export default function AgentCheckPage() {
           note("sources", `${sources.length} source(s)`),
         onDone: (payload) => {
           setDone(payload);
+          setTokenEvents(tokenCount.current);
           note(
             "done",
             `mode=${payload.mode} model=${payload.model} ${payload.elapsed_ms}ms ` +
@@ -214,10 +223,10 @@ export default function AgentCheckPage() {
               </li>
             ))}
           </ol>
-          {done && (
+          {done && tokenEvents !== null && (
             <p className="mt-3 text-xs text-[var(--color-on-surface-variant)]">
-              Streamed in <strong>{tokenCount.current}</strong> token event(s).{" "}
-              {tokenCount.current <= 1
+              Streamed in <strong>{tokenEvents}</strong> token event(s).{" "}
+              {tokenEvents <= 1
                 ? "One event means the response was buffered somewhere — streaming is not actually working."
                 : "More than one means tokens arrived incrementally."}
             </p>

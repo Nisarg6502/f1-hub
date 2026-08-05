@@ -85,11 +85,17 @@ def error(code: str, message: str) -> str:
 
 
 def comment(text: str = "") -> str:
-    """An SSE comment line.
+    """An SSE comment line — a keep-alive frame clients ignore.
 
-    Used as a keep-alive: a long first-token latency (an agent thinking for
-    30s) looks like a dead connection to some intermediaries, and a comment is
-    the standard way to keep the socket warm without emitting a real event the
-    client would have to filter out.
+    **Nothing emits this yet.** It is kept because CP61 needs it and the need
+    is easy to miss: once a deep agent thinks for 30-60s before its first
+    token, a silent socket looks dead to intermediaries, and Cloud Run's
+    300s ceiling is a long way past most idle timeouts. Emitting a comment on
+    a timer keeps the connection warm without pushing an event the client
+    would have to filter out.
+
+    Wiring it needs a concurrent heartbeat task alongside the answer
+    generator, which is why it is not done here — CP59 answers in seconds and
+    would gain nothing from it.
     """
     return f": {text}\n\n"

@@ -106,8 +106,16 @@ def langsmith_configured() -> bool:
 # cache key from CP61 onward so a prompt edit cannot serve stale answers.
 PROMPT_VERSION = 1
 
+# Defaults to local dev origins, NOT "*". Starlette echoes the caller's origin
+# rather than emitting a literal `*`, so a wildcard default on a public,
+# unauthenticated service rationing a shared inference quota is fully
+# permissive to any site that wants to spend it. Production passes a single
+# origin explicitly — but a safe default must not depend on that substitution
+# being present, because the one time it is missing is the time it matters.
+_DEFAULT_ORIGINS = "http://localhost:3113,http://127.0.0.1:3113"
+
 ALLOWED_ORIGINS = [
     origin.strip()
-    for origin in (os.getenv("AGENT_ALLOWED_ORIGINS") or "*").split(",")
+    for origin in (os.getenv("AGENT_ALLOWED_ORIGINS") or _DEFAULT_ORIGINS).split(",")
     if origin.strip()
 ]
