@@ -77,8 +77,8 @@ excludes. Full scores in [`backend/agent/spikes/README.md`](backend/agent/spikes
 | CP | Scope | Done when | Status |
 |---|---|---|---|
 | CP59 | `f1-agent` Cloud Run service skeleton: Dockerfile, cloudbuild, `/api/chat` SSE, LangSmith tracing, model seam; **tool-calling reliability spike** across 4 candidate models; checkpointer spike | An SSE echo streams from the *deployed* service to the *deployed* frontend and a trace appears in LangSmith | code merged-pending; **deploy outstanding** |
-| CP60 | Internal tool layer (~16 tools over Mongo), evidence ledger, `resolve_context` — pure Python, unit-tested, no LLM | Every tool has a unit test; `resolve_context` handles "last race" / "next race" / nicknames / ambiguity | in progress |
-| CP61 | **Single-agent baseline**: deep agent + internal tools, no subagents, no verifier; minimal dev-flagged chat UI | Answers taxonomy classes 1-7 end to end, with latency, quota burn and cost recorded as the baseline Batch 18 must beat | not started |
+| CP60 | Internal tool layer (~16 tools over Mongo), evidence ledger, `resolve_context` — pure Python, unit-tested, no LLM | Every tool has a unit test; `resolve_context` handles "last race" / "next race" / nicknames / ambiguity | **merged** (PR #106) |
+| CP61 | **Single-agent baseline**: deep agent + internal tools, no subagents, no verifier; minimal dev-flagged chat UI | Answers taxonomy classes 1-7 end to end, with latency, quota burn and cost recorded as the baseline Batch 18 must beat | code complete on `feat/agent-single-baseline`; **deploy outstanding** (same CP59 gap — not yet proven against the live Cloud Run service) |
 | CP62 | Web research: Tavily search/extract, untrusted-content quarantine, prompt-injection tests | Classes 8-9 answered with sources; injection suite passes | not started |
 
 **Deployment-first ordering is deliberate**, straight out of Batch 16's retrospective: CP59 proves
@@ -116,6 +116,29 @@ Three findings worth not re-deriving:
 streams from the **deployed** service to the **deployed** frontend and a trace appears in LangSmith.
 Locally-verified is explicitly not the bar here — that is the whole lesson Batch 16 paid for. The
 Cloud Run service, its four secrets and the build trigger still need creating.
+
+### What CP61 measured
+
+**The single-agent baseline works, but not evenly — and the gap is exactly the one the plan
+predicted a verifier would need to close.** `agent/graph.py` binds all eighteen CP60 tools to one
+`create_deep_agent` graph, no subagents; `agent/main.py`'s `_answer` now runs it in place of CP59's
+bare chat completion, reusing the SSE transport, the run gate and the error vocabulary unchanged.
+Full numbers, five real Ollama Cloud calls, in
+[`backend/agent/spikes/README.md`](backend/agent/spikes/README.md), §5.
+
+- Point lookup, deep history and out-of-domain restraint all worked correctly in one tool call (or
+  zero) and 12-15s.
+- A comparative question answered correctly but reached for `get_standings` instead of the
+  purpose-built `get_head_to_head`, and silently dropped two failed tool calls rather than retrying
+  with corrected arguments.
+- **An aggregate/count question got a wrong, ungrounded answer** — zero tool calls, a fabricated
+  "3 podiums" from parametric memory. This is CP38's failure mode again, through a different door,
+  and it is the concrete argument for CP64's verifier: CP61 shipped without one by design, and this
+  is what that costs, measured rather than assumed.
+- A real defect, fixed in this checkpoint: deepagents' default filesystem middleware (`ls`, `grep`,
+  `glob`, etc.) is always present regardless of whether the system prompt mentions it, and the model
+  initially spent three wasted tool calls probing it before answering a data question. The system
+  prompt now tells it plainly it has no files.
 
 **Batch 18 (CP63-66), planned but not committed:** router tiering + four subagents, the verifier and
 citation contract, the deepeval golden set and CI gate, then the production UI and hardening.

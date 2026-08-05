@@ -65,6 +65,34 @@ def api_key() -> str | None:
     return os.getenv("OLLAMA_API_KEY") or None
 
 
+# --- Deep agent (CP61) ------------------------------------------------------
+
+# Upper bound on LangGraph super-steps per turn (roughly two per tool call: a
+# model step and a tools step). §4.2's whole point is that call count is the
+# cost on a GPU-time budget, so this is a hard ceiling rather than a
+# nice-to-have — a model that loops instead of answering must be stopped, not
+# merely discouraged in a prompt. `agent/graph.py` degrades this to a plain
+# answer rather than an SSE error when it fires.
+AGENT_MAX_STEPS = _int("AGENT_MAX_STEPS", 12)
+
+
+def mongodb_uri() -> str | None:
+    """The connection string for thread memory, read at call time.
+
+    Same env var `app/db.py` reads (`MONGODB_URI`, falling back to the
+    lowercase `mongodburi` some local `.env` files use). A missing value is
+    not an error here — `agent/checkpointer.py` degrades to no thread memory
+    rather than refusing to start, matching this repo's fail-soft posture.
+    """
+    return os.getenv("MONGODB_URI") or os.getenv("mongodburi") or None
+
+
+# Same database the rest of the app reads (`app/db.py`'s `DB_NAME`), so the
+# checkpointer's `checkpoints`/`checkpoint_writes` collections live beside the
+# app's own data rather than standing up a second database for one feature.
+MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME") or os.getenv("mongodb_db_name") or "f1_scratch"
+
+
 # --- Concurrency and budget ------------------------------------------------
 
 # Ollama Cloud's free tier allows exactly ONE concurrent model. Requests past
@@ -104,7 +132,9 @@ def langsmith_configured() -> bool:
 
 # Bumped whenever the prompt or answer contract changes; part of the answer
 # cache key from CP61 onward so a prompt edit cannot serve stale answers.
-PROMPT_VERSION = 1
+# Bumped to 2 for CP61: `_answer` stopped being a bare chat completion and
+# became the deep agent's system prompt + tool contract.
+PROMPT_VERSION = 2
 
 # Defaults to local dev origins, NOT "*". Starlette echoes the caller's origin
 # rather than emitting a literal `*`, so a wildcard default on a public,
