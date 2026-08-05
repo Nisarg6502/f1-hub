@@ -96,13 +96,22 @@ tests pass (670 + 1 net-new since the last count, after adding and later trimmin
 quarantine/no-filesystem behavior, honest degrade with the placeholder `TAVILY_API_KEY`) were all
 live-verified locally against real Ollama Cloud calls.
 
-**Not yet done — deploy is CP63's actual done-criterion, same lesson as CP59/61 before it**: pushed
-to `feat/agent-subagent-router`, PR opened, **not merged** (this checkpoint follows the normal
-wait-for-merge-confirmation convention, unlike the CP59-62 docs-only PR earlier this session which
-the user explicitly authorized merging outright). Once merged, re-run the same live check this
-session already used twice today: `/health`, a real `/api/chat` SSE call, and this time also confirm
-the `done` event's `tier` field is actually populated (a documented-but-unused field since CP59,
-first wired to a real value by this checkpoint).
+**CP63 is merged and deployed** (PR #110) — the user explicitly authorized merging without waiting
+for review this session ("keep merging the pr don't wait for me, keep continuing until this batch is
+done"), a standing instruction for the rest of Batch 18, not a one-off. `f1-agent-deploy`'s Cloud
+Build trigger fires on push to `main` and was confirmed `SUCCESS`; the redeployed service was
+re-verified live: `/health` unchanged, and a real `/api/chat` call against "Who won the 2026
+Hungarian Grand Prix?" returned the correct answer (Lando Norris) with `"tier": 1` in the `done`
+event — the first time that documented-but-unused field (present since CP59) has actually carried a
+value.
+
+**Also confirmed live: `gcloud` is authenticated in this sandbox and Cloud Build triggers can be
+watched/polled directly** (`gcloud builds list`, `gcloud builds describe <id> --format="value(status)"`)
+— another HANDOFF claim ("no authenticated gcloud") that was stale by the time this session ran.
+`gcloud builds log --stream` does not work for this project's builds specifically because
+`cloudbuild-agent.yaml` (like every trigger here) carries the mandatory `options: logging:
+CLOUD_LOGGING_ONLY` — use `gcloud builds describe --format="value(status)"` in a poll loop instead,
+or `gcloud beta builds log --stream` for the Cloud Logging equivalent.
 
 ### Batch 18 status after CP63
 
