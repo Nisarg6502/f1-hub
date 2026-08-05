@@ -69,8 +69,12 @@ steps:
       - '0'
       - '--set-secrets'
       - 'OLLAMA_API_KEY=OLLAMA_API_KEY:latest,MONGODB_URI=MONGODB_URI:latest,LANGSMITH_API_KEY=LANGSMITH_API_KEY:latest,TAVILY_API_KEY=TAVILY_API_KEY:latest'
+      # `^;^` switches the outer KEY=VALUE delimiter from the gcloud default
+      # `,` to `;` — required because AGENT_ALLOWED_ORIGINS's own value is a
+      # comma-separated origin list, which a `,`-delimited --set-env-vars
+      # parses as extra bare (non-KEY=VALUE) tokens and rejects outright.
       - '--set-env-vars'
-      - 'AGENT_MODEL=${_AGENT_MODEL},LANGSMITH_TRACING=${_LANGSMITH_TRACING},LANGSMITH_PROJECT=${_LANGSMITH_PROJECT},AGENT_ALLOWED_ORIGINS=${_AGENT_ALLOWED_ORIGINS}'
+      - '^;^AGENT_MODEL=${_AGENT_MODEL};LANGSMITH_TRACING=${_LANGSMITH_TRACING};LANGSMITH_PROJECT=${_LANGSMITH_PROJECT};AGENT_ALLOWED_ORIGINS=${_AGENT_ALLOWED_ORIGINS}'
       - '--allow-unauthenticated'
       - '--quiet'
 
