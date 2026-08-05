@@ -8,18 +8,31 @@ history, including ad-hoc additions built mid-batch). A durable roadmap-tracking
 this file. This file only carries session-specific working memory: recent gotchas, environment
 quirks, and the immediate next action.
 
-### Immediate next action
+### Batch 17 (CP59-62) is fully merged AND deployed — this section was stale
 
-**Deploy the `f1-agent` service — CP59's code is written and pushed, and its done-criterion is a
-deployment, not a green test run.** CP60 (internal tool layer, evidence ledger, `resolve_context`)
-is merged to `main` (PR #106). CP61 (single-agent deep agent baseline: `agent/graph.py`,
-`agent/checkpointer.py`, the rewritten `_answer` in `agent/main.py`, `/pitwall-chat`) is code-complete
-on branch `feat/agent-single-baseline`, **not yet deployed or pushed**. **Neither CP59 nor CP61 is
-done until SSE streams from the deployed service to the deployed frontend and a trace appears in
-LangSmith** — locally-verified is explicitly not the bar, which is the whole lesson Batch 16 paid
-seven PRs for. CP61's measured baseline (five real Ollama calls, taxonomy classes 1/2/4/6/14) is in
-`backend/agent/spikes/README.md` §5 — read it before starting CP62 or Batch 18's CP63, since it
-found a real ungrounded-answer failure mode that argues directly for CP64's verifier.
+A prior session's local sandbox had no authenticated `gcloud` and left this file saying "deploy
+outstanding." **That is no longer true.** CP61 (PR #108) and CP62 (PR #107) are both merged to
+`main`, and the deployed `f1-agent` Cloud Run service was re-verified live in this session
+(2026-08-05):
+
+- `GET https://f1-agent-2w5wydk2ca-el.a.run.app/health` → `{"status":"ok","model":"nemotron-3-nano:30b","langsmith_tracing":true,...}`.
+- A real `/api/chat` SSE call produced **33 separate `token` events** (not one chunk — see the
+  `/agent-check` warning below, this is the exact check it exists for) plus `activity`, `sources`
+  and a terminal `done` event carrying a `run_id`. Streaming and tracing both work end to end in
+  production.
+- `https://f1-frontend-1076575666662.asia-south1.run.app/pitwall-chat` and `/agent-check` both
+  return 200.
+
+**A fresh finding from that same live verification, worth carrying into Batch 18 rather than
+treating as a new bug:** asking the deployed agent "Who won the last race?" answered **"the 2025
+Abu Dhabi Grand Prix," which is wrong** — the real last-completed race as of 2026-08-05 is Round 11,
+the Hungarian GP (Norris). Confirmed the underlying data is fine (Atlas `f1_scratch.races` has all
+23 dated 2026 rounds; `race_results` has real results through round 11 — checked directly against
+Atlas from this sandbox), so this is **not** a data-sync gap. It is a fresh instance of exactly the
+failure `backend/agent/spikes/README.md` §5 already measured and named the reason for CP64: the
+model is not reliably grounding its answer in the tool data it fetched, and CP61 shipped
+deliberately without a verifier to catch it. Nothing to fix here — it is corroborating evidence, not
+a new root cause to chase.
 
 **Installing `backend/requirements-agent.txt` in this sandbox's shared (non-venv) Python breaks
 `pandas`/`fastf1` until you re-pin `numpy<2` afterward** — the agent stack pulls in `numpy>=2`
@@ -30,21 +43,24 @@ the actual deployed image — `Dockerfile.agent` never installs `pandas`/`fastf1
 local sandbox where every checkpoint shares one global site-packages directory. Full detail in
 `backend/agent/spikes/README.md` §4.
 
-What deploying needs, none of which this sandbox can do (no authenticated `gcloud`):
+### Immediate next action
 
-1. **Four Secret Manager secrets** on the project: `OLLAMA_API_KEY` (value already in the root
-   `.env`), `MONGODB_URI`, `LANGSMITH_API_KEY` (new — needs a LangSmith account), `TAVILY_API_KEY`
-   (new, CP62; can be a placeholder for now, but the secret must exist or the deploy step fails).
-2. **A Cloud Build trigger** on `cloudbuild-agent.yaml`. If it sets `--service-account` — every
-   trigger in this project does — the config already carries the mandatory
-   `options: logging: CLOUD_LOGGING_ONLY`, which is the exact omission that cost PRs #99/#100.
-3. **Re-run the frontend trigger** afterwards, so `NEXT_PUBLIC_AGENT_BASE_URL` is baked into the
-   client bundle. It is a build-time var; deploying the agent alone will not make the frontend see
-   it.
-4. **Verify on the real site at `/agent-check`**, which exists for exactly this. It shows the raw
-   event stream and reports how many separate token events arrived — **if that count is 1, streaming
-   is broken even though the answer looks fine.** That is the most likely production-only failure
-   here, and it is invisible in a finished answer.
+**Batch 18 (CP63-66)** is next: router tiering + subagents, the verifier and citation contract, the
+deepeval golden set and CI gate, then the production UI and hardening. See `CHAT-AGENT-PLAN.md` and
+`ROADMAP.md`'s "Current batch" section for the checkpoint list. CP64 (the verifier) is the
+highest-value checkpoint given the grounding finding above — it is the architectural fix, not
+another prompt rewrite (CP41 already showed restating a rule doesn't work).
+
+Two stale-local-branch traps worth knowing about, found while syncing this session: this repo
+accumulates many now-merged local feature branches (`feat/agent-web-research`,
+`feat/agent-single-baseline`, `feat/agent-tool-layer`, `feat/agent-service-skeleton`, etc.) whose
+work already landed on `main` under a different (squash-merged) commit hash. **Always `git fetch
+origin` and diff local `main` against `origin/main` before assuming a local branch's uncommitted or
+unpushed-looking work is real outstanding work** — in this session, an apparently-unmerged local
+commit (`bb10f98`, "web research tools + injection quarantine") turned out to be byte-identical to
+the already-merged `origin/main` commit `f70e08b` (PR #107). Also: local `main` itself was two
+commits behind `origin/main` (missing CP61/CP62) purely because nobody had pulled after merging —
+check this before trusting this file's or `ROADMAP.md`'s "not yet deployed" language at face value.
 
 `LANGSMITH_TRACING` defaults to `true` in `cloudbuild-agent.yaml`, but `tracing.py` fails soft: with
 no API key the service runs untraced rather than erroring, and `/health` reports

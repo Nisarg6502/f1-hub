@@ -43,7 +43,10 @@ The original plan's CP15-19 (driver/team head-to-head compare, championship calc
 
 ## Current batch
 
-**Batch 17 — Agentic chat assistant, foundation (CP59-62). Planned, not started.**
+**Batch 17 — Agentic chat assistant, foundation (CP59-62). Complete, merged and verified in
+production** (re-verified live 2026-08-05 — see `HANDOFF.md`; a prior session's docs were stale
+about deployment status because the deploying sandbox had no authenticated `gcloud` and nobody
+re-synced local `main` with `origin/main` afterward). **Batch 18 (CP63-66) is next.**
 
 Full architecture in **[`CHAT-AGENT-PLAN.md`](CHAT-AGENT-PLAN.md)** — that document is the source of
 truth for this batch and for Batch 18; this section only carries the summary and the checkpoint
@@ -76,10 +79,10 @@ excludes. Full scores in [`backend/agent/spikes/README.md`](backend/agent/spikes
 
 | CP | Scope | Done when | Status |
 |---|---|---|---|
-| CP59 | `f1-agent` Cloud Run service skeleton: Dockerfile, cloudbuild, `/api/chat` SSE, LangSmith tracing, model seam; **tool-calling reliability spike** across 4 candidate models; checkpointer spike | An SSE echo streams from the *deployed* service to the *deployed* frontend and a trace appears in LangSmith | code merged-pending; **deploy outstanding** |
+| CP59 | `f1-agent` Cloud Run service skeleton: Dockerfile, cloudbuild, `/api/chat` SSE, LangSmith tracing, model seam; **tool-calling reliability spike** across 4 candidate models; checkpointer spike | An SSE echo streams from the *deployed* service to the *deployed* frontend and a trace appears in LangSmith | **merged and deployed** (PR #105), re-verified live 2026-08-05 |
 | CP60 | Internal tool layer (~16 tools over Mongo), evidence ledger, `resolve_context` — pure Python, unit-tested, no LLM | Every tool has a unit test; `resolve_context` handles "last race" / "next race" / nicknames / ambiguity | **merged** (PR #106) |
-| CP61 | **Single-agent baseline**: deep agent + internal tools, no subagents, no verifier; minimal dev-flagged chat UI | Answers taxonomy classes 1-7 end to end, with latency, quota burn and cost recorded as the baseline Batch 18 must beat | code complete on `feat/agent-single-baseline`; **deploy outstanding** (same CP59 gap — not yet proven against the live Cloud Run service) |
-| CP62 | Web research: Tavily search/extract, untrusted-content quarantine, prompt-injection tests | Classes 8-9 answered with sources; injection suite passes | not started |
+| CP61 | **Single-agent baseline**: deep agent + internal tools, no subagents, no verifier; minimal dev-flagged chat UI | Answers taxonomy classes 1-7 end to end, with latency, quota burn and cost recorded as the baseline Batch 18 must beat | **merged and deployed** (PR #108), re-verified live 2026-08-05 — see the fresh grounding finding in `HANDOFF.md` |
+| CP62 | Web research: Tavily search/extract, untrusted-content quarantine, prompt-injection tests | Classes 8-9 answered with sources; injection suite passes | **merged and deployed** (PR #107) |
 
 **Deployment-first ordering is deliberate**, straight out of Batch 16's retrospective: CP59 proves
 SSE through a real deployed service *before* any agent complexity exists, because that batch's cost
