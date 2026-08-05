@@ -780,3 +780,8 @@ it retry indefinitely.
 - Personal "watch party" second-screen mode
 - Constructor budget cap tracker (manually updated, no live feed exists)
 - Fantasy / prediction game (bigger scope — needs auth + persistence; v2 milestone)
+- **AI guardrails — explicitly requested by the user for the batch after Batch 18 (2026-08-05).**
+  Not yet scoped in detail; raise this at Batch 18's close rather than letting it get lost. Likely
+  overlaps CP64's verifier/framing-contract work (predictive/subjective framing, citation
+  enforcement) and CP62's injection quarantine, but the user asked for it as its own explicit item,
+  not assumed to be already covered by those.
