@@ -85,7 +85,12 @@ substitutions:
   _AGENT_MODEL: 'nemotron-3-nano:30b'
   _LANGSMITH_TRACING: 'true'
   _LANGSMITH_PROJECT: 'f1-agent'
-  _AGENT_ALLOWED_ORIGINS: 'https://f1-frontend-1076575666662.asia-south1.run.app'
+  # The real deployed frontend origin. Cloud Run's URL is
+  # `<service>-<project-hash>-<region-code>.a.run.app`, NOT the
+  # `<service>-<project-number>.<region>.run.app` form that looks plausible —
+  # guessing it bakes a dead origin into CORS and every browser request fails
+  # while curl keeps working, which is exactly how Batch 16's #102 presented.
+  _AGENT_ALLOWED_ORIGINS: 'https://f1-frontend-2w5wydk2ca-el.a.run.app'
 
 options:
   logging: CLOUD_LOGGING_ONLY

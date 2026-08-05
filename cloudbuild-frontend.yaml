@@ -55,10 +55,11 @@ substitutions:
   # if it leaks and consider proxying the call server-side.)
   _NEXT_PUBLIC_RAPIDAPI_KEY: ''
   _NEXT_PUBLIC_RAPIDAPI_HOST: 'f1-live-pulse.p.rapidapi.com'
-  # The f1-agent Cloud Run service (Batch 17). Update this once the service is
-  # created — until then `/agent-check` reports the agent as unreachable, which
-  # is the correct visible state rather than a silent failure.
-  _NEXT_PUBLIC_AGENT_BASE_URL: 'https://f1-agent-1076575666662.asia-south1.run.app'
+  # The f1-agent Cloud Run service (Batch 17). Baked into the client bundle at
+  # build time, so the frontend must be rebuilt after the agent service is
+  # first deployed — deploying the agent alone will not make the frontend see
+  # it.
+  _NEXT_PUBLIC_AGENT_BASE_URL: 'https://f1-agent-2w5wydk2ca-el.a.run.app'
 
 options:
   logging: CLOUD_LOGGING_ONLY
