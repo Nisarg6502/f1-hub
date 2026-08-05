@@ -1,0 +1,18 @@
+# CP65's deepeval dependency — deliberately NOT part of `requirements-agent.txt`
+# and NOT installed by `Dockerfile.agent`. Two independent reasons:
+#
+# 1. deepeval is offline/CI tooling (`CHAT-AGENT-PLAN.md` §9: "adopt it, for
+#    offline CI evaluation only"). The deployed f1-agent service never imports
+#    it, the same reasoning that already keeps `pandas`/`fastf1` out of
+#    Dockerfile.agent for the internal data tools.
+# 2. This exact shared (non-venv) sandbox already has one documented incident
+#    (see HANDOFF.md) where installing `requirements-agent.txt` directly into
+#    shared site-packages pulled in `numpy>=2` and ABI-broke `pandas`, silently
+#    dropping ~127 tests. `deepeval` carries its own large, independent
+#    dependency tree (pytest plugin, tabulate, an LLM client for judge models,
+#    etc.) with a real chance of a second such collision. Install this file in
+#    an isolated venv or a dedicated CI job, never into this sandbox's shared
+#    Python — `tests/test_agent_golden_set.py`'s `EvalDatasetSmokeTests` skip
+#    cleanly when it is absent, so the rest of the suite is unaffected either
+#    way.
+deepeval~=4.1.5

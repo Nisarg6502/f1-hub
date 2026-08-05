@@ -176,6 +176,54 @@ rejected first attempt.
 first time by this checkpoint the same way CP63 first populated the long-documented-but-unused `tier`
 field.
 
+### CP65 — golden set + deterministic CI gate, scoped down from the plan on purpose
+
+`agent/golden_set.py` (24 cases, not the plan's ~60) and `tests/test_agent_golden_set.py` are the
+actual shipped scope. Two deliberate reductions from `CHAT-AGENT-PLAN.md` §9, both worth stating
+plainly rather than discovering later that "the golden set" quietly means less than advertised:
+
+- **24 cases, authored, not mined from real traces.** The plan's own words: "the golden set must come
+  from real traces, not from questions we invented." At Batch 18 there is no production traffic yet —
+  `/pitwall-chat` is still a dev-flagged route — so there are no real traces to mine. Grow this set
+  from real `LangSmith` traces once there is real usage, per §8's "curated datasets" pipeline (bad run
+  found in a trace → promoted into the dataset). Recorded as a todo, not silently left implicit.
+- **`deepeval`'s own metrics are not wired into a live CI gate.** `ToolCorrectnessMetric` and everything
+  like it need an actual agent run's `tools_called` to compare against — there is no way to produce
+  that without a real Ollama call, and running ~24 live calls on every PR would spend real free-tier
+  quota this whole architecture exists to conserve (§4.2). This is the plan's own §9 caveat
+  ("LLM-judge metrics... cost GPU time we do not have") stretched to its logical end: even a
+  *deterministic* metric needs a live trace. What actually ships instead: every golden case's expected
+  tier/predictive/subjective flags checked against `router.classify` (free, deterministic, runs on
+  every `unittest discover` — this genuinely is "gates every PR"), five hand-built cases proving
+  `verifier.check` behaves as documented against fixed drafts (no live call needed either), and a
+  `deepeval`-based smoke test (`EvalDatasetSmokeTests`) proving the package's own metric wiring works
+  against a **fabricated** matching/mismatching trace — real infrastructure, not a live-model gate.
+
+**One gap recorded rather than hidden: CP61's own measured failure — an ungrounded tier-1 aggregate
+answered from parametric memory — is still not caught by anything.** CP64's verifier explicitly skips
+tier 1 ("tier 1 streams live and skips verification"), and the router still classifies that exact
+question as tier 1 today. `test_tier_1_aggregate_question_is_not_verified_at_all` asserts this stays
+true rather than silently passing if it ever changes — a real, open item for a future checkpoint
+(likely: either verify tier 1 too, at the cost this batch has been trying to avoid, or add a
+zero-tool-call-answer guard specifically, which is cheaper than full verification).
+
+**`deepeval` itself is deliberately not installed in this shared sandbox.** It lives in a new
+`backend/requirements-agent-eval.txt`, never referenced by `Dockerfile.agent` (the deployed service
+never needs it — offline CI tooling only, per §9) and never installed into this sandbox's shared
+Python — the same numpy/pandas ABI-break incident already documented for `requirements-agent.txt`
+is a real risk `deepeval`'s own large dependency tree could repeat. `test_agent_golden_set.py`'s
+`deepeval`-dependent tests skip cleanly (`@unittest.skipUnless(HAS_DEEPEVAL, ...)`) when it is absent,
+so the rest of the 710-test suite is unaffected either way.
+
+**LangSmith dataset curation and thumbs-up/down feedback wiring — named in the plan's CP65 row —
+are deferred, not built this checkpoint.** Both need either real production traces (the dataset side)
+or new frontend UI work on `/pitwall-chat` (the feedback side) that didn't fit this checkpoint's scope
+given the session's remaining time; flagging explicitly rather than letting the row's status imply
+more than what actually shipped.
+
+**No deploy needed for CP65** — pure test/CI infrastructure, no runtime code in `agent/graph.py`,
+`agent/main.py` or any other file the deployed service actually imports.
+
 Two stale-local-branch traps worth knowing about, found while syncing this session: this repo
 accumulates many now-merged local feature branches (`feat/agent-web-research`,
 `feat/agent-single-baseline`, `feat/agent-tool-layer`, `feat/agent-service-skeleton`, etc.) whose
