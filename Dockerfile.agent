@@ -1,0 +1,50 @@
+# The `f1-agent` Cloud Run service — the Pitwall Assistant (Batch 17).
+#
+# Separate from Dockerfile.backend because the LangChain/LangGraph/deepagents
+# tree would roughly double the API image, and because agent requests are
+# long-lived and memory-heavy enough to need their own concurrency, timeout and
+# scaling settings. See CHAT-AGENT-PLAN.md §12.
+
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY backend/requirements-agent.txt .
+RUN pip install --no-cache-dir -r requirements-agent.txt
+
+# Both packages, and the layout mirrors `backend/` so `from app import x`
+# resolves the same way here, in a dev checkout and in the test suite.
+#
+# `app` is copied because the agent's tools call the existing data modules as
+# **direct Python functions**, not over HTTP. Self-calling our own API would add
+# a network hop, a second failure mode and a serialization round trip to every
+# tool call, for nothing.
+#
+# Not every `app` module is importable here, and that is deliberate rather than
+# an oversight. `requirements-agent.txt` installs neither `fastf1` nor
+# `pandas`, so `app/circuit_info.py`, `app/f1_results.py`, `app/race_laps.py`
+# and `app/race_stints.py` will raise `ModuleNotFoundError` in this image. The
+# agent's tools must never fetch through FastF1 — livetiming.formula1.com 403s
+# datacenter IPs and fails *soft*, returning empty streams with no error, so a
+# FastF1 path would work perfectly in local testing and silently produce empty
+# answers in production (plan §5.1). Leaving the library uninstalled converts
+# that silent failure into a loud import error, which makes "never call
+# FastF1" a property of the image rather than a rule someone has to remember.
+# Shared helpers those modules once owned live in `app/driver_directory.py`,
+# which imports nothing heavier than the standard library.
+COPY backend/app ./app
+COPY backend/agent ./agent
+
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8100
+
+# One worker on purpose. The Ollama free tier allows a single concurrent model,
+# and `agent/concurrency.py`'s semaphore is per-process — a second worker would
+# hold its own gate and both would contend for the same quota. This pairs with
+# `--max-instances=1` in cloudbuild-agent.yaml; the three settings are one
+# mechanism, and relaxing any of them alone silently disables the others.
+CMD ["uvicorn", "agent.main:app", "--host", "0.0.0.0", "--port", "8100", "--workers", "1"]
