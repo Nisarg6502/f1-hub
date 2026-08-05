@@ -47,6 +47,11 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from .db import get_db
+# Re-exported: these two live in their own module so `strategy_commentary` can
+# reach them without importing this one (and therefore FastF1) — see
+# `driver_directory.py`'s docstring. Callers of `race_replay._driver_directory`
+# are unaffected.
+from .driver_directory import _driver_directory, _number_by_driver_id  # noqa: F401
 from .race_control_facts import summarize_race_control
 from .session_recap import _FINISHER_STATUSES, fetch_race_control
 from .race_laps import get_race_laps
@@ -78,41 +83,6 @@ async def _endpoint_payload(coroutine) -> dict:
     except Exception as error:
         print(f"race_replay: source fetch failed: {error}")
         return {}
-
-
-def _driver_directory(results: list[dict]) -> dict[str, dict]:
-    """Static per-driver identity, keyed by car number as a string.
-
-    Keyed by number because that is what the per-lap rows carry; `driver_id` is
-    kept on each entry so pit stops can be mapped onto the same key. Emitted
-    once per driver rather than repeated on all ~50 of their lap rows.
-    """
-    directory: dict[str, dict] = {}
-    for row in results:
-        number = str(row.get("number") or "").strip()
-        driver = row.get("Driver") or {}
-        if not number:
-            continue
-        directory[number] = {
-            "number": number,
-            "driver_id": driver.get("driverId"),
-            "code": driver.get("code"),
-            "name": f"{driver.get('givenName', '')} {driver.get('familyName', '')}".strip(),
-            "team": (row.get("Constructor") or {}).get("name"),
-            "grid": row.get("grid"),
-            "finish_position": row.get("position"),
-            "finish_status": row.get("status"),
-        }
-    return directory
-
-
-def _number_by_driver_id(directory: dict[str, dict]) -> dict[str, str]:
-    """The `driver_id` -> car-number bridge that makes pit stops joinable."""
-    return {
-        entry["driver_id"]: number
-        for number, entry in directory.items()
-        if entry.get("driver_id")
-    }
 
 
 def _compound_by_lap(stints: list[dict]) -> dict[tuple[str, int], dict]:

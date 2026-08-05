@@ -49,7 +49,12 @@ from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
 from .db import get_db
-from .race_replay import _driver_directory, _number_by_driver_id
+# From `driver_directory` rather than from `race_replay`, which is where these
+# two used to live: importing `race_replay` pulls in `race_laps` and therefore
+# FastF1, and the `f1-agent` service reuses `build_facts` below while
+# deliberately having no FastF1 installed at all (plan §5.1). Same functions,
+# same behaviour — see `driver_directory.py`.
+from .driver_directory import _driver_directory, _number_by_driver_id
 
 router = APIRouter(prefix="/api")
 
