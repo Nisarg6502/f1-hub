@@ -46,7 +46,15 @@ The original plan's CP15-19 (driver/team head-to-head compare, championship calc
 **Batch 17 — Agentic chat assistant, foundation (CP59-62). Complete, merged and verified in
 production** (re-verified live 2026-08-05 — see `HANDOFF.md`; a prior session's docs were stale
 about deployment status because the deploying sandbox had no authenticated `gcloud` and nobody
-re-synced local `main` with `origin/main` afterward). **Batch 18 (CP63-66) is next.**
+re-synced local `main` with `origin/main` afterward).
+
+**Batch 18 — CP63 (router tiering + subagents) is code-complete, PR open, not yet merged/deployed**
+— see `HANDOFF.md` for the full measured result. Short version: built as planned, then a live
+measurement showed tier 2 (comparative/causal/strategy/history) performing dramatically worse under
+the multi-agent design than CP61's flat baseline (287s+ unconverged vs. 50.9s), so `router.py`'s tier
+2 was downgraded to route like tier 1 — only tier 3 (web research, a genuine net-new capability)
+actually uses subagents. This is the plan's own "if it does not measurably beat the baseline, we say
+so and keep the baseline" clause, exercised for real rather than left as a hypothetical.
 
 Full architecture in **[`CHAT-AGENT-PLAN.md`](CHAT-AGENT-PLAN.md)** — that document is the source of
 truth for this batch and for Batch 18; this section only carries the summary and the checkpoint

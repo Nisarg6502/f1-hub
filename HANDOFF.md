@@ -43,13 +43,72 @@ the actual deployed image — `Dockerfile.agent` never installs `pandas`/`fastf1
 local sandbox where every checkpoint shares one global site-packages directory. Full detail in
 `backend/agent/spikes/README.md` §4.
 
-### Immediate next action
+### CP63 (router + subagents) is code-complete on `feat/agent-subagent-router`, deploy outstanding
 
-**Batch 18 (CP63-66)** is next: router tiering + subagents, the verifier and citation contract, the
-deepeval golden set and CI gate, then the production UI and hardening. See `CHAT-AGENT-PLAN.md` and
-`ROADMAP.md`'s "Current batch" section for the checkpoint list. CP64 (the verifier) is the
-highest-value checkpoint given the grounding finding above — it is the architectural fix, not
-another prompt rewrite (CP41 already showed restating a rule doesn't work).
+Built and measured live this session — three real findings, in the order they were found, each
+worth reading before touching `agent/router.py` or `agent/subagents.py` again:
+
+1. **Every subagent needs its own "no filesystem" rule — it does not inherit the orchestrator's.**
+   The first live test of `web-researcher` (tier 3, "what's the latest F1 news?") called `web_search`
+   correctly, got an empty result (placeholder `TAVILY_API_KEY`), then called `ls` and `glob` before
+   giving up — the exact filesystem-probing failure CP61's baseline already hit once
+   (`agent/spikes/README.md` §5) and fixed with an explicit prompt rule. That rule lived only in
+   `graph.py`'s `SYSTEM_PROMPT`/`ORCHESTRATOR_SYSTEM_PROMPT`; a subagent's `system_prompt` is a
+   wholly separate string with nothing inherited, and `subagents.py`'s four prompts did not carry it
+   the first time they were written. Fixed by appending a shared `_NO_FILESYSTEM_RULE` to all four —
+   re-verified clean (no filesystem calls) afterward.
+2. **Tier 2 was downgraded from "uses subagents" to "flat graph, same as tier 1" — a live
+   measurement, not a design change made in the abstract.** The original design routed comparative/
+   causal/strategy/history questions (tier 2) to the multi-agent graph. Live-tested against "Compare
+   Verstappen and Norris this season" — the same taxonomy class CP61's own baseline answered
+   correctly in 50.9s (`agent/spikes/README.md` §5, run #4) — `stats-scout` made **ten** redundant
+   tool calls (seven `get_session_result`, three `get_driver_season_summary`) trying to assemble a
+   season comparison one round at a time, and still had not converged after 287 seconds
+   (`AGENT_REQUEST_TIMEOUT_SECONDS` raised to 280 for the diagnostic run; production's real 180s
+   would have hit `ModelTimeout` even sooner). CP63's own done-criterion says exactly what to do with
+   this: "multi-agent measurably beats CP61's baseline... if it does not, we say so and keep the
+   baseline." It does not, for tier 2, so `router.Route.use_subagents` is now `tier >= 3`, not
+   `tier >= 2`. Tier 2 keeps its own classification label (useful telemetry for CP65's golden set)
+   but routes exactly like tier 1. Tier 3 is unaffected — it is a genuine net-new capability (web
+   access) with no CP61 equivalent to lose a comparison to.
+3. **A residual inefficiency, left as a known follow-up rather than chased further this checkpoint:**
+   re-tested after the downgrade, the same comparative question now converges in 125.7s with a
+   correct answer (5 evidence entries) — no timeout, real improvement over 287s+, but still short of
+   CP61's 50.9s. The activity trace shows the flat orchestrator briefly delegating to a
+   `general-purpose` subagent it was never given (`"Delegating to general-purpose"` at 80.3s), which
+   then re-did `resolve_context` and `get_driver_season_summary` calls the orchestrator already had
+   direct access to. This is **not new to CP63** — `deepagents.create_deep_agent` auto-adds a default
+   `general-purpose` subagent (and therefore the `task` tool) unless explicitly disabled via a
+   `general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False)` harness-profile setting
+   that neither CP61 nor CP63 configured; CP61's own spike notes already documented that default
+   filesystem tools are "always present whether or not the system prompt mentions them," and this is
+   the same class of always-on default, just for `task()` instead of `ls`. Worth fixing in a future
+   checkpoint (disable the harness-profile default rather than prompting around it, per this repo's
+   own "check it in code, not by asking nicely" rule), not blocking CP63's merge.
+
+**What's actually new and working**: `agent/router.py` (pure-Python tier classifier, no model call,
+15 unit tests), `agent/subagents.py` (four `SubAgent` specs — `stats-scout`, `historian`,
+`web-researcher`, `race-analyst` — assembled from CP60's existing tools plus CP62's web tools, wired
+into a live conversation for the first time, 11 unit tests), and `graph.py`'s `build_agent` gaining a
+`use_subagents` branch that preserves CP61's exact flat path unchanged for tiers 1-2. 671 backend
+tests pass (670 + 1 net-new since the last count, after adding and later trimming test files). Tier 1
+(unchanged), tier 2 (downgraded, now flat, 125.7s), and tier 3 (subagent-delegating, correct
+quarantine/no-filesystem behavior, honest degrade with the placeholder `TAVILY_API_KEY`) were all
+live-verified locally against real Ollama Cloud calls.
+
+**Not yet done — deploy is CP63's actual done-criterion, same lesson as CP59/61 before it**: pushed
+to `feat/agent-subagent-router`, PR opened, **not merged** (this checkpoint follows the normal
+wait-for-merge-confirmation convention, unlike the CP59-62 docs-only PR earlier this session which
+the user explicitly authorized merging outright). Once merged, re-run the same live check this
+session already used twice today: `/health`, a real `/api/chat` SSE call, and this time also confirm
+the `done` event's `tier` field is actually populated (a documented-but-unused field since CP59,
+first wired to a real value by this checkpoint).
+
+### Batch 18 status after CP63
+
+CP64 (the verifier) is next once CP63 merges and deploys. It is the highest-value remaining
+checkpoint given the "who won the last race" grounding finding earlier in this file — it is the
+architectural fix, not another prompt rewrite (CP41 already showed restating a rule doesn't work).
 
 Two stale-local-branch traps worth knowing about, found while syncing this session: this repo
 accumulates many now-merged local feature branches (`feat/agent-web-research`,

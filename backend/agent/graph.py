@@ -56,6 +56,7 @@ from pydantic import create_model
 
 from . import config
 from . import model as model_seam
+from . import router
 from .ledger import EvidenceLedger
 from .tools import TOOLS
 
@@ -85,10 +86,29 @@ ACTIVITY_LABELS: dict[str, str] = {
     "get_constructor_seasons": "Reading the constructor's seasons",
     "resolve_context": "Working out what you mean",
     "get_season_state": "Checking today's date and the season state",
+    "web_search": "Searching the web",
+    "web_extract": "Reading a web page",
+    "wikipedia_summary": "Reading a Wikipedia summary",
+}
+
+# CP63: friendly labels for delegating to a subagent, keyed by
+# `subagent_type` (the `task` tool's own argument name — deepagents'
+# `middleware/subagents.py`). Falls back to a generic label the same way
+# `activity_label` does for an unlabelled data tool, so a subagent added
+# later never goes unlabelled just because this dict was not updated too.
+SUBAGENT_ACTIVITY_LABELS: dict[str, str] = {
+    "stats-scout": "Reading current F1 data",
+    "historian": "Searching the historical archive",
+    "web-researcher": "Researching the web",
+    "race-analyst": "Analysing the race",
 }
 
 
-def activity_label(tool_name: str) -> str:
+def activity_label(tool_name: str, *, subagent_type: str | None = None) -> str:
+    if tool_name == "task" and subagent_type:
+        return SUBAGENT_ACTIVITY_LABELS.get(
+            subagent_type, f"Delegating to {subagent_type}"
+        )
     return ACTIVITY_LABELS.get(tool_name, f"Running {tool_name}…")
 
 
@@ -157,6 +177,18 @@ def build_tools(ledger: EvidenceLedger) -> list[StructuredTool]:
     return [_bind_tool(name, fn, ledger) for name, fn in TOOLS.items()]
 
 
+def build_tool_subset(ledger: EvidenceLedger, names: "tuple[str, ...] | list[str]") -> list[StructuredTool]:
+    """Bind a named subset of `TOOLS` — CP63's subagents each see only theirs.
+
+    A `KeyError` here means a subagent's tool list in `subagents.py` names a
+    tool that does not exist in the registry — a wiring bug worth failing
+    loudly on at startup, not silently dropping the way a tool's own
+    `unavailable()` failures do at call time (`tools/base.py`'s contract is
+    about *data* being unavailable, not about *code* being wrong).
+    """
+    return [_bind_tool(name, TOOLS[name], ledger) for name in names]
+
+
 # --- System prompt -----------------------------------------------------------
 
 # Addresses taxonomy classes 1-7 (`CHAT-AGENT-PLAN.md` §2) — the ones CP61 is
@@ -209,6 +241,49 @@ Ground rules:
   can make here.
 """
 
+# CP63's multi-agent orchestrator prompt — used only when `router.classify`
+# assigns tier 2 or 3 (`build_agent(..., subagents=[...])`). Deliberately NOT
+# a superset of `SYSTEM_PROMPT` above: the tier-1 prompt tells the model to
+# use data tools directly because that is literally all it has; this prompt
+# tells the model to delegate instead, because CP61's baseline (§5 of
+# `agent/spikes/README.md`) already measured what happens when one model
+# holds 18 tools flat and answers a comparative question — it reached for a
+# plausible neighbour (`get_standings`) instead of the tool actually built
+# for the question (`get_head_to_head`), which lives behind `race-analyst`
+# here. Narrowing what the orchestrator can see is the fix, not asking it to
+# choose better among more options.
+ORCHESTRATOR_SYSTEM_PROMPT = """You are the orchestrator for F1 Hub's Pitwall Assistant.
+
+You do not answer F1 data questions yourself — you delegate to specialist
+subagents via the `task` tool, then synthesise their findings into one
+answer. You have exactly two direct tools of your own:
+
+- `resolve_context` — call this FIRST whenever the question has a vague
+  reference ("the last race", "he", a nickname, "this season") to turn it
+  into a concrete year/round/driver id before delegating. A subagent cannot
+  resolve ambiguity you handed it unresolved.
+- `get_season_state` — call this when the question depends on today's date
+  or "the next race" / "how the season stands".
+
+For everything else, delegate via `task` to the subagent whose description
+best matches the question. Read each subagent's description before choosing
+— they are not interchangeable, and picking the wrong one wastes a turn.
+
+Ground rules, same as always:
+- You have NO files and NO filesystem. Ignore `ls`, `read_file`, `write_file`,
+  `edit_file`, `glob`, `grep`.
+- Never state a fact a subagent did not just report to you. Your job is
+  synthesis and citation, never derivation — if two subagents' findings
+  disagree, say so rather than picking one.
+- If a question is not about Formula 1 at all, decline briefly without
+  delegating to anything.
+- Work efficiently: delegate only to the subagents the question actually
+  needs. You are on a metered inference budget; a genuinely simple question
+  that could have been answered with one delegation should not fan out to
+  three.
+- Answer in clear, concise Markdown.
+"""
+
 
 # --- Model + graph construction ----------------------------------------------
 
@@ -233,20 +308,34 @@ def build_model():
     )
 
 
-def build_agent(ledger: EvidenceLedger, *, checkpointer: Any | None = None):
-    """One `create_deep_agent` graph, all of CP60's tools, no subagents.
+def build_agent(ledger: EvidenceLedger, *, use_subagents: bool = False, checkpointer: Any | None = None):
+    """One `create_deep_agent` graph.
 
-    `subagents=None` (the default) is the whole difference between this and
-    Batch 18's CP63 — the plan's own words: "CP61 lands a single-agent
-    baseline (one agent, all tools, no subagents)". Nothing else in this
-    function reaches for a subagent-shaped feature.
+    `use_subagents=False` (the default) is CP61's exact proven flat graph —
+    every CP60 tool bound directly, no subagents. `use_subagents=True` is
+    CP63's addition: a slim two-tool orchestrator (`resolve_context`,
+    `get_season_state`) that delegates everything else via `task()` to the
+    four subagents in `subagents.py`. `astream_answer` decides which shape to
+    build per turn from `router.classify` — this function itself stays
+    agnostic to *why*, so it is testable without importing the router.
     """
     from deepagents import create_deep_agent
 
+    if not use_subagents:
+        return create_deep_agent(
+            model=build_model(),
+            tools=build_tools(ledger),
+            system_prompt=SYSTEM_PROMPT,
+            checkpointer=checkpointer,
+        )
+
+    from .subagents import build_subagents
+
     return create_deep_agent(
         model=build_model(),
-        tools=build_tools(ledger),
-        system_prompt=SYSTEM_PROMPT,
+        tools=build_tool_subset(ledger, ("resolve_context", "get_season_state")),
+        subagents=build_subagents(ledger),
+        system_prompt=ORCHESTRATOR_SYSTEM_PROMPT,
         checkpointer=checkpointer,
     )
 
@@ -274,9 +363,10 @@ def _classify_ollama_error(error: "ollama.ResponseError") -> model_seam.ModelErr
 # --- Streaming ----------------------------------------------------------------
 
 AgentEvent = tuple[str, ...]
-"""`("activity", label, state)` or `("token", text)` — what `main.py` turns
-into SSE frames. Kept as a plain tuple rather than a dataclass so this module
-has no import surface beyond what `main.py` already needs."""
+"""`("activity", label, state)`, `("token", text)` or `("tier", int, reason)`
+— what `main.py` turns into SSE frames / the `done` event's `tier` field.
+Kept as a plain tuple rather than a dataclass so this module has no import
+surface beyond what `main.py` already needs."""
 
 
 async def astream_answer(
@@ -286,18 +376,29 @@ async def astream_answer(
     ledger: EvidenceLedger,
     checkpointer: Any | None = None,
 ) -> AsyncIterator[AgentEvent]:
-    """Run one turn of the deep agent, yielding activity and token events.
+    """Run one turn of the deep agent, yielding tier, activity and token events.
 
     Raises the same typed errors `model.stream_chat` does
     (`ModelUnavailable` / `ModelAtCapacity` / `ModelTimeout` / `ModelError`),
     so `main.py`'s existing except chain handles this path without change —
     that chain is the thing CP59 proved against the deployed service, and
     CP61's whole point is to inherit it rather than rebuild it.
+
+    CP63 adds one decision before any of that: `router.classify(message)`
+    picks a tier from pattern rules alone (no model call — see `router.py`'s
+    docstring for why), and that tier decides whether `build_agent` gets
+    CP61's flat graph or CP63's subagent-delegating one. The tier is yielded
+    first, as its own event, so `main.py` can attach it to the `done` payload
+    — the field `sse.py`'s docstring has documented since CP59 but nothing
+    populated until now.
     """
     if not config.api_key():
         raise model_seam.ModelUnavailable("OLLAMA_API_KEY is not configured")
 
-    agent = build_agent(ledger, checkpointer=checkpointer)
+    route = router.classify(message)
+    yield ("tier", route.tier, route.reason)
+
+    agent = build_agent(ledger, use_subagents=route.use_subagents, checkpointer=checkpointer)
     run_config = {
         "configurable": {"thread_id": thread_id or "anonymous"},
         # §4.2's cost-control rule made concrete: a super-step is roughly one
@@ -338,10 +439,16 @@ async def astream_answer(
                             yield ("token", text)
 
                 elif kind == "on_tool_start" and name:
-                    yield ("activity", activity_label(name), "start")
+                    subagent_type = ((event.get("data") or {}).get("input") or {}).get(
+                        "subagent_type"
+                    )
+                    yield ("activity", activity_label(name, subagent_type=subagent_type), "start")
 
                 elif kind == "on_tool_end" and name:
-                    yield ("activity", activity_label(name), "done")
+                    subagent_type = ((event.get("data") or {}).get("input") or {}).get(
+                        "subagent_type"
+                    )
+                    yield ("activity", activity_label(name, subagent_type=subagent_type), "done")
 
     except asyncio.TimeoutError as error:
         raise model_seam.ModelTimeout(

@@ -155,6 +155,7 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
         rid = tracing.run_id(run)
         mode = "model"
         chars = 0
+        tier: int | None = None
 
         try:
             try:
@@ -192,6 +193,8 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                         elif kind == "activity":
                             _, label, state = event
                             yield sse.activity(label, state)
+                        elif kind == "tier":
+                            _, tier, _reason = event
 
             except model.ModelUnavailable:
                 # No key configured: fall back to the echo so the transport is
@@ -212,9 +215,10 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                 mode=mode,
                 model=config.DEFAULT_MODEL,
                 prompt_version=config.PROMPT_VERSION,
+                tier=tier,
                 elapsed_ms=int((time.monotonic() - started) * 1000),
             )
-            tracing.end(run, {"mode": mode, "chars": chars, "evidence": len(ledger)})
+            tracing.end(run, {"mode": mode, "chars": chars, "evidence": len(ledger), "tier": tier})
 
         except concurrency.AtCapacity as error:
             yield sse.error(
