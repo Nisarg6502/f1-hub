@@ -83,6 +83,19 @@ _TIER2_PATTERNS = (
     re.compile(r"\bin f1 history\b|\bsince \d{4}\b"),
 )
 
+# CP64: the two framing contracts the verifier enforces (§7) need to know
+# *from the question*, not the draft, whether they apply at all — a question
+# that never asked for a prediction should never pay for the check. Narrower
+# than the tier-3/tier-2 pattern sets above on purpose: `_TIER3_PATTERNS`
+# also matches plain news/rumour questions that are not predictions, and
+# `_TIER2_PATTERNS` also matches ordinary comparisons that are not asking for
+# a subjective verdict.
+_PREDICTIVE_QUESTION_RE = re.compile(
+    r"\bwho('?s| is| will)\b.*\bwin(ning)?\b|\bwill\s+\w+\s+(win|beat|dominate|finish)\b|"
+    r"\bpredict(ion)?s?\b"
+)
+_SUBJECTIVE_QUESTION_RE = re.compile(r"\bbetter than\b|\bgreatest (of all time|ever)\b|\bgoat\b")
+
 # --------------------------------------------------------------------------
 # result type
 # --------------------------------------------------------------------------
@@ -94,6 +107,8 @@ class Route:
 
     tier: int
     reason: str
+    predictive: bool = False
+    subjective: bool = False
 
     @property
     def use_subagents(self) -> bool:
@@ -142,11 +157,28 @@ def classify(question: str) -> Route:
         return Route(tier=1, reason="empty question")
 
     lowered = text.lower()
+    predictive = bool(_PREDICTIVE_QUESTION_RE.search(lowered))
+    subjective = bool(_SUBJECTIVE_QUESTION_RE.search(lowered))
 
     if any(p.search(lowered) for p in _TIER3_PATTERNS):
-        return Route(tier=3, reason="matched a live-web/news/prediction pattern")
+        return Route(
+            tier=3,
+            reason="matched a live-web/news/prediction pattern",
+            predictive=predictive,
+            subjective=subjective,
+        )
 
     if any(p.search(lowered) for p in _TIER2_PATTERNS):
-        return Route(tier=2, reason="matched a comparative/causal/strategy/history pattern")
+        return Route(
+            tier=2,
+            reason="matched a comparative/causal/strategy/history pattern",
+            predictive=predictive,
+            subjective=subjective,
+        )
 
-    return Route(tier=1, reason="no tier-2/3 pattern matched; using the flat CP61 toolset")
+    return Route(
+        tier=1,
+        reason="no tier-2/3 pattern matched; using the flat CP61 toolset",
+        predictive=predictive,
+        subjective=subjective,
+    )

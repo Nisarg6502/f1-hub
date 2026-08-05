@@ -145,5 +145,187 @@ class AstreamAnswerGuardTests(unittest.TestCase):
                 asyncio.run(_drive())
 
 
+# --------------------------------------------------------------------------
+# CP64: proving the verify/repair loop actually fires, with a stubbed agent
+# --------------------------------------------------------------------------
+# "test the model seam by stubbing it" (this file's own module docstring)
+# applied to CP64's repair loop: `_run_turn` only needs an object with an
+# `astream_events(inputs, version, config)` method, so a fake agent scripted
+# to return an uncited draft on its first invocation and a cited draft on its
+# second is a complete, deterministic proof that `astream_answer` actually
+# regenerates once on a verification failure — no live Ollama call needed to
+# demonstrate the mechanism, mirroring how `test_agent_chat.py` proves the
+# SSE transport without a real model behind it.
+
+
+class _FakeChunk:
+    def __init__(self, content):
+        self.content = content
+
+
+class _FakeOutput:
+    def __init__(self, tool_calls=None):
+        self.tool_calls = tool_calls or []
+
+
+class _ScriptedAgent:
+    """Returns one scripted draft per call to `astream_events`, in order."""
+
+    def __init__(self, drafts: list[str]):
+        self._drafts = list(drafts)
+        self.calls: list[dict] = []
+
+    async def astream_events(self, inputs, version, config):
+        self.calls.append(inputs)
+        draft = self._drafts[len(self.calls) - 1]
+        run_id = f"run-{len(self.calls)}"
+        yield {
+            "event": "on_chat_model_stream",
+            "run_id": run_id,
+            "data": {"chunk": _FakeChunk(draft)},
+        }
+        yield {
+            "event": "on_chat_model_end",
+            "run_id": run_id,
+            "data": {"output": _FakeOutput(tool_calls=[])},
+        }
+
+
+class RunTurnTests(unittest.TestCase):
+    def test_live_tokens_true_yields_tokens_as_they_stream(self):
+        agent = _ScriptedAgent(["hello world"])
+
+        async def _drive():
+            events = []
+            async for event in graph._run_turn(agent, {}, {}, live_tokens=True):
+                events.append(event)
+            return events
+
+        events = asyncio.run(_drive())
+        self.assertIn(("token", "hello world"), events)
+        self.assertEqual(events[-1], ("draft", "hello world"))
+
+    def test_live_tokens_false_buffers_and_only_yields_draft(self):
+        agent = _ScriptedAgent(["hello world"])
+
+        async def _drive():
+            events = []
+            async for event in graph._run_turn(agent, {}, {}, live_tokens=False):
+                events.append(event)
+            return events
+
+        events = asyncio.run(_drive())
+        self.assertNotIn(("token", "hello world"), events)
+        self.assertEqual(events[-1], ("draft", "hello world"))
+
+
+class ChunkDraftTests(unittest.TestCase):
+    def test_empty_text_yields_no_chunks(self):
+        self.assertEqual(graph._chunk_draft(""), [""])
+
+    def test_rejoined_chunks_equal_original_text(self):
+        text = "Lando Norris won the 2026 Hungarian Grand Prix with a great drive today."
+        self.assertEqual("".join(graph._chunk_draft(text)), text)
+
+
+class RepairLoopTests(unittest.TestCase):
+    def test_tier_2_question_with_uncited_draft_triggers_one_repair(self):
+        from unittest.mock import patch
+
+        ledger = EvidenceLedger()
+        ledger.append(source="mongo:race_results/2026-11", data={"points": 25})
+
+        rejected_draft = "Norris scored 25 points this weekend."
+        repaired_draft = "Norris scored 25 points [ev_1] this weekend."
+        agent = _ScriptedAgent([rejected_draft, repaired_draft])
+
+        async def _drive():
+            events = []
+            with patch.object(graph.config, "api_key", lambda: "fake-key"):
+                with patch.object(graph, "build_agent", lambda *a, **k: agent):
+                    async for event in graph.astream_answer(
+                        "Compare Verstappen and Norris this season.",
+                        thread_id="t1",
+                        ledger=ledger,
+                    ):
+                        events.append(event)
+            return events
+
+        events = asyncio.run(_drive())
+
+        # Exactly two invocations: the original draft, then one repair.
+        self.assertEqual(len(agent.calls), 2)
+        # The repair call's messages must name the original question, the
+        # rejected draft, and the corrective instruction naming the
+        # violation — not a bare retry with no context.
+        repair_messages = agent.calls[1]["messages"]
+        self.assertEqual(len(repair_messages), 3)
+        self.assertIn(rejected_draft, repair_messages[1]["content"])
+        self.assertIn("REJECTED", repair_messages[2]["content"])
+
+        verification_events = [e for e in events if e[0] == "verification"]
+        self.assertEqual(len(verification_events), 1)
+        self.assertTrue(verification_events[0][1])  # passed, after repair
+
+        # The user only ever sees the repaired text, streamed as tokens —
+        # never the rejected first draft.
+        streamed_text = "".join(e[1] for e in events if e[0] == "token")
+        self.assertEqual(streamed_text, repaired_draft)
+
+    def test_tier_2_question_with_clean_draft_skips_repair(self):
+        from unittest.mock import patch
+
+        ledger = EvidenceLedger()
+        ledger.append(source="mongo:race_results/2026-11", data={"points": 25})
+        clean_draft = "Norris scored 25 points [ev_1] this weekend."
+        agent = _ScriptedAgent([clean_draft])
+
+        async def _drive():
+            events = []
+            with patch.object(graph.config, "api_key", lambda: "fake-key"):
+                with patch.object(graph, "build_agent", lambda *a, **k: agent):
+                    async for event in graph.astream_answer(
+                        "Compare Verstappen and Norris this season.",
+                        thread_id="t2",
+                        ledger=ledger,
+                    ):
+                        events.append(event)
+            return events
+
+        events = asyncio.run(_drive())
+
+        self.assertEqual(len(agent.calls), 1)
+        verification_events = [e for e in events if e[0] == "verification"]
+        self.assertTrue(verification_events[0][1])
+
+    def test_tier_1_question_never_verifies_even_with_a_bad_draft(self):
+        from unittest.mock import patch
+
+        ledger = EvidenceLedger()
+        uncited_draft = "Norris scored 25 points this weekend."
+        agent = _ScriptedAgent([uncited_draft])
+
+        async def _drive():
+            events = []
+            with patch.object(graph.config, "api_key", lambda: "fake-key"):
+                with patch.object(graph, "build_agent", lambda *a, **k: agent):
+                    async for event in graph.astream_answer(
+                        "Who won the 2026 Hungarian Grand Prix?",
+                        thread_id="t3",
+                        ledger=ledger,
+                    ):
+                        events.append(event)
+            return events
+
+        events = asyncio.run(_drive())
+
+        # Tier 1 never runs the verifier — one call, no "verification" event,
+        # tokens stream live regardless of citation shape.
+        self.assertEqual(len(agent.calls), 1)
+        self.assertEqual([e for e in events if e[0] == "verification"], [])
+        streamed_text = "".join(e[1] for e in events if e[0] == "token")
+        self.assertEqual(streamed_text, uncited_draft)
+
+
 if __name__ == "__main__":
     unittest.main()

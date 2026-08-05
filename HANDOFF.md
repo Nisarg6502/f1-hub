@@ -119,6 +119,63 @@ CP64 (the verifier) is next once CP63 merges and deploys. It is the highest-valu
 checkpoint given the "who won the last race" grounding finding earlier in this file — it is the
 architectural fix, not another prompt rewrite (CP41 already showed restating a rule doesn't work).
 
+### CP64 — the verifier, done and deployed
+
+`agent/verifier.py` is the deterministic core of §7's design: `[ev_N]` citation parsing, a check that
+every cited id exists in the turn's `EvidenceLedger`, a check that every number in a cited sentence
+actually appears in that evidence entry's data, and the two framing contracts (predictive answers
+must hedge; subjective answers must not deliver a verdict). Deliberately **not** the full five-stage
+pipeline the plan describes — no LLM claim-extraction call, no LLM entailment pass. Those are left for
+a future checkpoint once this deterministic core has production data showing whether it's enough on
+its own, the same "measure before adding the expensive part" discipline CP63 just re-learned.
+
+**The citation format needed adding to six prompts, not one — a design detail only visible once you
+trace where a subagent's tool-call evidence actually goes.** `graph.SYSTEM_PROMPT` and
+`ORCHESTRATOR_SYSTEM_PROMPT` now instruct `[ev_N]` citation, but the four subagent prompts
+(`subagents.py`) needed the *same* instruction for a non-obvious reason: a subagent's own tool calls
+populate the shared ledger, but the orchestrator only ever sees the subagent's final **text** reply
+through the `task` tool, never its raw tool calls. If a subagent doesn't cite in its own reply, the
+citation is lost before the orchestrator ever has a chance to attach one — the verifier would then
+reject a perfectly-grounded synthesis for an uncited claim that was never the orchestrator's fault.
+Fixed by adding a `_CITATION_RULE` to all four subagent prompts (mirroring `_NO_FILESYSTEM_RULE`'s
+shape) and telling the orchestrator to preserve a subagent's citations exactly rather than renumber
+them.
+
+**Live-verified, with the citation contract working end-to-end on a real model call**: "Who has the
+most wins at Monaco in F1 history?" (tier 2, routed flat per CP63's downgrade) converged in 18.7s with
+one tool call, answered "Ayrton Senna... 6 victories **[ev_1]**", and `verifier.check` passed with
+zero violations — the first real proof the `[ev_N]` format the prompts ask for is actually what the
+model produces, not just what was requested (the CP41/CP44 discipline this repo already holds every
+prompted format to).
+
+**Two live attempts that did NOT converge, worth recording honestly rather than treated as a CP64
+bug**: a harder comparative question ("Compare Verstappen and Norris this season") hit
+`AGENT_MAX_STEPS` and degraded to the existing, already-correct "step budget exceeded" message
+(`GraphRecursionError`'s handler, unchanged from CP61) — the activity trace shows it wandering into
+`grep`/`ls` and re-resolving context twice before running out of steps, the same category of
+intermittent tool-call unreliability CP61's own baseline measured once already ("the same model that
+handled five other questions correctly skipped tool-calling entirely on this one"). A web-research
+question hit the raw 180s `ModelTimeout` with no visibility into what happened first. Neither is new:
+CP63's own retrospective already named "a ~30b model doing nested `task()` dispatch reliably" as *the*
+architectural risk in this whole plan, and both failure shapes degrade honestly (a plain apologetic
+message, or a clean SSE `error` event) rather than crashing or fabricating — which is exactly what the
+degrade paths CP59/61 already built are for. Not chased further with additional live calls given the
+free-tier quota; worth a future checkpoint if it recurs at real user volume (candidates: raise
+`AGENT_REQUEST_TIMEOUT_SECONDS` for tier 2/3 specifically, or revisit whether `stats-scout`'s tool set
+is too broad for one delegation).
+
+**Repair loop proven mechanically via a stubbed agent, not a live call** (`test_agent_graph.py`'s
+`RepairLoopTests`) — mirrors `test_agent_chat.py`'s existing pattern of proving the SSE transport
+without a real model behind it: a scripted agent returns an uncited draft first, a cited draft second,
+and the test asserts exactly two invocations, the repair message naming the real rejected draft and
+violation, and that the user-visible token stream only ever contains the *repaired* text, never the
+rejected first attempt.
+
+**`sse.py`'s `done` event gained a `verification` field** (`"passed"` / `"verification_failed"` /
+`None` — `None` for tier 1, which CP64 skips entirely, and for the echo fallback), populated for the
+first time by this checkpoint the same way CP63 first populated the long-documented-but-unused `tier`
+field.
+
 Two stale-local-branch traps worth knowing about, found while syncing this session: this repo
 accumulates many now-merged local feature branches (`feat/agent-web-research`,
 `feat/agent-single-baseline`, `feat/agent-tool-layer`, `feat/agent-service-skeleton`, etc.) whose

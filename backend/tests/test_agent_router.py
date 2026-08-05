@@ -95,6 +95,21 @@ class ClassifyTierTests(unittest.TestCase):
         route = router.classify("WHY DID FERRARI TWO-STOP IN MONZA?")
         self.assertEqual(route.tier, 2)
 
+    def test_predictive_flag_set_for_prediction_question(self):
+        route = router.classify("Who will win this weekend's race?")
+        self.assertTrue(route.predictive)
+        self.assertFalse(route.subjective)
+
+    def test_subjective_flag_set_for_opinion_question(self):
+        route = router.classify("Is Hamilton better than Schumacher?")
+        self.assertTrue(route.subjective)
+        self.assertFalse(route.predictive)
+
+    def test_neither_flag_set_for_plain_point_lookup(self):
+        route = router.classify("Who won the 2026 Hungarian Grand Prix?")
+        self.assertFalse(route.predictive)
+        self.assertFalse(route.subjective)
+
     def test_no_tier_ever_uses_subagents_except_tier_3(self):
         questions = [
             "Who won the 2026 Hungarian Grand Prix?",
