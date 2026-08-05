@@ -48,14 +48,18 @@ production** (re-verified live 2026-08-05 — see `HANDOFF.md`; a prior session'
 about deployment status because the deploying sandbox had no authenticated `gcloud` and nobody
 re-synced local `main` with `origin/main` afterward).
 
-**Batch 18 — CP63 (router tiering + subagents) is merged and deployed** (PR #110), re-verified live
-— see `HANDOFF.md` for the full measured result. Short version: built as planned, then a live
-measurement showed tier 2 (comparative/causal/strategy/history) performing dramatically worse under
-the multi-agent design than CP61's flat baseline (287s+ unconverged vs. 50.9s), so `router.py`'s tier
-2 was downgraded to route like tier 1 — only tier 3 (web research, a genuine net-new capability)
-actually uses subagents. This is the plan's own "if it does not measurably beat the baseline, we say
-so and keep the baseline" clause, exercised for real rather than left as a hypothetical. **CP64 (the
-verifier) is next.**
+**Batch 18 (CP63-66) is complete, merged and deployed** — see `HANDOFF.md` for the full measured
+results of each checkpoint. CP63 (router tiering + subagents, PR #110): a live measurement showed
+tier 2 (comparative/causal/strategy/history) performing dramatically worse under the multi-agent
+design than CP61's flat baseline (287s+ unconverged vs. 50.9s), so `router.py`'s tier 2 was
+downgraded to route like tier 1 — only tier 3 (web research, a genuine net-new capability) actually
+uses subagents. This is the plan's own "if it does not measurably beat the baseline, we say so and
+keep the baseline" clause, exercised for real rather than left as a hypothetical. CP64 shipped the
+deterministic verifier (`agent/verifier.py`); CP65 shipped the 24-case golden set and a deterministic
+CI gate (deliberately scoped down from the plan's ~60 real-trace-mined cases, since there is no
+production traffic yet to mine); CP66 shipped the production Pitwall Assistant panel (replacing the
+dev-only `/pitwall-chat` route) and a backend answer cache. **Batch 18 is closed; the next batch is
+not yet planned.**
 
 Full architecture in **[`CHAT-AGENT-PLAN.md`](CHAT-AGENT-PLAN.md)** — that document is the source of
 truth for this batch and for Batch 18; this section only carries the summary and the checkpoint

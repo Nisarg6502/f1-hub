@@ -85,12 +85,14 @@ substitutions:
   _AGENT_MODEL: 'nemotron-3-nano:30b'
   _LANGSMITH_TRACING: 'true'
   _LANGSMITH_PROJECT: 'f1-agent'
-  # The real deployed frontend origin. Cloud Run's URL is
-  # `<service>-<project-hash>-<region-code>.a.run.app`, NOT the
-  # `<service>-<project-number>.<region>.run.app` form that looks plausible —
-  # guessing it bakes a dead origin into CORS and every browser request fails
-  # while curl keeps working, which is exactly how Batch 16's #102 presented.
-  _AGENT_ALLOWED_ORIGINS: 'https://f1-frontend-2w5wydk2ca-el.a.run.app'
+  # Cloud Run gives every service BOTH a `<service>-<project-number>.<region>.run.app`
+  # URL and a `<service>-<project-hash>-<region-code>.a.run.app` one
+  # (`gcloud run services describe f1-frontend --format=json` lists both under
+  # `run.googleapis.com/urls`) — earlier docs claimed only the hash form was
+  # real, which is why this list was missing the project-number form and every
+  # browser request from it failed CORS while curl kept working (the same
+  # symptom Batch 16's #102 had, different root cause). Both must be listed.
+  _AGENT_ALLOWED_ORIGINS: 'https://f1-frontend-1076575666662.asia-south1.run.app,https://f1-frontend-2w5wydk2ca-el.a.run.app'
 
 options:
   logging: CLOUD_LOGGING_ONLY
