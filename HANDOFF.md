@@ -11,11 +11,24 @@ quirks, and the immediate next action.
 ### Immediate next action
 
 **Deploy the `f1-agent` service — CP59's code is written and pushed, and its done-criterion is a
-deployment, not a green test run.** Branch `feat/agent-service-skeleton`
-([PR](https://github.com/Nisarg6502/f1-hub/pull/new/feat/agent-service-skeleton)) carries the
-service; CP60 is being built on `feat/agent-tool-layer` on top of it. **CP59 is not done until SSE
-streams from the deployed service to the deployed frontend and a trace appears in LangSmith** —
-locally-verified is explicitly not the bar, which is the whole lesson Batch 16 paid seven PRs for.
+deployment, not a green test run.** CP60 (internal tool layer, evidence ledger, `resolve_context`)
+is merged to `main` (PR #106). CP61 (single-agent deep agent baseline: `agent/graph.py`,
+`agent/checkpointer.py`, the rewritten `_answer` in `agent/main.py`, `/pitwall-chat`) is code-complete
+on branch `feat/agent-single-baseline`, **not yet deployed or pushed**. **Neither CP59 nor CP61 is
+done until SSE streams from the deployed service to the deployed frontend and a trace appears in
+LangSmith** — locally-verified is explicitly not the bar, which is the whole lesson Batch 16 paid
+seven PRs for. CP61's measured baseline (five real Ollama calls, taxonomy classes 1/2/4/6/14) is in
+`backend/agent/spikes/README.md` §5 — read it before starting CP62 or Batch 18's CP63, since it
+found a real ungrounded-answer failure mode that argues directly for CP64's verifier.
+
+**Installing `backend/requirements-agent.txt` in this sandbox's shared (non-venv) Python breaks
+`pandas`/`fastf1` until you re-pin `numpy<2` afterward** — the agent stack pulls in `numpy>=2`
+transitively, which ABI-breaks `pandas` and silently drops ~127 tests from `unittest discover`
+(it reports "OK" on 444 tests instead of the real 571+, because five test *modules* fail to import
+rather than fail an assertion). `pip install "numpy<2"` immediately after fixes it. Not an issue in
+the actual deployed image — `Dockerfile.agent` never installs `pandas`/`fastf1` at all — only in this
+local sandbox where every checkpoint shares one global site-packages directory. Full detail in
+`backend/agent/spikes/README.md` §4.
 
 What deploying needs, none of which this sandbox can do (no authenticated `gcloud`):
 

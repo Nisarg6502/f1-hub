@@ -11,8 +11,15 @@ Two reasons, and the second is the important one:
    with the right framing, not as one buffered blob. A client that reassembles
    the response for you cannot show you that.
 
-Only the model seam is stubbed. The gate, the error mapping, the event
-ordering and the headers are the genuine article.
+CP61 moved the model seam these tests stub: `_answer` no longer calls
+`model.stream_chat` directly, it runs `graph.astream_answer` (the deep
+agent). So the fake here is `graph.astream_answer` itself, yielding the same
+`("activity", label, state)` / `("token", text)` event tuples the real
+function produces — the gate, the error mapping, the event ordering and the
+headers downstream of that seam are still the genuine article, unchanged
+since CP59. A real agent run (real Ollama, real tool calls) is deliberately
+out of scope for this suite: `agent/spikes/model_spike.py` is where the
+model itself gets exercised, sparingly, against the free-tier quota.
 """
 
 import asyncio
@@ -118,21 +125,31 @@ def post(message: str = "Who won Monaco?", **fields) -> Response:
     return response
 
 
-async def _fake_stream(*_args, **_kwargs):
+async def _fake_agent_stream(*_args, **_kwargs):
+    """Stand-in for `graph.astream_answer`: one activity, then three tokens.
+
+    Mirrors the real event vocabulary exactly (`("activity", label, state)` /
+    `("token", text)`), so these tests exercise the same dispatch code in
+    `main._stream` that a real agent run would.
+    """
+    await asyncio.sleep(0)
+    yield ("activity", "Reading the session classification", "start")
+    await asyncio.sleep(0)
+    yield ("activity", "Reading the session classification", "done")
     for chunk in ("Lando ", "Norris ", "won."):
         # The `await` matters. A fake that never yields to the event loop runs
         # to completion before any concurrent task is scheduled, which hides
         # every bug that only appears when the stream is actually suspended
         # mid-flight — including the disconnect-listener race above.
         await asyncio.sleep(0)
-        yield chunk
+        yield ("token", chunk)
 
 
 class HappyPathTests(unittest.TestCase):
     def setUp(self):
         concurrency.reset_for_tests()
 
-    @patch.object(main.model, "stream_chat", _fake_stream)
+    @patch.object(main.graph, "astream_answer", _fake_agent_stream)
     @patch.object(main.config, "api_key", lambda: "test-key")
     def test_event_order_is_activity_then_tokens_then_sources_then_done(self):
         response = post()
@@ -144,12 +161,12 @@ class HappyPathTests(unittest.TestCase):
         self.assertLess(max(i for i, n in enumerate(names) if n == "token"),
                         names.index("sources"))
 
-    @patch.object(main.model, "stream_chat", _fake_stream)
+    @patch.object(main.graph, "astream_answer", _fake_agent_stream)
     @patch.object(main.config, "api_key", lambda: "test-key")
     def test_tokens_reassemble_to_the_model_output(self):
         self.assertEqual(post().text(), "Lando Norris won.")
 
-    @patch.object(main.model, "stream_chat", _fake_stream)
+    @patch.object(main.graph, "astream_answer", _fake_agent_stream)
     @patch.object(main.config, "api_key", lambda: "test-key")
     def test_body_arrives_in_multiple_chunks_not_one_blob(self):
         """The actual streaming assertion.
@@ -163,7 +180,7 @@ class HappyPathTests(unittest.TestCase):
         self.assertGreater(len(response.chunks), 3,
                            msg=f"expected a stream, got {len(response.chunks)} chunk(s)")
 
-    @patch.object(main.model, "stream_chat", _fake_stream)
+    @patch.object(main.graph, "astream_answer", _fake_agent_stream)
     @patch.object(main.config, "api_key", lambda: "test-key")
     def test_done_reports_mode_model_and_the_model_name(self):
         done = post().payload_of("done")
@@ -172,7 +189,7 @@ class HappyPathTests(unittest.TestCase):
         self.assertIn("elapsed_ms", done)
         self.assertIn("run_id", done)
 
-    @patch.object(main.model, "stream_chat", _fake_stream)
+    @patch.object(main.graph, "astream_answer", _fake_agent_stream)
     @patch.object(main.config, "api_key", lambda: "test-key")
     def test_streaming_headers_are_set(self):
         response = post()
@@ -180,7 +197,7 @@ class HappyPathTests(unittest.TestCase):
         self.assertEqual(response.headers["x-accel-buffering"], "no")
         self.assertIn("no-transform", response.headers["cache-control"])
 
-    @patch.object(main.model, "stream_chat", _fake_stream)
+    @patch.object(main.graph, "astream_answer", _fake_agent_stream)
     @patch.object(main.config, "api_key", lambda: "test-key")
     def test_lone_caller_is_never_told_it_is_queued(self):
         """Regression for the queue-accounting bug in `concurrency.run_slot`."""
@@ -236,7 +253,7 @@ class FailureTests(unittest.TestCase):
             raise model.ModelAtCapacity("HTTP 429 from ollama.com")
             yield  # pragma: no cover - makes this an async generator
 
-        with patch.object(main.model, "stream_chat", boom):
+        with patch.object(main.graph, "astream_answer", boom):
             error = post().payload_of("error")
 
         self.assertEqual(error["code"], "at_capacity")
@@ -249,7 +266,7 @@ class FailureTests(unittest.TestCase):
             raise model.ModelTimeout("too slow")
             yield  # pragma: no cover
 
-        with patch.object(main.model, "stream_chat", slow):
+        with patch.object(main.graph, "astream_answer", slow):
             self.assertEqual(post().payload_of("error")["code"], "timeout")
 
     @patch.object(main.config, "api_key", lambda: "test-key")
@@ -258,7 +275,7 @@ class FailureTests(unittest.TestCase):
             raise model.ModelError("connection refused to internal-host:11434")
             yield  # pragma: no cover
 
-        with patch.object(main.model, "stream_chat", broken):
+        with patch.object(main.graph, "astream_answer", broken):
             error = post().payload_of("error")
         self.assertEqual(error["code"], "upstream")
         self.assertNotIn("internal-host", error["message"])
@@ -270,7 +287,7 @@ class FailureTests(unittest.TestCase):
             raise ValueError("something nobody predicted")
             yield  # pragma: no cover
 
-        with patch.object(main.model, "stream_chat", weird):
+        with patch.object(main.graph, "astream_answer", weird):
             response = post()
         self.assertEqual(response.payload_of("error")["code"], "internal")
         self.assertNotIn("something nobody predicted", response.body)

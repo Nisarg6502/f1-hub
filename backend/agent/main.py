@@ -1,15 +1,15 @@
 """`f1-agent` — the Pitwall Assistant service.
 
-CP59 scope: prove the deployment path, not the agent. This app streams a real
-model reply over SSE through the concurrency gate, traced to LangSmith, so that
-CP61 can replace one function (`_answer`) with a deep agent and inherit a
-transport, a gate, an error vocabulary and an observability story that have all
-already been proven against the deployed service.
-
-The ordering is deliberate and comes straight from Batch 16's retrospective:
-every checkpoint there passed its own tests and the feature still did not work,
-because all the cost was in the gaps between individually-correct systems. So
-the gaps get built and deployed first, while they are cheap to debug.
+CP59 proved the deployment path: SSE, the run gate, the error vocabulary and
+LangSmith tracing, all against a plain streamed chat completion with no
+tools. CP61 is this file's payoff — `_answer` now runs the CP61 deep agent
+(`agent/graph.py`, all of CP60's internal tools bound directly, no
+subagents, no verifier) instead of a bare model call, and every other piece
+of the transport below is untouched from CP59 on purpose: that transport was
+proven against the *deployed* service, and Batch 16's whole retrospective is
+that re-deriving a working piece while building the next one is how you lose
+a checkpoint's worth of time to a bug that was never really about the new
+code.
 
 Run locally:
 
@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
+from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI
@@ -27,9 +29,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import concurrency, config, model, sse, tracing
+from . import checkpointer, concurrency, config, graph, model, sse, tracing
+from .ledger import EvidenceLedger
 
-app = FastAPI(title="F1 Agent", version="0.1.0")
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    # Opened once, held for the process lifetime — see `checkpointer.py`'s
+    # docstring for why a per-request `with` block is wrong for a sync
+    # context manager guarding async methods. Degrades to `None` (no thread
+    # memory) rather than failing startup when `MONGODB_URI` is absent, which
+    # is every local dev run and every test that does not explicitly set it.
+    checkpointer.open_saver()
+    try:
+        yield
+    finally:
+        checkpointer.close_saver()
+
+
+app = FastAPI(title="F1 Agent", version="0.1.0", lifespan=_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -68,19 +86,10 @@ async def health() -> dict:
         "model": config.DEFAULT_MODEL,
         "inference_configured": bool(config.api_key()),
         "langsmith_tracing": _TRACING_LIVE,
+        "thread_memory": checkpointer.current() is not None,
         "prompt_version": config.PROMPT_VERSION,
         "runs": concurrency.snapshot(),
     }
-
-
-SYSTEM_PROMPT = (
-    "You are the Pitwall Assistant for F1 Hub, a Formula 1 analysis app. "
-    "Answer clearly and concisely in Markdown.\n\n"
-    "This build has no data tools yet: you are the CP59 transport skeleton. "
-    "Answer only from general knowledge, keep it to a few sentences, and if a "
-    "question needs specific race data, say plainly that live data tools "
-    "arrive in the next checkpoint rather than guessing at results."
-)
 
 
 async def _echo(message: str) -> AsyncIterator[str]:
@@ -97,15 +106,24 @@ async def _echo(message: str) -> AsyncIterator[str]:
         await asyncio.sleep(0.02)
 
 
-async def _answer(message: str) -> AsyncIterator[str]:
-    """Produce answer deltas. CP61 replaces this body with the deep agent."""
-    async for delta in model.stream_chat(
-        [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": message},
-        ]
+async def _answer(
+    message: str, *, thread_id: str | None, ledger
+) -> AsyncIterator[graph.AgentEvent]:
+    """Run the CP61 deep agent for one turn.
+
+    Yields `("activity", label, state)` and `("token", text)` tuples — the
+    same vocabulary `graph.astream_answer` produces — so `_stream` can turn
+    them into SSE frames without knowing anything about LangGraph. This is
+    the one line CP59's docstring predicted would change; everything around
+    it is untouched.
+    """
+    async for event in graph.astream_answer(
+        message,
+        thread_id=thread_id,
+        ledger=ledger,
+        checkpointer=checkpointer.current(),
     ):
-        yield delta
+        yield event
 
 
 async def _stream(request: ChatRequest) -> AsyncIterator[str]:
@@ -119,10 +137,18 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
         yield sse.error("bad_request", "message is too long (4000 character limit)")
         return
 
+    # A fresh ledger per turn, per `graph.py`'s module docstring: two
+    # concurrent requests must never share evidence ids, and a new thread
+    # turn should not see citations from a previous one it did not itself
+    # retrieve. Thread *conversation* memory still lives in the checkpointer;
+    # this is only the evidence backing this turn's citations.
+    ledger = EvidenceLedger()
+    thread_id = request.thread_id or str(uuid.uuid4())
+
     with tracing.traced_run(
         "chat",
         {"message": text},
-        thread_id=request.thread_id,
+        thread_id=thread_id,
         model=config.DEFAULT_MODEL,
         prompt_version=config.PROMPT_VERSION,
     ) as run:
@@ -157,9 +183,15 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                         )
                     yield sse.activity("Thinking…", "start")
 
-                    async for delta in _answer(text):
-                        chars += len(delta)
-                        yield sse.token(delta)
+                    async for event in _answer(text, thread_id=thread_id, ledger=ledger):
+                        kind = event[0]
+                        if kind == "token":
+                            _, delta = event
+                            chars += len(delta)
+                            yield sse.token(delta)
+                        elif kind == "activity":
+                            _, label, state = event
+                            yield sse.activity(label, state)
 
             except model.ModelUnavailable:
                 # No key configured: fall back to the echo so the transport is
@@ -174,7 +206,7 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                     yield sse.token(delta)
 
             yield sse.activity("Thinking…", "done")
-            yield sse.sources([])
+            yield sse.sources(ledger.citations())
             yield sse.done(
                 run_id=rid,
                 mode=mode,
@@ -182,7 +214,7 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                 prompt_version=config.PROMPT_VERSION,
                 elapsed_ms=int((time.monotonic() - started) * 1000),
             )
-            tracing.end(run, {"mode": mode, "chars": chars})
+            tracing.end(run, {"mode": mode, "chars": chars, "evidence": len(ledger)})
 
         except concurrency.AtCapacity as error:
             yield sse.error(

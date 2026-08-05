@@ -1,0 +1,386 @@
+"""The CP61 single-agent baseline — one `deepagents` graph, all of CP60's tools.
+
+`CHAT-AGENT-PLAN.md` §13 orders this deliberately: CP61 ships *one* agent with
+every internal tool bound directly, no subagents and no verifier, so Batch 18
+has a measured number to beat rather than an architecture nobody proved was
+needed. §4.2 calls the alternative — a model doing nested `task()` dispatch
+reliably on a free-tier 30b model — "the single riskiest assumption in this
+plan", and `agent/spikes/README.md` §2 is the answer: `nemotron-3-nano:30b`
+scored 3/3 on the multi-hop dispatch loop, so the subagent layer is not
+cancelled, but that is Batch 18's bet to place, not this checkpoint's.
+
+Three things this module is responsible for, each traceable to a rule
+established elsewhere in this codebase rather than invented here:
+
+**Tools are bound per request, to a fresh `EvidenceLedger`.** `agent/ledger.py`
+is framework-free on purpose so it can be unit-tested without LangGraph; this
+module is the one place that wires it into a LangChain tool call. Building a
+new graph per request (rather than one graph shared across requests with a
+mutable ledger swapped underneath it) means two overlapping requests — which
+the concurrency semaphore already forbids, but a graph should not depend on a
+gate elsewhere in the codebase to stay correct — can never see each other's
+evidence.
+
+**Only the model's final, tool-call-free message is streamed to the client.**
+`model.py`'s docstring already established that reasoning content
+(`message.thinking`) must never reach the user because it is not
+evidence-backed prose. The same logic extends to a model's provisional,
+mid-loop commentary before it calls a tool: `_stream_events` below buffers
+each chat-model turn by its LangGraph `run_id` and only flushes it once
+`on_chat_model_end` confirms that turn produced no tool calls, i.e. that it
+was genuinely the answer and not a step along the way. Streaming raw token
+chunks the instant they arrive would occasionally leak "Let me check the
+standings..." as if it were the final prose.
+
+**Ollama failures are classified with `model.py`'s existing rules, not
+reinvented.** `langchain_ollama.ChatOllama` uses the same `ollama` Python
+client this repo's own `agent/model.py` talks to directly, and that client
+raises `ollama.ResponseError` for both HTTP-status failures and the
+mid-stream `{"error": ...}` objects Ollama Cloud sends when a quota runs out
+during generation. `model._classify` / `model._classify_stream_error` already
+turn a status code or an error string into the right `ModelError` subtype;
+reusing them here means `main.py`'s existing except chain — proven against
+the deployed service in CP59 — needs no changes at all.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import inspect
+from typing import Any, AsyncIterator
+
+import ollama
+from langchain_core.tools import StructuredTool
+from langgraph.errors import GraphRecursionError
+from pydantic import create_model
+
+from . import config
+from . import model as model_seam
+from .ledger import EvidenceLedger
+from .tools import TOOLS
+
+# --- Tool binding ------------------------------------------------------------
+
+# Friendly, present-tense labels for the activity timeline (§11 of the plan:
+# "make the agentic architecture visible"). Anything not listed here still
+# works — it falls back to a generic label built from the tool's own name —
+# so a future CP60 tool never goes unlabelled just because this dict was not
+# updated in lockstep.
+ACTIVITY_LABELS: dict[str, str] = {
+    "get_season_calendar": "Reading the season calendar",
+    "get_session_result": "Reading the session classification",
+    "get_standings": "Reading the championship standings",
+    "get_driver_profile": "Reading the driver's profile",
+    "get_driver_season_summary": "Reading the driver's season",
+    "get_head_to_head": "Comparing the two drivers",
+    "get_race_narrative_facts": "Reading the race narrative",
+    "get_race_strategy": "Reading the race strategy",
+    "get_race_control": "Reading race control",
+    "get_lap_summary": "Reading the lap summary",
+    "get_pit_stops": "Reading the pit stops",
+    "get_weather": "Reading the weather",
+    "get_circuit_profile": "Reading the circuit profile",
+    "get_circuit_history": "Reading the circuit history",
+    "get_historical_race_index": "Searching the historical archive",
+    "get_constructor_seasons": "Reading the constructor's seasons",
+    "resolve_context": "Working out what you mean",
+    "get_season_state": "Checking today's date and the season state",
+}
+
+
+def activity_label(tool_name: str) -> str:
+    return ACTIVITY_LABELS.get(tool_name, f"Running {tool_name}…")
+
+
+def _public_signature(fn: Any) -> inspect.Signature:
+    """The signature the model should see — every real args, none of ours.
+
+    Every tool in `agent/tools/` takes keyword-only `ledger` and `db` after
+    its real parameters (`agent/tools/base.py`'s `fact_tool` preserves the
+    wrapped function's signature via `functools.wraps`, so `inspect.signature`
+    resolves to the real one, not `(*args, **kwargs)`). Exposing those to the
+    LLM would let it pass its own `ledger` — which could never be a real
+    `EvidenceLedger` and would either crash the tool call or, worse, silently
+    produce a fact bundle with no ledger entry, i.e. an uncitable claim.
+    """
+    sig = inspect.signature(fn)
+    kept = [p for name, p in sig.parameters.items() if name not in ("ledger", "db")]
+    return sig.replace(parameters=kept)
+
+
+def _args_model(tool_name: str, sig: inspect.Signature) -> type:
+    """A pydantic model for the public signature, for the tool's JSON schema."""
+    fields: dict[str, tuple[Any, Any]] = {}
+    for name, param in sig.parameters.items():
+        annotation = param.annotation if param.annotation is not inspect.Parameter.empty else Any
+        default = param.default if param.default is not inspect.Parameter.empty else ...
+        fields[name] = (annotation, default)
+    return create_model(f"{tool_name}_Args", **fields)  # type: ignore[call-overload]
+
+
+def _tool_description(fn: Any, tool_name: str) -> str:
+    """The tool's first docstring paragraph — a one-line summary, not the essay.
+
+    Every tool's full docstring carries the post-mortem it defends against
+    (§5.1's "why", not just "what"), which is valuable for a human reading the
+    source and wasted context for a model choosing among eighteen tools on a
+    quota that meters GPU time by request duration.
+    """
+    doc = (fn.__doc__ or tool_name).strip()
+    return doc.split("\n\n")[0].strip() or tool_name
+
+
+def _bind_tool(tool_name: str, fn: Any, ledger: EvidenceLedger) -> StructuredTool:
+    sig = _public_signature(fn)
+    args_model = _args_model(tool_name, sig)
+
+    async def _call(**kwargs: Any) -> dict:
+        return await fn(**kwargs, ledger=ledger)
+
+    _call.__name__ = tool_name
+    return StructuredTool.from_function(
+        coroutine=_call,
+        name=tool_name,
+        description=_tool_description(fn, tool_name),
+        args_schema=args_model,
+    )
+
+
+def build_tools(ledger: EvidenceLedger) -> list[StructuredTool]:
+    """Bind every CP60 tool to one request's ledger.
+
+    `tools/__init__.py`'s `TOOLS` registry exists precisely so this binding
+    step can live here, outside the tool layer — CP60's docstring says so
+    directly: "`TOOLS` is the registry CP61 binds." The tool layer stays
+    importable and unit-testable without LangChain at all.
+    """
+    return [_bind_tool(name, fn, ledger) for name, fn in TOOLS.items()]
+
+
+# --- System prompt -----------------------------------------------------------
+
+# Addresses taxonomy classes 1-7 (`CHAT-AGENT-PLAN.md` §2) — the ones CP61 is
+# scoped to answer. Classes 8-9 (web/news, rules-glossary) need CP62's web
+# tools and are out of scope; the prompt tells the model to say so rather than
+# guess, which is also what class 14 (out-of-domain) and the T6 spike test
+# both require: decline, do not tool-call.
+SYSTEM_PROMPT = """You are the Pitwall Assistant for F1 Hub, a Formula 1 analysis app.
+
+You answer from TOOL DATA ONLY. Never state a fact you did not just retrieve —
+if you did not call a tool for it, you do not know it. This is not a style
+preference: a past version of this system invented a teammate relationship
+between two drivers on visibly different teams because it reasoned from
+correct raw data instead of a pre-computed fact. Every number and every
+relationship in your answer must trace back to a tool result from this turn.
+
+Ground rules:
+- You have NO files and NO filesystem. Ignore the `ls`, `read_file`,
+  `write_file`, `edit_file`, `glob` and `grep` tools entirely — there is
+  nothing in the filesystem for an F1 question to find, and calling any of
+  them before a real data tool only burns the turn's step budget. Go straight
+  to the data tool the question actually needs.
+- If a question mentions a vague reference ("the last race", "he", a driver's
+  nickname, "this season") call `resolve_context` FIRST to turn it into a
+  concrete year/round/driver id before calling anything else. Guessing an id
+  is exactly the mistake `resolve_context` exists to prevent.
+- If a question depends on today's date, or asks about "the next race" or
+  "how the season stands", call `get_season_state` — you do not otherwise
+  know what today's date is.
+- Every tool returns either `{"available": true, "data": ...}` or
+  `{"available": false, "reason": ...}`. When a tool reports `available:
+  false`, say plainly that the data is not available and why — never fill the
+  gap with a guess.
+- Tools already compute totals, averages and comparisons. Do not do
+  arithmetic yourself on raw rows; if a tool gives you a count, quote it.
+- You answer questions about Formula 1 results, standings, drivers,
+  constructors, races, strategy, circuits and history (1950-present) using
+  this app's own data. You do NOT have web search or news access in this
+  build — if a question needs live news, regulation changes, or anything
+  outside this app's database, say so plainly rather than answering from
+  general knowledge dressed up as fact.
+- If a question is not about Formula 1 at all, decline briefly and do not
+  call any tool.
+- Answer in clear, concise Markdown — a few sentences for a simple lookup,
+  more structure (a short list, a small table) only when the question is
+  genuinely comparative or multi-part.
+- Work efficiently: call only the tools the question actually needs, then
+  answer. You are on a metered inference budget; looping between tools
+  without converging on an answer is the single most expensive mistake you
+  can make here.
+"""
+
+
+# --- Model + graph construction ----------------------------------------------
+
+
+def build_model():
+    """The workhorse `ChatOllama`, pointed at Ollama Cloud.
+
+    No explicit auth wiring here: the `ollama` Python client this wraps reads
+    `OLLAMA_API_KEY` from the environment itself when no `Authorization`
+    header is set (`ollama/_client.py`'s `BaseClient.__init__`), which is the
+    same env var `agent/config.py.api_key()` reads — one source of truth, two
+    readers. `astream_answer` checks `config.api_key()` explicitly before
+    ever constructing this, so a missing key fails fast with `ModelUnavailable`
+    instead of surfacing as an opaque `ollama.ResponseError` deep in a stream.
+    """
+    from langchain_ollama import ChatOllama
+
+    return ChatOllama(
+        model=config.DEFAULT_MODEL,
+        base_url=config.OLLAMA_BASE_URL,
+        temperature=config.TEMPERATURE,
+    )
+
+
+def build_agent(ledger: EvidenceLedger, *, checkpointer: Any | None = None):
+    """One `create_deep_agent` graph, all of CP60's tools, no subagents.
+
+    `subagents=None` (the default) is the whole difference between this and
+    Batch 18's CP63 — the plan's own words: "CP61 lands a single-agent
+    baseline (one agent, all tools, no subagents)". Nothing else in this
+    function reaches for a subagent-shaped feature.
+    """
+    from deepagents import create_deep_agent
+
+    return create_deep_agent(
+        model=build_model(),
+        tools=build_tools(ledger),
+        system_prompt=SYSTEM_PROMPT,
+        checkpointer=checkpointer,
+    )
+
+
+# --- Error classification -----------------------------------------------------
+
+
+def _classify_ollama_error(error: "ollama.ResponseError") -> model_seam.ModelError:
+    """Route an `ollama.ResponseError` through `model.py`'s existing rules.
+
+    `status_code` is a real HTTP status for a rejected request, and `-1` (the
+    client's own default) for an error object Ollama sent *inside* an
+    already-200 stream — mid-generation quota exhaustion, OOM, etc. Those two
+    shapes are exactly what `model._classify` and `model._classify_stream_error`
+    already distinguish for the non-agent path; reusing them here is what lets
+    `main.py`'s except chain stay unchanged.
+    """
+    status = getattr(error, "status_code", None)
+    body = getattr(error, "error", None) or str(error)
+    if status and status > 0:
+        return model_seam._classify(status, body)
+    return model_seam._classify_stream_error(body)
+
+
+# --- Streaming ----------------------------------------------------------------
+
+AgentEvent = tuple[str, ...]
+"""`("activity", label, state)` or `("token", text)` — what `main.py` turns
+into SSE frames. Kept as a plain tuple rather than a dataclass so this module
+has no import surface beyond what `main.py` already needs."""
+
+
+async def astream_answer(
+    message: str,
+    *,
+    thread_id: str | None,
+    ledger: EvidenceLedger,
+    checkpointer: Any | None = None,
+) -> AsyncIterator[AgentEvent]:
+    """Run one turn of the deep agent, yielding activity and token events.
+
+    Raises the same typed errors `model.stream_chat` does
+    (`ModelUnavailable` / `ModelAtCapacity` / `ModelTimeout` / `ModelError`),
+    so `main.py`'s existing except chain handles this path without change —
+    that chain is the thing CP59 proved against the deployed service, and
+    CP61's whole point is to inherit it rather than rebuild it.
+    """
+    if not config.api_key():
+        raise model_seam.ModelUnavailable("OLLAMA_API_KEY is not configured")
+
+    agent = build_agent(ledger, checkpointer=checkpointer)
+    run_config = {
+        "configurable": {"thread_id": thread_id or "anonymous"},
+        # §4.2's cost-control rule made concrete: a super-step is roughly one
+        # model call or one batch of tool calls, so this bounds how many
+        # round trips one answer can spend before the graph refuses to
+        # continue, rather than looping until the free-tier quota notices.
+        "recursion_limit": config.AGENT_MAX_STEPS,
+    }
+    inputs = {"messages": [{"role": "user", "content": message}]}
+
+    # Buffered per chat-model run id: flushed only once `on_chat_model_end`
+    # confirms that turn produced no tool calls (see module docstring for
+    # why raw live streaming would occasionally leak mid-loop commentary).
+    pending: dict[str, list[str]] = {}
+
+    try:
+        async with asyncio.timeout(config.REQUEST_TIMEOUT_SECONDS):
+            async for event in agent.astream_events(inputs, version="v2", config=run_config):
+                kind = event.get("event")
+                name = event.get("name") or ""
+
+                if kind == "on_chat_model_stream":
+                    run_id = event.get("run_id")
+                    chunk = (event.get("data") or {}).get("chunk")
+                    text = getattr(chunk, "content", None)
+                    if run_id and isinstance(text, str) and text:
+                        pending.setdefault(run_id, []).append(text)
+
+                elif kind == "on_chat_model_end":
+                    run_id = event.get("run_id")
+                    buffered = pending.pop(run_id, []) if run_id else []
+                    if not buffered:
+                        continue
+                    output = (event.get("data") or {}).get("output")
+                    tool_calls = getattr(output, "tool_calls", None) or []
+                    if not tool_calls:
+                        for text in buffered:
+                            yield ("token", text)
+
+                elif kind == "on_tool_start" and name:
+                    yield ("activity", activity_label(name), "start")
+
+                elif kind == "on_tool_end" and name:
+                    yield ("activity", activity_label(name), "done")
+
+    except asyncio.TimeoutError as error:
+        raise model_seam.ModelTimeout(
+            f"agent turn exceeded {config.REQUEST_TIMEOUT_SECONDS:.0f}s"
+        ) from error
+    except ollama.ResponseError as error:
+        raise _classify_ollama_error(error) from error
+    except GraphRecursionError:
+        # A real operating mode on a free-tier step budget (a genuinely hard
+        # multi-hop question can legitimately need more calls than
+        # `AGENT_MAX_STEPS` allows), not a bug — so it degrades to a plain,
+        # honest answer instead of an SSE `error` event. See failure mode 6b
+        # in the plan: "at capacity" must never read as a stack trace, and
+        # exhausting the step budget is that same failure reached a
+        # different way.
+        for text in _budget_exhausted_answer():
+            yield ("token", text)
+        return
+    except Exception as error:  # noqa: BLE001 - see below
+        # Every other exception type is funnelled here deliberately —
+        # `main.py`'s `except Exception` handler already exists to turn an
+        # unexpected failure into a clean `internal` SSE event rather than a
+        # dropped connection, and duplicating that classification here would
+        # only create a second place for it to drift out of sync.
+        raise model_seam.ModelError(f"agent run failed: {error}") from error
+
+
+def _budget_exhausted_answer() -> list[str]:
+    """The degrade-don't-lie answer for a run that hit `AGENT_MAX_STEPS`.
+
+    Failure mode 6b in the plan: a free-tier quota running out mid-demo must
+    read as "the assistant is at capacity", never as a stack trace. Hitting
+    the step budget is the same failure mode reached a different way — too
+    many round trips rather than too little quota — so it gets the same
+    honest, usable degrade rather than an SSE `error` event.
+    """
+    return [
+        "I wasn't able to reach a confident answer within this turn's step "
+        "budget — that usually means the question needs more tool calls "
+        "than a single turn allows on the current inference plan. Try "
+        "breaking it into a more specific question."
+    ]

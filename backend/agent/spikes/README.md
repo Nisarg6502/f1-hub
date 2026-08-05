@@ -144,3 +144,103 @@ resolver error that names only the pin. `requirements-agent.txt` holds
 
 (`motor`'s last release is 3.7.1 — it is in maintenance now that pymongo ships
 its own async API.)
+
+**Installing the agent stack pulls in `numpy>=2`, which ABI-breaks `pandas`/
+`fastf1` in this repo's shared (non-venv) Python install.** `backend/` has no
+virtualenv — every checkpoint so far has run against one global Python 3.11
+site-packages directory. `pip install -r requirements-agent.txt` upgrades
+`numpy` from `1.24.3` to `2.4.6` as a transitive dependency (nothing in
+`requirements-agent.txt` pins it directly), and `pandas` compiled against
+NumPy 1.x then fails every import with `ValueError: numpy.dtype size
+changed, may indicate binary incompatibility` — silently dropping 127 tests
+that import `fastf1`/`pandas` transitively (`test_session_results.py` and
+four others fail to *load* rather than fail an assertion, so `unittest
+discover` reports 444 tests passing and looks green). `pip install "numpy<2"`
+immediately afterward restores all 571 pre-CP61 tests. **Anyone installing
+`requirements-agent.txt` locally must re-pin `numpy<2` afterward**, or check
+`python -m unittest discover tests` reports the full count, not just "OK",
+before trusting a green run. This is not yet pinned in
+`requirements-agent.txt` itself because the constraint is transitive and
+came from *installing* the agent stack, not from any package it lists by
+name — worth a follow-up pin if the agent image is ever built without this
+repo's exact install order.
+
+## 5. CP61 baseline — the single-agent deep agent, measured
+
+`agent/graph.py` binds all eighteen CP60 tools (the sixteen data tools plus
+`resolve_context` and `get_season_state`) directly to one
+`create_deep_agent` graph (`nemotron-3-nano:30b`, no subagents, no
+verifier). Five real Ollama Cloud calls were spent proving it end to end —
+sparingly, per the CP61 brief — through `agent.graph.astream_answer`
+directly (not through the deployed Cloud Run service, which was not
+redeployed for this checkpoint). Numbers below are wall-clock per turn,
+counting each `on_tool_start` as one tool call; every run used exactly one
+model round trip cycle per tool call plus one final synthesis call (Ollama
+Cloud does not expose a separate token/GPU-time counter per call, so "model
+calls" here means LangGraph super-steps through the `model` node, read off
+the activity log — see the caveat on this below).
+
+| # | Class | Question | Latency | Tool calls | Evidence | Result |
+|---|---|---|---|---|---|---|
+| 1 | Point lookup | "Who won the 2024 Monaco Grand Prix?" | 14.2s | 1 (`get_season_calendar`) | 1, cited | Correct. Notable: picked the calendar tool over `get_session_result` — a defensible neighbour (the calendar carries each round's winner) but not the tool a router would likely pick. |
+| 6 | Deep history | "Who has the most wins at Monaco in F1 history?" | 12.8s | 1 (`get_circuit_history`) | 1, cited | Correct (Senna, 6) and grounded. |
+| 4 | Comparative | "Compare Verstappen and Norris in the 2026 season." | 50.9s | 3 (`get_driver_season_summary`, `get_driver_profile`, `get_standings`) | 1, cited | Answer correct and grounded, but two of three tool calls returned `available: false` (driver-id mismatch) and were silently dropped rather than retried with the resolved id — the model recovered by falling back to `get_standings`, but never called `get_head_to_head`, the tool actually built for this question. |
+| 14 | Out-of-domain | "What's the weather in Tokyo right now?" | 12.5s | 0 | 0 | Correct — declined without tool-calling, exactly the T6 spike behaviour. |
+| 2 | Aggregate | "How many podiums has Norris had in the 2026 season?" | 13.1s | **0** | **0** | **Wrong in the most important way.** No tool call at all — the model answered "3 podiums" from parametric memory. See below. |
+
+### The one finding that matters most: an ungrounded answer on a tier-2 aggregate, with no verifier to catch it
+
+The class-2 run above is CP61's central result. On the *first* attempt at
+this exact question, the model instead spent three tool calls
+(`ls`, `grep`, `glob` — deepagents' default filesystem tools, always present
+whether or not the system prompt mentions them) probing a virtual filesystem
+that holds nothing for an F1 question, taking 64s before finally calling
+`get_driver_season_summary` and answering correctly. The system prompt was
+then tightened with an explicit "you have no files, ignore `ls`/`grep`/
+`glob`/`read_file`/`write_file`/`edit_file`" rule (now in
+`graph.py`'s `SYSTEM_PROMPT`) — and on the *second* attempt, the model
+stopped calling the filesystem tools, but also stopped calling **any** tool
+at all, and answered "3 podiums" outright from memory. Zero evidence
+entries, zero citations, a fluent and plausible-sounding number with no
+tool call behind it.
+
+This is CP38's exact failure mode — a confident, ungrounded claim — arriving
+through a different door than the one CP38 originally found it through. It
+is also the strongest evidence in this batch for why CP64's verifier is on
+the roadmap and not optional: CP61 was explicitly scoped to ship *without*
+one, and this is what "without one" costs in practice, measured rather than
+assumed. A prompt rewrite is not the fix — CP41 already established that a
+prompt rule can fail even restated in ALL CAPS, and this finding is that
+lesson recurring for a different rule ("answer from tool data only") rather
+than evidence the rule needs one more sentence. The fix is architectural: a
+deterministic check that a claim carrying a number has a matching evidence
+entry, which is precisely CP64's job.
+
+### Cost caveat, stated honestly
+
+The GPU-time figures above are wall-clock only — Ollama Cloud's `/api/chat`
+response does not surface a per-request GPU-second or dollar figure, so
+"cost" here is a proxy (call count × latency), not a metered number. A
+production deployment reading real quota burn needs either Ollama's account
+usage dashboard or a Cloud Run request-duration metric keyed by model, and
+building that is future work, not something five manual runs can produce.
+
+### What CP61 answers about the "real question" — does a ~30b model hold 18 tools in one context?
+
+**Partially, and unevenly by question class.** Point lookups, single-entity
+history queries and out-of-domain restraint all worked correctly and cheaply
+(1 tool call or 0, one synthesis pass, 12-15s). Comparative questions work
+but wander to a plausible-neighbour tool instead of the one actually built
+for the question (`get_standings` instead of `get_head_to_head`) and drop
+failed tool calls silently rather than recovering with corrected arguments.
+Aggregate/count questions are the weak point: the same model that handled
+five other questions correctly skipped tool-calling entirely on this one and
+fabricated a number. `agent/spikes/README.md` §2's T7 multi-hop score (3/3)
+proved the model **can** chain dispatches correctly under controlled,
+hand-fed conditions; this checkpoint's finding is that "correctly" is not
+"always," and CP61 shipping without a verifier means nothing in production
+would have caught the one wrong answer among five. That is the number Batch
+18 has to beat: not "does the model work," but "does removing the verifier's
+safety net actually cost visible correctness" — measured here as yes, on a
+one-in-five sample too small to generalize a rate from, but not too small to
+prove the failure mode is real and reachable on ordinary phrasing.
