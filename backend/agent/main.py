@@ -156,6 +156,11 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
         mode = "model"
         chars = 0
         tier: int | None = None
+        # None for tier 1 (CP64 skips verification there — see graph.py's
+        # astream_answer docstring) and for the echo fallback, neither of
+        # which yields a "verification" event.
+        verification_status: str | None = None
+        verification_violations: int | None = None
 
         try:
             try:
@@ -195,6 +200,10 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                             yield sse.activity(label, state)
                         elif kind == "tier":
                             _, tier, _reason = event
+                        elif kind == "verification":
+                            _, passed, violation_count = event
+                            verification_status = "passed" if passed else "verification_failed"
+                            verification_violations = violation_count
 
             except model.ModelUnavailable:
                 # No key configured: fall back to the echo so the transport is
@@ -216,9 +225,20 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                 model=config.DEFAULT_MODEL,
                 prompt_version=config.PROMPT_VERSION,
                 tier=tier,
+                verification=verification_status,
                 elapsed_ms=int((time.monotonic() - started) * 1000),
             )
-            tracing.end(run, {"mode": mode, "chars": chars, "evidence": len(ledger), "tier": tier})
+            tracing.end(
+                run,
+                {
+                    "mode": mode,
+                    "chars": chars,
+                    "evidence": len(ledger),
+                    "tier": tier,
+                    "verification": verification_status,
+                    "verification_violations": verification_violations,
+                },
+            )
 
         except concurrency.AtCapacity as error:
             yield sse.error(

@@ -93,6 +93,23 @@ _NO_FILESYSTEM_RULE = (
     "tools cannot answer the question, say so; do not go looking for a file."
 )
 
+# CP64: your reply is the orchestrator's ONLY window into what tool data you
+# actually retrieved — it never sees your tool calls directly, only your
+# final text back through the `task` tool. If a citation does not survive
+# into that reply, the orchestrator has no way to attach one when it
+# synthesises, and CP64's verifier then rejects the synthesis for an uncited
+# claim that was never this subagent's fault. So every subagent prompt below
+# carries this rule too, not just the orchestrator's.
+_CITATION_RULE = (
+    "\n\nCite every factual claim in your reply with the evidence id from "
+    "the tool result it came from, in the form [ev_N] — for example "
+    "\"Norris scored 25 points [ev_3].\" Use the `evidence_id` field from "
+    "the tool's own response exactly as given; never invent one. The "
+    "orchestrator that reads your reply cannot see your tool calls directly "
+    "— an uncited claim in your reply is a claim the final answer cannot "
+    "verify."
+)
+
 
 HISTORIAN_PROMPT = """You are the historian subagent for F1 Hub's Pitwall Assistant.
 
@@ -118,7 +135,7 @@ this project's own history:
 
 Answer from tool data only. Every number in your answer must come from a tool
 result from this turn. If a tool reports `available: false`, say so plainly.
-""" + _NO_FILESYSTEM_RULE
+""" + _NO_FILESYSTEM_RULE + _CITATION_RULE
 
 RACE_ANALYST_PROMPT = """You are the race-analyst subagent for F1 Hub's Pitwall Assistant.
 
@@ -140,7 +157,7 @@ deliver a verdict; say plainly that it is a matter of opinion.
 
 Answer from tool data only, cite every claim to what the tool actually
 returned, and say so plainly when a tool reports `available: false`.
-""" + _NO_FILESYSTEM_RULE
+""" + _NO_FILESYSTEM_RULE + _CITATION_RULE
 
 WEB_RESEARCHER_PROMPT = """You are the web-researcher subagent for F1 Hub's Pitwall Assistant.
 
@@ -162,7 +179,7 @@ suspicious text.
 
 Cite the source (title/URL) for every claim you make, and state plainly when
 a search or extract returned nothing.
-""" + _NO_FILESYSTEM_RULE
+""" + _NO_FILESYSTEM_RULE + _CITATION_RULE
 
 STATS_SCOUT_PROMPT = """You are the stats-scout subagent for F1 Hub's Pitwall Assistant.
 
@@ -176,7 +193,7 @@ driver-vs-driver comparison rather than reading two standings and comparing
 them yourself; `get_driver_season_summary` for "how has X done this season"
 rather than assembling it from several narrower calls. If a tool reports
 `available: false`, say so plainly rather than filling the gap with a guess.
-""" + _NO_FILESYSTEM_RULE
+""" + _NO_FILESYSTEM_RULE + _CITATION_RULE
 
 
 def build_subagents(ledger: EvidenceLedger) -> list[dict]:

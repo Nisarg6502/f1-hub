@@ -15,8 +15,11 @@ Event types, in the order a normal answer produces them:
         One delta of answer text. Many of these.
     sources    {"sources": [{"id", "label", "url"|None, "as_of"}]}
         Emitted once, before `done`, so the UI can render citation chips.
-    done       {"run_id": str|None, "model": str, "tier": int|None, ...}
+    done       {"run_id": str|None, "model": str, "tier": int|None,
+                 "verification": "passed"|"verification_failed"|None, ...}
         Terminal success. The client should stop reading after this.
+        `verification` is None for tier 1 (CP64 skips it there) and for the
+        echo fallback — only tier 2/3 real answers carry a real value.
     error      {"code": str, "message": str}
         Terminal failure, and always a *stream* event rather than an HTTP
         error status: by the time anything goes wrong the response has already

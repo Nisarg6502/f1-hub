@@ -57,6 +57,7 @@ from pydantic import create_model
 from . import config
 from . import model as model_seam
 from . import router
+from . import verifier
 from .ledger import EvidenceLedger
 from .tools import TOOLS
 
@@ -205,6 +206,13 @@ between two drivers on visibly different teams because it reasoned from
 correct raw data instead of a pre-computed fact. Every number and every
 relationship in your answer must trace back to a tool result from this turn.
 
+Cite every factual claim with the evidence id from the tool result it came
+from, in the form [ev_N] — for example "Norris scored 25 points [ev_3]."
+Every tool result includes an `evidence_id` field; use it exactly as given,
+never invent one. Some answers are automatically fact-checked against these
+citations after you write them; an uncited or miscited claim gets sent back
+to you once with the specific problem named, so you can fix it.
+
 Ground rules:
 - You have NO files and NO filesystem. Ignore the `ls`, `read_file`,
   `write_file`, `edit_file`, `glob` and `grep` tools entirely — there is
@@ -242,8 +250,9 @@ Ground rules:
 """
 
 # CP63's multi-agent orchestrator prompt — used only when `router.classify`
-# assigns tier 2 or 3 (`build_agent(..., subagents=[...])`). Deliberately NOT
-# a superset of `SYSTEM_PROMPT` above: the tier-1 prompt tells the model to
+# assigns tier 3 (`build_agent(use_subagents=True)`; see `router.Route`'s
+# docstring for why tier 2 no longer reaches this path). Deliberately NOT a
+# superset of `SYSTEM_PROMPT` above: the tier-1/2 prompt tells the model to
 # use data tools directly because that is literally all it has; this prompt
 # tells the model to delegate instead, because CP61's baseline (§5 of
 # `agent/spikes/README.md`) already measured what happens when one model
@@ -268,6 +277,11 @@ answer. You have exactly two direct tools of your own:
 For everything else, delegate via `task` to the subagent whose description
 best matches the question. Read each subagent's description before choosing
 — they are not interchangeable, and picking the wrong one wastes a turn.
+
+A subagent's reply already carries [ev_N] citations for what it found —
+preserve them EXACTLY in your synthesis; never renumber, merge, or invent a
+new one. If you state a fact a subagent reported, keep its citation attached
+to it.
 
 Ground rules, same as always:
 - You have NO files and NO filesystem. Ignore `ls`, `read_file`, `write_file`,
@@ -363,10 +377,89 @@ def _classify_ollama_error(error: "ollama.ResponseError") -> model_seam.ModelErr
 # --- Streaming ----------------------------------------------------------------
 
 AgentEvent = tuple[str, ...]
-"""`("activity", label, state)`, `("token", text)` or `("tier", int, reason)`
-— what `main.py` turns into SSE frames / the `done` event's `tier` field.
-Kept as a plain tuple rather than a dataclass so this module has no import
-surface beyond what `main.py` already needs."""
+"""`("activity", label, state)`, `("token", text)`, `("tier", int, reason)` or
+`("verification", passed, violation_count)` — what `main.py` turns into SSE
+frames / the `done` event's `tier` and `verification` fields. Kept as a plain
+tuple rather than a dataclass so this module has no import surface beyond
+what `main.py` already needs. `("draft", text)` is a third internal kind
+`_run_turn` yields but `astream_answer` never re-yields outward — see
+`_run_turn`'s docstring."""
+
+
+async def _run_turn(
+    agent: Any, inputs: dict, run_config: dict, *, live_tokens: bool
+) -> AsyncIterator[AgentEvent]:
+    """One full pass through the agent graph.
+
+    Always yields `("activity", ...)` events as tool calls happen, and always
+    yields a final `("draft", full_text)` once the run completes — an async
+    generator has no other channel to hand a caller its accumulated result,
+    since `return value` inside one is not observable through `async for`.
+
+    `("token", ...)` events are yielded live only when `live_tokens=True`
+    (tier 1 — CP61's exact proven behaviour, streamed as generated). When
+    `False` (tier 2/3 — CP64's verified path), tokens are still assembled
+    into the same `full_text`, just not yielded until the caller decides the
+    draft passed verification. This is the same trade `session_recap.py`'s
+    `SESSION_VALIDATORS` already made and documented: "the text has to be
+    complete before it can be checked, and a violation must not have already
+    reached the reader."
+    """
+    pending: dict[str, list[str]] = {}
+    parts: list[str] = []
+
+    async for event in agent.astream_events(inputs, version="v2", config=run_config):
+        kind = event.get("event")
+        name = event.get("name") or ""
+
+        if kind == "on_chat_model_stream":
+            run_id = event.get("run_id")
+            chunk = (event.get("data") or {}).get("chunk")
+            text = getattr(chunk, "content", None)
+            if run_id and isinstance(text, str) and text:
+                pending.setdefault(run_id, []).append(text)
+
+        elif kind == "on_chat_model_end":
+            run_id = event.get("run_id")
+            buffered = pending.pop(run_id, []) if run_id else []
+            if not buffered:
+                continue
+            output = (event.get("data") or {}).get("output")
+            tool_calls = getattr(output, "tool_calls", None) or []
+            if not tool_calls:
+                parts.extend(buffered)
+                if live_tokens:
+                    for text in buffered:
+                        yield ("token", text)
+
+        elif kind == "on_tool_start" and name:
+            subagent_type = ((event.get("data") or {}).get("input") or {}).get("subagent_type")
+            yield ("activity", activity_label(name, subagent_type=subagent_type), "start")
+
+        elif kind == "on_tool_end" and name:
+            subagent_type = ((event.get("data") or {}).get("input") or {}).get("subagent_type")
+            yield ("activity", activity_label(name, subagent_type=subagent_type), "done")
+
+    yield ("draft", "".join(parts))
+
+
+_CHUNK_WORDS = 6
+"""Words per emitted token event when replaying a verified/repaired draft.
+Coarser than the model's own per-token granularity (a live tier-1 turn emits
+far smaller pieces), but the point of chunking at all is only to preserve
+some streaming feel for a text that is, by construction, already fully
+formed by the time it is emitted — see `_run_turn`'s docstring."""
+
+
+def _chunk_draft(text: str) -> list[str]:
+    words = (text or "").split(" ")
+    chunks = []
+    for i in range(0, len(words), _CHUNK_WORDS):
+        piece = " ".join(words[i : i + _CHUNK_WORDS])
+        if i + _CHUNK_WORDS < len(words):
+            piece += " "
+        chunks.append(piece)
+    return chunks
 
 
 async def astream_answer(
@@ -376,7 +469,8 @@ async def astream_answer(
     ledger: EvidenceLedger,
     checkpointer: Any | None = None,
 ) -> AsyncIterator[AgentEvent]:
-    """Run one turn of the deep agent, yielding tier, activity and token events.
+    """Run one turn of the deep agent, yielding tier, activity, token and
+    verification events.
 
     Raises the same typed errors `model.stream_chat` does
     (`ModelUnavailable` / `ModelAtCapacity` / `ModelTimeout` / `ModelError`),
@@ -391,6 +485,16 @@ async def astream_answer(
     first, as its own event, so `main.py` can attach it to the `done` payload
     — the field `sse.py`'s docstring has documented since CP59 but nothing
     populated until now.
+
+    CP64 adds a second decision on top: **tier 1 streams live and skips
+    verification; tier 2 and 3 buffer the draft, run `verifier.check`, and
+    get one repair attempt before anything is shown to the caller** — exactly
+    the split `CHAT-AGENT-PLAN.md` §7 describes ("verification adds roughly
+    one extra model call per answer. It runs on tier 2-3 only"). The repair
+    re-invocation deliberately uses a scratch `thread_id` (`<thread>--repair`)
+    rather than the real one, so a rejected draft and its regeneration never
+    pollute the checkpointer's memory of the actual conversation — the user
+    should only ever see the one accepted answer, never the false start.
     """
     if not config.api_key():
         raise model_seam.ModelUnavailable("OLLAMA_API_KEY is not configured")
@@ -409,46 +513,58 @@ async def astream_answer(
     }
     inputs = {"messages": [{"role": "user", "content": message}]}
 
-    # Buffered per chat-model run id: flushed only once `on_chat_model_end`
-    # confirms that turn produced no tool calls (see module docstring for
-    # why raw live streaming would occasionally leak mid-loop commentary).
-    pending: dict[str, list[str]] = {}
-
     try:
         async with asyncio.timeout(config.REQUEST_TIMEOUT_SECONDS):
-            async for event in agent.astream_events(inputs, version="v2", config=run_config):
-                kind = event.get("event")
-                name = event.get("name") or ""
+            if route.tier == 1:
+                async for event in _run_turn(agent, inputs, run_config, live_tokens=True):
+                    if event[0] != "draft":
+                        yield event
+                return
 
-                if kind == "on_chat_model_stream":
-                    run_id = event.get("run_id")
-                    chunk = (event.get("data") or {}).get("chunk")
-                    text = getattr(chunk, "content", None)
-                    if run_id and isinstance(text, str) and text:
-                        pending.setdefault(run_id, []).append(text)
+            draft = ""
+            async for event in _run_turn(agent, inputs, run_config, live_tokens=False):
+                if event[0] == "draft":
+                    draft = event[1]
+                else:
+                    yield event
 
-                elif kind == "on_chat_model_end":
-                    run_id = event.get("run_id")
-                    buffered = pending.pop(run_id, []) if run_id else []
-                    if not buffered:
-                        continue
-                    output = (event.get("data") or {}).get("output")
-                    tool_calls = getattr(output, "tool_calls", None) or []
-                    if not tool_calls:
-                        for text in buffered:
-                            yield ("token", text)
+            result = verifier.check(
+                draft, ledger, predictive=route.predictive, subjective=route.subjective
+            )
 
-                elif kind == "on_tool_start" and name:
-                    subagent_type = ((event.get("data") or {}).get("input") or {}).get(
-                        "subagent_type"
+            if not result.passed:
+                repair_config = dict(run_config)
+                repair_config["configurable"] = {
+                    **run_config["configurable"],
+                    "thread_id": f"{run_config['configurable']['thread_id']}--repair",
+                }
+                repair_inputs = {
+                    "messages": [
+                        {"role": "user", "content": message},
+                        {"role": "assistant", "content": draft},
+                        {"role": "user", "content": result.repair_message()},
+                    ]
+                }
+                repaired = ""
+                async for event in _run_turn(agent, repair_inputs, repair_config, live_tokens=False):
+                    if event[0] == "draft":
+                        repaired = event[1]
+                    else:
+                        yield event
+                # Kept even if it still fails one violation-free rewrite is
+                # not guaranteed on one attempt — the same call
+                # `session_recap.py`'s validator already makes: a repaired
+                # answer that still has one flaw beats discarding it and
+                # emitting nothing.
+                if repaired:
+                    draft = repaired
+                    result = verifier.check(
+                        draft, ledger, predictive=route.predictive, subjective=route.subjective
                     )
-                    yield ("activity", activity_label(name, subagent_type=subagent_type), "start")
 
-                elif kind == "on_tool_end" and name:
-                    subagent_type = ((event.get("data") or {}).get("input") or {}).get(
-                        "subagent_type"
-                    )
-                    yield ("activity", activity_label(name, subagent_type=subagent_type), "done")
+            yield ("verification", result.passed, len(result.violations))
+            for piece in _chunk_draft(draft):
+                yield ("token", piece)
 
     except asyncio.TimeoutError as error:
         raise model_seam.ModelTimeout(
