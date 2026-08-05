@@ -36,6 +36,13 @@ export interface AgentDone {
   mode: "model" | "echo";
   model: string;
   prompt_version: number;
+  /** CP63: the router's tier decision. `null` for the echo fallback. */
+  tier: number | null;
+  /**
+   * CP64: `null` for tier 1 (verification is skipped there by design) and
+   * for the echo fallback — only a real tier 2/3 answer carries a value.
+   */
+  verification: "passed" | "verification_failed" | null;
   elapsed_ms: number;
 }
 

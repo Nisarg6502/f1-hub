@@ -1,17 +1,15 @@
 "use client";
 
 /**
- * `/pitwall-chat` — the CP61 dev-flagged chat UI.
+ * `/pitwall-chat` — the CP61 dev-flagged chat UI, superseded by CP66.
  *
- * Deliberately plain, per the CP61 brief: this exists to prove the deep
- * agent end to end from a browser, not to be the shipped Pitwall Assistant.
- * That is CP66's job — a portaled slide-over panel in the APEX glassmorphism
- * style (`CHAT-AGENT-PLAN.md` §11). Like `/agent-check` (CP59), this route
- * is intentionally unlinked from the nav rather than gated behind an env
- * flag: the plan calls it "dev-flagged" and the existing precedent in this
- * repo for exactly that phrase is an unlinked diagnostic route, not a
- * runtime toggle that would need its own test coverage for a feature two
- * checkpoints will replace anyway.
+ * The production Pitwall Assistant is now `pitwall-assistant-panel.tsx`, a
+ * portaled slide-over reachable from the nav on every page
+ * (`pitwall-assistant-launcher.tsx`). This route is kept, unlinked, as an
+ * isolated debugging surface — a full-page view of the same event stream is
+ * sometimes more useful than a 480px drawer when something is actually
+ * broken, the same reason `/agent-check` (CP59) was kept alongside the real
+ * UI rather than deleted once it had served its original purpose.
  *
  * Reuses `agent-api.ts` (CP59) as-is — it already parses the full event
  * vocabulary, including `sources`, which CP59's own UI never rendered

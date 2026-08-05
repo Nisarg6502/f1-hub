@@ -5,6 +5,7 @@ import Link from "next/link";
 import NavLinks, { MobileNav } from "@/components/nav-links";
 import SeasonBadge from "@/components/season-badge";
 import GlobalSearch from "@/components/global-search";
+import PitwallAssistantLauncher from "@/components/pitwall-assistant-launcher";
 import "./globals.css";
 
 const bricolage = Bricolage_Grotesque({
@@ -114,6 +115,7 @@ export default function RootLayout({
             </div>
             <div className="flex items-center gap-4">
               <GlobalSearch />
+              <PitwallAssistantLauncher />
               <Suspense fallback={<div className="font-semibold text-xs text-warm-300 w-[85px]" />}>
                 <SeasonBadge />
               </Suspense>
