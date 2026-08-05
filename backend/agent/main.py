@@ -29,7 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import checkpointer, concurrency, config, graph, model, sse, tracing
+from . import answer_cache, checkpointer, concurrency, config, graph, model, sse, tracing
 from .ledger import EvidenceLedger
 
 
@@ -145,6 +145,41 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
     ledger = EvidenceLedger()
     thread_id = request.thread_id or str(uuid.uuid4())
 
+    # CP66: a cache hit skips the model, the concurrency gate and the
+    # evidence ledger entirely — it is not "one more thing checked before
+    # the queue," it is a genuinely different, much shorter path, which is
+    # the whole point (`CHAT-AGENT-PLAN.md` §4.2: "answer caching is
+    # load-bearing, not an optimisation"). A cached answer only ever came
+    # from a run that passed `answer_cache.should_cache` originally, so it
+    # is safe to replay with `verification: "passed"` unconditionally.
+    #
+    # Gated on `config.mongodb_uri()` the same way `checkpointer.open_saver`
+    # already degrades to "no thread memory" without one — this is not
+    # optional defensiveness, it is what keeps every local dev run and every
+    # test that never sets `MONGODB_URI` from attempting a real network
+    # connection on the very first message. `answer_cache.get_cached` also
+    # never raises on its own, but a bad/absent URI can hang a Motor client
+    # attempting to connect rather than fail fast, which this check avoids
+    # hitting at all.
+    cached = await answer_cache.get_cached(text, config.PROMPT_VERSION) if config.mongodb_uri() else None
+    if cached:
+        yield sse.activity("Answered from cache", "start")
+        for piece in graph._chunk_draft(cached.get("text") or ""):
+            yield sse.token(piece)
+        yield sse.activity("Answered from cache", "done")
+        yield sse.sources(cached.get("sources") or [])
+        yield sse.done(
+            run_id=None,
+            mode="model",
+            model=config.DEFAULT_MODEL,
+            prompt_version=config.PROMPT_VERSION,
+            tier=cached.get("tier"),
+            verification="passed",
+            cached=True,
+            elapsed_ms=int((time.monotonic() - started) * 1000),
+        )
+        return
+
     with tracing.traced_run(
         "chat",
         {"message": text},
@@ -155,6 +190,7 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
         rid = tracing.run_id(run)
         mode = "model"
         chars = 0
+        answer_parts: list[str] = []
         tier: int | None = None
         # None for tier 1 (CP64 skips verification there — see graph.py's
         # astream_answer docstring) and for the echo fallback, neither of
@@ -194,6 +230,7 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                         if kind == "token":
                             _, delta = event
                             chars += len(delta)
+                            answer_parts.append(delta)
                             yield sse.token(delta)
                         elif kind == "activity":
                             _, label, state = event
@@ -239,6 +276,22 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                     "verification_violations": verification_violations,
                 },
             )
+
+            # After `done` is already on the wire — a slow or failed cache
+            # write must never delay or break the response the asker is
+            # already reading. `should_cache` is the one gate that decides
+            # whether a `verification_failed` answer gets excluded (see
+            # `answer_cache.py`'s module docstring for why that matters).
+            if config.mongodb_uri() and answer_cache.should_cache(
+                mode=mode, verification=verification_status
+            ):
+                await answer_cache.set_cached(
+                    text,
+                    config.PROMPT_VERSION,
+                    tier=tier,
+                    text="".join(answer_parts),
+                    sources=ledger.citations(),
+                )
 
         except concurrency.AtCapacity as error:
             yield sse.error(

@@ -224,6 +224,35 @@ more than what actually shipped.
 **No deploy needed for CP65** — pure test/CI infrastructure, no runtime code in `agent/graph.py`,
 `agent/main.py` or any other file the deployed service actually imports.
 
+### CP66 — production UI + answer cache, scoped tightly given session time
+
+**Shipped:** the portaled Pitwall Assistant panel (`pitwall-assistant-panel.tsx` +
+`pitwall-assistant-launcher.tsx`), reachable from every page via a nav trigger, replacing
+`/pitwall-chat` (CP61's dev preview, kept unlinked for isolated debugging, same precedent as
+`/agent-check`). Follows the app's own established portal/glass pattern exactly
+(`createPortal(..., document.body)`, `apex-glass-strong`, the same spring transition shape as
+`driver-modal.tsx`) rather than inventing a new one. Adds a real activity **timeline** (every step in
+order, not just the in-progress ones the dev page showed) and renders the `tier`/`verification` fields
+CP63/64 added as a plain, honest badge when verification failed — never hidden.
+
+**Backend answer cache** (`agent/answer_cache.py`), the plan's own §4.2 architecture decision
+("caching is load-bearing, not an optimisation"), scoped down to exact-question-text + `PROMPT_VERSION`
+keying rather than the plan's fuller "resolved entities" design — a real simplification, not a hidden
+one, see the module's own docstring. **Never caches a `verification_failed` answer** — caching a known-
+flagged draft forever would repeat that exact failure to every future asker. Gated behind
+`config.mongodb_uri()` the same way `checkpointer.open_saver` already degrades without one; this
+mattered in practice, not just in theory — wiring it in without the gate made every existing
+`test_agent_chat.py` case attempt a real (hanging, not failing-fast) Mongo connection the first time
+`_stream` ran, since those tests mock `graph.astream_answer` but the cache check now runs *before* that
+mock is ever reached.
+
+**Deferred, explicitly, given remaining session time:** full "budget caps" (a real product-policy
+decision — daily/session limits — better made from actual usage data than guessed now) and a genuine
+load test (would spend real free-tier quota; the existing global concurrency semaphore already
+serializes concurrent requests correctly, proven in CP59, and re-proving it under synthetic load adds
+little without real traffic to calibrate against). Both are real Batch-19-or-later candidates, not
+silently dropped.
+
 Two stale-local-branch traps worth knowing about, found while syncing this session: this repo
 accumulates many now-merged local feature branches (`feat/agent-web-research`,
 `feat/agent-single-baseline`, `feat/agent-tool-layer`, `feat/agent-service-skeleton`, etc.) whose
