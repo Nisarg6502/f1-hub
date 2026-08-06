@@ -19,14 +19,20 @@ against `router.classify` — free, deterministic, no model call, runs on
 every `unittest discover`. The five `known_hard` cases additionally carry a
 hand-built draft+ledger fixture proving `verifier.check` would catch the
 exact historical failure it is named after, *when that failure is reachable
-at all*. One case used to record a known, un-closed gap: CP61's own baseline
-(`agent/spikes/README.md` §5) measured a **tier-1** aggregate question ("how
-many podiums has Norris had this season?") get answered from parametric
-memory with zero tool calls, and CP64's verifier explicitly skipped tier 1.
-CP67 closed that gap — `graph.astream_answer` no longer special-cases tier
-1, so every tier now runs the identical `verifier.check` + one-shot-repair
-path. The golden case for that failure mode (`class2-aggregate-podiums`
-below) still records the history in its `notes`; the gap itself is gone.
+at all*. One case records a known, *partially*-closed gap: CP61's own
+baseline (`agent/spikes/README.md` §5) measured a **tier-1** aggregate
+question ("how many podiums has Norris had this season?") get answered from
+parametric memory with zero tool calls, and CP64's verifier explicitly
+skipped tier 1. CP67 closed the *general* gap — `graph.astream_answer` no
+longer special-cases tier 1, so every tier now runs the identical
+`verifier.check` + one-shot-repair path. But the *specific* historical
+number CP61 hit, "3 podiums", is still not caught: `agent/verifier.py`'s
+`_TRIVIAL_NUMBERS` excludes single digits from the uncited-number check
+(tuned deliberately, out of scope to widen here), so that exact draft still
+passes verification unrepaired today. The golden case for that failure mode
+(`class2-aggregate-podiums` below) records both facts honestly in its
+`notes` — see also `tests/test_agent_graph.py`'s
+`test_tier_1_single_digit_aggregate_number_is_still_not_caught`.
 """
 
 from __future__ import annotations
@@ -78,9 +84,17 @@ GOLDEN_SET: tuple[GoldenCase, ...] = (
             "CP61's own baseline failure (spikes/README.md §5): the model answered "
             "'3 podiums' from parametric memory with ZERO tool calls. This is tier "
             "1 by the router (no comparative/causal/strategy/history/web pattern "
-            "matches a plain aggregate question). CP67 closed the gap that let this "
-            "reach the user unchecked: every tier now runs verifier.check, so an "
-            "uncited number triggers the same one-shot repair tier 2/3 already had."
+            "matches a plain aggregate question). CP67 closed the GENERAL gap that "
+            "let tier-1 drafts reach the user unchecked: every tier now runs "
+            "verifier.check, so an uncited NON-TRIVIAL number (10+) triggers the "
+            "same one-shot repair tier 2/3 already had. It did NOT close the "
+            "SPECIFIC historical case, though: verifier.py's _TRIVIAL_NUMBERS "
+            "excludes single digits (0-9) from the uncited-number check, so the "
+            "exact draft 'Norris has had 3 podiums this season.' still verifies as "
+            "passed=True today and streams unrepaired. Widening _TRIVIAL_NUMBERS is "
+            "a deliberate, separate, still-open task — see "
+            "tests/test_agent_graph.py's "
+            "test_tier_1_single_digit_aggregate_number_is_still_not_caught."
         ),
     ),
     # --- Class 3: narrative / causal ---------------------------------------

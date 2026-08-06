@@ -341,21 +341,39 @@ class RepairLoopTests(unittest.TestCase):
 
     def test_tier_1_ungrounded_draft_is_now_verified_and_repaired(self):
         """CP67's core fix. Before this task, an empty-ledger tier-1 draft
-        that asserts a number (the exact shape of CP61's "3 podiums" bug)
-        streamed straight to the client with nothing checking it. After this
-        task, tier 1 gets the same verifier.check + one-shot repair loop
-        tier 2/3 already have.
+        that asserts a number streamed straight to the client with nothing
+        checking it. After this task, tier 1 gets the same verifier.check +
+        one-shot repair loop tier 2/3 already have.
+
+        Uses "13 podiums" rather than CP61's actual "3 podiums" — verified
+        below (and see `test_tier_1_single_digit_aggregate_number_is_still_
+        not_caught`) that `verifier.check` only flags uncited *non-trivial*
+        numbers: `_TRIVIAL_NUMBERS` in `agent/verifier.py` excludes single
+        digits (0-9), so a draft naming "3" of anything never raises a
+        violation and never enters this repair path at all. "13" is not in
+        that exclusion set, so it genuinely exercises the mechanism this
+        test claims to prove.
         """
         from unittest.mock import patch
 
         # Arrange: a fake agent whose first attempt calls no tools at all
         # (`_ScriptedAgent` never yields on_tool_start/on_tool_end) and
-        # answers with an uncited number — the ungrounded shape CP61's
-        # baseline actually produced — and whose second (repair) attempt
-        # produces a properly-cited draft.
-        ledger = EvidenceLedger()  # empty — zero tool calls, exactly CP61's bug
-        rejected_draft = "Norris has had 3 podiums this season."
-        repaired_draft = "Norris has had 3 podiums this season [ev_1]."
+        # answers with an uncited, non-trivial number — an ungrounded shape
+        # like CP61's baseline actually produced — and whose second (repair)
+        # attempt produces a properly-cited draft.
+        #
+        # The ledger carries one real entry, as it would once a repair
+        # round's tool call actually fetches the podium count (in
+        # production, the repair re-invocation binds the same tools and can
+        # call them; `_ScriptedAgent` here only scripts text, not tool
+        # execution, so the evidence a real repair call would gather is
+        # pre-seeded). The first draft ignores it entirely — the exact
+        # "answered from parametric memory instead of the evidence at hand"
+        # shape of CP61's bug — and only the repaired draft cites it.
+        ledger = EvidenceLedger()
+        ledger.append(source="mongo:driver_results/norris/season-2026", data={"podiums": 13})
+        rejected_draft = "Norris has had 13 podiums this season."
+        repaired_draft = "Norris has had 13 podiums this season [ev_1]."
         agent = _ScriptedAgent([rejected_draft, repaired_draft])
 
         async def _drive():
@@ -371,8 +389,72 @@ class RepairLoopTests(unittest.TestCase):
             return events
 
         events = asyncio.run(_drive())
-        kinds = [e[0] for e in events]
-        self.assertIn("verification", kinds)  # was previously absent for tier 1
+
+        # Two invocations: the original draft, then one repair.
+        self.assertEqual(len(agent.calls), 2)
+
+        verification_events = [e for e in events if e[0] == "verification"]
+        self.assertEqual(len(verification_events), 1)
+        self.assertTrue(verification_events[0][1])  # passed, after repair
+
+        # The user only ever sees the repaired, cited text — never the
+        # rejected, ungrounded first draft.
+        streamed_text = "".join(e[1] for e in events if e[0] == "token")
+        self.assertEqual(streamed_text, repaired_draft)
+
+    def test_tier_1_single_digit_aggregate_number_is_still_not_caught(self):
+        """Honest documentation of a known, pre-existing gap — NOT a
+        regression introduced by this task.
+
+        CP67's fix makes tier 1 run the same `verifier.check` + repair path
+        as tier 2/3, closing the *general* case of an unverified tier-1
+        draft. But `agent/verifier.py`'s `_TRIVIAL_NUMBERS` (0-9) excludes
+        single-digit numbers from the "uncited number" check on purpose —
+        it was tuned against a real live draft to avoid false positives on
+        things like "the top 3" or "P1". That means the exact historical
+        CP61 incident — "Norris has had 3 podiums this season." — is still
+        NOT caught today: `verifier.check` reports `passed=True` for it, no
+        repair fires, and the raw draft streams to the client unmodified.
+
+        Widening `_TRIVIAL_NUMBERS` is out of scope for this task (it's
+        shared logic tier 2/3 also depend on and risks new false positives
+        elsewhere); this test exists purely to record the gap honestly so a
+        future checkpoint can close it deliberately, rather than letting a
+        green suite imply it's already fixed.
+        """
+        from unittest.mock import patch
+
+        ledger = EvidenceLedger()  # empty — zero tool calls, exactly CP61's bug
+        rejected_draft = "Norris has had 3 podiums this season."
+        agent = _ScriptedAgent([rejected_draft])
+
+        async def _drive():
+            events = []
+            with patch.object(graph.config, "api_key", lambda: "fake-key"):
+                with patch.object(graph, "build_agent", lambda *a, **k: agent):
+                    async for event in graph.astream_answer(
+                        "How many podiums has Norris had this season?",
+                        thread_id=None,
+                        ledger=ledger,
+                    ):
+                        events.append(event)
+            return events
+
+        events = asyncio.run(_drive())
+
+        # Only one call — no repair is ever triggered for this draft.
+        self.assertEqual(len(agent.calls), 1)
+
+        verification_events = [e for e in events if e[0] == "verification"]
+        self.assertEqual(len(verification_events), 1)
+        # `verification` reports passed=True even though the draft is an
+        # uncited fabrication — the single-digit "3" slips past
+        # check_citations' significant-number check entirely.
+        self.assertTrue(verification_events[0][1])
+
+        # The raw, ungrounded draft streams straight to the client.
+        streamed_text = "".join(e[1] for e in events if e[0] == "token")
+        self.assertEqual(streamed_text, rejected_draft)
 
 
 if __name__ == "__main__":
