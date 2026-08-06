@@ -486,15 +486,13 @@ async def astream_answer(
     — the field `sse.py`'s docstring has documented since CP59 but nothing
     populated until now.
 
-    CP64 adds a second decision on top: **tier 1 streams live and skips
-    verification; tier 2 and 3 buffer the draft, run `verifier.check`, and
-    get one repair attempt before anything is shown to the caller** — exactly
-    the split `CHAT-AGENT-PLAN.md` §7 describes ("verification adds roughly
-    one extra model call per answer. It runs on tier 2-3 only"). The repair
-    re-invocation deliberately uses a scratch `thread_id` (`<thread>--repair`)
-    rather than the real one, so a rejected draft and its regeneration never
-    pollute the checkpointer's memory of the actual conversation — the user
-    should only ever see the one accepted answer, never the false start.
+    CP64 added a verify-and-repair step for tier 2 and 3 only; tier 1 streamed
+    live and skipped it. CP67 closes that gap after it produced a real,
+    measured failure: CP61's baseline answered an aggregate question with a
+    fabricated "3 podiums" from zero tool calls, and nothing caught it. Every
+    tier now runs the identical buffer → `verifier.check` → one-shot-repair
+    path below. The repair re-invocation still uses a scratch
+    `<thread>--repair` thread_id, unchanged from CP64.
     """
     if not config.api_key():
         raise model_seam.ModelUnavailable("OLLAMA_API_KEY is not configured")
@@ -515,12 +513,6 @@ async def astream_answer(
 
     try:
         async with asyncio.timeout(config.REQUEST_TIMEOUT_SECONDS):
-            if route.tier == 1:
-                async for event in _run_turn(agent, inputs, run_config, live_tokens=True):
-                    if event[0] != "draft":
-                        yield event
-                return
-
             draft = ""
             async for event in _run_turn(agent, inputs, run_config, live_tokens=False):
                 if event[0] == "draft":

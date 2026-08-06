@@ -298,12 +298,22 @@ class RepairLoopTests(unittest.TestCase):
         verification_events = [e for e in events if e[0] == "verification"]
         self.assertTrue(verification_events[0][1])
 
-    def test_tier_1_question_never_verifies_even_with_a_bad_draft(self):
+    def test_tier_1_question_now_verifies_and_repairs_a_bad_draft(self):
+        # CP67: this used to be
+        # `test_tier_1_question_never_verifies_even_with_a_bad_draft` and
+        # asserted the opposite — tier 1 skipping verification entirely.
+        # `astream_answer` no longer special-cases tier 1, so it now takes
+        # the exact same buffer -> verify -> one-shot-repair path tier 2/3
+        # already had (see `test_tier_2_question_with_uncited_draft_triggers_
+        # one_repair` above, which this mirrors).
         from unittest.mock import patch
 
         ledger = EvidenceLedger()
-        uncited_draft = "Norris scored 25 points this weekend."
-        agent = _ScriptedAgent([uncited_draft])
+        ledger.append(source="mongo:race_results/2026-11", data={"points": 25})
+
+        rejected_draft = "Norris scored 25 points this weekend."
+        repaired_draft = "Norris scored 25 points [ev_1] this weekend."
+        agent = _ScriptedAgent([rejected_draft, repaired_draft])
 
         async def _drive():
             events = []
@@ -319,12 +329,50 @@ class RepairLoopTests(unittest.TestCase):
 
         events = asyncio.run(_drive())
 
-        # Tier 1 never runs the verifier — one call, no "verification" event,
-        # tokens stream live regardless of citation shape.
-        self.assertEqual(len(agent.calls), 1)
-        self.assertEqual([e for e in events if e[0] == "verification"], [])
+        # Tier 1 now runs the verifier — two calls (original + one repair),
+        # one "verification" event, and only the repaired, cited text
+        # streamed to the client.
+        self.assertEqual(len(agent.calls), 2)
+        verification_events = [e for e in events if e[0] == "verification"]
+        self.assertEqual(len(verification_events), 1)
+        self.assertTrue(verification_events[0][1])  # passed, after repair
         streamed_text = "".join(e[1] for e in events if e[0] == "token")
-        self.assertEqual(streamed_text, uncited_draft)
+        self.assertEqual(streamed_text, repaired_draft)
+
+    def test_tier_1_ungrounded_draft_is_now_verified_and_repaired(self):
+        """CP67's core fix. Before this task, an empty-ledger tier-1 draft
+        that asserts a number (the exact shape of CP61's "3 podiums" bug)
+        streamed straight to the client with nothing checking it. After this
+        task, tier 1 gets the same verifier.check + one-shot repair loop
+        tier 2/3 already have.
+        """
+        from unittest.mock import patch
+
+        # Arrange: a fake agent whose first attempt calls no tools at all
+        # (`_ScriptedAgent` never yields on_tool_start/on_tool_end) and
+        # answers with an uncited number — the ungrounded shape CP61's
+        # baseline actually produced — and whose second (repair) attempt
+        # produces a properly-cited draft.
+        ledger = EvidenceLedger()  # empty — zero tool calls, exactly CP61's bug
+        rejected_draft = "Norris has had 3 podiums this season."
+        repaired_draft = "Norris has had 3 podiums this season [ev_1]."
+        agent = _ScriptedAgent([rejected_draft, repaired_draft])
+
+        async def _drive():
+            events = []
+            with patch.object(graph.config, "api_key", lambda: "fake-key"):
+                with patch.object(graph, "build_agent", lambda *a, **k: agent):
+                    async for event in graph.astream_answer(
+                        "How many podiums has Norris had this season?",
+                        thread_id=None,
+                        ledger=ledger,
+                    ):
+                        events.append(event)
+            return events
+
+        events = asyncio.run(_drive())
+        kinds = [e[0] for e in events]
+        self.assertIn("verification", kinds)  # was previously absent for tier 1
 
 
 if __name__ == "__main__":

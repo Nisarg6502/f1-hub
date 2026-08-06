@@ -146,21 +146,17 @@ class KnownHardCaseTests(unittest.TestCase):
             "tools/base.py, not this module",
         )
 
-    def test_tier_1_aggregate_question_is_not_verified_at_all(self):
-        # The one gap this module records rather than hides: CP61's own
-        # measured failure (an ungrounded aggregate answered from parametric
-        # memory) was a tier-1 question, and CP64's verifier explicitly skips
-        # tier 1. This test documents that the router still assigns tier 1
-        # here today — i.e. the gap is real and reachable, not closed by
-        # some other mechanism this suite failed to notice.
+    def test_tier_1_aggregate_question_is_still_tier_1_but_now_verified(self):
+        # CP67 closed the gap the previous version of this test documented:
+        # the question still routes to tier 1 (correctly — it needs no
+        # subagent), but `graph.astream_answer` no longer special-cases tier
+        # 1 to skip `verifier.check`. This test asserts the router side of
+        # that story stays true; `test_agent_graph.py`'s
+        # `test_tier_1_ungrounded_draft_is_now_verified_and_repaired` asserts
+        # the verification side.
         case = next(c for c in GOLDEN_SET if c.id == "class2-aggregate-podiums")
         route = router.classify(case.question)
         self.assertEqual(route.tier, 1)
-        self.assertFalse(
-            route.tier >= 2,
-            "if this ever becomes tier 2/3, the tier-1 verification gap for "
-            "this exact question closes — update golden_set.py's notes",
-        )
 
 
 @unittest.skipUnless(HAS_DEEPEVAL, "deepeval not installed in this sandbox — see requirements-agent-eval.txt")

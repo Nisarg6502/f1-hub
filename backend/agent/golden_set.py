@@ -14,22 +14,19 @@ is a time-boxed scope decision for this checkpoint, not a ceiling — add
 cases as they're found, the same way `DRIVER_NICKNAMES` in
 `resolve_context.py` grows without a version bump.
 
-**What this file actually gates, and the one thing it deliberately cannot
-yet.** Every case's `expected_tier` is checked against `router.classify` —
-free, deterministic, no model call, runs on every `unittest discover`. The
-five `known_hard` cases additionally carry a hand-built draft+ledger fixture
-proving `verifier.check` would catch the exact historical failure it is
-named after, *when that failure is reachable at all*. One is deliberately
-not fully closed: CP61's own baseline (`agent/spikes/README.md` §5)
-measured a **tier-1** aggregate question ("how many podiums has Norris had
-this season?") get answered from parametric memory with zero tool calls —
-and CP64's verifier explicitly skips tier 1 (`graph.astream_answer`'s own
-docstring: "tier 1 streams live and skips verification"). So the golden
-case for that failure mode asserts what actually happens today (an ungrounded
-tier-1 answer has nothing checking it) rather than asserting a guarantee
-that does not exist — a known gap, not a silently-passing test that implies
-otherwise. Recorded here so a future checkpoint extending verification to
-tier 1 has a regression case ready rather than needing to re-derive it.
+**What this file actually gates.** Every case's `expected_tier` is checked
+against `router.classify` — free, deterministic, no model call, runs on
+every `unittest discover`. The five `known_hard` cases additionally carry a
+hand-built draft+ledger fixture proving `verifier.check` would catch the
+exact historical failure it is named after, *when that failure is reachable
+at all*. One case used to record a known, un-closed gap: CP61's own baseline
+(`agent/spikes/README.md` §5) measured a **tier-1** aggregate question ("how
+many podiums has Norris had this season?") get answered from parametric
+memory with zero tool calls, and CP64's verifier explicitly skipped tier 1.
+CP67 closed that gap — `graph.astream_answer` no longer special-cases tier
+1, so every tier now runs the identical `verifier.check` + one-shot-repair
+path. The golden case for that failure mode (`class2-aggregate-podiums`
+below) still records the history in its `notes`; the gap itself is gone.
 """
 
 from __future__ import annotations
@@ -81,10 +78,9 @@ GOLDEN_SET: tuple[GoldenCase, ...] = (
             "CP61's own baseline failure (spikes/README.md §5): the model answered "
             "'3 podiums' from parametric memory with ZERO tool calls. This is tier "
             "1 by the router (no comparative/causal/strategy/history/web pattern "
-            "matches a plain aggregate question), and CP64's verifier explicitly "
-            "skips tier 1. Known, undosed gap — see this module's docstring. "
-            "test_agent_golden_set.py's KnownHardCaseTests documents this rather "
-            "than papering over it with an assertion that would not be true."
+            "matches a plain aggregate question). CP67 closed the gap that let this "
+            "reach the user unchecked: every tier now runs verifier.check, so an "
+            "uncited number triggers the same one-shot repair tier 2/3 already had."
         ),
     ),
     # --- Class 3: narrative / causal ---------------------------------------
