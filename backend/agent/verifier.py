@@ -118,6 +118,67 @@ _OPINION_HEDGE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# --------------------------------------------------------------------------
+# regulation contract (§7 / CP67: this app holds no sporting-regulation
+# data, so any confident claim about a specific rule or article number is
+# ungrounded by construction — cheap to detect, easy to hedge)
+# --------------------------------------------------------------------------
+
+_REGULATION_CLAIM_RE = re.compile(
+    r"\b(article|regulation|rule)\s+\d+(\.\d+)?\b|"
+    r"\b(mandatory|required|prohibited)\s+(penalty|under\s+the\s+regulations)\b",
+    re.IGNORECASE,
+)
+_REGULATION_HEDGE_RE = re.compile(
+    r"\b(do(es)?n'?t|does not|do not)\s+(hold|have)\s+(the\s+)?(full\s+)?"
+    r"(sporting\s+)?regulations\b|\bcan'?t confirm\b|\bnot certain (of|about) the exact rule\b",
+    re.IGNORECASE,
+)
+
+
+def check_regulation(draft: str) -> list[Violation]:
+    """This app has no sporting-regulation dataset. A confident citation of
+    a specific rule/article number is therefore never actually backed by
+    anything this system retrieved — flag it unless the draft itself hedges.
+    """
+    if _REGULATION_CLAIM_RE.search(draft or "") and not _REGULATION_HEDGE_RE.search(draft or ""):
+        return [
+            Violation(
+                "unverifiable_regulation_claim",
+                "cites a specific regulation/article number, but this app holds "
+                "no sporting-regulation dataset to verify it against — state "
+                "plainly that the exact rule can't be confirmed instead",
+            )
+        ]
+    return []
+
+
+# --------------------------------------------------------------------------
+# toxicity contract (§7 / CP67: a small, deliberately unambitious denylist)
+# --------------------------------------------------------------------------
+
+_TOXIC_TERMS_RE = re.compile(
+    r"\b(idiot|moron|stupid|trash|garbage)\b.*\b(banned|fired|should)\b|"
+    r"\b(should|deserves to)\s+(be\s+)?(banned|fired|die)\b",
+    re.IGNORECASE,
+)
+
+
+def check_toxicity(draft: str) -> list[Violation]:
+    """A small denylist against the answer text itself. Deliberately
+    unambitious — this is a tripwire against the model's own output turning
+    hostile about a driver/team, not a general-purpose content moderator.
+    """
+    if _TOXIC_TERMS_RE.search(draft or ""):
+        return [
+            Violation(
+                "toxic_language",
+                "uses hostile/derogatory language about a person — rewrite "
+                "neutrally",
+            )
+        ]
+    return []
+
 
 # --------------------------------------------------------------------------
 # result types
@@ -248,6 +309,8 @@ def check(
 
     violations = check_citations(draft, ledger)
     violations += check_framing(draft, predictive=predictive, subjective=subjective)
+    violations += check_regulation(draft)
+    violations += check_toxicity(draft)
 
     citation_count = len({f"ev_{n}" for n in _CITATION_RE.findall(draft)})
 

@@ -158,5 +158,33 @@ class RepairMessageTests(unittest.TestCase):
         self.assertIn("[ev_N]", result.repair_message())
 
 
+class RegulationGuardTests(unittest.TestCase):
+    def test_confident_regulation_claim_is_flagged(self):
+        draft = "Under Article 12.4, this penalty was mandatory [ev_1]."
+        violations = verifier.check_regulation(draft)
+        self.assertTrue(any(v.kind == "unverifiable_regulation_claim" for v in violations))
+
+    def test_hedged_regulation_mention_is_not_flagged(self):
+        draft = "This app does not hold the full sporting regulations, so I can't confirm the exact rule here."
+        violations = verifier.check_regulation(draft)
+        self.assertEqual(violations, [])
+
+    def test_ordinary_answer_with_no_regulation_talk_passes(self):
+        draft = "Norris won the race [ev_1]."
+        violations = verifier.check_regulation(draft)
+        self.assertEqual(violations, [])
+
+
+class ToxicityGuardTests(unittest.TestCase):
+    def test_ordinary_answer_passes(self):
+        self.assertEqual(verifier.check_toxicity("Norris won the race [ev_1]."), [])
+
+    def test_denylisted_slur_pattern_is_flagged(self):
+        # A deliberately mild stand-in pattern for the test — the real
+        # denylist in the implementation is not reproduced in test comments.
+        violations = verifier.check_toxicity("This driver is an absolute idiot and should be banned.")
+        self.assertTrue(any(v.kind == "toxic_language" for v in violations))
+
+
 if __name__ == "__main__":
     unittest.main()
