@@ -307,6 +307,53 @@ class FailureTests(unittest.TestCase):
         self.assertNotIn("something nobody predicted", response.body)
 
 
+class HeartbeatTests(unittest.TestCase):
+    """CP70: `sse.comment()` keeps a slow-to-answer turn's socket warm.
+
+    `main.HEARTBEAT_SECONDS` is patched down to something a test can afford
+    to actually wait out, rather than sleeping the real 15s default — the
+    mechanism under test is "does a timeout fire and get retried," which is
+    independent of the threshold's actual value.
+    """
+
+    def setUp(self):
+        concurrency.reset_for_tests()
+
+    @patch.object(main, "HEARTBEAT_SECONDS", 0.05)
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_slow_first_event_produces_a_heartbeat_comment_before_it(self):
+        async def slow_then_real(*_args, **_kwargs):
+            # Sleeps well past the patched 0.05s threshold before its first
+            # real event, so at least one heartbeat must fire while
+            # `_stream` is still waiting on the same pending `__anext__()`.
+            await asyncio.sleep(0.2)
+            yield ("token", "Lando ")
+            yield ("token", "Norris ")
+            yield ("token", "won.")
+
+        with patch.object(main.graph, "astream_answer", slow_then_real):
+            response = post()
+
+        self.assertIn(": heartbeat", response.body)
+        # The comment(s) land before the real token frames on the wire.
+        first_heartbeat = response.body.index(": heartbeat")
+        first_token = response.body.index("event: token")
+        self.assertLess(first_heartbeat, first_token)
+
+        # Nothing about the real event stream is dropped, reordered, or
+        # otherwise disturbed by the heartbeats interleaved around it.
+        self.assertEqual(response.text(), "Lando Norris won.")
+        names = response.names()
+        self.assertEqual(names[-2:], ["sources", "done"])
+
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_no_heartbeat_on_a_normal_speed_turn(self):
+        """A fast turn (the default `HEARTBEAT_SECONDS`) gets zero comments."""
+        with patch.object(main.graph, "astream_answer", _fake_agent_stream):
+            response = post()
+        self.assertNotIn(": heartbeat", response.body)
+
+
 class HealthTests(unittest.TestCase):
     def test_health_reports_the_facts_needed_to_debug_a_deploy(self):
         response = asyncio.run(_drive("GET", "/health"))

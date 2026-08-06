@@ -34,6 +34,41 @@ from . import answer_cache, checkpointer, concurrency, config, graph, guardrails
 from .ledger import EvidenceLedger
 
 
+HEARTBEAT_SECONDS = 15.0
+"""How long `_stream` tolerates silence before emitting `sse.comment()`.
+
+Comfortably under common intermediary idle-timeouts, generous enough not to
+spam a fast turn. See `sse.comment`'s docstring for why this exists at all —
+a deep agent thinking for 30-60s before its first token looks like a dead
+socket to anything sitting between the browser and Cloud Run.
+"""
+
+
+async def _heartbeat_until_done(
+    task: "asyncio.Task", *, interval: float | None = None
+) -> AsyncIterator[str]:
+    """Yield `sse.comment()` every `interval` seconds `task` stays pending.
+
+    Does not touch `task` itself — never cancels it, never races it away.
+    `asyncio.wait_for` was considered and rejected here specifically because
+    it cancels its awaitable on timeout; that would drop whatever `task` was
+    doing (the next agent event, the next queue check) the moment the clock
+    ran out, which is the exact bug this function exists to avoid. Polling
+    with `asyncio.wait(..., timeout=...)` in a loop lets the same pending
+    task be re-checked indefinitely instead.
+
+    Once `task` completes (successfully or with an exception) this simply
+    stops yielding — an async generator "returning" a value isn't legal
+    syntax, so the caller retrieves the outcome by `await`-ing the same
+    `task` object after the loop, which is instant since it is already done.
+    """
+    wait_seconds = HEARTBEAT_SECONDS if interval is None else interval
+    while not task.done():
+        await asyncio.wait({task}, timeout=wait_seconds)
+        if not task.done():
+            yield sse.comment("heartbeat")
+
+
 def _now_iso() -> str:
     """A live UTC timestamp for `sse.activity`'s `at` field.
 
@@ -264,7 +299,28 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                         "Thinking…", "start", kind="system", at=_now_iso()
                     )
 
-                    async for event in _answer(text, thread_id=thread_id, ledger=ledger):
+                    # Driven manually (rather than `async for`) so each step
+                    # of pulling the next event can be raced against
+                    # `HEARTBEAT_SECONDS` of silence without losing the event
+                    # that's still in flight when the clock runs out — see
+                    # `_heartbeat_until_done`'s docstring. This is the one
+                    # genuinely unbounded silence in the turn (model thinking,
+                    # tool calls); the queue-wait above it is bounded by
+                    # `config.QUEUE_TIMEOUT_SECONDS` (45s default) and always
+                    # resolves into a clean `AtCapacity` error on its own, so
+                    # it does not get the same treatment here.
+                    answer_iter = _answer(
+                        text, thread_id=thread_id, ledger=ledger
+                    ).__aiter__()
+                    while True:
+                        next_task = asyncio.ensure_future(answer_iter.__anext__())
+                        async for heartbeat in _heartbeat_until_done(next_task):
+                            yield heartbeat
+                        try:
+                            event = await next_task
+                        except StopAsyncIteration:
+                            break
+
                         kind = event[0]
                         if kind == "token":
                             _, delta = event
