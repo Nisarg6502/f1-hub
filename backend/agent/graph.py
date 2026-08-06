@@ -58,59 +58,11 @@ from . import config
 from . import model as model_seam
 from . import router
 from . import verifier
+from .labels import ACTIVITY_LABELS, SUBAGENT_ACTIVITY_LABELS, activity_label
 from .ledger import EvidenceLedger
 from .tools import TOOLS
 
 # --- Tool binding ------------------------------------------------------------
-
-# Friendly, present-tense labels for the activity timeline (§11 of the plan:
-# "make the agentic architecture visible"). Anything not listed here still
-# works — it falls back to a generic label built from the tool's own name —
-# so a future CP60 tool never goes unlabelled just because this dict was not
-# updated in lockstep.
-ACTIVITY_LABELS: dict[str, str] = {
-    "get_season_calendar": "Reading the season calendar",
-    "get_session_result": "Reading the session classification",
-    "get_standings": "Reading the championship standings",
-    "get_driver_profile": "Reading the driver's profile",
-    "get_driver_season_summary": "Reading the driver's season",
-    "get_head_to_head": "Comparing the two drivers",
-    "get_race_narrative_facts": "Reading the race narrative",
-    "get_race_strategy": "Reading the race strategy",
-    "get_race_control": "Reading race control",
-    "get_lap_summary": "Reading the lap summary",
-    "get_pit_stops": "Reading the pit stops",
-    "get_weather": "Reading the weather",
-    "get_circuit_profile": "Reading the circuit profile",
-    "get_circuit_history": "Reading the circuit history",
-    "get_historical_race_index": "Searching the historical archive",
-    "get_constructor_seasons": "Reading the constructor's seasons",
-    "resolve_context": "Working out what you mean",
-    "get_season_state": "Checking today's date and the season state",
-    "web_search": "Searching the web",
-    "web_extract": "Reading a web page",
-    "wikipedia_summary": "Reading a Wikipedia summary",
-}
-
-# CP63: friendly labels for delegating to a subagent, keyed by
-# `subagent_type` (the `task` tool's own argument name — deepagents'
-# `middleware/subagents.py`). Falls back to a generic label the same way
-# `activity_label` does for an unlabelled data tool, so a subagent added
-# later never goes unlabelled just because this dict was not updated too.
-SUBAGENT_ACTIVITY_LABELS: dict[str, str] = {
-    "stats-scout": "Reading current F1 data",
-    "historian": "Searching the historical archive",
-    "web-researcher": "Researching the web",
-    "race-analyst": "Analysing the race",
-}
-
-
-def activity_label(tool_name: str, *, subagent_type: str | None = None) -> str:
-    if tool_name == "task" and subagent_type:
-        return SUBAGENT_ACTIVITY_LABELS.get(
-            subagent_type, f"Delegating to {subagent_type}"
-        )
-    return ACTIVITY_LABELS.get(tool_name, f"Running {tool_name}…")
 
 
 def _public_signature(fn: Any) -> inspect.Signature:
@@ -377,13 +329,43 @@ def _classify_ollama_error(error: "ollama.ResponseError") -> model_seam.ModelErr
 # --- Streaming ----------------------------------------------------------------
 
 AgentEvent = tuple[str, ...]
-"""`("activity", label, state)`, `("token", text)`, `("tier", int, reason)` or
-`("verification", passed, violation_count)` — what `main.py` turns into SSE
-frames / the `done` event's `tier` and `verification` fields. Kept as a plain
-tuple rather than a dataclass so this module has no import surface beyond
-what `main.py` already needs. `("draft", text)` is a third internal kind
-`_run_turn` yields but `astream_answer` never re-yields outward — see
-`_run_turn`'s docstring."""
+"""`("activity", label, state, detail, kind)` for a tool/agent call —
+`detail`/`kind` from `_activity_detail`/CP68's tool-vs-agent split — or the
+plain 3-tuple `("activity", label, state)` for the system-level narrations
+`_run_turn` doesn't originate (queue waits, "Thinking…", the echo notice);
+`main.py`'s `_stream` accepts both shapes. Also `("token", text)`,
+`("tier", int, reason)` or `("verification", passed, violation_count)` — what
+`main.py` turns into SSE frames / the `done` event's `tier` and
+`verification` fields. Kept as a plain tuple rather than a dataclass so this
+module has no import surface beyond what `main.py` already needs.
+`("draft", text)` is a third internal kind `_run_turn` yields but
+`astream_answer` never re-yields outward — see `_run_turn`'s docstring."""
+
+
+# Tools whose single most-useful argument is worth surfacing verbatim in the
+# activity timeline — CP68's answer to "say what it's searching for", scoped
+# to the tools where a human-legible detail actually exists in the call
+# arguments. Internal data tools (season/round/driver ids) are left
+# unlabelled here rather than surfaced as raw ids a user cannot read.
+_DETAIL_ARG: dict[str, str] = {
+    "web_search": "query",
+    "web_extract": "urls",
+    "wikipedia_summary": "title",
+    "resolve_context": "hint",
+}
+
+
+def _activity_detail(tool_name: str, tool_input: dict) -> str | None:
+    arg_name = _DETAIL_ARG.get(tool_name)
+    if not arg_name:
+        return None
+    value = tool_input.get(arg_name)
+    if isinstance(value, list):
+        value = ", ".join(str(v) for v in value)
+    if not value:
+        return None
+    text = str(value)
+    return text if len(text) <= 80 else text[:77] + "…"
 
 
 async def _run_turn(
@@ -431,12 +413,28 @@ async def _run_turn(
                 parts.extend(buffered)
 
         elif kind == "on_tool_start" and name:
-            subagent_type = ((event.get("data") or {}).get("input") or {}).get("subagent_type")
-            yield ("activity", activity_label(name, subagent_type=subagent_type), "start")
+            tool_input = (event.get("data") or {}).get("input") or {}
+            subagent_type = tool_input.get("subagent_type")
+            activity_kind = "agent" if name == "task" and subagent_type else "tool"
+            yield (
+                "activity",
+                activity_label(name, subagent_type=subagent_type),
+                "start",
+                _activity_detail(name, tool_input),
+                activity_kind,
+            )
 
         elif kind == "on_tool_end" and name:
-            subagent_type = ((event.get("data") or {}).get("input") or {}).get("subagent_type")
-            yield ("activity", activity_label(name, subagent_type=subagent_type), "done")
+            tool_input = (event.get("data") or {}).get("input") or {}
+            subagent_type = tool_input.get("subagent_type")
+            activity_kind = "agent" if name == "task" and subagent_type else "tool"
+            yield (
+                "activity",
+                activity_label(name, subagent_type=subagent_type),
+                "done",
+                _activity_detail(name, tool_input),
+                activity_kind,
+            )
 
     yield ("draft", "".join(parts))
 

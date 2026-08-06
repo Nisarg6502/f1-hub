@@ -33,11 +33,20 @@ import ReactMarkdown from "react-markdown";
 import { motion, useReducedMotion } from "motion/react";
 import {
   streamChat,
+  rewriteCitations,
   type AgentDone,
   type AgentSource,
 } from "@/lib/agent-api";
+import CitationPill from "./citation-pill";
+import SourceCard from "./source-card";
+import LocalDateTime from "./local-datetime";
 
-type ActivityEntry = { label: string; state: "start" | "done" };
+type ActivityEntry = {
+  label: string;
+  state: "start" | "done";
+  detail?: string | null;
+  kind: "tool" | "agent" | "system";
+};
 
 type Message = {
   id: string;
@@ -47,6 +56,11 @@ type Message = {
   sources: AgentSource[];
   done: AgentDone | null;
   error: { code: string; message: string } | null;
+  // Client-side send/creation time (CP68) — this doesn't need to come from
+  // the backend, it just needs to be stable for the life of the bubble, the
+  // same reasoning `source-card.tsx` already applies to `as_of` via
+  // `LocalDateTime`.
+  timestampMs: number;
 };
 
 let nextId = 0;
@@ -111,6 +125,7 @@ export default function PitwallAssistantPanel({
         sources: [],
         done: null,
         error: null,
+        timestampMs: Date.now(),
       };
       const assistantId = newId();
       const assistantMessage: Message = {
@@ -121,6 +136,7 @@ export default function PitwallAssistantPanel({
         sources: [],
         done: null,
         error: null,
+        timestampMs: Date.now(),
       };
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
       setRunning(true);
@@ -136,8 +152,11 @@ export default function PitwallAssistantPanel({
       streamChat(
         trimmed,
         {
-          onActivity: (label, state) =>
-            patch((m) => ({ ...m, activity: [...m.activity, { label, state }] })),
+          onActivity: (label, state, detail, kind) =>
+            patch((m) => ({
+              ...m,
+              activity: [...m.activity, { label, state, detail, kind: kind ?? "system" }],
+            })),
           onToken: (text) => patch((m) => ({ ...m, text: m.text + text })),
           onSources: (sources) => patch((m) => ({ ...m, sources })),
           onDone: (done) => patch((m) => ({ ...m, done })),
@@ -259,10 +278,16 @@ export default function PitwallAssistantPanel({
 function MessageBubble({ message }: { message: Message }) {
   if (message.role === "user") {
     return (
-      <div className="flex justify-end">
+      <div className="flex flex-col items-end gap-1">
         <p className="max-w-[85%] rounded-2xl bg-[var(--color-primary)] px-4 py-2 text-sm text-[var(--color-on-primary)]">
           {message.text}
         </p>
+        <span className="pr-1 text-[10px] text-[var(--color-on-surface-variant)]">
+          <LocalDateTime
+            timestampMs={message.timestampMs}
+            options={{ hour: "2-digit", minute: "2-digit", hour12: false }}
+          />
+        </span>
       </div>
     );
   }
@@ -280,27 +305,51 @@ function MessageBubble({ message }: { message: Message }) {
       ) : (
         message.text && (
           <div className="max-w-[85%] rounded-2xl border border-white/10 bg-[rgba(26,22,19,0.98)] px-4 py-3 text-sm leading-relaxed text-[var(--color-on-surface)] [&_p]:mb-2 [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5">
-            <ReactMarkdown>{message.text}</ReactMarkdown>
+            <ReactMarkdown components={{ a: CitationPill }}>
+              {rewriteCitations(message.text)}
+            </ReactMarkdown>
             <StatusFooter done={message.done} />
           </div>
         )
       )}
 
       {message.sources.length > 0 && (
-        <ul className="flex flex-wrap gap-2">
+        <div className="flex flex-col gap-1.5">
           {message.sources.map((source) => (
-            <li
-              key={source.id}
-              className="rounded-full border border-white/10 bg-[var(--color-surface-container-low)] px-2 py-1 text-[10px] text-[var(--color-on-surface-variant)]"
-              title={source.as_of ?? undefined}
-            >
-              {source.label}
-            </li>
+            <SourceCard key={source.id} source={source} />
           ))}
-        </ul>
+        </div>
+      )}
+
+      {(message.text || message.error) && (
+        <span className="pl-1 text-[10px] text-[var(--color-on-surface-variant)]">
+          <LocalDateTime
+            timestampMs={message.timestampMs}
+            options={{ hour: "2-digit", minute: "2-digit", hour12: false }}
+          />
+        </span>
       )}
     </div>
   );
+}
+
+/**
+ * A completed step's marker, encoded redundantly by shape + color + size (not
+ * size alone — at 10-11px text a 0.5px size delta doesn't reliably read) so
+ * "agent" (a subagent delegation), "tool" (a single tool call) and "system"
+ * (housekeeping) stay distinguishable without relying on color perception
+ * alone: agent is a small rounded square in the secondary color, tool is the
+ * plain round dot this timeline already used, system is the same dot dimmed
+ * down so routine housekeeping recedes instead of competing for attention.
+ */
+function ActivityMarker({ kind }: { kind: ActivityEntry["kind"] }) {
+  if (kind === "agent") {
+    return <span className="h-1.5 w-1.5 rounded-[2px] bg-[var(--color-secondary)]" />;
+  }
+  if (kind === "system") {
+    return <span className="h-1 w-1 rounded-full bg-[var(--color-warm-500)]/40" />;
+  }
+  return <span className="h-1 w-1 rounded-full bg-[var(--color-warm-500)]" />;
 }
 
 /**
@@ -316,8 +365,11 @@ function ActivityTimeline({ activity }: { activity: ActivityEntry[] }) {
         .filter((entry) => entry.state === "done")
         .map((entry, index) => (
           <li key={`${entry.label}-${index}`} className="flex items-center gap-1.5">
-            <span className="h-1 w-1 rounded-full bg-[var(--color-warm-500)]" />
+            <ActivityMarker kind={entry.kind} />
             {entry.label}
+            {entry.detail && (
+              <span className="text-[var(--color-on-surface-variant)]"> — {entry.detail}</span>
+            )}
           </li>
         ))}
       {activity
@@ -332,6 +384,9 @@ function ActivityTimeline({ activity }: { activity: ActivityEntry[] }) {
           <li key={`active-${entry.label}-${index}`} className="flex items-center gap-1.5">
             <span className="h-1 w-1 animate-pulse rounded-full bg-[var(--color-primary)]" />
             {entry.label}…
+            {entry.detail && (
+              <span className="text-[var(--color-on-surface-variant)]"> — {entry.detail}</span>
+            )}
           </li>
         ))}
     </ul>

@@ -51,7 +51,25 @@ class FrameFormatTests(unittest.TestCase):
 class EventVocabularyTests(unittest.TestCase):
     def test_activity_carries_label_and_state(self):
         payload = json.loads(sse.activity("Thinking…").split("data: ", 1)[1])
-        self.assertEqual(payload, {"label": "Thinking…", "state": "start"})
+        self.assertEqual(
+            payload,
+            {"label": "Thinking…", "state": "start", "detail": None, "kind": "tool", "at": None},
+        )
+
+    def test_activity_includes_detail_kind_and_timestamp(self):
+        raw = sse.activity(
+            "Searching the web", "start", detail="2027 engine regulations", kind="tool", at="2026-08-06T10:00:00+00:00"
+        )
+        payload = json.loads(raw.split("data: ", 1)[1].strip())
+        self.assertEqual(payload["detail"], "2027 engine regulations")
+        self.assertEqual(payload["kind"], "tool")
+        self.assertEqual(payload["at"], "2026-08-06T10:00:00+00:00")
+
+    def test_activity_defaults_when_detail_and_kind_are_omitted(self):
+        raw = sse.activity("Thinking…", "start")
+        payload = json.loads(raw.split("data: ", 1)[1].strip())
+        self.assertIsNone(payload["detail"])
+        self.assertEqual(payload["kind"], "tool")
 
     def test_sources_wraps_the_list(self):
         items = [{"id": "ev_1", "label": "race_results 2026-14", "url": None}]

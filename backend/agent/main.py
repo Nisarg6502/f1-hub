@@ -19,6 +19,7 @@ Run locally:
 from __future__ import annotations
 
 import asyncio
+import datetime
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -31,6 +32,18 @@ from pydantic import BaseModel, Field
 
 from . import answer_cache, checkpointer, concurrency, config, graph, guardrails, model, sse, tracing
 from .ledger import EvidenceLedger
+
+
+def _now_iso() -> str:
+    """A live UTC timestamp for `sse.activity`'s `at` field.
+
+    `sse.py`'s docstring says `at` should "always" be present — this is the
+    one place in the module that stamps it, so every direct `sse.activity(...)`
+    call below (and the tuple-unpacking path that already did this) uses the
+    same clock read at the same point: when the event is actually put on the
+    wire, not when the underlying step started.
+    """
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
 @asynccontextmanager
@@ -178,10 +191,14 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
     # hitting at all.
     cached = await answer_cache.get_cached(text, config.PROMPT_VERSION) if config.mongodb_uri() else None
     if cached:
-        yield sse.activity("Answered from cache", "start")
+        yield sse.activity(
+            "Answered from cache", "start", kind="system", at=_now_iso()
+        )
         for piece in graph._chunk_draft(cached.get("text") or ""):
             yield sse.token(piece)
-        yield sse.activity("Answered from cache", "done")
+        yield sse.activity(
+            "Answered from cache", "done", kind="system", at=_now_iso()
+        )
         yield sse.sources(cached.get("sources") or [])
         yield sse.done(
             run_id=None,
@@ -228,6 +245,8 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                         if not ahead
                         else f"Queued — {ahead} question(s) ahead of you.",
                         "start",
+                        kind="system",
+                        at=_now_iso(),
                     )
 
                 async with concurrency.run_slot() as admission:
@@ -236,9 +255,14 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                     # reads as a bug rather than as reassurance.
                     if admission.waited >= 1.0:
                         yield sse.activity(
-                            f"Waited {admission.waited:.0f}s for a slot.", "done"
+                            f"Waited {admission.waited:.0f}s for a slot.",
+                            "done",
+                            kind="system",
+                            at=_now_iso(),
                         )
-                    yield sse.activity("Thinking…", "start")
+                    yield sse.activity(
+                        "Thinking…", "start", kind="system", at=_now_iso()
+                    )
 
                     async for event in _answer(text, thread_id=thread_id, ledger=ledger):
                         kind = event[0]
@@ -248,8 +272,15 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                             answer_parts.append(delta)
                             yield sse.token(delta)
                         elif kind == "activity":
-                            _, label, state = event
-                            yield sse.activity(label, state)
+                            if len(event) == 5:
+                                _, label, state, detail, activity_kind = event
+                            else:
+                                _, label, state = event
+                                detail, activity_kind = None, "system"
+                            yield sse.activity(
+                                label, state, detail=detail, kind=activity_kind,
+                                at=_now_iso(),
+                            )
                         elif kind == "tier":
                             _, tier, _reason = event
                         elif kind == "verification":
@@ -264,12 +295,14 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                 yield sse.activity(
                     "Inference is not configured — echoing to verify the stream.",
                     "done",
+                    kind="system",
+                    at=_now_iso(),
                 )
                 async for delta in _echo(text):
                     chars += len(delta)
                     yield sse.token(delta)
 
-            yield sse.activity("Thinking…", "done")
+            yield sse.activity("Thinking…", "done", kind="system", at=_now_iso())
             yield sse.sources(ledger.citations())
             yield sse.done(
                 run_id=rid,

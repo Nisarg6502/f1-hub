@@ -131,12 +131,102 @@ class CitationTests(unittest.TestCase):
             [
                 {
                     "id": "ev_1",
+                    "n": 1,
+                    "kind": "data",
                     "label": "mongo:race_results/2026-14",
+                    "title": "mongo:race_results/2026-14",
                     "url": None,
                     "as_of": "2026-08-05T09:00:00+00:00",
                 }
             ],
         )
+
+
+class CitationShapeTests(unittest.TestCase):
+    def test_citation_gains_a_human_title_from_the_tool_name(self):
+        ledger = EvidenceLedger()
+        entry = ledger.append(
+            source="mongo:race_results/2026-14",
+            data={"winner": "Norris"},
+            tool="get_session_result",
+        )
+        citation = entry.citation()
+        self.assertEqual(citation["title"], "Reading the session classification")
+        # `label` keeps its existing raw value — additive, not a rename.
+        self.assertEqual(citation["label"], "mongo:race_results/2026-14")
+
+    def test_citation_without_a_tool_falls_back_to_the_raw_source_as_title(self):
+        ledger = EvidenceLedger()
+        entry = ledger.append(source="mongo:race_results/2026-14", data={})
+        citation = entry.citation()
+        self.assertEqual(citation["title"], "mongo:race_results/2026-14")
+
+    def test_citation_kind_is_data_for_a_mongo_source(self):
+        ledger = EvidenceLedger()
+        entry = ledger.append(source="mongo:race_results/2026-14", data={})
+        self.assertEqual(entry.citation()["kind"], "data")
+
+    def test_citation_kind_is_wikipedia_for_a_wikipedia_source(self):
+        ledger = EvidenceLedger()
+        entry = ledger.append(source="web:wikipedia/Ayrton Senna", data={})
+        self.assertEqual(entry.citation()["kind"], "wikipedia")
+
+    def test_citation_kind_is_web_for_any_other_web_source(self):
+        ledger = EvidenceLedger()
+        entry = ledger.append(source="web:tavily-search/2027 regulations", data={})
+        self.assertEqual(entry.citation()["kind"], "web")
+
+    def test_citation_n_is_the_numeric_suffix_of_the_evidence_id(self):
+        ledger = EvidenceLedger()
+        ledger.append(source="s", data={})
+        second = ledger.append(source="s", data={})
+        self.assertEqual(second.citation()["n"], 2)
+
+    def test_citation_url_is_populated_for_a_wikipedia_source(self):
+        ledger = EvidenceLedger()
+        entry = ledger.append(
+            source="web:wikipedia/Ayrton Senna",
+            data={
+                "title": "Ayrton Senna",
+                "page_url": "https://en.wikipedia.org/wiki/Ayrton_Senna",
+            },
+            tool="wikipedia_summary",
+        )
+        self.assertEqual(
+            entry.citation()["url"], "https://en.wikipedia.org/wiki/Ayrton_Senna"
+        )
+
+    def test_citation_url_is_populated_for_a_web_search_source_from_its_first_result(self):
+        ledger = EvidenceLedger()
+        entry = ledger.append(
+            source="web:tavily-search/2027 regulations",
+            data={
+                "query": "2027 regulations",
+                "results": [
+                    {"title": "F1 2027 rules", "url": "https://example.com/2027-rules"},
+                    {"title": "Other", "url": "https://example.com/other"},
+                ],
+            },
+            tool="web_search",
+        )
+        self.assertEqual(entry.citation()["url"], "https://example.com/2027-rules")
+
+    def test_citation_url_falls_back_to_none_for_a_web_source_with_no_url_in_data(self):
+        ledger = EvidenceLedger()
+        entry = ledger.append(
+            source="web:tavily-search/nothing found",
+            data={"query": "nothing found", "results": []},
+            tool="web_search",
+        )
+        self.assertIsNone(entry.citation()["url"])
+
+    def test_citation_url_stays_none_for_a_mongo_source_even_if_data_carries_one(self):
+        ledger = EvidenceLedger()
+        entry = ledger.append(
+            source="mongo:race_results/2026-14",
+            data={"url": "https://example.com/should-be-ignored"},
+        )
+        self.assertIsNone(entry.citation()["url"])
 
 
 class SerialisationTests(unittest.TestCase):

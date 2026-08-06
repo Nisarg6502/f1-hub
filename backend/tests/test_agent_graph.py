@@ -191,6 +191,39 @@ class _ScriptedAgent:
         }
 
 
+class _ToolCallingAgent:
+    """Yields a single tool start/end pair, then a draft — for CP68's
+    `detail`/`kind` regression tests, which need `on_tool_start`/
+    `on_tool_end` events `_ScriptedAgent` never produces."""
+
+    def __init__(self, tool_name: str, tool_input: dict, draft: str = "done"):
+        self._tool_name = tool_name
+        self._tool_input = tool_input
+        self._draft = draft
+
+    async def astream_events(self, inputs, version, config):
+        yield {
+            "event": "on_tool_start",
+            "name": self._tool_name,
+            "data": {"input": self._tool_input},
+        }
+        yield {
+            "event": "on_tool_end",
+            "name": self._tool_name,
+            "data": {"input": self._tool_input},
+        }
+        yield {
+            "event": "on_chat_model_stream",
+            "run_id": "run-1",
+            "data": {"chunk": _FakeChunk(self._draft)},
+        }
+        yield {
+            "event": "on_chat_model_end",
+            "run_id": "run-1",
+            "data": {"output": _FakeOutput(tool_calls=[])},
+        }
+
+
 class RunTurnTests(unittest.TestCase):
     def test_tokens_are_buffered_and_only_yielded_as_draft(self):
         # CP67 removed tier 1's live-yield special case: every tier now
@@ -208,6 +241,44 @@ class RunTurnTests(unittest.TestCase):
         events = asyncio.run(_drive())
         self.assertNotIn(("token", "hello world"), events)
         self.assertEqual(events[-1], ("draft", "hello world"))
+
+    def test_web_search_tool_call_yields_detail_matching_the_query(self):
+        # CP68: a `web_search` call's activity event should surface the query
+        # verbatim as `detail`, and be tagged `kind == "tool"` since it is a
+        # direct tool call, not a delegated subagent.
+        agent = _ToolCallingAgent("web_search", {"query": "2027 engine regulations"})
+
+        async def _drive():
+            events = []
+            async for event in graph._run_turn(agent, {}, {}):
+                events.append(event)
+            return events
+
+        events = asyncio.run(_drive())
+        activity_events = [e for e in events if e[0] == "activity"]
+        self.assertEqual(len(activity_events), 2)  # start, done
+        for event in activity_events:
+            _, _label, _state, detail, kind = event
+            self.assertEqual(detail, "2027 engine regulations")
+            self.assertEqual(kind, "tool")
+
+    def test_task_tool_call_with_subagent_type_yields_agent_kind(self):
+        # CP68: delegating via `task` with a `subagent_type` should be tagged
+        # `kind == "agent"`, distinguishing it from a direct tool call.
+        agent = _ToolCallingAgent("task", {"subagent_type": "race-analyst"})
+
+        async def _drive():
+            events = []
+            async for event in graph._run_turn(agent, {}, {}):
+                events.append(event)
+            return events
+
+        events = asyncio.run(_drive())
+        activity_events = [e for e in events if e[0] == "activity"]
+        self.assertEqual(len(activity_events), 2)  # start, done
+        for event in activity_events:
+            _, _label, _state, _detail, kind = event
+            self.assertEqual(kind, "agent")
 
 
 class ChunkDraftTests(unittest.TestCase):
