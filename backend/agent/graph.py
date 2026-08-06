@@ -351,7 +351,7 @@ _DETAIL_ARG: dict[str, str] = {
     "web_search": "query",
     "web_extract": "urls",
     "wikipedia_summary": "title",
-    "resolve_context": "query",
+    "resolve_context": "hint",
 }
 
 

@@ -39,6 +39,7 @@ import {
 } from "@/lib/agent-api";
 import CitationPill from "./citation-pill";
 import SourceCard from "./source-card";
+import LocalDateTime from "./local-datetime";
 
 type ActivityEntry = {
   label: string;
@@ -55,6 +56,11 @@ type Message = {
   sources: AgentSource[];
   done: AgentDone | null;
   error: { code: string; message: string } | null;
+  // Client-side send/creation time (CP68) — this doesn't need to come from
+  // the backend, it just needs to be stable for the life of the bubble, the
+  // same reasoning `source-card.tsx` already applies to `as_of` via
+  // `LocalDateTime`.
+  timestampMs: number;
 };
 
 let nextId = 0;
@@ -119,6 +125,7 @@ export default function PitwallAssistantPanel({
         sources: [],
         done: null,
         error: null,
+        timestampMs: Date.now(),
       };
       const assistantId = newId();
       const assistantMessage: Message = {
@@ -129,6 +136,7 @@ export default function PitwallAssistantPanel({
         sources: [],
         done: null,
         error: null,
+        timestampMs: Date.now(),
       };
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
       setRunning(true);
@@ -270,10 +278,16 @@ export default function PitwallAssistantPanel({
 function MessageBubble({ message }: { message: Message }) {
   if (message.role === "user") {
     return (
-      <div className="flex justify-end">
+      <div className="flex flex-col items-end gap-1">
         <p className="max-w-[85%] rounded-2xl bg-[var(--color-primary)] px-4 py-2 text-sm text-[var(--color-on-primary)]">
           {message.text}
         </p>
+        <span className="pr-1 text-[10px] text-[var(--color-on-surface-variant)]">
+          <LocalDateTime
+            timestampMs={message.timestampMs}
+            options={{ hour: "2-digit", minute: "2-digit", hour12: false }}
+          />
+        </span>
       </div>
     );
   }
@@ -305,6 +319,15 @@ function MessageBubble({ message }: { message: Message }) {
             <SourceCard key={source.id} source={source} />
           ))}
         </div>
+      )}
+
+      {(message.text || message.error) && (
+        <span className="pl-1 text-[10px] text-[var(--color-on-surface-variant)]">
+          <LocalDateTime
+            timestampMs={message.timestampMs}
+            options={{ hour: "2-digit", minute: "2-digit", hour12: false }}
+          />
+        </span>
       )}
     </div>
   );

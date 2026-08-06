@@ -182,6 +182,52 @@ class CitationShapeTests(unittest.TestCase):
         second = ledger.append(source="s", data={})
         self.assertEqual(second.citation()["n"], 2)
 
+    def test_citation_url_is_populated_for_a_wikipedia_source(self):
+        ledger = EvidenceLedger()
+        entry = ledger.append(
+            source="web:wikipedia/Ayrton Senna",
+            data={
+                "title": "Ayrton Senna",
+                "page_url": "https://en.wikipedia.org/wiki/Ayrton_Senna",
+            },
+            tool="wikipedia_summary",
+        )
+        self.assertEqual(
+            entry.citation()["url"], "https://en.wikipedia.org/wiki/Ayrton_Senna"
+        )
+
+    def test_citation_url_is_populated_for_a_web_search_source_from_its_first_result(self):
+        ledger = EvidenceLedger()
+        entry = ledger.append(
+            source="web:tavily-search/2027 regulations",
+            data={
+                "query": "2027 regulations",
+                "results": [
+                    {"title": "F1 2027 rules", "url": "https://example.com/2027-rules"},
+                    {"title": "Other", "url": "https://example.com/other"},
+                ],
+            },
+            tool="web_search",
+        )
+        self.assertEqual(entry.citation()["url"], "https://example.com/2027-rules")
+
+    def test_citation_url_falls_back_to_none_for_a_web_source_with_no_url_in_data(self):
+        ledger = EvidenceLedger()
+        entry = ledger.append(
+            source="web:tavily-search/nothing found",
+            data={"query": "nothing found", "results": []},
+            tool="web_search",
+        )
+        self.assertIsNone(entry.citation()["url"])
+
+    def test_citation_url_stays_none_for_a_mongo_source_even_if_data_carries_one(self):
+        ledger = EvidenceLedger()
+        entry = ledger.append(
+            source="mongo:race_results/2026-14",
+            data={"url": "https://example.com/should-be-ignored"},
+        )
+        self.assertIsNone(entry.citation()["url"])
+
 
 class SerialisationTests(unittest.TestCase):
     def test_round_trip_preserves_entries(self):
