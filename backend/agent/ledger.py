@@ -41,6 +41,8 @@ import datetime
 from dataclasses import dataclass, field
 from typing import Any, Iterator
 
+from .labels import activity_label
+
 # `ev_` rather than something descriptive: see the module docstring on why an
 # id a model could guess the shape of is worse than an opaque one.
 ID_PREFIX = "ev_"
@@ -94,15 +96,43 @@ class Evidence:
         )
 
     def citation(self) -> dict:
-        """The shape `sse.sources()` renders as a chip under the answer.
+        """The shape `sse.sources()` renders as a source card under the answer.
+
+        `label` keeps its original raw `source` string (e.g.
+        `mongo:race_results/2026-14`) for identity/debugging — CP60's
+        `mongo_source()` docstring called this "deliberately readable," which
+        was true for a developer but not for the end user CP68 is fixing this
+        for. `title` is the new user-facing text: `activity_label(self.tool)`
+        when a tool produced this entry (the overwhelming majority — every
+        internal and web tool passes `tool=`), falling back to the raw
+        `source` only for the rare hand-built entry with no `tool` at all.
+
+        `kind` is derived from `source`'s own prefix convention
+        (`agent/tools/base.py`'s `mongo_source`/web tools already establish
+        `mongo:`/`web:` prefixes) rather than stored separately, so it can
+        never drift out of sync with the string it describes.
+
+        `n` is the evidence id's own numeric suffix, exposed directly so the
+        frontend never needs to parse `ev_N` itself.
 
         `url` is always None for internal tools — a Mongo collection has no
         public address. It is kept in the shape anyway so CP62's web tools,
         which do have one, need no second citation format.
         """
+        title = activity_label(self.tool) if self.tool else self.source
+        if self.source.startswith("web:wikipedia/"):
+            kind = "wikipedia"
+        elif self.source.startswith("web:"):
+            kind = "web"
+        else:
+            kind = "data"
+        n = int(self.evidence_id.rsplit("_", 1)[-1]) if "_" in self.evidence_id else 0
         return {
             "id": self.evidence_id,
+            "n": n,
+            "kind": kind,
             "label": self.source,
+            "title": title,
             "url": None,
             "as_of": self.as_of,
         }
