@@ -28,6 +28,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import { motion, useReducedMotion } from "motion/react";
@@ -82,11 +83,119 @@ function newId(): string {
   return `m${nextId}`;
 }
 
-const SUGGESTIONS = [
+/**
+ * Contextual suggested prompts (CP70). Matched on route *shape* — via regex
+ * against the pathname's segment pattern — rather than exact strings, since
+ * `/schedule/[season]/[round]` and `/circuits/[circuitId]` are dynamically
+ * routed and the actual season/round/circuit values are unbounded. Checked
+ * most-specific-first (the pitwall live-session route is a more specific
+ * case of the season/round race-weekend route, so it must be tested before
+ * the broader pattern or it would never match).
+ */
+const ROUTE_SUGGESTIONS: { pattern: RegExp; suggestions: string[] }[] = [
+  {
+    // /schedule/[season]/[round]/pitwall — the live/session timing page.
+    pattern: /^\/schedule\/[^/]+\/[^/]+\/pitwall\/?$/,
+    suggestions: [
+      "What's happening in this session right now?",
+      "Summarize the race control messages so far",
+      "Who's currently on the fastest lap?",
+    ],
+  },
+  {
+    // /schedule/[season]/[round] — a single race weekend's results/details.
+    pattern: /^\/schedule\/[^/]+\/[^/]+\/?$/,
+    suggestions: [
+      "Who won this race?",
+      "Walk me through this race's key moments",
+      "What was the podium and fastest lap?",
+    ],
+  },
+  {
+    // /schedule — the full-season calendar/list.
+    pattern: /^\/schedule\/?$/,
+    suggestions: [
+      "When is the next race?",
+      "How many races are left this season?",
+      "Which circuit hosts the most iconic race?",
+    ],
+  },
+  {
+    pattern: /^\/standings\/?$/,
+    suggestions: [
+      "Who's leading the drivers' championship?",
+      "How close is the constructors' title fight?",
+      "How has the championship lead changed this season?",
+    ],
+  },
+  {
+    pattern: /^\/drivers\/?$/,
+    suggestions: [
+      "Compare Verstappen and Norris this season",
+      "Who has the most race wins this season?",
+      "Which driver has the best qualifying record?",
+    ],
+  },
+  {
+    pattern: /^\/teams\/?$/,
+    suggestions: [
+      "Which team has the fastest car this season?",
+      "Compare the top two constructors this season",
+      "Who has the most reliable car this season?",
+    ],
+  },
+  {
+    // /circuits/[circuitId] — a single circuit's detail page.
+    pattern: /^\/circuits\/[^/]+\/?$/,
+    suggestions: [
+      "What's the lap record at this circuit?",
+      "Who has won the most races here?",
+      "What makes this circuit challenging to drive?",
+    ],
+  },
+  {
+    // /circuits — the full circuit gallery/list.
+    pattern: /^\/circuits\/?$/,
+    suggestions: [
+      "Who has the most wins at Monaco in F1 history?",
+      "Which circuit has produced the most overtakes?",
+      "What's the fastest circuit on the calendar?",
+    ],
+  },
+  {
+    pattern: /^\/telemetry\/?$/,
+    suggestions: [
+      "What's happening in the session right now?",
+      "Who's currently fastest on track?",
+      "Explain what these telemetry traces show",
+    ],
+  },
+  {
+    pattern: /^\/history\/?$/,
+    suggestions: [
+      "Who has the most world championships?",
+      "What was the closest title fight in F1 history?",
+      "Tell me about a famous rivalry in F1 history",
+    ],
+  },
+];
+
+const DEFAULT_SUGGESTIONS = [
   "Who won the last race?",
   "Compare Verstappen and Norris this season",
   "Who has the most wins at Monaco in F1 history?",
 ];
+
+/**
+ * Pure lookup: pathname → the 3 suggestions shown before the first message.
+ * Falls back to `DEFAULT_SUGGESTIONS` for the home page and any route this
+ * table doesn't otherwise recognize, so a new page added later degrades
+ * gracefully instead of rendering nothing.
+ */
+function suggestionsForPath(pathname: string): string[] {
+  const match = ROUTE_SUGGESTIONS.find((entry) => entry.pattern.test(pathname));
+  return match ? match.suggestions : DEFAULT_SUGGESTIONS;
+}
 
 export default function PitwallAssistantPanel({
   onClose,
@@ -94,6 +203,16 @@ export default function PitwallAssistantPanel({
   onClose: () => void;
 }) {
   const reduce = useReducedMotion();
+  // CP70: suggested prompts vary by the page the panel was opened from —
+  // `usePathname()` is the same established pattern `nav-links.tsx` already
+  // uses for its own active-link highlighting. `suggestionsForPath` is
+  // called directly at its JSX usage site below rather than hoisted into a
+  // top-level `const` here: hoisting it confused the React Compiler's
+  // dependency inference for the unrelated `ask` callback further down
+  // (`Compilation Skipped: Existing memoization could not be preserved`) —
+  // calling it inline at the render site sidesteps that without changing
+  // behavior, since it's a cheap pure function either way.
+  const pathname = usePathname();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [running, setRunning] = useState(false);
@@ -333,7 +452,7 @@ export default function PitwallAssistantPanel({
                 Ask about a race, a driver, a season, or F1 history.
               </p>
               <div className="flex flex-col gap-2">
-                {SUGGESTIONS.map((suggestion) => (
+                {suggestionsForPath(pathname ?? "/").map((suggestion) => (
                   <button
                     key={suggestion}
                     onClick={() => ask(suggestion)}
