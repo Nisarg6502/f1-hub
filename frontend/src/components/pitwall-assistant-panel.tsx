@@ -107,6 +107,22 @@ export default function PitwallAssistantPanel({
   // since submitting implies "show me the answer".
   const messageListRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
+  // Elapsed-time indicator (CP70). Purely client-side and independent of the
+  // backend SSE heartbeat — `Date.now()` at submit time, ticked every second
+  // via `setInterval` while a turn is in flight. Once `done` arrives we stop
+  // trusting the client clock and switch to `AgentDone.elapsed_ms`, the
+  // server's own settled figure, which is why this is `number | null` rather
+  // than derived purely from a start-time ref: `null` means "no turn
+  // in flight and nothing to show".
+  const [elapsedSec, setElapsedSec] = useState<number | null>(null);
+  const elapsedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopElapsedTimer = useCallback(() => {
+    if (elapsedIntervalRef.current !== null) {
+      clearInterval(elapsedIntervalRef.current);
+      elapsedIntervalRef.current = null;
+    }
+  }, []);
 
   const handleMessageListScroll = useCallback(() => {
     const el = messageListRef.current;
@@ -130,8 +146,9 @@ export default function PitwallAssistantPanel({
       // is watching anymore — the same reasoning `agent-api.ts`'s own
       // docstring gives for supporting `signal` at all.
       abortRef.current?.abort();
+      stopElapsedTimer();
     };
-  }, [onClose]);
+  }, [onClose, stopElapsedTimer]);
 
   // Shared by `ask`'s stream handlers and `FeedbackControls`' `onVote` — one
   // state-update mechanism for "patch the message with this id", not two.
@@ -184,6 +201,16 @@ export default function PitwallAssistantPanel({
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
       setRunning(true);
 
+      // Start the elapsed-time tick. `startedAt` is closed over rather than
+      // read from a ref on every tick — it's fixed for the life of this
+      // turn, same reasoning `ask` already applies to `trimmed`.
+      const startedAt = Date.now();
+      setElapsedSec(0);
+      stopElapsedTimer();
+      elapsedIntervalRef.current = setInterval(() => {
+        setElapsedSec(Math.floor((Date.now() - startedAt) / 1000));
+      }, 1000);
+
       const controller = new AbortController();
       abortRef.current = controller;
 
@@ -212,9 +239,12 @@ export default function PitwallAssistantPanel({
             error: { code: "network", message: err.message },
           }));
         })
-        .finally(() => setRunning(false));
+        .finally(() => {
+          stopElapsedTimer();
+          setRunning(false);
+        });
     },
-    [running, patchMessage]
+    [running, patchMessage, stopElapsedTimer]
   );
 
   const send = useCallback(() => ask(input), [ask, input]);
@@ -301,8 +331,15 @@ export default function PitwallAssistantPanel({
               </div>
             </div>
           )}
-          {messages.map((message) => (
-            <MessageBubble key={message.id} message={message} onVote={onVote} />
+          {messages.map((message, index) => (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              onVote={onVote}
+              liveElapsedSec={
+                running && index === messages.length - 1 ? elapsedSec : null
+              }
+            />
           ))}
         </div>
 
@@ -338,9 +375,15 @@ export default function PitwallAssistantPanel({
 function MessageBubble({
   message,
   onVote,
+  liveElapsedSec,
 }: {
   message: Message;
   onVote: (messageId: string, runId: string, score: 1 | -1, comment?: string) => void;
+  // CP70: seconds elapsed for this turn while it's still in flight
+  // (`null` once settled or if this isn't the active turn). `message.done`
+  // carries the server-settled `elapsed_ms` once the turn completes, which
+  // takes precedence over this client-ticked figure — see `ElapsedIndicator`.
+  liveElapsedSec?: number | null;
 }) {
   if (message.role === "user") {
     return (
@@ -360,6 +403,8 @@ function MessageBubble({
 
   return (
     <div className="flex flex-col gap-2">
+      <ElapsedIndicator done={message.done} liveElapsedSec={liveElapsedSec} />
+
       {message.activity.length > 0 && (
         <ActivityTimeline activity={message.activity} />
       )}
@@ -468,6 +513,36 @@ function ActivityTimeline({ activity }: { activity: ActivityEntry[] }) {
           </li>
         ))}
     </ul>
+  );
+}
+
+/**
+ * Small "Xs" elapsed-time readout (CP70) shown while a turn is in flight,
+ * in the same unobtrusive muted-text style as the rest of this panel's
+ * metadata. Prefers the server-settled `done.elapsed_ms` once available —
+ * the client-side interval is only trusted up until `done` arrives, per the
+ * plan's own reasoning (a client clock can drift; the server's own figure
+ * is the source of truth for the final number).
+ */
+function ElapsedIndicator({
+  done,
+  liveElapsedSec,
+}: {
+  done: AgentDone | null;
+  liveElapsedSec?: number | null;
+}) {
+  if (done) {
+    return (
+      <span className="text-[10px] text-[var(--color-on-surface-variant)]">
+        {Math.round(done.elapsed_ms / 1000)}s
+      </span>
+    );
+  }
+  if (liveElapsedSec == null) return null;
+  return (
+    <span className="text-[10px] text-[var(--color-on-surface-variant)]">
+      {liveElapsedSec}s
+    </span>
   );
 }
 
