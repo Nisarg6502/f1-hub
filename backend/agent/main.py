@@ -28,7 +28,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from . import answer_cache, checkpointer, concurrency, config, graph, guardrails, model, sse, tracing
 from .ledger import EvidenceLedger
@@ -397,6 +397,81 @@ async def chat(request: ChatRequest) -> StreamingResponse:
         media_type=sse.MEDIA_TYPE,
         headers=sse.SSE_HEADERS,
     )
+
+
+# Fixed, arbitrary namespace for deriving feedback ids below — any stable
+# UUID works here; it only has to be constant across process restarts so the
+# same `run_id` always maps to the same `feedback_id`. Not `uuid.NAMESPACE_DNS`
+# or another well-known namespace, to avoid colliding with ids anyone else
+# might derive the same way for an unrelated purpose.
+_FEEDBACK_NAMESPACE = uuid.UUID("7f2b6e5a-2a34-4b7e-9d33-6f0a3c9d5e21")
+
+
+class FeedbackRequest(BaseModel):
+    # Deliberately required (not `Optional[str]`): a caller sending a
+    # null/missing `run_id` gets a 422, not a soft `{"recorded": false}`.
+    # `FeedbackControls` never renders/submits without a truthy `run_id` in
+    # the first place (see that component's docstring), so a null here is a
+    # client bug worth surfacing, not telemetry to swallow — matches
+    # `test_agent_feedback.py`'s `test_null_run_id_is_a_pydantic_422_and_calls_nothing`.
+    run_id: str = Field(..., description="The LangSmith run id from the matching `done` event")
+    score: int = Field(..., description="1 for thumbs up, -1 for thumbs down")
+    comment: str | None = Field(None, description="Optional free-text, typically on thumbs-down")
+
+    @field_validator("score")
+    @classmethod
+    def _score_is_a_thumb(cls, v: int) -> int:
+        if v not in (-1, 1):
+            raise ValueError("score must be 1 or -1")
+        return v
+
+
+@app.post("/api/feedback")
+async def feedback(request: FeedbackRequest) -> dict:
+    """Forward a thumbs up/down to LangSmith, fail-soft.
+
+    Telemetry, not the answer itself — a broken LangSmith install, an
+    unconfigured project, or a missing run id (e.g. a cached answer, which
+    never opens a trace) must degrade to `{"recorded": False}`, never a
+    user-visible error. Matches `tracing.py`'s own bare-except discipline.
+
+    `feedback_id` is derived deterministically from `run_id` (`uuid.uuid5`
+    against `_FEEDBACK_NAMESPACE`) rather than left to LangSmith's default
+    random id, so a repeated POST for the same `run_id` — a double-click
+    landing before React commits the `disabled` state on the thumbs-up
+    button (`feedback-controls.tsx`), or a devtools/curl replay — always
+    produces the same id instead of a fresh one each time. Whether the
+    installed `langsmith` SDK's backend treats a repeated `feedback_id` as an
+    upsert could not be confirmed: `Client.create_feedback`'s docstring does
+    not document that behavior, and the SDK ships a *separate*
+    `Client.update_feedback(feedback_id, ...)` method, which suggests
+    create and update are genuinely distinct server-side operations rather
+    than the same POST upserting on id collision. See `HANDOFF.md`'s CP69
+    paragraph: this is applied as defense-in-depth (real dedupe if the
+    backend does upsert on id collision; otherwise a harmless no-op), not
+    relied on as a proven fix — server-side dedupe remains an accepted risk
+    either way, appropriate for a telemetry-only, fail-soft, already
+    unauthenticated endpoint.
+    """
+    if not _TRACING_LIVE or not request.run_id:
+        return {"recorded": False}
+    feedback_id = str(uuid.uuid5(_FEEDBACK_NAMESPACE, f"{request.run_id}:user-score"))
+    try:
+        import langsmith
+
+        client = langsmith.Client()
+        await asyncio.to_thread(
+            client.create_feedback,
+            request.run_id,
+            key="user-score",
+            score=request.score,
+            comment=request.comment,
+            feedback_id=feedback_id,
+        )
+        return {"recorded": True}
+    except Exception as exc:  # telemetry: degrade, never 500 the client — matches tracing.py's rule
+        print(f"feedback not recorded: {exc}")
+        return {"recorded": False}
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -17,3 +17,9 @@ scipy>=1.10
 #                          track_geometry_builds progress document
 google-cloud-storage>=2.14
 pymongo[srv]>=4.6
+
+# curate_goldens.py (CP69). Pinned to match backend/requirements-agent.txt's
+# own `langsmith~=0.10.0` so the two never drift on what a "run"/"feedback"
+# object looks like, even though this script runs in the root venv, not the
+# backend's — see curate_goldens.py's own module docstring for that call.
+langsmith~=0.10.0

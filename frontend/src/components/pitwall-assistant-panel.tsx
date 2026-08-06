@@ -33,6 +33,7 @@ import ReactMarkdown from "react-markdown";
 import { motion, useReducedMotion } from "motion/react";
 import {
   streamChat,
+  postFeedback,
   rewriteCitations,
   type AgentDone,
   type AgentSource,
@@ -40,6 +41,7 @@ import {
 import CitationPill from "./citation-pill";
 import SourceCard from "./source-card";
 import LocalDateTime from "./local-datetime";
+import FeedbackControls from "./feedback-controls";
 
 type ActivityEntry = {
   label: string;
@@ -61,6 +63,11 @@ type Message = {
   // same reasoning `source-card.tsx` already applies to `as_of` via
   // `LocalDateTime`.
   timestampMs: number;
+  // CP69: one vote per message, client-side only. `done.run_id` (already
+  // present since CP63/CP69's own research) is the id `postFeedback` needs —
+  // no separate field required, `FeedbackControls` reads it straight off
+  // `message.done`.
+  feedback: 1 | -1 | null;
 };
 
 let nextId = 0;
@@ -111,6 +118,22 @@ export default function PitwallAssistantPanel({
     };
   }, [onClose]);
 
+  // Shared by `ask`'s stream handlers and `FeedbackControls`' `onVote` — one
+  // state-update mechanism for "patch the message with this id", not two.
+  const patchMessage = useCallback(
+    (id: string, fn: (m: Message) => Message) =>
+      setMessages((prev) => prev.map((m) => (m.id === id ? fn(m) : m))),
+    []
+  );
+
+  const onVote = useCallback(
+    (messageId: string, runId: string, score: 1 | -1, comment?: string) => {
+      postFeedback(runId, score, comment);
+      patchMessage(messageId, (m) => ({ ...m, feedback: score }));
+    },
+    [patchMessage]
+  );
+
   const ask = useCallback(
     (question: string) => {
       const trimmed = question.trim();
@@ -126,6 +149,7 @@ export default function PitwallAssistantPanel({
         done: null,
         error: null,
         timestampMs: Date.now(),
+        feedback: null,
       };
       const assistantId = newId();
       const assistantMessage: Message = {
@@ -137,6 +161,7 @@ export default function PitwallAssistantPanel({
         done: null,
         error: null,
         timestampMs: Date.now(),
+        feedback: null,
       };
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
       setRunning(true);
@@ -144,10 +169,7 @@ export default function PitwallAssistantPanel({
       const controller = new AbortController();
       abortRef.current = controller;
 
-      const patch = (fn: (m: Message) => Message) =>
-        setMessages((prev) =>
-          prev.map((m) => (m.id === assistantId ? fn(m) : m))
-        );
+      const patch = (fn: (m: Message) => Message) => patchMessage(assistantId, fn);
 
       streamChat(
         trimmed,
@@ -174,7 +196,7 @@ export default function PitwallAssistantPanel({
         })
         .finally(() => setRunning(false));
     },
-    [running]
+    [running, patchMessage]
   );
 
   const send = useCallback(() => ask(input), [ask, input]);
@@ -242,7 +264,7 @@ export default function PitwallAssistantPanel({
             </div>
           )}
           {messages.map((message) => (
-            <MessageBubble key={message.id} message={message} />
+            <MessageBubble key={message.id} message={message} onVote={onVote} />
           ))}
         </div>
 
@@ -275,7 +297,13 @@ export default function PitwallAssistantPanel({
   );
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({
+  message,
+  onVote,
+}: {
+  message: Message;
+  onVote: (messageId: string, runId: string, score: 1 | -1, comment?: string) => void;
+}) {
   if (message.role === "user") {
     return (
       <div className="flex flex-col items-end gap-1">
@@ -311,6 +339,18 @@ function MessageBubble({ message }: { message: Message }) {
             <StatusFooter done={message.done} />
           </div>
         )
+      )}
+
+      {!message.error && message.done && (
+        <FeedbackControls
+          runId={message.done.run_id}
+          feedback={message.feedback}
+          echoMode={message.done.mode === "echo"}
+          onVote={(score, comment) => {
+            if (!message.done?.run_id) return;
+            onVote(message.id, message.done.run_id, score, comment);
+          }}
+        />
       )}
 
       {message.sources.length > 0 && (
