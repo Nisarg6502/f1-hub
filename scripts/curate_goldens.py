@@ -109,7 +109,13 @@ def fetch_thumbs_down_runs(client, since_days: int, limit: int) -> list[dict]:
             {
                 "run_id": str(run_id),
                 "question": inputs.get("message", ""),
-                "answer": outputs.get("answer", ""),  # rarely present, see docstring
+                # Defensive/aspirational: `main.py`'s `tracing.end(run, {...})` never
+                # records an "answer" key today (only mode, chars, evidence, tier,
+                # verification, verification_violations), so this always returns ""
+                # with the current `traced_run` outputs shape. Kept for a future
+                # shape change rather than removed; the empty case is handled
+                # correctly downstream either way.
+                "answer": outputs.get("answer", ""),
                 "tier": outputs.get("tier"),
                 "verification": outputs.get("verification"),
                 "verification_violations": outputs.get("verification_violations"),

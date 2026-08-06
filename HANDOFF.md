@@ -223,6 +223,20 @@ were deferred at CP65, and are now built, as of CP69.** See
 `f2bbc5f`), and the frontend thumbs UI on `/pitwall-chat`'s assistant panel wires both together
 (commit `394deaa`). This closes the deferral recorded below verbatim.
 
+**Server-side vote dedupe on `POST /api/feedback` remains an accepted risk, not a proven fix.**
+A whole-branch review flagged that a rapid double-click or a devtools/curl replay could post the
+same `run_id` twice with nothing stopping it server-side. The mitigation applied: `feedback_id` is
+now derived deterministically from `run_id` via `uuid.uuid5` against a fixed namespace, so repeats
+of the same `run_id` always produce the same `feedback_id` instead of a fresh random one. Whether
+this actually dedupes depends on whether the LangSmith backend treats a repeated `feedback_id` as
+an upsert — the installed `langsmith` SDK (0.10.15) does not document that behavior in
+`Client.create_feedback`'s docstring, and it ships a separate `Client.update_feedback(feedback_id,
+...)` method, which suggests create and update are distinct server-side operations rather than the
+same POST upserting on id collision. Applied as defense-in-depth on the (plausible but unconfirmed)
+chance the backend does dedupe on id, not relied on as a proven fix. Acceptable given the endpoint
+is telemetry-only, fail-soft, and already unauthenticated — a duplicate vote in LangSmith is not a
+user-facing failure.
+
 **No deploy needed for CP65** — pure test/CI infrastructure, no runtime code in `agent/graph.py`,
 `agent/main.py` or any other file the deployed service actually imports.
 

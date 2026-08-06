@@ -83,6 +83,11 @@ class RecordsWhenConfiguredTests(unittest.TestCase):
         self.assertEqual(args[0], "run-123")
         self.assertEqual(kwargs["key"], "user-score")
         self.assertEqual(kwargs["score"], 1)
+        self.assertIn("feedback_id", kwargs)
+        self.assertEqual(
+            kwargs["feedback_id"],
+            str(main.uuid.uuid5(main._FEEDBACK_NAMESPACE, "run-123:user-score")),
+        )
 
     @patch.object(main, "_TRACING_LIVE", True)
     def test_thumbs_down_with_comment_records(self):
@@ -100,6 +105,46 @@ class RecordsWhenConfiguredTests(unittest.TestCase):
         _, kwargs = fake_client.create_feedback.call_args
         self.assertEqual(kwargs["score"], -1)
         self.assertEqual(kwargs["comment"], "wrong driver")
+
+
+class FeedbackIdIsDeterministicTests(unittest.TestCase):
+    """The `feedback_id` derived from `run_id` must be stable across calls —
+    that's the whole mitigation for a double-click or replay posting the same
+    `run_id` twice (see `main.feedback`'s docstring for the caveat about
+    whether the LangSmith backend actually dedupes on it)."""
+
+    @patch.object(main, "_TRACING_LIVE", True)
+    def test_same_run_id_always_derives_the_same_feedback_id(self):
+        fake_client = MagicMock()
+        fake_client_cls = MagicMock(return_value=fake_client)
+        fake_langsmith = MagicMock(Client=fake_client_cls)
+
+        with patch.dict(sys.modules, {"langsmith": fake_langsmith}):
+            post_feedback({"run_id": "run-dup", "score": 1})
+            post_feedback({"run_id": "run-dup", "score": 1})
+
+        self.assertEqual(fake_client.create_feedback.call_count, 2)
+        first_id = fake_client.create_feedback.call_args_list[0].kwargs["feedback_id"]
+        second_id = fake_client.create_feedback.call_args_list[1].kwargs["feedback_id"]
+        self.assertEqual(first_id, second_id)
+        self.assertEqual(
+            first_id,
+            str(main.uuid.uuid5(main._FEEDBACK_NAMESPACE, "run-dup:user-score")),
+        )
+
+    @patch.object(main, "_TRACING_LIVE", True)
+    def test_different_run_ids_derive_different_feedback_ids(self):
+        fake_client = MagicMock()
+        fake_client_cls = MagicMock(return_value=fake_client)
+        fake_langsmith = MagicMock(Client=fake_client_cls)
+
+        with patch.dict(sys.modules, {"langsmith": fake_langsmith}):
+            post_feedback({"run_id": "run-a", "score": 1})
+            post_feedback({"run_id": "run-b", "score": 1})
+
+        first_id = fake_client.create_feedback.call_args_list[0].kwargs["feedback_id"]
+        second_id = fake_client.create_feedback.call_args_list[1].kwargs["feedback_id"]
+        self.assertNotEqual(first_id, second_id)
 
 
 class FailsSoftTests(unittest.TestCase):
