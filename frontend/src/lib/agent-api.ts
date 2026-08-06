@@ -234,6 +234,38 @@ export async function streamChat(
   }
 }
 
+/**
+ * Record a thumbs up/down on a completed answer (CP69).
+ *
+ * Fire-and-forget, mirroring `streamChat`'s fetch setup minus the SSE
+ * reader — a feedback POST is a single request/response, not a stream. The
+ * backend's own contract (`POST /api/feedback`) is fail-soft: it always
+ * returns 200 with `{"recorded": bool}`, never a hard error, so there is
+ * nothing useful to surface to the user even on failure. Network errors are
+ * swallowed here for the same reason — a dropped vote is telemetry loss,
+ * not a user-visible error.
+ *
+ * Callers must not invoke this with a falsy `runId` — the backend's
+ * `FeedbackRequest.run_id` is a required, non-optional field and rejects a
+ * missing/null value with a 422. The caller (`FeedbackControls`) enforces
+ * this by simply not rendering when there's no run id to attach a vote to.
+ */
+export async function postFeedback(
+  runId: string,
+  score: 1 | -1,
+  comment?: string
+): Promise<void> {
+  try {
+    await fetch(new URL("/api/feedback", AGENT_BASE_URL).toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ run_id: runId, score, comment: comment ?? null }),
+    });
+  } catch {
+    // Fire-and-forget telemetry — a failed vote is not a user-visible error.
+  }
+}
+
 function dispatch(event: string, data: unknown, handlers: AgentHandlers): void {
   const payload = (data ?? {}) as Record<string, unknown>;
   switch (event) {
