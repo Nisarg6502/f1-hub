@@ -364,6 +364,41 @@ the Turn 1 grandstands and tower. The bare-earth number is the racing surface, s
 it is kept — clean data that disagrees with a published scalar is still clean
 data, and the UI should show both.
 
+## Golden-set curation (CP69)
+
+`curate_goldens.py` mines LangSmith thumbs-down feedback (CP69's `POST
+/api/feedback`, wired in `backend/agent/main.py`) into human-reviewable
+golden-set candidates. It runs in this same root `scripts/` venv as
+`build_track_geometry.py` (see its own module docstring for why), not the
+backend agent's venv:
+
+```bash
+pip install -r scripts/requirements.txt
+python scripts/curate_goldens.py --dry-run
+python scripts/curate_goldens.py --since 14 --limit 50
+```
+
+| flag | what it does |
+|---|---|
+| `--since N` | lookback window in days (default 7) |
+| `--limit N` | max thumbs-down runs to fetch (default 20) |
+| `--dry-run` | print the query plan and stop, no LangSmith call |
+| `--out FILE` | write proposed candidates to a file instead of stdout |
+
+Environment: `LANGSMITH_API_KEY` (and whatever else `langsmith.Client()`
+reads) must be set for anything beyond `--dry-run`.
+
+**It never writes to `agent/golden_set.py`.** It only prints a proposed
+`GoldenCase(...)` or `KnownHardCase(...)` Python literal per thumbs-down run,
+for a human to read and paste in themselves — see `agent/golden_set.py`'s own
+docstring on why hand-curated review matters here, and `curate_goldens.py`'s
+module docstring for the exact heuristic used to choose which dataclass to
+propose.
+
+Tests: `python -m unittest discover scripts/tests` (covers only the pure
+`format_candidate` formatter — the LangSmith query path is I/O, verified by
+running the script for real).
+
 ## Adding a circuit
 
 1. `--list-remote` to find its GeoJSON id. **Check the length and name**, do not
