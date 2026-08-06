@@ -100,6 +100,21 @@ export default function PitwallAssistantPanel({
   const threadId = useRef(crypto.randomUUID());
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Auto-scroll-while-streaming (CP70). A ref, not state — this is read on
+  // every scroll tick and every token, and re-rendering the whole panel on
+  // each scroll pixel would be wasteful. `true` until the user scrolls away
+  // from the bottom themselves; sending a new question always resets it,
+  // since submitting implies "show me the answer".
+  const messageListRef = useRef<HTMLDivElement>(null);
+  const isAtBottomRef = useRef(true);
+
+  const handleMessageListScroll = useCallback(() => {
+    const el = messageListRef.current;
+    if (!el) return;
+    const THRESHOLD = 48;
+    isAtBottomRef.current =
+      el.scrollTop + el.clientHeight >= el.scrollHeight - THRESHOLD;
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -139,6 +154,9 @@ export default function PitwallAssistantPanel({
       const trimmed = question.trim();
       if (!trimmed || running) return;
       setInput("");
+      // A fresh question always implies "show me the answer" — resume
+      // auto-follow even if the user had scrolled up during a prior turn.
+      isAtBottomRef.current = true;
 
       const userMessage: Message = {
         id: newId(),
@@ -202,6 +220,22 @@ export default function PitwallAssistantPanel({
   const send = useCallback(() => ask(input), [ask, input]);
   const cancel = useCallback(() => abortRef.current?.abort(), []);
 
+  // Follow the stream to the bottom as new content arrives — but only while
+  // the user is still parked at the bottom. Keyed on the streaming message's
+  // text length (plus activity/sources counts, which also grow the bubble's
+  // height) rather than the whole `messages` array, so this doesn't re-fire
+  // on unrelated state changes like `feedback`.
+  const lastMessage = messages[messages.length - 1];
+  const streamingSignature = lastMessage
+    ? `${lastMessage.id}:${lastMessage.text.length}:${lastMessage.activity.length}:${lastMessage.sources.length}:${lastMessage.done ? 1 : 0}:${lastMessage.error ? 1 : 0}`
+    : "";
+  useEffect(() => {
+    if (!isAtBottomRef.current) return;
+    const el = messageListRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [streamingSignature]);
+
   return createPortal(
     <motion.div
       onClick={onClose}
@@ -244,7 +278,11 @@ export default function PitwallAssistantPanel({
           </button>
         </div>
 
-        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
+        <div
+          ref={messageListRef}
+          onScroll={handleMessageListScroll}
+          className="flex-1 space-y-4 overflow-y-auto px-5 py-5"
+        >
           {messages.length === 0 && (
             <div className="space-y-3">
               <p className="text-sm text-[var(--color-on-surface-variant)]">
