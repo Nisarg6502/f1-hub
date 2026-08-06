@@ -7,10 +7,20 @@ The frontend parses what this module emits, so this module is the contract.
 
 Event types, in the order a normal answer produces them:
 
-    activity   {"label": str, "state": "start"|"done"}
+    activity   {"label": str, "state": "start"|"done", "detail": str|None,
+                 "kind": "tool"|"agent"|"system", "at": str|None}
         Narrates what the system is doing ("Reading Hungarian GP race
         control…"). This is what makes the agentic architecture visible in the
-        UI rather than a spinner.
+        UI rather than a spinner. `detail` (CP68) is the human-legible
+        argument behind a tool call — a search query, a page title — when one
+        exists; `None` for tools with no single legible argument (internal
+        data lookups keyed by raw ids) and for `kind="system"` events (queue
+        waits, "Thinking…", the echo notice). `kind` distinguishes a direct
+        tool call from a delegated subagent call (`"agent"`) from a
+        system-level narration (`"system"`), so the UI can style each
+        differently. `at` is a live ISO-8601 UTC timestamp set when the event
+        is actually put on the wire, not when the underlying tool call
+        started — always present.
     token      {"text": str}
         One delta of answer text. Many of these.
     sources    {"sources": [{"id", "label", "url"|None, "as_of"}]}
@@ -70,8 +80,18 @@ def frame(event: str, data: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def activity(label: str, state: str = "start") -> str:
-    return frame("activity", {"label": label, "state": state})
+def activity(
+    label: str,
+    state: str = "start",
+    *,
+    detail: str | None = None,
+    kind: str = "tool",
+    at: str | None = None,
+) -> str:
+    return frame(
+        "activity",
+        {"label": label, "state": state, "detail": detail, "kind": kind, "at": at},
+    )
 
 
 def token(text: str) -> str:

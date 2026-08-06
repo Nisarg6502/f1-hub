@@ -329,13 +329,43 @@ def _classify_ollama_error(error: "ollama.ResponseError") -> model_seam.ModelErr
 # --- Streaming ----------------------------------------------------------------
 
 AgentEvent = tuple[str, ...]
-"""`("activity", label, state)`, `("token", text)`, `("tier", int, reason)` or
-`("verification", passed, violation_count)` — what `main.py` turns into SSE
-frames / the `done` event's `tier` and `verification` fields. Kept as a plain
-tuple rather than a dataclass so this module has no import surface beyond
-what `main.py` already needs. `("draft", text)` is a third internal kind
-`_run_turn` yields but `astream_answer` never re-yields outward — see
-`_run_turn`'s docstring."""
+"""`("activity", label, state, detail, kind)` for a tool/agent call —
+`detail`/`kind` from `_activity_detail`/CP68's tool-vs-agent split — or the
+plain 3-tuple `("activity", label, state)` for the system-level narrations
+`_run_turn` doesn't originate (queue waits, "Thinking…", the echo notice);
+`main.py`'s `_stream` accepts both shapes. Also `("token", text)`,
+`("tier", int, reason)` or `("verification", passed, violation_count)` — what
+`main.py` turns into SSE frames / the `done` event's `tier` and
+`verification` fields. Kept as a plain tuple rather than a dataclass so this
+module has no import surface beyond what `main.py` already needs.
+`("draft", text)` is a third internal kind `_run_turn` yields but
+`astream_answer` never re-yields outward — see `_run_turn`'s docstring."""
+
+
+# Tools whose single most-useful argument is worth surfacing verbatim in the
+# activity timeline — CP68's answer to "say what it's searching for", scoped
+# to the tools where a human-legible detail actually exists in the call
+# arguments. Internal data tools (season/round/driver ids) are left
+# unlabelled here rather than surfaced as raw ids a user cannot read.
+_DETAIL_ARG: dict[str, str] = {
+    "web_search": "query",
+    "web_extract": "urls",
+    "wikipedia_summary": "title",
+    "resolve_context": "query",
+}
+
+
+def _activity_detail(tool_name: str, tool_input: dict) -> str | None:
+    arg_name = _DETAIL_ARG.get(tool_name)
+    if not arg_name:
+        return None
+    value = tool_input.get(arg_name)
+    if isinstance(value, list):
+        value = ", ".join(str(v) for v in value)
+    if not value:
+        return None
+    text = str(value)
+    return text if len(text) <= 80 else text[:77] + "…"
 
 
 async def _run_turn(
@@ -383,12 +413,28 @@ async def _run_turn(
                 parts.extend(buffered)
 
         elif kind == "on_tool_start" and name:
-            subagent_type = ((event.get("data") or {}).get("input") or {}).get("subagent_type")
-            yield ("activity", activity_label(name, subagent_type=subagent_type), "start")
+            tool_input = (event.get("data") or {}).get("input") or {}
+            subagent_type = tool_input.get("subagent_type")
+            activity_kind = "agent" if name == "task" and subagent_type else "tool"
+            yield (
+                "activity",
+                activity_label(name, subagent_type=subagent_type),
+                "start",
+                _activity_detail(name, tool_input),
+                activity_kind,
+            )
 
         elif kind == "on_tool_end" and name:
-            subagent_type = ((event.get("data") or {}).get("input") or {}).get("subagent_type")
-            yield ("activity", activity_label(name, subagent_type=subagent_type), "done")
+            tool_input = (event.get("data") or {}).get("input") or {}
+            subagent_type = tool_input.get("subagent_type")
+            activity_kind = "agent" if name == "task" and subagent_type else "tool"
+            yield (
+                "activity",
+                activity_label(name, subagent_type=subagent_type),
+                "done",
+                _activity_detail(name, tool_input),
+                activity_kind,
+            )
 
     yield ("draft", "".join(parts))
 

@@ -19,6 +19,7 @@ Run locally:
 from __future__ import annotations
 
 import asyncio
+import datetime
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -248,8 +249,15 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                             answer_parts.append(delta)
                             yield sse.token(delta)
                         elif kind == "activity":
-                            _, label, state = event
-                            yield sse.activity(label, state)
+                            if len(event) == 5:
+                                _, label, state, detail, activity_kind = event
+                            else:
+                                _, label, state = event
+                                detail, activity_kind = None, "system"
+                            yield sse.activity(
+                                label, state, detail=detail, kind=activity_kind,
+                                at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                            )
                         elif kind == "tier":
                             _, tier, _reason = event
                         elif kind == "verification":
