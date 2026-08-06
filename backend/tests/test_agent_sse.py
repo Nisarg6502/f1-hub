@@ -80,6 +80,11 @@ class EventVocabularyTests(unittest.TestCase):
     def test_comment_is_a_comment_not_an_event(self):
         self.assertEqual(sse.comment("ping"), ": ping\n\n")
 
+    def test_refused_is_a_valid_error_code(self):
+        frame = sse.error("refused", "This assistant answers questions about Formula 1 only.")
+        self.assertIn("event: error", frame)
+        self.assertIn('"code": "refused"', frame)
+
 
 class HeaderTests(unittest.TestCase):
     def test_buffering_is_disabled(self):

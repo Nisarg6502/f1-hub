@@ -247,6 +247,20 @@ class FailureTests(unittest.TestCase):
     def test_overlong_message_is_rejected(self):
         self.assertEqual(post("x" * 4001).payload_of("error")["code"], "bad_request")
 
+    @patch.object(main.concurrency, "run_slot")
+    def test_off_topic_question_is_refused_before_the_concurrency_gate(self, run_slot):
+        """CP67: a guard refusal must cost no quota.
+
+        Asserting `run_slot` was never entered is the proof that the refusal
+        happens before the queue, not merely that an `error` event appears —
+        the same distinction `test_quota_exhaustion_becomes_at_capacity_not_a_stack_trace`
+        draws for a *model*-side failure, just one step earlier in `_stream`.
+        """
+        response = post("What's the weather like today?")
+        self.assertEqual(response.names(), ["error"])
+        self.assertEqual(response.payload_of("error")["code"], "refused")
+        run_slot.assert_not_called()
+
     @patch.object(main.config, "api_key", lambda: "test-key")
     def test_quota_exhaustion_becomes_at_capacity_not_a_stack_trace(self):
         async def boom(*_a, **_k):

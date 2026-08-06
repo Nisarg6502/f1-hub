@@ -29,7 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import answer_cache, checkpointer, concurrency, config, graph, model, sse, tracing
+from . import answer_cache, checkpointer, concurrency, config, graph, guardrails, model, sse, tracing
 from .ledger import EvidenceLedger
 
 
@@ -135,6 +135,14 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
         return
     if len(text) > 4000:
         yield sse.error("bad_request", "message is too long (4000 character limit)")
+        return
+
+    # CP67: refuse before any quota is spent — no ledger, no cache lookup, no
+    # concurrency slot. `guardrails.check_input` is pure and model-free, so
+    # this costs microseconds regardless of the answer.
+    verdict = guardrails.check_input(text)
+    if not verdict.allowed:
+        yield sse.error("refused", verdict.reason or "That message could not be processed.")
         return
 
     # A fresh ledger per turn, per `graph.py`'s module docstring: two

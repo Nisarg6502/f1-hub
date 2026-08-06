@@ -32,7 +32,7 @@ Event types, in the order a normal answer produces them:
 
 `error` codes are a closed set so the UI can style them without string
 matching: `at_capacity` (quota or concurrency), `timeout`, `upstream`,
-`bad_request`, `internal`.
+`bad_request`, `internal`, `refused` (CP67 input guardrail).
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ SSE_HEADERS = {
 MEDIA_TYPE = "text/event-stream"
 
 ERROR_CODES = frozenset(
-    {"at_capacity", "timeout", "upstream", "bad_request", "internal"}
+    {"at_capacity", "timeout", "upstream", "bad_request", "internal", "refused"}
 )
 
 
