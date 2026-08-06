@@ -136,12 +136,23 @@ _REGULATION_HEDGE_RE = re.compile(
 )
 
 
-def check_regulation(draft: str) -> list[Violation]:
-    """This app has no sporting-regulation dataset. A confident citation of
-    a specific rule/article number is therefore never actually backed by
-    anything this system retrieved — flag it unless the draft itself hedges.
+def check_regulation(draft: str, ledger: EvidenceLedger) -> list[Violation]:
+    """This app has no *internal* sporting-regulation dataset, but CP62's web
+    tools can retrieve and cite real regulation text — so a regulation claim
+    is only ungrounded when it isn't actually backed by anything this turn
+    retrieved. Checked per sentence (`_sentences`, same helper
+    `check_citations` uses): a sentence carrying a citation marker whose id
+    resolves in the ledger is trusted the same way `check_citations` trusts
+    it, and only an uncited (or unresolvable-citation) regulation claim gets
+    flagged unless the draft itself hedges.
     """
-    if _REGULATION_CLAIM_RE.search(draft or "") and not _REGULATION_HEDGE_RE.search(draft or ""):
+    for sentence in _sentences(draft):
+        if not _REGULATION_CLAIM_RE.search(sentence):
+            continue
+        if _REGULATION_HEDGE_RE.search(sentence):
+            continue
+        if any(ledger.get(evidence_id) is not None for evidence_id in _citations_in(sentence)):
+            continue
         return [
             Violation(
                 "unverifiable_regulation_claim",
@@ -159,7 +170,10 @@ def check_regulation(draft: str) -> list[Violation]:
 
 _TOXIC_TERMS_RE = re.compile(
     r"\b(idiot|moron|stupid|trash|garbage)\b.*\b(banned|fired|should)\b|"
-    r"\b(should|deserves to)\s+(be\s+)?(banned|fired|die)\b",
+    # `fired(?!\s+up\b)` excludes the "fired up (about/for)" idiom — genuine
+    # enthusiasm ("Alpine should be fired up about their upgrade package"),
+    # not the termination sense this guard exists to catch.
+    r"\b(should|deserves to)\s+(be\s+)?(banned|fired(?!\s+up\b)|die)\b",
     re.IGNORECASE,
 )
 
@@ -168,15 +182,26 @@ def check_toxicity(draft: str) -> list[Violation]:
     """A small denylist against the answer text itself. Deliberately
     unambitious — this is a tripwire against the model's own output turning
     hostile about a driver/team, not a general-purpose content moderator.
+
+    Checked per sentence (`_sentences`, already used by `check_citations`),
+    not against the whole draft in one shot: `_TOXIC_TERMS_RE`'s `.*` is
+    unanchored, and matched against the full draft it can span across
+    sentence boundaries and stitch two unrelated clauses into a false
+    positive — e.g. "...drove a stupid race [ev_1]. Separately, ... should
+    retain Tsunoda [ev_2]." has no hostile claim in either sentence but
+    matched as one string. Since CP67 tier 1 (the highest-traffic tier) also
+    runs this check, that false-positive surface now costs a wasted repair
+    call on far more real traffic than when only tier 2/3 paid for it.
     """
-    if _TOXIC_TERMS_RE.search(draft or ""):
-        return [
-            Violation(
-                "toxic_language",
-                "uses hostile/derogatory language about a person — rewrite "
-                "neutrally",
-            )
-        ]
+    for sentence in _sentences(draft):
+        if _TOXIC_TERMS_RE.search(sentence):
+            return [
+                Violation(
+                    "toxic_language",
+                    "uses hostile/derogatory language about a person — rewrite "
+                    "neutrally",
+                )
+            ]
     return []
 
 
@@ -309,7 +334,7 @@ def check(
 
     violations = check_citations(draft, ledger)
     violations += check_framing(draft, predictive=predictive, subjective=subjective)
-    violations += check_regulation(draft)
+    violations += check_regulation(draft, ledger)
     violations += check_toxicity(draft)
 
     citation_count = len({f"ev_{n}" for n in _CITATION_RE.findall(draft)})

@@ -192,25 +192,16 @@ class _ScriptedAgent:
 
 
 class RunTurnTests(unittest.TestCase):
-    def test_live_tokens_true_yields_tokens_as_they_stream(self):
+    def test_tokens_are_buffered_and_only_yielded_as_draft(self):
+        # CP67 removed tier 1's live-yield special case: every tier now
+        # buffers tokens and only surfaces them via the caller's
+        # `_chunk_draft` replay after verification, never as live `("token",
+        # ...)` events out of `_run_turn` itself.
         agent = _ScriptedAgent(["hello world"])
 
         async def _drive():
             events = []
-            async for event in graph._run_turn(agent, {}, {}, live_tokens=True):
-                events.append(event)
-            return events
-
-        events = asyncio.run(_drive())
-        self.assertIn(("token", "hello world"), events)
-        self.assertEqual(events[-1], ("draft", "hello world"))
-
-    def test_live_tokens_false_buffers_and_only_yields_draft(self):
-        agent = _ScriptedAgent(["hello world"])
-
-        async def _drive():
-            events = []
-            async for event in graph._run_turn(agent, {}, {}, live_tokens=False):
+            async for event in graph._run_turn(agent, {}, {}):
                 events.append(event)
             return events
 

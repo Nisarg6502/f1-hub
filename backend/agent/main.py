@@ -142,6 +142,13 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
     # this costs microseconds regardless of the answer.
     verdict = guardrails.check_input(text)
     if not verdict.allowed:
+        # Which guard fired, not the raw message — the scope guard is
+        # deliberately generous by design (see `guardrails.py`'s docstring)
+        # specifically to avoid false positives, and that bet is otherwise
+        # unmeasurable in production. Logging `verdict.code` only (never the
+        # user's text) keeps this measurable without risking a PII leak
+        # through the very guard whose whole purpose is catching PII.
+        print(f"agent guard refused: {verdict.code}")
         yield sse.error("refused", verdict.reason or "That message could not be processed.")
         return
 

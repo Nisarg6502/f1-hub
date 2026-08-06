@@ -387,7 +387,7 @@ what `main.py` already needs. `("draft", text)` is a third internal kind
 
 
 async def _run_turn(
-    agent: Any, inputs: dict, run_config: dict, *, live_tokens: bool
+    agent: Any, inputs: dict, run_config: dict
 ) -> AsyncIterator[AgentEvent]:
     """One full pass through the agent graph.
 
@@ -396,14 +396,15 @@ async def _run_turn(
     generator has no other channel to hand a caller its accumulated result,
     since `return value` inside one is not observable through `async for`.
 
-    `("token", ...)` events are yielded live only when `live_tokens=True`
-    (tier 1 — CP61's exact proven behaviour, streamed as generated). When
-    `False` (tier 2/3 — CP64's verified path), tokens are still assembled
-    into the same `full_text`, just not yielded until the caller decides the
-    draft passed verification. This is the same trade `session_recap.py`'s
-    `SESSION_VALIDATORS` already made and documented: "the text has to be
-    complete before it can be checked, and a violation must not have already
-    reached the reader."
+    Model tokens are buffered into `parts` as they arrive but never yielded
+    live — every tier now takes the same path (CP67 removed tier 1's earlier
+    live-yield special case: nothing calls this with the streamed-as-generated
+    behaviour anymore). The buffered text is only surfaced once the caller,
+    `astream_answer`, has run it through `verifier.check` and decided it is
+    safe to show — via `_chunk_draft`'s replay, not from here. This is the
+    same trade `session_recap.py`'s `SESSION_VALIDATORS` already made and
+    documented: "the text has to be complete before it can be checked, and a
+    violation must not have already reached the reader."
     """
     pending: dict[str, list[str]] = {}
     parts: list[str] = []
@@ -428,9 +429,6 @@ async def _run_turn(
             tool_calls = getattr(output, "tool_calls", None) or []
             if not tool_calls:
                 parts.extend(buffered)
-                if live_tokens:
-                    for text in buffered:
-                        yield ("token", text)
 
         elif kind == "on_tool_start" and name:
             subagent_type = ((event.get("data") or {}).get("input") or {}).get("subagent_type")
@@ -514,7 +512,7 @@ async def astream_answer(
     try:
         async with asyncio.timeout(config.REQUEST_TIMEOUT_SECONDS):
             draft = ""
-            async for event in _run_turn(agent, inputs, run_config, live_tokens=False):
+            async for event in _run_turn(agent, inputs, run_config):
                 if event[0] == "draft":
                     draft = event[1]
                 else:
@@ -538,7 +536,7 @@ async def astream_answer(
                     ]
                 }
                 repaired = ""
-                async for event in _run_turn(agent, repair_inputs, repair_config, live_tokens=False):
+                async for event in _run_turn(agent, repair_inputs, repair_config):
                     if event[0] == "draft":
                         repaired = event[1]
                     else:

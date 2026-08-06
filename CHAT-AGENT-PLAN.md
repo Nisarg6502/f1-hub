@@ -383,9 +383,20 @@ The verifier also enforces the **framing contracts**: a `predictive` answer must
 uncertainty and must not assert an outcome; a `subjective` answer must not deliver a verdict; a
 `general_knowledge` answer must be labelled as not coming from app data.
 
-Cost note, stated honestly: verification adds roughly one extra model call per answer. It runs on
-tier 2-3 only. That is the price of the guarantee, and it is worth it — this is the single feature
-that separates the system from a wrapper around a prompt.
+Cost note, stated honestly: verification now runs on every tier, including tier 1 (CP67 closed the
+gap where tier 1 skipped it and a fabricated "3 podiums" answer went out uncaught). It does not add
+a model call on its own — the checks are pure Python over the draft and the ledger. A repair adds
+roughly one extra model call per answer, and only when verification actually fails. That is the
+price of the guarantee, and it is worth it — this is the single feature that separates the system
+from a wrapper around a prompt.
+
+Trade-off accepted, not an oversight: before CP67, tier 1 streamed tokens live, one at a time, as
+the model generated them — the lowest possible time-to-first-token, and CP61's whole proven
+behaviour. Closing the ungrounded-answer gap means tier 1 now buffers the complete draft, runs it
+through `verifier.check`, and only then replays it via `_chunk_draft`'s pseudo-streaming. Time-to-
+first-token on the highest-traffic tier goes up in exchange for the same trustworthiness guarantee
+tier 2-3 already had. We are stating this plainly rather than glossing over it: it is a real,
+measurable latency cost, paid deliberately, on the tier where the most users will feel it.
 
 ---
 

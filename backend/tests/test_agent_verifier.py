@@ -159,19 +159,31 @@ class RepairMessageTests(unittest.TestCase):
 
 
 class RegulationGuardTests(unittest.TestCase):
-    def test_confident_regulation_claim_is_flagged(self):
+    def test_confident_uncited_regulation_claim_is_flagged(self):
+        # ev_1 is cited but never registered in the ledger, so it cannot
+        # ground the claim — same as an uncited claim.
         draft = "Under Article 12.4, this penalty was mandatory [ev_1]."
-        violations = verifier.check_regulation(draft)
+        violations = verifier.check_regulation(draft, EvidenceLedger())
         self.assertTrue(any(v.kind == "unverifiable_regulation_claim" for v in violations))
 
     def test_hedged_regulation_mention_is_not_flagged(self):
         draft = "This app does not hold the full sporting regulations, so I can't confirm the exact rule here."
-        violations = verifier.check_regulation(draft)
+        violations = verifier.check_regulation(draft, EvidenceLedger())
         self.assertEqual(violations, [])
 
     def test_ordinary_answer_with_no_regulation_talk_passes(self):
         draft = "Norris won the race [ev_1]."
-        violations = verifier.check_regulation(draft)
+        violations = verifier.check_regulation(draft, EvidenceLedger())
+        self.assertEqual(violations, [])
+
+    def test_cited_regulation_claim_backed_by_the_ledger_is_not_flagged(self):
+        # CP62's web tools can retrieve and cite real regulation text — a
+        # regulation claim carrying a citation that actually resolves in
+        # this turn's ledger is grounded, not a hallucination, and must not
+        # force a pointless repair.
+        ledger = _ledger_with(data={"text": "Rule 5 governs the sprint format."}, source="web:fia.com")
+        draft = "Rule 5 of the sprint format applies [ev_1]."
+        violations = verifier.check_regulation(draft, ledger)
         self.assertEqual(violations, [])
 
 

@@ -21,6 +21,7 @@ export type AgentErrorCode =
   | "timeout"
   | "upstream"
   | "bad_request"
+  | "refused"
   | "internal";
 
 export interface AgentSource {
