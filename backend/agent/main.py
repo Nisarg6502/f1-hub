@@ -28,7 +28,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from . import answer_cache, checkpointer, concurrency, config, graph, guardrails, model, sse, tracing
 from .ledger import EvidenceLedger
@@ -397,6 +397,47 @@ async def chat(request: ChatRequest) -> StreamingResponse:
         media_type=sse.MEDIA_TYPE,
         headers=sse.SSE_HEADERS,
     )
+
+
+class FeedbackRequest(BaseModel):
+    run_id: str = Field(..., description="The LangSmith run id from the matching `done` event")
+    score: int = Field(..., description="1 for thumbs up, -1 for thumbs down")
+    comment: str | None = Field(None, description="Optional free-text, typically on thumbs-down")
+
+    @field_validator("score")
+    @classmethod
+    def _score_is_a_thumb(cls, v: int) -> int:
+        if v not in (-1, 1):
+            raise ValueError("score must be 1 or -1")
+        return v
+
+
+@app.post("/api/feedback")
+async def feedback(request: FeedbackRequest) -> dict:
+    """Forward a thumbs up/down to LangSmith, fail-soft.
+
+    Telemetry, not the answer itself — a broken LangSmith install, an
+    unconfigured project, or a missing run id (e.g. a cached answer, which
+    never opens a trace) must degrade to `{"recorded": False}`, never a
+    user-visible error. Matches `tracing.py`'s own bare-except discipline.
+    """
+    if not _TRACING_LIVE or not request.run_id:
+        return {"recorded": False}
+    try:
+        import langsmith
+
+        client = langsmith.Client()
+        await asyncio.to_thread(
+            client.create_feedback,
+            request.run_id,
+            key="user-score",
+            score=request.score,
+            comment=request.comment,
+        )
+        return {"recorded": True}
+    except Exception as exc:  # telemetry: degrade, never 500 the client — matches tracing.py's rule
+        print(f"feedback not recorded: {exc}")
+        return {"recorded": False}
 
 
 if __name__ == "__main__":  # pragma: no cover
