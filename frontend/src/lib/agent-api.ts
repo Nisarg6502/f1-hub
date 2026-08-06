@@ -26,7 +26,10 @@ export type AgentErrorCode =
 
 export interface AgentSource {
   id: string;
+  n: number;
+  kind: "data" | "web" | "wikipedia";
   label: string;
+  title: string;
   url?: string | null;
   as_of?: string | null;
 }
@@ -48,7 +51,12 @@ export interface AgentDone {
 }
 
 export interface AgentHandlers {
-  onActivity?: (label: string, state: "start" | "done") => void;
+  onActivity?: (
+    label: string,
+    state: "start" | "done",
+    detail?: string | null,
+    kind?: "tool" | "agent" | "system"
+  ) => void;
   onToken?: (text: string) => void;
   onSources?: (sources: AgentSource[]) => void;
   onDone?: (done: AgentDone) => void;
@@ -149,6 +157,23 @@ export function parseFrame(
 }
 
 /**
+ * Turn a complete `[ev_N]` citation marker into a markdown link
+ * `[N](#cite-ev_N)`, which `react-markdown`'s existing link rendering (via
+ * a `components.a` override, see `CitationPill`) turns into a numbered pill.
+ *
+ * Deliberately a plain string rewrite rather than a custom remark plugin —
+ * `react-markdown` already parses markdown links correctly, so reusing that
+ * avoids a new AST-visiting dependency for something a regex already solves.
+ * The regex's own requirement of a closing `]` is what makes this
+ * streaming-safe: a partial marker at a chunk boundary (`"...[ev_"`) simply
+ * does not match yet and passes through as literal text, unmodified, until
+ * the closing bracket arrives in a later chunk.
+ */
+export function rewriteCitations(text: string): string {
+  return text.replace(/\[ev_(\d+)\]/g, "[$1](#cite-ev_$1)");
+}
+
+/**
  * Send a question and dispatch stream events to `handlers`.
  *
  * Resolves when the stream ends. Never throws for a *service* failure — those
@@ -215,7 +240,9 @@ function dispatch(event: string, data: unknown, handlers: AgentHandlers): void {
     case "activity":
       handlers.onActivity?.(
         String(payload.label ?? ""),
-        payload.state === "done" ? "done" : "start"
+        payload.state === "done" ? "done" : "start",
+        payload.detail == null ? null : String(payload.detail),
+        (payload.kind as "tool" | "agent" | "system" | undefined) ?? "system"
       );
       break;
     case "token":
