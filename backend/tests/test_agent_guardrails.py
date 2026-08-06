@@ -57,3 +57,34 @@ class InjectionGuardTests(unittest.TestCase):
 
     def test_empty_text_passes(self):
         self.assertTrue(injection_guard(""))
+
+
+from agent.guardrails.scope import scope_guard
+
+
+class ScopeGuardTests(unittest.TestCase):
+    def test_direct_f1_question_passes(self):
+        self.assertTrue(scope_guard("Who won the last race?"))
+
+    def test_driver_name_question_passes(self):
+        self.assertTrue(scope_guard("How is Norris doing this season?"))
+
+    def test_ambiguous_pronoun_question_passes(self):
+        # Generous default: a genuinely ambiguous but plausible F1 follow-up
+        # ("how did he do") must not be refused just because it names no
+        # F1-specific keyword — false positives are worse than a miss here.
+        self.assertTrue(scope_guard("How did he do in that race?"))
+
+    def test_weather_smalltalk_is_refused(self):
+        self.assertFalse(scope_guard("What's the weather like today?"))
+
+    def test_homework_help_is_refused(self):
+        self.assertFalse(scope_guard("Can you solve this calculus problem for me: integral of x^2"))
+
+    def test_coding_help_is_refused(self):
+        self.assertFalse(scope_guard("Write me a Python script to sort a list"))
+
+    def test_empty_text_passes(self):
+        # An empty message is `main.py`'s own `bad_request` case, not this
+        # guard's job — refuse nothing here so the existing check owns it.
+        self.assertTrue(scope_guard(""))
