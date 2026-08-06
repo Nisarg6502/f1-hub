@@ -35,6 +35,7 @@ import {
   streamChat,
   postFeedback,
   rewriteCitations,
+  ERROR_COPY,
   type AgentDone,
   type AgentSource,
 } from "@/lib/agent-api";
@@ -68,6 +69,11 @@ type Message = {
   // no separate field required, `FeedbackControls` reads it straight off
   // `message.done`.
   feedback: 1 | -1 | null;
+  // CP70: the paired user question text, captured at creation time on the
+  // assistant message so Retry/Regenerate can re-submit it without threading
+  // a second data structure through. `null` on user messages (meaningless
+  // there) and left unused for them.
+  question: string | null;
 };
 
 let nextId = 0;
@@ -185,6 +191,7 @@ export default function PitwallAssistantPanel({
         error: null,
         timestampMs: Date.now(),
         feedback: null,
+        question: null,
       };
       const assistantId = newId();
       const assistantMessage: Message = {
@@ -197,6 +204,7 @@ export default function PitwallAssistantPanel({
         error: null,
         timestampMs: Date.now(),
         feedback: null,
+        question: trimmed,
       };
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
       setRunning(true);
@@ -234,6 +242,12 @@ export default function PitwallAssistantPanel({
       )
         .catch((err: Error) => {
           if (err.name === "AbortError") return;
+          // Pre-connection failures (e.g. the browser's raw "Failed to
+          // fetch") never get a code from the backend, so they're coded
+          // "network" here rather than surfacing `err.message` verbatim —
+          // see the plan's own note on why this literal path was the live
+          // bug this checkpoint closes. `MessageBubble` looks up human copy
+          // for "network" the same way it does for any coded SSE error.
           patch((m) => ({
             ...m,
             error: { code: "network", message: err.message },
@@ -336,6 +350,8 @@ export default function PitwallAssistantPanel({
               key={message.id}
               message={message}
               onVote={onVote}
+              onRetry={ask}
+              running={running}
               liveElapsedSec={
                 running && index === messages.length - 1 ? elapsedSec : null
               }
@@ -375,10 +391,20 @@ export default function PitwallAssistantPanel({
 function MessageBubble({
   message,
   onVote,
+  onRetry,
+  running,
   liveElapsedSec,
 }: {
   message: Message;
   onVote: (messageId: string, runId: string, score: 1 | -1, comment?: string) => void;
+  // CP70: Retry and Regenerate are functionally identical — both just
+  // re-submit `message.question` through the same `ask` path. One prop
+  // covers both call sites rather than plumbing two names for one function.
+  onRetry: (question: string) => void;
+  // Disables Retry/Regenerate while a turn is already in flight, the same
+  // guard `ask` itself applies internally — this just keeps the button from
+  // looking clickable when it would be a no-op.
+  running: boolean;
   // CP70: seconds elapsed for this turn while it's still in flight
   // (`null` once settled or if this isn't the active turn). `message.done`
   // carries the server-settled `elapsed_ms` once the turn completes, which
@@ -410,9 +436,28 @@ function MessageBubble({
       )}
 
       {message.error ? (
-        <p className="max-w-[85%] rounded-2xl border border-[var(--color-error)]/40 bg-[var(--color-error-container)]/20 px-4 py-2 text-sm text-[var(--color-error)]">
-          {message.error.message}
-        </p>
+        <div className="flex max-w-[85%] flex-col items-start gap-2">
+          <p className="rounded-2xl border border-[var(--color-error)]/40 bg-[var(--color-error-container)]/20 px-4 py-2 text-sm text-[var(--color-error)]">
+            {/* `refused` already carries a real, specific message from the
+                backend (CP67 guardrails) — only codes missing good copy of
+                their own fall back to `ERROR_COPY`. */}
+            {message.error.code === "refused"
+              ? message.error.message
+              : ERROR_COPY[message.error.code as keyof typeof ERROR_COPY] ??
+                message.error.message}
+          </p>
+          {message.question && (
+            <button
+              type="button"
+              onClick={() => onRetry(message.question!)}
+              disabled={running}
+              className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-[rgba(16,14,11,0.5)] px-3 py-1.5 text-xs font-medium text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[rgba(16,14,11,0.7)] active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40"
+            >
+              <RetryIcon />
+              Retry
+            </button>
+          )}
+        </div>
       ) : (
         message.text && (
           <div className="max-w-[85%] rounded-2xl border border-white/10 bg-[rgba(26,22,19,0.98)] px-4 py-3 text-sm leading-relaxed text-[var(--color-on-surface)] [&_p]:mb-2 [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5">
@@ -422,6 +467,24 @@ function MessageBubble({
             <StatusFooter done={message.done} />
           </div>
         )
+      )}
+
+      {!message.error && message.done && (
+        <div className="flex items-center gap-1.5">
+          <CopyButton text={message.text} />
+          {message.question && (
+            <button
+              type="button"
+              onClick={() => onRetry(message.question!)}
+              disabled={running}
+              aria-label="Regenerate answer"
+              title="Regenerate"
+              className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--color-on-surface-variant)] transition-[background-color,color,transform] duration-150 hover:bg-white/5 hover:text-[var(--color-on-surface)] active:scale-[0.94] disabled:pointer-events-none disabled:opacity-40"
+            >
+              <RetryIcon />
+            </button>
+          )}
+        </div>
       )}
 
       {!message.error && message.done && (
@@ -543,6 +606,78 @@ function ElapsedIndicator({
     <span className="text-[10px] text-[var(--color-on-surface-variant)]">
       {liveElapsedSec}s
     </span>
+  );
+}
+
+/**
+ * Copy-to-clipboard for a completed answer (CP70). A small icon button that
+ * swaps to a checkmark for ~1.5s on success — the same "brief transient
+ * confirmation" idea `CitationPill`'s flash-class already established for
+ * this panel, but built as local state here rather than a DOM class toggle,
+ * since this needs to swap the rendered icon itself, not just a background
+ * flash. `emil-design-eng`: 150ms ease-out on the icon swap, `scale(0.94)`
+ * on `:active` for press feedback, sized to match `Regenerate`'s 24px
+ * hit target so the two sit flush in the same row.
+ */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      if (timeoutRef.current !== null) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard access can fail (permissions, insecure context) — silently
+      // no-op rather than surfacing a second error UI over an already-shown
+      // answer; the user can still select-and-copy manually.
+    }
+  }, [text]);
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      aria-label={copied ? "Copied" : "Copy answer"}
+      title={copied ? "Copied" : "Copy"}
+      className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--color-on-surface-variant)] transition-[background-color,color,transform] duration-150 hover:bg-white/5 hover:text-[var(--color-on-surface)] active:scale-[0.94]"
+    >
+      {copied ? <CheckIcon /> : <CopyIcon />}
+    </button>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="9" width="13" height="13" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+function RetryIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 12a9 9 0 1 1 2.64 6.36" />
+      <polyline points="3 18 3 12 9 12" />
+    </svg>
   );
 }
 

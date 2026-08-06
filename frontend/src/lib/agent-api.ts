@@ -24,6 +24,31 @@ export type AgentErrorCode =
   | "refused"
   | "internal";
 
+/**
+ * A client-only code (CP70) for the pre-connection network-catch path — not
+ * part of the backend's `ERROR_CODES` contract, so kept as a separate union
+ * rather than folded into `AgentErrorCode` above.
+ */
+export type ClientErrorCode = "network";
+
+/**
+ * Human-readable copy for error codes that don't already carry a good
+ * user-facing message of their own (CP70). `refused` is deliberately left
+ * out: CP67's guardrails already attach a real, specific refusal message to
+ * that code (e.g. "I can't help with that"), and clobbering it with generic
+ * copy here would be a regression, not a fix. Any code missing from this map
+ * — including `refused` — should fall back to the message the backend/SSE
+ * layer actually sent rather than a canned string.
+ */
+export const ERROR_COPY: Partial<Record<AgentErrorCode | ClientErrorCode, string>> = {
+  at_capacity: "The assistant is busy right now — try again in a moment.",
+  timeout: "That took too long to answer. Try again, or ask something more specific.",
+  upstream: "Something went wrong reaching the model. Try again shortly.",
+  bad_request: "That request couldn't be processed — try rephrasing your question.",
+  internal: "Something went wrong on our end. Try again.",
+  network: "Couldn't reach the assistant — check your connection and try again.",
+};
+
 export interface AgentSource {
   id: string;
   n: number;
