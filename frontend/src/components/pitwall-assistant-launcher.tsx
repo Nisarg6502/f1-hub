@@ -15,12 +15,36 @@
  * ever-growing one from a panel that never actually unmounts.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import PitwallAssistantPanel from "./pitwall-assistant-panel";
 
 export default function PitwallAssistantLauncher() {
   const [open, setOpen] = useState(false);
+
+  // Global open shortcut (CP70): Cmd/Ctrl+K, the common convention for
+  // "open the command/search surface" (already familiar from apps like
+  // Linear, Slack, Vercel). Lives here rather than in the panel itself
+  // because this component owns `open` — the panel only mounts once
+  // already open. Guarded against firing while the user is typing
+  // elsewhere on the page (an input/textarea/contenteditable), the standard
+  // hygiene check for any global single-key-ish shortcut; this codebase has
+  // no other global shortcut to match an existing guard pattern against, so
+  // this follows the plan's own guidance directly.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "k" || !(e.metaKey || e.ctrlKey)) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) {
+        return;
+      }
+      e.preventDefault();
+      setOpen(true);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   return (
     <>

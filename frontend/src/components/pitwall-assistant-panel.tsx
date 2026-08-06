@@ -232,6 +232,15 @@ export default function PitwallAssistantPanel({
   // since submitting implies "show me the answer".
   const messageListRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
+  // Focus trap (CP70). `dialogRef` scopes the Tab-cycle query to the dialog's
+  // own subtree; `previouslyFocusedRef` captures whatever had focus on the
+  // page (typically the launcher button) so it can be restored on close —
+  // hand-rolled per the plan's default (no focus-trap library in this
+  // codebase's dependencies), sitting alongside the existing Escape listener
+  // below rather than as a separate effect, since both need the same
+  // single `keydown` subscription's lifecycle.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   // Elapsed-time indicator (CP70). Purely client-side and independent of the
   // backend SSE heartbeat — `Date.now()` at submit time, ticked every second
   // via `setInterval` while a turn is in flight. Once `done` arrives we stop
@@ -258,8 +267,44 @@ export default function PitwallAssistantPanel({
   }, []);
 
   useEffect(() => {
+    // Capture whatever had focus before this panel opened (the launcher
+    // button, in the normal flow) so it can be restored on close — a plain
+    // dialog close that leaves focus nowhere (or resets it to `<body>`)
+    // strands keyboard/screen-reader users at the top of the page instead of
+    // back where they were.
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+
+    const FOCUSABLE_SELECTOR =
+      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+      ).filter((el) => el.offsetParent !== null);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      // Tab never escapes the dialog: wrap from last→first (or first→last
+      // going backwards), and treat focus that's somehow already outside the
+      // dialog (e.g. a programmatic blur) the same as being "at the edge" so
+      // it snaps back in rather than staying lost on the page behind it.
+      if (e.shiftKey) {
+        if (active === first || !dialog.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else if (active === last || !dialog.contains(active)) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", handleKeyDown);
@@ -272,6 +317,7 @@ export default function PitwallAssistantPanel({
       // docstring gives for supporting `signal` at all.
       abortRef.current?.abort();
       stopElapsedTimer();
+      previouslyFocusedRef.current?.focus();
     };
   }, [onClose, stopElapsedTimer]);
 
@@ -409,6 +455,7 @@ export default function PitwallAssistantPanel({
       className="fixed inset-0 z-[80] bg-[rgba(6,5,4,0.65)] backdrop-blur-[8px]"
     >
       <motion.div
+        ref={dialogRef}
         onClick={(e) => e.stopPropagation()}
         initial={reduce ? { opacity: 0 } : { opacity: 0, x: "100%" }}
         animate={reduce ? { opacity: 1 } : { opacity: 1, x: 0 }}
@@ -579,7 +626,10 @@ function MessageBubble({
         </div>
       ) : (
         message.text && (
-          <div className="max-w-[85%] rounded-2xl border border-white/10 bg-[rgba(26,22,19,0.98)] px-4 py-3 text-sm leading-relaxed text-[var(--color-on-surface)] [&_p]:mb-2 [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5">
+          <div
+            aria-live="polite"
+            aria-atomic="false"
+            className="max-w-[85%] rounded-2xl border border-white/10 bg-[rgba(26,22,19,0.98)] px-4 py-3 text-sm leading-relaxed text-[var(--color-on-surface)] [&_p]:mb-2 [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5">
             <ReactMarkdown components={{ a: CitationPill }}>
               {rewriteCitations(message.text)}
             </ReactMarkdown>
