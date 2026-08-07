@@ -476,26 +476,51 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                     sources=answer_sources,
                 )
 
+        # CP73: these three used to blur into one apology. They are three
+        # different events with three different things the reader can do
+        # about them, and the copy now says which one happened.
+        #
+        # The batch-20 design note calls the old wording out directly —
+        # "the `at_capacity` copy is misleading when the true cause is a slow
+        # answer rather than contention". It was misleading in a specific,
+        # reproducible way: a comparative question that ran long would leave
+        # the *next* asker waiting on the semaphore until the queue timeout,
+        # and that asker was told the assistant was "busy" with no hint that
+        # waiting a moment was in fact the right move, while the person whose
+        # slow question caused it was told nothing distinguishable at all.
+        #
+        # The SSE codes are unchanged and deliberately so — `sse.py`'s
+        # `ERROR_CODES` is owned by another checkpoint this batch, and the
+        # frontend already branches on these three. Only the human-readable
+        # message differs, which is where the ambiguity actually lived.
         except concurrency.AtCapacity as error:
             yield sse.error(
                 "at_capacity",
-                "The assistant is busy right now — only one question can be "
-                "answered at a time on the current inference plan. Try again "
-                "in a moment.",
+                "Another question is being answered right now — this plan runs "
+                f"one at a time, and yours waited {error.waited:.0f}s for a turn "
+                "without getting one. Nothing is wrong with your question; ask "
+                "it again in a moment.",
             )
             tracing.end(run, {"error": "queue_timeout", "waited": error.waited})
 
         except model.ModelAtCapacity as error:
             yield sse.error(
                 "at_capacity",
-                "The assistant has reached its inference quota. It resets "
-                "within a few hours — cached answers still work in the "
-                "meantime.",
+                "The assistant has run out of inference quota for now — this is "
+                "the free tier's daily allowance, not a problem with your "
+                "question. It resets within a few hours, and cached answers "
+                "still work in the meantime.",
             )
             tracing.end(run, {"error": "quota", "detail": str(error)})
 
         except model.ModelTimeout as error:
-            yield sse.error("timeout", "The assistant took too long to respond.")
+            yield sse.error(
+                "timeout",
+                "This question took too long to answer and was stopped before "
+                "it finished — it needed more research than one turn allows. "
+                "A narrower question (one driver, one season, one race) will "
+                "usually get through.",
+            )
             tracing.end(run, {"error": "timeout", "detail": str(error)})
 
         except model.ModelError as error:

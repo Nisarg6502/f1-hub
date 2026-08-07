@@ -119,6 +119,26 @@ GOLDEN_SET: tuple[GoldenCase, ...] = (
             "the first thing to re-measure, not assume."
         ),
     ),
+    GoldenCase(
+        "class4-comparative-implicit-season",
+        4,
+        "Compare Norris and Verstappen this year",
+        expected_tier=2,
+        notes=(
+            "CP73's reported bug, and its live baseline. Run against the "
+            "deployed service before any fix, this exact wording spent ten tool "
+            "calls and 95.4s, never called get_head_to_head once, and degraded "
+            "to the step-budget message. It is kept alongside "
+            "class4-comparative rather than replacing it because the two differ "
+            "in the way that mattered: 'this year' names no season and no "
+            "trailing full stop, so the season has to be defaulted or resolved "
+            "before the comparison tool is reachable at all — which is why "
+            "get_head_to_head's season argument is now optional. The router is "
+            "not what this case guards (it classified tier 2 correctly all "
+            "along); it is here so the class has a case whose question is "
+            "verbatim the one a user actually asked."
+        ),
+    ),
     # --- Class 5: strategy ---------------------------------------------------
     GoldenCase(
         "class5-strategy",

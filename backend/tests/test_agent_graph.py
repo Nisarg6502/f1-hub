@@ -10,6 +10,7 @@ allowed, and only when run by hand.
 """
 
 import asyncio
+import inspect
 import sys
 import unittest
 from pathlib import Path
@@ -40,6 +41,63 @@ class PublicSignatureTests(unittest.TestCase):
         self.assertNotIn("ledger", sig.parameters)
         self.assertNotIn("db", sig.parameters)
         self.assertEqual(list(sig.parameters), ["x", "y"])
+
+
+class ClockArgumentIsHiddenTests(unittest.TestCase):
+    """CP73: the model must not be able to tell the tools what day it is.
+
+    In the live reproduction of "Compare Norris and Verstappen this year",
+    `resolve_context` returned the real date (2026-08-07) and the model then
+    called `get_season_state` with a `today` of its own — the bundle came
+    back reporting 2025-11-03 and season 2025, and the turn spent its
+    remaining step budget re-reading the wrong season. `today` exists for
+    tests and for replaying a past conversation; it was never meant to be a
+    model-supplied argument, and the schema is where that is enforced.
+    """
+
+    def test_today_is_stripped_from_every_tool_that_takes_one(self):
+        from agent.tools import TOOLS
+
+        takers = [
+            name
+            for name, fn in TOOLS.items()
+            if "today" in inspect.signature(fn).parameters
+        ]
+        # If this ever empties, the tests below are vacuously passing.
+        self.assertTrue(takers)
+
+        for name in takers:
+            with self.subTest(tool=name):
+                sig = graph._public_signature(TOOLS[name])
+                self.assertNotIn("today", sig.parameters)
+
+    def test_the_bound_schema_offers_no_clock_to_override(self):
+        from agent.tools import TOOLS
+
+        tool = graph._bind_tool(
+            "get_season_state", TOOLS["get_season_state"], _SENTINEL_LEDGER
+        )
+        schema = tool.args_schema.model_json_schema()
+
+        self.assertNotIn("today", schema.get("properties", {}))
+
+
+class ComparativeToolGuidanceTests(unittest.TestCase):
+    """CP73: the prompt half of the comparative fix.
+
+    The prompt is not the fix — `tools/drivers.py` is — but the rule is
+    cheap and it names the specific wrong move the trace recorded. Asserted
+    so a later prompt edit that drops it is a test failure rather than a
+    silent regression, the same discipline the no-filesystem rule already
+    gets.
+    """
+
+    def test_the_system_prompt_names_the_one_call_comparison_rule(self):
+        self.assertIn("get_head_to_head", graph.SYSTEM_PROMPT)
+        self.assertIn("get_driver_season_summary", graph.SYSTEM_PROMPT)
+
+    def test_the_system_prompt_tells_the_model_to_stop_when_it_has_the_facts(self):
+        self.assertIn("STOP", graph.SYSTEM_PROMPT)
 
 
 class ArgsModelTests(unittest.TestCase):

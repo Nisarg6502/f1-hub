@@ -12,6 +12,22 @@ correct" — which is CP38 restated for comparison rather than for teammates.
 package (§5.1 marks it "new"). Everything it reports is a count or an average,
 i.e. exactly the arithmetic CP38's rule 3 forbids the model from doing, so it
 is all resolved here.
+
+**CP73: both of these now take a driver *name* as well as a driver id, and
+`get_head_to_head` defaults its season.** That is not a convenience — it is
+the fix for a measured failure. Two live traces recorded the same shape:
+CP61's baseline (`agent/spikes/README.md` §5, run #4) watched two of three
+tool calls come back `available: false` on a **driver-id mismatch** and get
+silently dropped, and CP73's own live reproduction of "Compare Norris and
+Verstappen this year" against the deployed service spent ten tool calls and
+95.4s without ever calling `get_head_to_head`, exhausting the step budget.
+A tool whose arguments are opaque Jolpica ids (`max_verstappen`, not
+"Verstappen") makes every call a guess, and a guess that fails soft is
+indistinguishable from "we have no data" — so the model abandons the
+purpose-built tool and reassembles the answer from the neighbours whose
+arguments it happened to get right. Resolving names here, in Python, against
+the season's own roster is the same move `resolve_context` already makes for
+the router, applied at the place the argument is actually consumed.
 """
 
 from __future__ import annotations
@@ -19,6 +35,7 @@ from __future__ import annotations
 from app import driver_comparison_recap
 
 from ..ledger import EvidenceLedger
+from ..resolve_context import current_season, resolve_driver, today_utc
 from .base import (
     as_float,
     as_int,
@@ -29,6 +46,7 @@ from .base import (
     resolve_db,
     unavailable,
 )
+from .context import _load_calendar, _load_roster
 
 # Same split `session_recap` uses. A classified finisher's status is
 # "Finished", "+1 Lap"/"+2 Laps" or "Lapped"; anything else is a retirement.
@@ -97,6 +115,132 @@ def _find_row(results: list[dict], driver_id: str) -> dict | None:
     )
 
 
+# --- CP73: name → id, and a default season ----------------------------------
+#
+# `_load_calendar` / `_load_roster` are reached across from `tools/context.py`
+# rather than re-implemented, deliberately and by the same reasoning that has
+# this module import `driver_comparison_recap._build_rounds`: a second copy of
+# "which drivers raced in season N" is a second thing that can disagree with
+# the resolver the router already runs. Reaching for a sibling's private
+# loader inside one package is a smaller cost than two rosters that drift.
+
+
+async def _default_season(db) -> int | None:
+    """The season the app itself considers current, from its own calendar.
+
+    Exists so a comparative question does not *have* to be preceded by a
+    `resolve_context` round trip just to turn "this year" into an integer.
+    The live CP73 trace shows why that round trip is not free: the model made
+    it, got the right answer (2026), and then second-guessed itself into a
+    different season anyway — every extra hop is another chance to wander.
+    """
+    calendar, _ = await _load_calendar(db)
+    if not calendar:
+        return None
+    return current_season(calendar, today_utc())
+
+
+async def _resolve_driver_id(db, text: str, season: int | None) -> tuple[str | None, str | None]:
+    """`(driver_id, None)` on success, `(None, reason)` on anything else.
+
+    An id that is already canonical is returned untouched — the roster lookup
+    is a fallback for human input, not a gate in front of correct input, and
+    making a correct `max_verstappen` pay for a roster read would be a
+    regression for every caller that already had the id.
+
+    Ambiguity is passed through as a *reason*, never resolved by picking the
+    first candidate. `resolve_context.py`'s module docstring is explicit that
+    this is the whole point of that resolver existing, and a tool that
+    quietly picked Jos over Max would produce exactly the fluent, cited,
+    wrong-driver answer it was written to prevent.
+    """
+    text = (text or "").strip()
+    if not text:
+        return None, "no driver given"
+
+    roster = await _load_roster(db, season)
+    if any(entry.get("driver_id") == text for entry in roster):
+        return text, None
+
+    if not roster:
+        # No roster to match against: assume the caller passed a real id
+        # rather than refusing outright. The downstream query will report an
+        # honest "no results synced" if it was wrong, which is a better
+        # failure than inventing a resolution error for a season we simply
+        # have not synced yet.
+        return text, None
+
+    resolution = resolve_driver(text, roster=roster)
+    if resolution.resolved:
+        return str(resolution.value), None
+    if resolution.ambiguous:
+        names = ", ".join(c.label for c in resolution.candidates)
+        return None, (
+            f"'{text}' matches more than one driver in {season} ({names}) — "
+            "ask which one was meant rather than picking one"
+        )
+    return None, resolution.reason or f"no driver matching '{text}' in {season}"
+
+
+def _season_shape(rounds: list[dict], driver_id: str) -> dict | None:
+    """Wins, podiums, points and finishing record for one driver in a season.
+
+    Computed from the rounds `_build_rounds` already loaded rather than by a
+    second Mongo read, and folded into `get_head_to_head`'s bundle so the
+    comparison is genuinely *complete* in one call. That completeness is the
+    checkpoint: the live trace shows the model reaching `get_head_to_head`'s
+    subject matter through two `get_driver_season_summary` calls instead,
+    which is not irrational — until now the head-to-head bundle carried the
+    duel counts but not the season totals a comparison also wants, so a model
+    that called it would still have had a reason to call something else next.
+    A fact bundle that answers only half the question invites the other half
+    to be assembled a round at a time, which is the failure this whole
+    package exists to prevent.
+    """
+    wins = podiums = retirements = 0
+    points_total = 0.0
+    finishes: list[int] = []
+    entered = 0
+    team = None
+
+    for rnd in rounds:
+        row = _find_row(rnd.get("results") or [], driver_id)
+        if not row:
+            continue
+        entered += 1
+        position = as_int(row.get("position"))
+        points_total += as_float(row.get("points")) or 0.0
+        status = str(row.get("status") or "").strip().lower()
+        if status.startswith(_FINISHER_STATUSES):
+            if position is not None:
+                finishes.append(position)
+        else:
+            retirements += 1
+        if position == 1:
+            wins += 1
+        if position is not None and position <= 3:
+            podiums += 1
+        team = team or (row.get("Constructor") or {}).get("name")
+
+    if not entered:
+        return None
+
+    return {
+        "rounds_entered": entered,
+        "team": team,
+        "wins": wins,
+        "podiums": podiums,
+        "points": round(points_total, 2),
+        "retirements": retirements,
+        "best_finish": min(finishes) if finishes else None,
+        "average_finish": round(sum(finishes) / len(finishes), 2) if finishes else None,
+        "average_finish_basis": (
+            "classified finishes only; retirements are counted separately and "
+            "are not averaged in as a finishing position"
+        ),
+    }
+
+
 @fact_tool("get_driver_season_summary")
 async def get_driver_season_summary(
     driver_id: str,
@@ -105,7 +249,7 @@ async def get_driver_season_summary(
     ledger: EvidenceLedger | None = None,
     db=None,
 ) -> dict:
-    """Wins, podiums, points, average finish and the teammate qualifying battle.
+    """One driver's season: wins, podiums, points, average finish and the teammate qualifying battle. `driver_id` accepts a name ("Norris") or a Jolpica id. For comparing TWO drivers, call `get_head_to_head` instead — do not call this twice.
 
     The teammate comparison is the field that justifies this being a tool
     rather than a prompt instruction. It is a *relational* fact — who a driver's
@@ -117,12 +261,21 @@ async def get_driver_season_summary(
     `average_finish` counts classified finishes only, and says so on the
     bundle: averaging a retirement as "position 20" would flatter a driver who
     finished every race they completed and quietly punish one who did not.
+
+    CP73 added the name resolution. CP61's baseline measured this exact tool
+    returning `available: false` on a guessed id and the model dropping the
+    call silently instead of retrying with a corrected one; making the guess
+    unnecessary is cheaper than hoping the model recovers from it.
     """
     driver_id = (driver_id or "").strip()
     if not driver_id:
         return unavailable("no driver id given")
 
     db = resolve_db(db)
+    driver_id, reason = await _resolve_driver_id(db, driver_id, year)
+    if not driver_id:
+        return unavailable(reason or "driver could not be resolved")
+
     race_docs = await db.race_results.find({"season": year}).to_list(length=100)
     quali_docs = await db.qualifying_results.find({"season": year}).to_list(length=100)
 
@@ -231,12 +384,39 @@ async def get_driver_season_summary(
 async def get_head_to_head(
     driver_a: str,
     driver_b: str,
-    season: int,
+    season: int | None = None,
     *,
     ledger: EvidenceLedger | None = None,
     db=None,
 ) -> dict:
-    """Round-by-round race and qualifying comparison of two drivers in a season.
+    """THE tool for comparing two drivers over a season — one call returns the complete comparison. Takes driver names ("Norris", "Verstappen") or ids, and `season` defaults to the current one, so no other tool is needed first. Returns each driver's championship standing, points, wins, podiums and finishing record, plus the round-by-round race and qualifying duel counts. Never assemble this from two `get_driver_season_summary` calls.
+
+    The first paragraph above is what the model actually sees — `graph.py`'s
+    `_tool_description` sends only the first docstring paragraph — so it is
+    written for tool *selection*, not for a human reader. That is a deliberate
+    change of register from every other tool in this package, and CP73's live
+    measurement is the reason. Asked "Compare Norris and Verstappen this year"
+    against the deployed service, the model spent ten tool calls and 95.4s and
+    never called this tool once: it resolved the season correctly, pulled both
+    drivers' `get_driver_season_summary` bundles, then kept going — checking
+    the season state, re-reading a *different* season, reaching for
+    `get_driver_profile` and `get_standings` — until `AGENT_MAX_STEPS` cut it
+    off and the turn degraded to the step-budget message. CP61's baseline had
+    already recorded the same tool being skipped in favour of `get_standings`.
+
+    Three things had to change for that trace to have gone differently, and
+    all three are code rather than prompt, per this repo's CP38/CP41/CP44 rule:
+
+    1. **Names, not ids.** `driver_a="Verstappen"` used to be an
+       `available: false`; a failed call that fails *soft* teaches the model
+       the tool is useless, not that its argument was wrong.
+    2. **A default season.** Requiring an integer made this tool unreachable
+       without a prior `resolve_context` hop, and the trace shows the model
+       taking that hop, getting 2026, and then talking itself into 2025.
+    3. **A complete bundle.** The old bundle carried the duel counts but not
+       the season totals a comparison also wants, so even a model that called
+       it correctly still had a reason to call two more tools afterwards.
+       `_season_shape` folds those in from rounds already loaded.
 
     Reuses `driver_comparison_recap._build_rounds` (a direct Mongo read of
     `race_results` + `qualifying_results`, mirroring the frontend's
@@ -254,16 +434,35 @@ async def get_head_to_head(
     a = (driver_a or "").strip()
     b = (driver_b or "").strip()
     if not a or not b:
-        return unavailable("two driver ids are required")
-    if a == b:
-        return unavailable("a driver cannot be compared against themselves")
+        return unavailable("two drivers are required")
 
     db = resolve_db(db)
+
+    if season is None:
+        season = await _default_season(db)
+        if season is None:
+            return unavailable(
+                "no season given and no calendar is synced to infer one from"
+            )
+    season = as_int(season)
+    if season is None:
+        return unavailable("season must be a year, e.g. 2026")
+
+    resolved_a, reason_a = await _resolve_driver_id(db, a, season)
+    if not resolved_a:
+        return unavailable(reason_a or f"could not resolve '{a}'")
+    resolved_b, reason_b = await _resolve_driver_id(db, b, season)
+    if not resolved_b:
+        return unavailable(reason_b or f"could not resolve '{b}'")
+
+    if resolved_a == resolved_b:
+        return unavailable("a driver cannot be compared against themselves")
+
     # Sorted into a canonical order for the same reason the endpoint does it:
     # `driver1`/`driver2` in the returned facts are positional, and letting the
     # caller's argument order decide them would make two calls with the same
     # meaning produce two differently-shaped bundles.
-    first, second = sorted([a, b])
+    first, second = sorted([resolved_a, resolved_b])
 
     rounds = await driver_comparison_recap._build_rounds(db, season)
     if not rounds:
@@ -282,7 +481,13 @@ async def get_head_to_head(
 
     facts["race_head_to_head"].pop("rounds", None)
     facts["qualifying_head_to_head"].pop("rounds", None)
+    facts["driver1"]["season_totals"] = _season_shape(rounds, first)
+    facts["driver2"]["season_totals"] = _season_shape(rounds, second)
     facts["scope"] = f"season {season}"
+    facts["completeness"] = (
+        "this bundle is the whole season comparison for these two drivers; "
+        "no further tool call is needed to answer a comparative question"
+    )
 
     return bundle(
         data=facts,

@@ -30,6 +30,21 @@ sees, and tier is the mechanism:
   after 287 seconds on a question CP61's flat baseline answered correctly in
   50.9s. The label survives as telemetry (useful for CP65's golden set) even
   though it no longer changes which graph gets built.
+
+  **CP73 re-measured this class live and left the routing alone — the
+  routing was never the bug.** The design note for CP73 named three
+  candidate causes for comparative questions running long (the model not
+  recognising `get_head_to_head`; the tool not covering a season scope; the
+  router sending the class somewhere it cannot reach the tool). A live run
+  of "Compare Norris and Verstappen this year" against the deployed service
+  settled it: the `done` event reported `tier: 2`, the flat graph, with all
+  eighteen tools bound and `get_head_to_head` among them — the tool was
+  reachable throughout and was simply never called, across ten tool calls
+  and 95.4s. Changing a tier that already hands the model the right tool
+  would have been motion, not a fix, so CP73's changes are all in
+  `tools/drivers.py` and `graph.py`. Recorded here because "we considered
+  the routing and ruled it out" is the kind of finding that gets
+  re-derived from scratch otherwise.
 - **Tier 3** — anything the taxonomy says needs the live web (§2 classes 8-9):
   news, rumours, future regulations, predictions. The one tier that actually
   builds the multi-agent graph, because it is the one tier with a genuine

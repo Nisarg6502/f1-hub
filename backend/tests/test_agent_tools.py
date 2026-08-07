@@ -1098,6 +1098,108 @@ class HeadToHeadTests(BundleAssertions):
         )
 
 
+class HeadToHeadReachabilityTests(BundleAssertions):
+    """CP73: the three reasons the model never called this tool live.
+
+    Each test here corresponds to one line of the measured trace of "Compare
+    Norris and Verstappen this year" against the deployed service — ten tool
+    calls, 95.4s, `get_head_to_head` never invoked once. They are grouped
+    apart from `HeadToHeadTests` because those assert what the bundle
+    *contains* and these assert that the tool is *reachable at all* from the
+    arguments a model actually produces.
+    """
+
+    def test_driver_names_resolve_to_ids(self):
+        data = self.assertBundle(
+            run(drivers.get_head_to_head("Norris", "Verstappen", 2026, db=full_db()))
+        )
+
+        self.assertEqual(data["driver1"]["id"], "max_verstappen")
+        self.assertEqual(data["driver2"]["id"], "norris")
+
+    def test_a_name_and_an_id_mix_freely(self):
+        by_name = run(drivers.get_head_to_head("Norris", "Verstappen", 2026, db=full_db()))
+        mixed = run(drivers.get_head_to_head("norris", "Verstappen", 2026, db=full_db()))
+
+        self.assertEqual(by_name["data"], mixed["data"])
+
+    def test_the_season_defaults_to_the_current_one(self):
+        defaulted = run(drivers.get_head_to_head("Norris", "Verstappen", db=full_db()))
+        explicit = run(drivers.get_head_to_head("norris", "max_verstappen", 2026, db=full_db()))
+
+        self.assertEqual(defaulted["data"], explicit["data"])
+
+    def test_two_spellings_of_the_same_driver_are_still_refused(self):
+        # The self-comparison guard has to run *after* resolution now, or
+        # ("Norris", "norris") would slip past it as two different strings.
+        self.assertUnavailable(
+            run(drivers.get_head_to_head("Norris", "norris", 2026, db=full_db()))
+        )
+
+    def test_an_unknown_name_says_so_rather_than_reporting_no_data(self):
+        result = run(drivers.get_head_to_head("Norris", "Nobody McNobody", 2026, db=full_db()))
+
+        self.assertFalse(result["available"])
+        # The distinction that matters: "we could not identify this driver"
+        # is a fixable argument error, "no results are synced" is not. The
+        # live trace shows the model abandoning the tool after the latter.
+        self.assertIn("nobody mcnobody", result["reason"].lower())
+
+    def test_the_bundle_carries_each_drivers_season_totals(self):
+        # The completeness half of the fix: a comparison bundle that omitted
+        # season totals left the model a reason to call two more tools.
+        data = self.assertBundle(
+            run(drivers.get_head_to_head("Norris", "Verstappen", 2026, db=full_db()))
+        )
+
+        for side in ("driver1", "driver2"):
+            totals = data[side]["season_totals"]
+            self.assertIn("wins", totals)
+            self.assertIn("podiums", totals)
+            self.assertIn("points", totals)
+            self.assertIn("average_finish", totals)
+
+    def test_season_totals_agree_with_the_dedicated_season_tool(self):
+        # Two code paths computing the same counts is exactly the drift
+        # `driver_comparison_recap` exists to prevent, so it is asserted
+        # rather than assumed.
+        head_to_head = self.assertBundle(
+            run(drivers.get_head_to_head("Norris", "Verstappen", 2026, db=full_db()))
+        )
+        summary = self.assertBundle(
+            run(drivers.get_driver_season_summary("norris", 2026, db=full_db()))
+        )
+        totals = head_to_head["driver2"]["season_totals"]
+
+        self.assertEqual(totals["wins"], summary["wins"])
+        self.assertEqual(totals["podiums"], summary["podiums"])
+        self.assertEqual(totals["points"], summary["points"])
+        self.assertEqual(totals["rounds_entered"], summary["rounds_entered"])
+
+    def test_the_model_facing_description_names_the_comparative_case(self):
+        # `graph._tool_description` sends only the first docstring paragraph,
+        # so that paragraph is a piece of behaviour, not prose. If someone
+        # "tidies" it back into a neutral one-liner, the measured failure
+        # returns.
+        first_paragraph = drivers.get_head_to_head.__doc__.strip().split("\n\n")[0]
+
+        self.assertIn("compar", first_paragraph.lower())
+        self.assertIn("get_driver_season_summary", first_paragraph)
+
+
+class DriverSeasonSummaryNameResolutionTests(BundleAssertions):
+    def test_a_name_resolves_the_way_an_id_does(self):
+        by_name = run(drivers.get_driver_season_summary("Norris", 2026, db=full_db()))
+        by_id = run(drivers.get_driver_season_summary("norris", 2026, db=full_db()))
+
+        self.assertEqual(by_name["data"], by_id["data"])
+
+    def test_an_unknown_driver_is_still_unavailable(self):
+        self.assertUnavailable(
+            run(drivers.get_driver_season_summary("Nobody McNobody", 2026, db=full_db()))
+        )
+
+
 # --------------------------------------------------------------------------
 # circuit tools
 # --------------------------------------------------------------------------
