@@ -307,6 +307,126 @@ class FailureTests(unittest.TestCase):
         self.assertNotIn("something nobody predicted", response.body)
 
 
+class HeartbeatTests(unittest.TestCase):
+    """CP70: `sse.comment()` keeps a slow-to-answer turn's socket warm.
+
+    `main.HEARTBEAT_SECONDS` is patched down to something a test can afford
+    to actually wait out, rather than sleeping the real 15s default — the
+    mechanism under test is "does a timeout fire and get retried," which is
+    independent of the threshold's actual value.
+    """
+
+    def setUp(self):
+        concurrency.reset_for_tests()
+
+    @patch.object(main, "HEARTBEAT_SECONDS", 0.05)
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_slow_first_event_produces_a_heartbeat_comment_before_it(self):
+        async def slow_then_real(*_args, **_kwargs):
+            # Sleeps well past the patched 0.05s threshold before its first
+            # real event, so at least one heartbeat must fire while
+            # `_stream` is still waiting on the same pending `__anext__()`.
+            await asyncio.sleep(0.2)
+            yield ("token", "Lando ")
+            yield ("token", "Norris ")
+            yield ("token", "won.")
+
+        with patch.object(main.graph, "astream_answer", slow_then_real):
+            response = post()
+
+        self.assertIn(": heartbeat", response.body)
+        # The comment(s) land before the real token frames on the wire.
+        first_heartbeat = response.body.index(": heartbeat")
+        first_token = response.body.index("event: token")
+        self.assertLess(first_heartbeat, first_token)
+
+        # Nothing about the real event stream is dropped, reordered, or
+        # otherwise disturbed by the heartbeats interleaved around it.
+        self.assertEqual(response.text(), "Lando Norris won.")
+        names = response.names()
+        self.assertEqual(names[-2:], ["sources", "done"])
+
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_no_heartbeat_on_a_normal_speed_turn(self):
+        """A fast turn (the default `HEARTBEAT_SECONDS`) gets zero comments."""
+        with patch.object(main.graph, "astream_answer", _fake_agent_stream):
+            response = post()
+        self.assertNotIn(": heartbeat", response.body)
+
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    @patch.object(main.config, "mongodb_uri", lambda: None)
+    def test_cancelling_stream_stops_the_underlying_answer_call(self):
+        """CP70 regression: a client disconnect must not leave `_answer` running headless.
+
+        `_heartbeat_until_done` deliberately never cancels the task it polls
+        (its own docstring: `asyncio.wait_for` was rejected precisely because
+        cancelling on timeout would drop an in-flight event). But that means
+        cancelling `_stream` alone does not, by itself, cancel the pending
+        `next_task` it was polling — `asyncio.wait()` does not propagate a
+        cancellation of itself onto the task it was waiting on (a
+        well-documented asyncio gotcha). Left unhandled, the real
+        `_answer.__anext__()` call underneath `next_task` would keep running
+        detached in the background after `_stream` itself has already
+        unwound, still burning model/tool quota for a request nobody is
+        listening to anymore.
+
+        The fake `_answer` replacement below sets `started` the instant it is
+        actually invoked, before doing anything else — the test waits on that
+        event rather than guessing a sleep duration, so cancellation always
+        lands while `_stream` is genuinely inside the heartbeat-wrapped
+        `await next_task`, never earlier (e.g. still acquiring the
+        concurrency slot, which would trivially "pass" without exercising the
+        bug at all) or later. `reached_end` only flips `True` if the fake
+        stream is allowed to run past its `sleep` to completion; the test
+        then keeps the *same* event loop alive well past that sleep so a
+        leaked, still-scheduled task gets every chance to actually finish
+        before asserting — otherwise `asyncio.run`'s own cleanup would cancel
+        any leaked task on the way out and mask the leak as a false pass.
+
+        Patches `main._answer` directly (not `main.graph.astream_answer`,
+        which `_answer` wraps) — this is the actual seam `_stream` calls
+        through, and this test needs to know exactly when it was invoked.
+        """
+        reached_end = {"value": False}
+        started = asyncio.Event()
+        SLEEP = 0.3  # comfortably longer than the delay before cancelling
+
+        async def never_finishes(*_args, **_kwargs):
+            started.set()
+            await asyncio.sleep(SLEEP)
+            reached_end["value"] = True
+            yield ("token", "too late")
+
+        async def drive_one_turn():
+            request = main.ChatRequest(message="Who won Monaco?")
+            async for _ in main._stream(request):
+                pass
+
+        async def scenario():
+            with patch.object(main, "_answer", never_finishes):
+                task = asyncio.ensure_future(drive_one_turn())
+                await asyncio.wait_for(started.wait(), timeout=2)
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+                # `task` being done only proves `_stream` itself unwound —
+                # that was already true before this fix (the whole bug was
+                # that `_stream` unwinds cleanly while `next_task` keeps
+                # running detached). A leaked `next_task` is still alive and
+                # scheduled on *this* event loop, so staying on the loop past
+                # `SLEEP` gives it every chance to actually finish and flip
+                # the flag before this test's own event loop closes and
+                # `asyncio.run` sweeps it away — which would otherwise mask
+                # the leak as a false pass.
+                await asyncio.sleep(SLEEP + 0.2)
+
+        asyncio.run(scenario())
+        self.assertFalse(
+            reached_end["value"],
+            msg="the underlying _answer call kept running after _stream was cancelled",
+        )
+
+
 class HealthTests(unittest.TestCase):
     def test_health_reports_the_facts_needed_to_debug_a_deploy(self):
         response = asyncio.run(_drive("GET", "/health"))

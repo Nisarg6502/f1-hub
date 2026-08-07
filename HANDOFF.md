@@ -240,6 +240,15 @@ user-facing failure.
 **No deploy needed for CP65** — pure test/CI infrastructure, no runtime code in `agent/graph.py`,
 `agent/main.py` or any other file the deployed service actually imports.
 
+**CP70's thread-persistence item was decided, not silently skipped: kept as-is.** The batch plan
+flagged "thread id regenerates on every panel open" as a decision to make, not a bug to fix — a fresh
+`crypto.randomUUID()` thread per open, discarding the conversation on close, is documented as
+deliberate in both `pitwall-assistant-panel.tsx`'s and `pitwall-assistant-launcher.tsx`'s own
+comments (avoids an indefinitely-growing thread; each open is a genuinely fresh mount). CP70 confirms
+that reasoning still holds and makes no change. Revisit only if a future checkpoint has a concrete
+reason to add cross-session persistence (e.g. a "conversation history" feature), at which point it
+should ship with an explicit "New conversation" affordance, not as a silent default.
+
 ### CP66 — production UI + answer cache, scoped tightly given session time
 
 **Shipped:** the portaled Pitwall Assistant panel (`pitwall-assistant-panel.tsx` +
