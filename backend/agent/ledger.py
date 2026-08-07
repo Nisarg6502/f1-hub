@@ -38,8 +38,9 @@ stale rather than hedging the whole answer.
 from __future__ import annotations
 
 import datetime
+import re
 from dataclasses import dataclass, field
-from typing import Any, Iterator
+from typing import Any, Iterable, Iterator
 
 from .labels import activity_label
 
@@ -54,6 +55,89 @@ ID_PREFIX = "ev_"
 # the claim rests on, small enough that ten citations still fit in one event.
 SNIPPET_MAX_PAIRS = 6
 SNIPPET_MAX_VALUE = 120
+
+# CP72's `locate()` walks a whole fact bundle rather than its first six keys,
+# so unlike `_snippet()` it has no natural stopping point — a race payload can
+# carry 1000+ lap rows, and a claim whose tokens are simply not in that entry
+# would otherwise pay for the entire traversal on every citation of every
+# sentence. The budget counts container nodes visited, not fields: 2000 is far
+# more than any real bundle needs to reach its top-level result rows (where the
+# answer's facts actually live) and small enough that a pathological payload
+# costs microseconds rather than a visible pause before `sources`. A claim
+# whose evidence sits past the budget degrades to "not located", which is the
+# same outcome as any other miss and costs the answer nothing.
+LOCATE_MAX_NODES = 2000
+
+# A token shorter than this is not evidence of anything — "GP", "P1", "de" all
+# appear inside unrelated field values, and a whole-word match on two
+# characters would anchor a claim to the wrong row often enough to be worse
+# than no anchor. Exact equality is still honoured below this length, since an
+# exact match is not a guess.
+LOCATE_MIN_TOKEN = 3
+
+# The row travels to the browser inside the `sources` SSE event, once per
+# anchor, so it is bounded for the same frame-budget reason `SNIPPET_MAX_PAIRS`
+# is. Twelve is chosen against the shape this actually serves — a race result
+# row (position, driver, team, grid, laps, status, time, points, …) fits whole,
+# which is the point: CP74 shows the fact *in situ*, so a row truncated to six
+# fields would reintroduce the stripped-excerpt problem this checkpoint exists
+# to remove.
+ANCHOR_ROW_MAX_FIELDS = 12
+
+
+def _normalise_token(text: str) -> str:
+    """Fold a value to the form both sides of a locate comparison are in.
+
+    Case and thousands separators are the two differences that show up
+    constantly between a claim's prose and a bundle's stored value ("Norris"
+    vs "norris", "1,234" vs "1234") and neither of them means the fact is a
+    different fact. Whitespace is collapsed rather than stripped because a
+    stored value can carry a line break a prose token never would.
+    """
+    return re.sub(r"\s+", " ", str(text).replace(",", "").strip()).casefold()
+
+
+def _token_matches(target: str, candidate: str) -> bool:
+    """Whether a claim token `target` is present in the field value `candidate`.
+
+    Whole-word containment rather than plain substring, and this is the fork
+    worth naming: a claim saying "Russell" must anchor to a `driver` field
+    reading "George Russell", so equality alone is too strict — but plain
+    substring would match "25" inside "125" and "Ver" inside "Verstappen's
+    teammate", anchoring the reader's attention to a number or a name the
+    claim never made. The boundary assertions buy the first behaviour without
+    the second.
+    """
+    if not target or not candidate:
+        return False
+    if target == candidate:
+        return True
+    if len(target) < LOCATE_MIN_TOKEN:
+        return False
+    return re.search(rf"(?<!\w){re.escape(target)}(?!\w)", candidate) is not None
+
+
+def _row_view(row: dict) -> dict:
+    """The record around a located field, reduced to what a popover can show.
+
+    Scalars only, and rendered through `_scalar` so a nested structure inside
+    the row is dropped rather than dumped — the row exists to give the located
+    value its context (which driver, which lap, which team), not to be a JSON
+    viewer. Values are strings by the time they leave here because the one
+    consumer is display; keeping native ints would mean the frontend formats
+    some fields and not others depending on what Mongo happened to store.
+    """
+    view: dict = {}
+    for key, value in row.items():
+        if str(key).startswith("_"):
+            continue
+        text = _scalar(value)
+        if text is None:
+            continue
+        view[str(key)] = text
+        if len(view) >= ANCHOR_ROW_MAX_FIELDS:
+            break
+    return view
 
 
 def _humanise_key(key: str) -> str:
@@ -282,6 +366,119 @@ class Evidence:
         text = _scalar(data)
         return [{"label": "Value", "value": text}] if text is not None else []
 
+    def locate(self, values: Iterable[Any]) -> list[dict]:
+        """Where in `data` each of a claim's significant tokens actually is.
+
+        This is the missing half of the verifier's existing work, and CP72
+        exists because it was being thrown away. `check_citations` already
+        resolves claim → cited entry → "is this value in that entry's data",
+        but it asks that question of one flat `json.dumps` haystack
+        (`verifier._evidence_haystack`), which can answer *whether* and never
+        *where*. A citation built on "whether" can only say "this came from
+        the Australian GP session result" — precisely the reported bug, where
+        a reader asking who won was shown a table with no winner in it.
+
+        Returns one `{"token", "path", "field", "value", "row"}` dict per
+        token that was found, in the order the tokens were given. `token`
+        echoes the query so a caller holding several tokens knows which one
+        each hit answers; the rest is the spec's shape — the path of the
+        record containing the field, the field's own name, the stored value
+        that matched, and `_row_view` of the surrounding record so CP74 can
+        show the fact in context rather than as a stripped excerpt.
+
+        Three properties are load-bearing:
+
+        **Document order, first match wins.** The walk is pre-order and the
+        first field satisfying a token is the one kept. That is not an
+        arbitrary tie-break: the fact bundles this searches are already
+        ordered the way the question cares about — a race result's `results`
+        list runs P1 downward — so "first" is "most significant" for free,
+        and a "who won" claim lands on the P1 row rather than on whichever
+        row a later scan happened to reach.
+
+        **Total.** Every failure mode — an unwalkable payload, a value whose
+        `__str__` raises, a token found nowhere — returns "not located"
+        rather than raising, matching `_snippet()`'s discipline for the same
+        reason: this runs after the answer is already written, and a failed
+        locate must cost a citation its anchor, never cost the user a good
+        answer.
+
+        **Model-free.** Pure structure walking. Asking the model to name the
+        field it used is the mistake CP38/CP41/CP44 each recorded once
+        already; the design note's governing principle is that a check the
+        code can do is never delegated to the thing being checked.
+        """
+        try:
+            return self._locate(self.data, values)
+        except Exception:
+            return []
+
+    @staticmethod
+    def _locate(data: Any, values: Iterable[Any]) -> list[dict]:
+        wanted: list[tuple[Any, str]] = []
+        seen_targets: set[str] = set()
+        for value in values or ():
+            text = _scalar(value)
+            if text is None:
+                continue
+            target = _normalise_token(text)
+            if not target or target in seen_targets:
+                continue
+            seen_targets.add(target)
+            wanted.append((value, target))
+        if not wanted:
+            return []
+
+        found: dict[str, dict] = {}
+        budget = LOCATE_MAX_NODES
+        # An explicit stack rather than recursion: depth is attacker-adjacent
+        # here in the sense that `data` is whatever a tool returned, and a
+        # deeply nested payload should exhaust a counter we chose, not the
+        # interpreter's own recursion limit. Children are pushed reversed so
+        # popping yields them in document order.
+        stack: list[tuple[Any, str]] = [(data, "")]
+        while stack and budget > 0 and len(found) < len(wanted):
+            node, path = stack.pop()
+            budget -= 1
+
+            if isinstance(node, dict):
+                children: list[tuple[Any, str]] = []
+                for key, value in node.items():
+                    if str(key).startswith("_"):
+                        continue
+                    child_path = f"{path}.{key}" if path else str(key)
+                    text = _scalar(value)
+                    if text is None:
+                        if isinstance(value, (dict, list, tuple)):
+                            children.append((value, child_path))
+                        continue
+                    candidate = _normalise_token(text)
+                    for _original, target in wanted:
+                        if target in found:
+                            continue
+                        if _token_matches(target, candidate):
+                            found[target] = {
+                                "path": path,
+                                "field": str(key),
+                                "value": text,
+                                "row": _row_view(node),
+                            }
+                stack.extend(reversed(children))
+                continue
+
+            if isinstance(node, (list, tuple)):
+                stack.extend(
+                    reversed(
+                        [(item, f"{path}[{i}]") for i, item in enumerate(node)]
+                    )
+                )
+
+        return [
+            {"token": original, **found[target]}
+            for original, target in wanted
+            if target in found
+        ]
+
     def _web_url(self) -> str | None:
         """The public URL behind a `web:`-sourced entry, or `None`.
 
@@ -380,8 +577,49 @@ class EvidenceLedger:
         return [entry.evidence_id for entry in self._entries]
 
     def citations(self) -> list[dict]:
-        """Every entry as a source chip, for the `sources` SSE event."""
+        """Every entry as a source chip.
+
+        No longer what the user sees — `anchored_citations` is, from CP72 on.
+        This is kept, unchanged, because it is the right shape for the two
+        callers that genuinely do want everything retrieved: the answer cache
+        (which stores what a turn produced) and tracing.
+        """
         return [entry.citation() for entry in self._entries]
+
+    def anchored_citations(self, anchors: list[dict] | None) -> list[dict]:
+        """The user-visible source list: only entries the answer actually used.
+
+        The reported bug behind this was "one citation inline, several listed
+        below". The counts diverged because the two lists were derived
+        independently — the inline markers from whatever ids the model wrote
+        into its prose, the list below from `citations()`, which returns every
+        entry the *tools* retrieved whether the answer leaned on it or not.
+        Reconciling the counts would have patched the symptom; deriving both
+        from one anchor set makes the divergence unrepresentable, which is the
+        actual fix.
+
+        So an entry with no anchor is not listed. It stays in the ledger, and
+        that distinction matters rather than being an implementation detail:
+        the verifier must still be able to resolve a citation against it, and a
+        trace must still show what a turn cost, so dropping it from the ledger
+        to shorten this list would trade a cosmetic problem for a correctness
+        one.
+
+        Each returned citation carries its own `anchors` in draft order, so the
+        below-answer strip and the inline markers read from the same rows.
+        Order follows the ledger, not the anchors, so repeated citations of one
+        entry do not shuffle the list as the answer streams.
+        """
+        by_id: dict[str, list[dict]] = {}
+        for anchor in anchors or ():
+            evidence_id = str((anchor or {}).get("evidence_id") or "")
+            if evidence_id in self._by_id:
+                by_id.setdefault(evidence_id, []).append(anchor)
+        return [
+            {**entry.citation(), "anchors": by_id[entry.evidence_id]}
+            for entry in self._entries
+            if entry.evidence_id in by_id
+        ]
 
     def oldest_as_of(self) -> str | None:
         """The stalest cutoff in the ledger.
