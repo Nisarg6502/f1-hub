@@ -35,6 +35,31 @@ class CitationCheckTests(unittest.TestCase):
         self.assertEqual(result.violations, ())
         self.assertEqual(result.citation_count, 1)
 
+    def test_full_width_brackets_are_accepted(self):
+        # CP73's live runs caught the deployed model closing a marker with the
+        # CJK full-width 】. The answer was correct and cited; every marker in
+        # it was invisible to the parser, so a good draft collected nine
+        # violations and CP72's anchors resolved to nothing. Bracket shape is
+        # tolerated; the `ev_N` body is not.
+        ledger = _ledger_with(data={"winner": "Lando Norris", "points": 25})
+        for draft in (
+            "Lando Norris won with 25 points 【ev_1】.",
+            "Lando Norris won with 25 points ［ev_1］.",
+            "Lando Norris won with 25 points [ev_1】.",
+        ):
+            with self.subTest(draft=draft):
+                result = verifier.check(draft, ledger)
+                self.assertTrue(result.passed, result.violations)
+                self.assertEqual(result.citation_count, 1)
+
+    def test_full_width_marker_still_anchors(self):
+        # The anchor path and the check path share one regex; this pins that
+        # they cannot drift, since CP74 renders nothing without anchors.
+        ledger = _ledger_with(data={"winner": "Lando Norris", "points": 25})
+        anchors = verifier.anchors("Lando Norris won with 25 points 【ev_1】.", ledger)
+        self.assertTrue(anchors)
+        self.assertEqual(anchors[0].evidence_id, "ev_1")
+
     def test_empty_draft_passes(self):
         # An honest decline cites nothing and asserts nothing.
         ledger = EvidenceLedger()

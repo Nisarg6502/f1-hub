@@ -44,7 +44,19 @@ from .ledger import Evidence, EvidenceLedger
 # parsing the draft
 # --------------------------------------------------------------------------
 
-_CITATION_RE = re.compile(r"\[ev_(\d+)\]")
+# Bracket variants are accepted, not just ASCII `[`/`]`. CP73's live runs caught
+# the deployed model closing a marker with the CJK full-width `【ev_2】` — the
+# answer was correct and cited, but every marker in it was invisible to this
+# regex, so the verifier reported nine violations against a good draft and
+# CP72's anchors resolved to nothing.
+#
+# This is the CP41 lesson again: the prompt asks for `[ev_N]` and the model
+# mostly complies, and "mostly" is not a contract. Widening the parser costs
+# nothing and removes a whole class of silent failure; the alternative — asking
+# the model more firmly — is the approach CP41 already watched fail in ALL CAPS.
+# Only bracket *shape* is tolerated. The `ev_N` body stays exact, so a
+# hallucinated id is still a lookup miss (see `ledger.py` on opaque ids).
+_CITATION_RE = re.compile(r"[\[【［]ev_(\d+)[\]】］]")
 _NUMBER_RE = re.compile(r"-?\d[\d,]*\.?\d+|-?\d+")
 # Sentence-ish split: good enough for "does this sentence carry a number and
 # a citation", not attempting real NLP. Keeps the delimiter's own punctuation
