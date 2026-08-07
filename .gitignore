@@ -30,3 +30,6 @@ stitch/
 stitch.zip
 /circuits/
 /teams/
+
+# Superpowers session working files (brainstorm mockups, subagent reports)
+.superpowers/
