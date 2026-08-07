@@ -23,8 +23,17 @@ Event types, in the order a normal answer produces them:
         started — always present.
     token      {"text": str}
         One delta of answer text. Many of these.
-    sources    {"sources": [{"id", "label", "url"|None, "as_of"}]}
-        Emitted once, before `done`, so the UI can render citation chips.
+    sources    {"sources": [{"id", "n", "kind", "label", "title", "url"|None,
+                              "as_of", "snippet", "anchors": [...]}],
+                 "anchors": [{"evidence_id", "text", "start", "end", "claim",
+                              "field", "value", "path", "row"}]}
+        Emitted once, before `done`. From CP72 the list is the answer's
+        *anchor* set, not everything the tools retrieved: an entry the answer
+        never cited is no longer listed (it stays in the ledger for the
+        verifier and for tracing). Each anchor names a span of the answer text
+        and the field and row of the evidence proving it, so a citation can
+        point at the value that answers the question instead of at the bundle
+        it came from. `anchors` is the same set flattened into draft order.
     done       {"run_id": str|None, "model": str, "tier": int|None,
                  "verification": "passed"|"verification_failed"|None,
                  "cached": bool (optional), ...}
@@ -98,8 +107,22 @@ def token(text: str) -> str:
     return frame("token", {"text": text})
 
 
-def sources(items: list[dict]) -> str:
-    return frame("sources", {"sources": items})
+def sources(items: list[dict], anchors: list[dict] | None = None) -> str:
+    """The evidence behind the answer: which records, and where in them.
+
+    Two views of one anchor set, which is the point rather than duplication.
+    `sources` is grouped by record for the strip under the answer; `anchors` is
+    flat and in draft order for marking values inline. CP71 shipped those two
+    surfaces derived from *different* sets and they disagreed about how many
+    citations an answer had; deriving both from one set is what makes that
+    disagreement unrepresentable.
+
+    `anchors` defaults to `[]` rather than being omitted, so a client can read
+    the key unconditionally — including on the paths that legitimately have no
+    anchors to offer, such as an echo fallback or a cached answer written
+    before this checkpoint.
+    """
+    return frame("sources", {"sources": items, "anchors": list(anchors or [])})
 
 
 def done(**fields: Any) -> str:

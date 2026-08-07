@@ -30,7 +30,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
-from . import answer_cache, checkpointer, concurrency, config, graph, guardrails, model, sse, tracing
+from . import (
+    answer_cache,
+    checkpointer,
+    concurrency,
+    config,
+    graph,
+    guardrails,
+    model,
+    sse,
+    tracing,
+    verifier,
+)
 from .ledger import EvidenceLedger
 
 
@@ -234,7 +245,19 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
         yield sse.activity(
             "Answered from cache", "done", kind="system", at=_now_iso()
         )
-        yield sse.sources(cached.get("sources") or [])
+        # Flattened back out of the stored sources rather than stored twice:
+        # the cache round-trips one `sources` blob, and an entry written before
+        # CP72 simply carries none, which the frontend already has to handle
+        # for every unanchored answer.
+        cached_sources = cached.get("sources") or []
+        yield sse.sources(
+            cached_sources,
+            anchors=[
+                anchor
+                for source in cached_sources
+                for anchor in (source.get("anchors") or [])
+            ],
+        )
         yield sse.done(
             run_id=None,
             mode="model",
@@ -395,7 +418,22 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                     yield sse.token(delta)
 
             yield sse.activity("Thinking…", "done", kind="system", at=_now_iso())
-            yield sse.sources(ledger.citations())
+            # CP72: the source list is derived from the finished answer, not
+            # from the ledger, so it names the records the answer actually
+            # leaned on rather than everything the tools happened to fetch.
+            # Run here rather than inside `graph.py`'s verify step because this
+            # is the only place holding the whole assembled draft — the repair
+            # loop can replace a draft after verification, and anchoring the
+            # rejected one would mark spans that are no longer in the text.
+            # `verifier.anchors` is total in the same way `Evidence.locate` is,
+            # so a bundle it cannot walk yields no anchors rather than costing
+            # the reader the answer they are already looking at.
+            answer_anchors = [
+                anchor.to_dict()
+                for anchor in verifier.anchors("".join(answer_parts), ledger)
+            ]
+            answer_sources = ledger.anchored_citations(answer_anchors)
+            yield sse.sources(answer_sources, anchors=answer_anchors)
             yield sse.done(
                 run_id=rid,
                 mode=mode,
@@ -430,7 +468,12 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                     config.PROMPT_VERSION,
                     tier=tier,
                     text="".join(answer_parts),
-                    sources=ledger.citations(),
+                    # The anchored list, so a replay renders identically to the
+                    # turn that produced it. `answer_cache`'s `sources=` is the
+                    # only channel available for this, which is why the anchors
+                    # ride nested inside each source rather than alongside them
+                    # — the replay path flattens them back out.
+                    sources=answer_sources,
                 )
 
         except concurrency.AtCapacity as error:

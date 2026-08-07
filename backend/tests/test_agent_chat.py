@@ -145,6 +145,79 @@ async def _fake_agent_stream(*_args, **_kwargs):
         yield ("token", chunk)
 
 
+async def _fake_anchored_stream(*_args, ledger=None, **_kwargs):
+    """A run that actually retrieves something, so `sources` has work to do.
+
+    Two entries, one of them never cited by the draft — which is the case CP72
+    changes: the uncited entry must vanish from the user-visible list while
+    staying in the ledger for the verifier and for tracing.
+    """
+    await asyncio.sleep(0)
+    ledger.append(
+        source="mongo:race_results/2026-3",
+        data={
+            "race_name": "Australian Grand Prix",
+            "results": [
+                {"position": 1, "driver": "George Russell", "team": "Mercedes"},
+                {"position": 2, "driver": "Lando Norris", "team": "McLaren"},
+            ],
+        },
+    )
+    ledger.append(source="mongo:driver_standings/2026", data={"leader": "Oscar Piastri"})
+    for chunk in ("George Russell ", "won the Australian Grand Prix ", "[ev_1]."):
+        await asyncio.sleep(0)
+        yield ("token", chunk)
+
+
+class ClaimAnchorTests(unittest.TestCase):
+    """CP72 end-to-end: the `sources` event is the answer's anchor set."""
+
+    def setUp(self):
+        concurrency.reset_for_tests()
+
+    def _sources_event(self) -> dict:
+        events = post().events
+        return next(payload for name, payload in events if name == "sources")
+
+    @patch.object(main.graph, "astream_answer", _fake_anchored_stream)
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_the_sources_event_carries_anchors(self):
+        payload = self._sources_event()
+
+        fields = {a["field"] for a in payload["anchors"]}
+        self.assertIn("driver", fields)
+        winner = next(a for a in payload["anchors"] if a["field"] == "driver")
+        self.assertEqual(winner["value"], "George Russell")
+        self.assertEqual(winner["path"], "results[0]")
+        self.assertEqual(winner["evidence_id"], "ev_1")
+
+    @patch.object(main.graph, "astream_answer", _fake_anchored_stream)
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_evidence_the_answer_never_cited_is_not_listed(self):
+        payload = self._sources_event()
+
+        self.assertEqual([s["id"] for s in payload["sources"]], ["ev_1"])
+
+    @patch.object(main.graph, "astream_answer", _fake_anchored_stream)
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_the_listed_sources_and_the_anchors_cannot_disagree(self):
+        payload = self._sources_event()
+
+        listed = {s["id"] for s in payload["sources"]}
+        self.assertEqual(listed, {a["evidence_id"] for a in payload["anchors"]})
+        self.assertEqual(
+            payload["sources"][0]["anchors"], payload["anchors"]
+        )
+
+    @patch.object(main.graph, "astream_answer", _fake_agent_stream)
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_an_answer_with_no_evidence_still_emits_a_well_formed_event(self):
+        payload = self._sources_event()
+
+        self.assertEqual(payload["sources"], [])
+        self.assertEqual(payload["anchors"], [])
+
+
 class HappyPathTests(unittest.TestCase):
     def setUp(self):
         concurrency.reset_for_tests()
