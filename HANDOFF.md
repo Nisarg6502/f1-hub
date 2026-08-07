@@ -8,6 +8,19 @@ history, including ad-hoc additions built mid-batch). A durable roadmap-tracking
 this file. This file only carries session-specific working memory: recent gotchas, environment
 quirks, and the immediate next action.
 
+### Batch 19 (CP67-70) is fully merged — deploy status below
+
+All four checkpoints (CP67 guardrails, CP68 visual citations, CP69 feedback loop, CP70 chat UX
+polish) are merged to `main` as of 2026-08-07. See `ROADMAP.md`'s "Current batch" section for the
+summary and `docs/superpowers/plans/` for each checkpoint's implementation plan. Each checkpoint went
+through the same process: subagent implementation per task, a final whole-branch review, and a fix
+pass where the review found something — two genuine Critical/Important-class bugs were caught this
+way before merge: CP69's feedback endpoint had no vote dedupe (mitigated, not fully proven — see the
+CP65 section below), and CP70's own SSE heartbeat had broken cancellation propagation, which would
+have quietly kept burning inference quota after a user closed the tab. Whether this is deployed live
+depends on when this note is read — check the "Where things stand" verification steps below rather
+than trusting this paragraph's tense.
+
 ### Batch 17 (CP59-62) is fully merged AND deployed — this section was stale
 
 A prior session's local sandbox had no authenticated `gcloud` and left this file saying "deploy
