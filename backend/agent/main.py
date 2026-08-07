@@ -312,37 +312,73 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                     answer_iter = _answer(
                         text, thread_id=thread_id, ledger=ledger
                     ).__aiter__()
-                    while True:
-                        next_task = asyncio.ensure_future(answer_iter.__anext__())
-                        async for heartbeat in _heartbeat_until_done(next_task):
-                            yield heartbeat
-                        try:
-                            event = await next_task
-                        except StopAsyncIteration:
-                            break
+                    next_task: "asyncio.Task | None" = None
+                    try:
+                        while True:
+                            next_task = asyncio.ensure_future(answer_iter.__anext__())
+                            async for heartbeat in _heartbeat_until_done(next_task):
+                                yield heartbeat
+                            try:
+                                event = await next_task
+                            except StopAsyncIteration:
+                                break
 
-                        kind = event[0]
-                        if kind == "token":
-                            _, delta = event
-                            chars += len(delta)
-                            answer_parts.append(delta)
-                            yield sse.token(delta)
-                        elif kind == "activity":
-                            if len(event) == 5:
-                                _, label, state, detail, activity_kind = event
-                            else:
-                                _, label, state = event
-                                detail, activity_kind = None, "system"
-                            yield sse.activity(
-                                label, state, detail=detail, kind=activity_kind,
-                                at=_now_iso(),
-                            )
-                        elif kind == "tier":
-                            _, tier, _reason = event
-                        elif kind == "verification":
-                            _, passed, violation_count = event
-                            verification_status = "passed" if passed else "verification_failed"
-                            verification_violations = violation_count
+                            kind = event[0]
+                            if kind == "token":
+                                _, delta = event
+                                chars += len(delta)
+                                answer_parts.append(delta)
+                                yield sse.token(delta)
+                            elif kind == "activity":
+                                if len(event) == 5:
+                                    _, label, state, detail, activity_kind = event
+                                else:
+                                    _, label, state = event
+                                    detail, activity_kind = None, "system"
+                                yield sse.activity(
+                                    label, state, detail=detail, kind=activity_kind,
+                                    at=_now_iso(),
+                                )
+                            elif kind == "tier":
+                                _, tier, _reason = event
+                            elif kind == "verification":
+                                _, passed, violation_count = event
+                                verification_status = "passed" if passed else "verification_failed"
+                                verification_violations = violation_count
+                    finally:
+                        # `_heartbeat_until_done` deliberately never cancels
+                        # `next_task` (see its docstring) — polling with
+                        # `asyncio.wait` must not drop the in-flight event.
+                        # But that means nothing upstream of it cancels the
+                        # *real* model/tool call either, and `asyncio.wait`
+                        # does not propagate a cancellation of itself onto
+                        # the task it was waiting on (a well-documented
+                        # asyncio gotcha). Left alone, a client disconnect
+                        # here would let this loop's own `CancelledError`
+                        # sail through cleanly while `next_task` — the actual
+                        # live `_answer.__anext__()` call — kept running
+                        # detached in the background, still burning quota
+                        # for a request nobody is listening to. This is the
+                        # one place that can still be true when the loop
+                        # exits, for any reason (normal `StopAsyncIteration`,
+                        # an exception from `_answer`, or our own
+                        # cancellation), so it is the one place responsible
+                        # for making sure `next_task` never outlives it.
+                        if next_task is not None and not next_task.done():
+                            next_task.cancel()
+                            try:
+                                await next_task
+                            except BaseException:
+                                # Cancellation landing inside `_answer` can
+                                # surface as `CancelledError`,
+                                # `StopAsyncIteration`, or whatever the
+                                # underlying call was doing when the
+                                # cancellation hit it — none of those are
+                                # this function's to report, and none may be
+                                # left unretrieved (that logs an "exception
+                                # was never retrieved" warning once the task
+                                # is garbage collected).
+                                pass
 
             except model.ModelUnavailable:
                 # No key configured: fall back to the echo so the transport is

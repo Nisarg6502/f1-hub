@@ -353,6 +353,79 @@ class HeartbeatTests(unittest.TestCase):
             response = post()
         self.assertNotIn(": heartbeat", response.body)
 
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    @patch.object(main.config, "mongodb_uri", lambda: None)
+    def test_cancelling_stream_stops_the_underlying_answer_call(self):
+        """CP70 regression: a client disconnect must not leave `_answer` running headless.
+
+        `_heartbeat_until_done` deliberately never cancels the task it polls
+        (its own docstring: `asyncio.wait_for` was rejected precisely because
+        cancelling on timeout would drop an in-flight event). But that means
+        cancelling `_stream` alone does not, by itself, cancel the pending
+        `next_task` it was polling — `asyncio.wait()` does not propagate a
+        cancellation of itself onto the task it was waiting on (a
+        well-documented asyncio gotcha). Left unhandled, the real
+        `_answer.__anext__()` call underneath `next_task` would keep running
+        detached in the background after `_stream` itself has already
+        unwound, still burning model/tool quota for a request nobody is
+        listening to anymore.
+
+        The fake `_answer` replacement below sets `started` the instant it is
+        actually invoked, before doing anything else — the test waits on that
+        event rather than guessing a sleep duration, so cancellation always
+        lands while `_stream` is genuinely inside the heartbeat-wrapped
+        `await next_task`, never earlier (e.g. still acquiring the
+        concurrency slot, which would trivially "pass" without exercising the
+        bug at all) or later. `reached_end` only flips `True` if the fake
+        stream is allowed to run past its `sleep` to completion; the test
+        then keeps the *same* event loop alive well past that sleep so a
+        leaked, still-scheduled task gets every chance to actually finish
+        before asserting — otherwise `asyncio.run`'s own cleanup would cancel
+        any leaked task on the way out and mask the leak as a false pass.
+
+        Patches `main._answer` directly (not `main.graph.astream_answer`,
+        which `_answer` wraps) — this is the actual seam `_stream` calls
+        through, and this test needs to know exactly when it was invoked.
+        """
+        reached_end = {"value": False}
+        started = asyncio.Event()
+        SLEEP = 0.3  # comfortably longer than the delay before cancelling
+
+        async def never_finishes(*_args, **_kwargs):
+            started.set()
+            await asyncio.sleep(SLEEP)
+            reached_end["value"] = True
+            yield ("token", "too late")
+
+        async def drive_one_turn():
+            request = main.ChatRequest(message="Who won Monaco?")
+            async for _ in main._stream(request):
+                pass
+
+        async def scenario():
+            with patch.object(main, "_answer", never_finishes):
+                task = asyncio.ensure_future(drive_one_turn())
+                await asyncio.wait_for(started.wait(), timeout=2)
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+                # `task` being done only proves `_stream` itself unwound —
+                # that was already true before this fix (the whole bug was
+                # that `_stream` unwinds cleanly while `next_task` keeps
+                # running detached). A leaked `next_task` is still alive and
+                # scheduled on *this* event loop, so staying on the loop past
+                # `SLEEP` gives it every chance to actually finish and flip
+                # the flag before this test's own event loop closes and
+                # `asyncio.run` sweeps it away — which would otherwise mask
+                # the leak as a false pass.
+                await asyncio.sleep(SLEEP + 0.2)
+
+        asyncio.run(scenario())
+        self.assertFalse(
+            reached_end["value"],
+            msg="the underlying _answer call kept running after _stream was cancelled",
+        )
+
 
 class HealthTests(unittest.TestCase):
     def test_health_reports_the_facts_needed_to_debug_a_deploy(self):
