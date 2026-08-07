@@ -262,6 +262,15 @@ that reasoning still holds and makes no change. Revisit only if a future checkpo
 reason to add cross-session persistence (e.g. a "conversation history" feature), at which point it
 should ship with an explicit "New conversation" affordance, not as a silent default.
 
+**CP71 supplied that concrete reason and partially reversed this — read the two notes together.**
+The user asked directly for a way to clear the conversation, so CP71 added a **"New chat" control**
+in the panel header (clears `messages`, regenerates `threadId`, confirms first when the thread is
+non-empty). Note what did *and did not* change: thread-per-open is **still** the behaviour — closing
+and reopening the panel still starts fresh, and nothing is persisted across mounts. What CP71 added
+is the explicit reset affordance CP70's own note said should accompany any change here, so a user
+can now clear a long thread *without* closing the panel. Cross-session persistence remains
+unbuilt and still needs its own decision if it is ever wanted.
+
 ### CP66 — production UI + answer cache, scoped tightly given session time
 
 **Shipped:** the portaled Pitwall Assistant panel (`pitwall-assistant-panel.tsx` +

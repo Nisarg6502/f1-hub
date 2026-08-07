@@ -1,13 +1,8 @@
 "use client";
 
 import LocalDateTime from "./local-datetime";
-import type { AgentSource } from "@/lib/agent-api";
-
-const KIND_ICON: Record<AgentSource["kind"], string> = {
-  data: "database",
-  web: "public",
-  wikipedia: "menu_book",
-};
+import { citationAnchorId, type AgentSource } from "@/lib/agent-api";
+import { sourceKindStyle } from "@/lib/source-kind";
 
 /**
  * One retrieved source, rendered as a real card rather than a bare chip —
@@ -16,13 +11,45 @@ const KIND_ICON: Record<AgentSource["kind"], string> = {
  * instead of a raw ISO string in a tooltip, and (for `kind !== "data"`, which
  * has no public address per `agent/tools/base.py`'s `mongo_source` docstring)
  * a genuine clickable link.
+ *
+ * CP71 changes two things:
+ * - **The DOM id is namespaced by `messageId`.** Evidence ids restart at
+ *   `ev_1` on every turn, so `id="source-ev_1"` collided across answers and
+ *   `getElementById` resolved a citation in answer 3 to answer 1's card.
+ * - **`position` is the number shown**, i.e. this card's 1-based place in its
+ *   message's source list, so the card list reads 1, 2, 3 instead of repeating
+ *   a ledger counter. The *pill* keeps the evidence's own number — a genuinely
+ *   repeated citation of the same evidence should keep showing the same
+ *   number, which was never the bug.
+ * - Icon/accent come from the shared `source-kind` module rather than a local
+ *   map, so pill, card and popover cannot drift apart.
  */
-export default function SourceCard({ source }: { source: AgentSource }) {
+export default function SourceCard({
+  source,
+  messageId,
+  position,
+}: {
+  source: AgentSource;
+  messageId: string;
+  position: number;
+}) {
   const asOfMs = source.as_of ? new Date(source.as_of).getTime() : null;
+  const kind = sourceKindStyle(source.kind);
   const body = (
     <>
-      <span className="material-symbols-outlined text-[14px] text-[var(--color-primary)]">
-        {KIND_ICON[source.kind]}
+      <span
+        className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[10px] font-semibold"
+        style={{ color: kind.accent, backgroundColor: kind.tint }}
+        aria-hidden
+      >
+        {position}
+      </span>
+      <span
+        className="material-symbols-outlined text-[14px]"
+        style={{ color: kind.accent }}
+        title={kind.description}
+      >
+        {kind.icon}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-xs font-medium text-[var(--color-on-surface)]">
@@ -38,7 +65,7 @@ export default function SourceCard({ source }: { source: AgentSource }) {
   );
   return (
     <div
-      id={`source-${source.id}`}
+      id={citationAnchorId(messageId, source.id)}
       className="flex items-center gap-2 rounded-lg border border-white/10 bg-[var(--color-surface-container-low)] px-2.5 py-2 transition-[background-color,box-shadow] duration-300"
     >
       {source.kind === "data" ? (
