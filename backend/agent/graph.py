@@ -64,6 +64,11 @@ from .tools import TOOLS
 
 # --- Tool binding ------------------------------------------------------------
 
+_HIDDEN_ARGS = frozenset({"ledger", "db", "today"})
+"""Tool parameters the model never sees. See `_public_signature`'s docstring —
+each of the three is hidden for a different reason, and `today` is the one
+added on the strength of a measurement rather than of a principle."""
+
 
 def _public_signature(fn: Any) -> inspect.Signature:
     """The signature the model should see — every real args, none of ours.
@@ -75,9 +80,24 @@ def _public_signature(fn: Any) -> inspect.Signature:
     LLM would let it pass its own `ledger` — which could never be a real
     `EvidenceLedger` and would either crash the tool call or, worse, silently
     produce a fact bundle with no ledger entry, i.e. an uncitable claim.
+
+    **CP73 adds `today` to that list, on the strength of a live trace.**
+    `resolve_context` and `get_season_state` both take an optional `today`
+    that overrides the clock; `tools/context.py`'s docstring is explicit that
+    it exists "for tests and for replaying a past conversation". Because it
+    was a real parameter it appeared in the tool's JSON schema, and in CP73's
+    reproduction of "Compare Norris and Verstappen this year" the model
+    supplied one: `get_season_state` came back reporting today as 2025-11-03
+    when the real date was 2026-08-07, and the turn then spent four further
+    tool calls re-reading the wrong season before exhausting its step budget.
+    The clock is the one fact §5.3 says a model demonstrably does not have,
+    so letting it assert one is handing back the exact thing the tool was
+    built to supply. Removing the parameter from the schema makes that
+    impossible rather than forbidden — the CP38/CP41/CP44 rule again, applied
+    to an argument instead of to an output.
     """
     sig = inspect.signature(fn)
-    kept = [p for name, p in sig.parameters.items() if name not in ("ledger", "db")]
+    kept = [p for name, p in sig.parameters.items() if name not in _HIDDEN_ARGS]
     return sig.replace(parameters=kept)
 
 
@@ -184,6 +204,17 @@ Ground rules:
   gap with a guess.
 - Tools already compute totals, averages and comparisons. Do not do
   arithmetic yourself on raw rows; if a tool gives you a count, quote it.
+- To compare TWO drivers over a season, call `get_head_to_head` ONCE. It
+  takes their names and defaults to the current season, and it returns the
+  whole comparison — both drivers' standings, points, wins, podiums and
+  finishing records plus the race and qualifying duel counts. Never build
+  that comparison out of two `get_driver_season_summary` calls, and never
+  follow a successful `get_head_to_head` with another tool call to
+  "check" it.
+- When a tool has already returned the facts the question asked for, STOP
+  and write the answer. Re-reading the same season through a different tool
+  does not make an answer more certain; it spends the step budget that would
+  have let you finish.
 - You answer questions about Formula 1 results, standings, drivers,
   constructors, races, strategy, circuits and history (1950-present) using
   this app's own data. You do NOT have web search or news access in this
