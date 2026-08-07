@@ -27,7 +27,7 @@
  *   warning the dev page already showed.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
@@ -638,7 +638,14 @@ export default function PitwallAssistantPanel({
   );
 }
 
-function MessageBubble({
+/**
+ * Memoised on purpose. `messages.map` re-renders every bubble on every
+ * `setMessages` — i.e. once per streamed token — and a bubble with an open
+ * citation popover would rebuild that popover's props at token rate. Only the
+ * streaming bubble's props actually change, so shallow equality here keeps
+ * settled bubbles (and any popover they own) entirely still.
+ */
+const MessageBubble = memo(function MessageBubble({
   message,
   onVote,
   onRetry,
@@ -661,6 +668,15 @@ function MessageBubble({
   // takes precedence over this client-ticked figure — see `ElapsedIndicator`.
   liveElapsedSec?: number | null;
 }) {
+  const citationContextValue = useMemo(
+    () => ({
+      messageId: message.id,
+      sources: message.sources,
+      answerText: message.text,
+    }),
+    [message.id, message.sources, message.text]
+  );
+
   if (message.role === "user") {
     return (
       <div className="flex flex-col items-end gap-1">
@@ -729,11 +745,12 @@ function MessageBubble({
             aria-atomic="false"
             className={`max-w-[85%] min-w-0 rounded-2xl border border-white/10 bg-[rgba(26,22,19,0.98)] px-4 py-3 text-sm leading-relaxed text-[var(--color-on-surface)] ${ANSWER_PROSE}`}
           >
-            {/* The pill needs this message's identity and evidence, and
+            {/* The pill needs this message's identity, evidence and answer
+                text (the popover matches snippet values against it), and
                 `react-markdown` gives a `components.a` override no way to
                 receive props — hence context rather than a prop. */}
             <CitationContext.Provider
-              value={{ messageId: message.id, sources: message.sources }}
+              value={citationContextValue}
             >
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
@@ -803,7 +820,7 @@ function MessageBubble({
       )}
     </div>
   );
-}
+});
 
 /**
  * A markdown table, wrapped in its own horizontal scroller (CP71, 5d).

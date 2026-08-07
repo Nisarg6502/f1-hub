@@ -6,8 +6,8 @@
  * Before this, a citation exposed only its *provenance* — a kind, a label, a
  * timestamp. The fact it rested on stayed in the ledger. `CitationPopover`
  * renders the `snippet` pairs the ledger now ships (Task 1) so a reader can
- * click a pill and see the actual supporting value, with the cited number
- * emphasised in place.
+ * click a pill and see the actual supporting value, with the values the answer
+ * actually quotes emphasised in place (see {@link findHighlightedIndices}).
  *
  * Visuals follow the established liquid-glass popover pattern
  * (`feedback-controls.tsx`, CP69): `bg-[rgba(26,22,19,0.98)]`,
@@ -26,42 +26,50 @@ import LocalDateTime from "./local-datetime";
 import { sourceKindStyle } from "@/lib/source-kind";
 import type { AgentSnippetPair, AgentSource } from "@/lib/agent-api";
 
-/**
- * Task 5 landed `snippet` on `AgentSource` itself, so this is now a plain
- * re-export of the shared shape rather than a local widening.
- */
-export type CitationSnippetPair = AgentSnippetPair;
-export type CitationPopoverSource = AgentSource;
-
 interface CitationPopoverProps {
-  source: CitationPopoverSource;
-  /** The cited value the pill sits next to; emphasised in the snippet list. */
-  highlight?: string;
+  source: AgentSource;
+  /**
+   * The full answer text this citation appears in. Snippet values that
+   * literally occur in it are emphasised — see {@link findHighlightedIndices}.
+   */
+  answerText?: string;
   onClose: () => void;
 }
 
 /**
- * Index of the single snippet pair whose value corresponds to `highlight`, or
- * -1. Exact (trimmed, case-insensitive) matches win over containment, and only
- * ever ONE index is returned: highlighting every occurrence of a value as
- * common as "1" or "P2" would light up the whole popover and read as noise
- * rather than as an answer to "which line is the pill pointing at?".
+ * Indices of the snippet pairs whose values the answer *actually quotes*.
+ *
+ * The obvious direction — guess the cited value out of the prose next to the
+ * pill — is unreliable. This runs the inverse: every snippet value is a known,
+ * exact string, so we ask which of them literally appear in the answer. A hit
+ * means "this line is the fact that sentence rests on"; a miss highlights
+ * nothing, which is the correct outcome for provenance-only evidence.
+ *
+ * Two guards keep it from lighting up the whole popover, the noise risk the
+ * plan called out: values shorter than 3 characters and bare integers ("1",
+ * "2026") are skipped, since they match half of any answer by coincidence.
+ * Anything surviving those guards is specific enough that several simultaneous
+ * hits are informative rather than noisy, so all of them are returned.
  */
-export function findHighlightIndex(
-  pairs: CitationSnippetPair[],
-  highlight?: string
-): number {
-  const needle = highlight?.trim().toLowerCase();
-  if (!needle) return -1;
-  const values = pairs.map((p) => (p.value ?? "").trim().toLowerCase());
-  const exact = values.findIndex((v) => v === needle);
-  if (exact !== -1) return exact;
-  return values.findIndex((v) => v.length > 0 && v.includes(needle));
+export function findHighlightedIndices(
+  pairs: AgentSnippetPair[],
+  answerText?: string
+): Set<number> {
+  const hits = new Set<number>();
+  const haystack = answerText?.toLowerCase() ?? "";
+  if (!haystack) return hits;
+  pairs.forEach((pair, i) => {
+    const value = (pair.value ?? "").trim();
+    if (value.length < 3) return;
+    if (/^\d+$/.test(value)) return;
+    if (haystack.includes(value.toLowerCase())) hits.add(i);
+  });
+  return hits;
 }
 
 export default function CitationPopover({
   source,
-  highlight,
+  answerText,
   onClose,
 }: CitationPopoverProps) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -73,13 +81,24 @@ export default function CitationPopover({
     () => (Array.isArray(source.snippet) ? source.snippet : []),
     [source.snippet]
   );
-  const highlightIndex = useMemo(
-    () => findHighlightIndex(pairs, highlight),
-    [pairs, highlight]
+  const highlighted = useMemo(
+    () => findHighlightedIndices(pairs, answerText),
+    [pairs, answerText]
   );
 
   const asOfMs = source.as_of ? new Date(source.as_of).getTime() : null;
   const hasLink = source.kind !== "data" && Boolean(source.url);
+
+  // Mount-only, and deliberately SEPARATE from the listener effect below.
+  // Folding it in there would re-run `focus()` every time `onClose`'s identity
+  // changed — which, with an unmemoised parent, is once per streamed token:
+  // focus would be yanked back to the close button dozens of times a second
+  // while a later answer streamed.
+  useEffect(() => {
+    // Move focus in so the popover is immediately dismissible from the
+    // keyboard, and so a screen reader lands on the evidence it just opened.
+    closeRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     const handlePointerDown = (e: PointerEvent) => {
@@ -88,19 +107,44 @@ export default function CitationPopover({
       }
     };
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      // Capture phase + stopPropagation: Escape inside an open popover must
-      // dismiss the popover only. The assistant panel listens for Escape on
-      // `window` to close itself, and closing both at once would rip the whole
-      // conversation away from someone who only wanted to shut this card.
+      if (e.key === "Escape") {
+        // Capture phase + stopPropagation: Escape inside an open popover must
+        // dismiss the popover only. The assistant panel listens for Escape on
+        // `window` to close itself, and closing both at once would rip the
+        // whole conversation away from someone who only wanted to shut this
+        // card.
+        e.stopPropagation();
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      // The popover portals outside the assistant panel's dialog subtree, so
+      // the panel's own trap sees focus as "outside" and snaps it back to the
+      // panel header — which made the "Open source" link unreachable by
+      // keyboard. Trapping Tab here, in capture phase, keeps the cycle inside
+      // the popover and stops the panel's handler from ever seeing it.
+      const root = rootRef.current;
+      if (!root || !root.contains(document.activeElement)) return;
+      const focusable = Array.from(
+        root.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter((el) => el.offsetParent !== null);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement as HTMLElement | null;
       e.stopPropagation();
-      onClose();
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown, true);
-    // Move focus in so the popover is immediately dismissible from the
-    // keyboard, and so a screen reader lands on the evidence it just opened.
-    closeRef.current?.focus();
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown, true);
@@ -148,7 +192,7 @@ export default function CitationPopover({
       {pairs.length > 0 ? (
         <dl className="mt-2 space-y-1">
           {pairs.map((pair, i) => {
-            const hit = i === highlightIndex;
+            const hit = highlighted.has(i);
             return (
               <div
                 key={`${pair.label}-${i}`}
