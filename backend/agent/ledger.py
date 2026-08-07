@@ -47,6 +47,49 @@ from .labels import activity_label
 # id a model could guess the shape of is worse than an opaque one.
 ID_PREFIX = "ev_"
 
+# A citation's `snippet` rides on every `sources` SSE event, one per evidence
+# entry, so its size is a frame-budget question rather than a taste one: a race
+# payload carries 1000+ lap rows and a driver bio carries paragraphs. Six pairs
+# at 120 characters is roughly one glanceable popover — enough to show the fact
+# the claim rests on, small enough that ten citations still fit in one event.
+SNIPPET_MAX_PAIRS = 6
+SNIPPET_MAX_VALUE = 120
+
+
+def _humanise_key(key: str) -> str:
+    """`race_name` → `Race name`. Raw keys must never reach a reader."""
+    text = str(key).replace("_", " ").strip()
+    if not text:
+        return "Value"
+    return text[0].upper() + text[1:]
+
+
+def _scalar(value: Any) -> str | None:
+    """A displayable string for a leaf value, or None if it is not a leaf.
+
+    `None` values are dropped rather than rendered as "None" — an absent
+    penalty is not a fact worth spending one of six slots on.
+    """
+    if value is None or isinstance(value, (dict, list, tuple, set)):
+        return None
+    try:
+        text = str(value).strip()
+    except Exception:
+        # A value whose own __str__ raises is not worth failing a turn over.
+        return None
+    if not text:
+        return None
+    if len(text) > SNIPPET_MAX_VALUE:
+        return text[: SNIPPET_MAX_VALUE - 1] + "…"
+    return text
+
+
+def _summarise(value: Any) -> str:
+    """What a nested structure gets instead of being dumped."""
+    if isinstance(value, dict):
+        return f"{len(value)} fields"
+    return f"{len(value)} items"
+
 
 def utcnow_iso() -> str:
     """Now, in UTC, in the same ISO form every `synced_at` in Mongo uses.
@@ -140,7 +183,104 @@ class Evidence:
             "title": title,
             "url": self._web_url() if kind in ("web", "wikipedia") else None,
             "as_of": self.as_of,
+            "snippet": self._snippet(),
         }
+
+    def _snippet(self) -> list[dict]:
+        """A few `{"label", "value"}` pairs rendered from `data` (CP71).
+
+        Every other key in `citation()` describes the evidence; none of them
+        *is* the evidence, so a citation pill could only ever say where a fact
+        came from, never what the fact was. This is the payload itself, cut
+        down to something a popover can show.
+
+        Three deliberate limits:
+
+        **Shallow.** Top-level scalars become pairs. One top-level list of
+        dicts (`results`, `pages` — the shape every collection-ish tool
+        returns) contributes its *first* entry's scalars, prefixed, because
+        that first row is what the answer is most likely drawing from and a
+        second row doubles the cost for almost no added meaning. Anything
+        deeper is summarised (`"12 items"`), never dumped: the popover is a
+        glance at the fact, not a JSON viewer.
+
+        **Capped.** `SNIPPET_MAX_PAIRS` × `SNIPPET_MAX_VALUE` — see those
+        constants for why this is a transport constraint rather than a
+        styling one.
+
+        **Total.** This runs on the answer path, after the work is already
+        done, so every branch is guarded and the outermost call swallows
+        anything left: a citation with an empty snippet is a small cosmetic
+        loss, while a raised exception here would discard a good answer.
+        """
+        try:
+            return self._build_snippet(self.data)
+        except Exception:
+            return []
+
+    @staticmethod
+    def _build_snippet(data: Any) -> list[dict]:
+        pairs: list[dict] = []
+
+        def add(label: str, value: str) -> bool:
+            """Append one pair; False once the cap is reached."""
+            if len(pairs) >= SNIPPET_MAX_PAIRS:
+                return False
+            pairs.append({"label": label, "value": value})
+            return len(pairs) < SNIPPET_MAX_PAIRS
+
+        def expand(items: list, prefix: str | None) -> None:
+            """The first dict in a list, as prefixed pairs."""
+            first = next((i for i in items if isinstance(i, dict)), None)
+            if first is None:
+                return
+            for key, value in first.items():
+                if str(key).startswith("_"):
+                    continue
+                text = _scalar(value)
+                if text is None:
+                    continue
+                label = _humanise_key(key)
+                if prefix:
+                    label = f"{prefix} · {label}"
+                if not add(label, text):
+                    return
+
+        if data is None:
+            return []
+
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if str(key).startswith("_"):
+                    continue
+                text = _scalar(value)
+                if text is not None:
+                    if not add(_humanise_key(key), text):
+                        break
+                    continue
+                if isinstance(value, list) and any(
+                    isinstance(item, dict) for item in value
+                ):
+                    if not add(_humanise_key(key), _summarise(value)):
+                        break
+                    expand(value, _humanise_key(key))
+                    if len(pairs) >= SNIPPET_MAX_PAIRS:
+                        break
+                    continue
+                if isinstance(value, (dict, list, tuple, set)):
+                    if not add(_humanise_key(key), _summarise(value)):
+                        break
+            return pairs
+
+        if isinstance(data, (list, tuple)):
+            items = list(data)
+            if not add("Items", _summarise(items)):
+                return pairs
+            expand(items, None)
+            return pairs
+
+        text = _scalar(data)
+        return [{"label": "Value", "value": text}] if text is not None else []
 
     def _web_url(self) -> str | None:
         """The public URL behind a `web:`-sourced entry, or `None`.

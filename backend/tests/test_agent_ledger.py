@@ -137,6 +137,7 @@ class CitationTests(unittest.TestCase):
                     "title": "mongo:race_results/2026-14",
                     "url": None,
                     "as_of": "2026-08-05T09:00:00+00:00",
+                    "snippet": [],
                 }
             ],
         )
@@ -227,6 +228,200 @@ class CitationShapeTests(unittest.TestCase):
             data={"url": "https://example.com/should-be-ignored"},
         )
         self.assertIsNone(entry.citation()["url"])
+
+
+class CitationSnippetTests(unittest.TestCase):
+    """CP71: a citation carries a little of the evidence, not only its provenance.
+
+    The pill's popover needs the actual supporting fact. `data` itself cannot
+    ship — a race payload is 1000+ lap rows and this rides on every `sources`
+    SSE event — so `snippet` is a capped, flattened, human-labelled rendering
+    of it.
+    """
+
+    def _snippet(self, data, **kw):
+        ledger = EvidenceLedger()
+        return ledger.append(source="mongo:x/1", data=data, **kw).citation()["snippet"]
+
+    # --- the additive guarantee ------------------------------------------
+
+    def test_the_seven_existing_keys_are_untouched_by_the_new_field(self):
+        ledger = EvidenceLedger()
+        entry = ledger.append(
+            source="web:wikipedia/Ayrton Senna",
+            data={
+                "title": "Ayrton Senna",
+                "page_url": "https://en.wikipedia.org/wiki/Ayrton_Senna",
+            },
+            as_of="2026-08-05T09:00:00+00:00",
+            tool="wikipedia_summary",
+        )
+        citation = entry.citation()
+
+        self.assertEqual(citation["id"], "ev_1")
+        self.assertEqual(citation["n"], 1)
+        self.assertEqual(citation["kind"], "wikipedia")
+        self.assertEqual(citation["label"], "web:wikipedia/Ayrton Senna")
+        self.assertEqual(citation["title"], "Reading a Wikipedia summary")
+        self.assertEqual(citation["url"], "https://en.wikipedia.org/wiki/Ayrton_Senna")
+        self.assertEqual(citation["as_of"], "2026-08-05T09:00:00+00:00")
+        self.assertIn("snippet", citation)
+
+    def test_the_serialised_citation_is_still_json_encodable(self):
+        ledger = EvidenceLedger()
+        ledger.append(source="mongo:x/1", data={"race_name": "Hungarian GP", "laps": 70})
+
+        self.assertIn("Race name", json.dumps(ledger.citations()))
+
+    # --- flattening -------------------------------------------------------
+
+    def test_top_level_scalars_become_ordered_pairs(self):
+        snippet = self._snippet({"race_name": "Hungarian Grand Prix", "round": 14})
+
+        self.assertEqual(
+            snippet,
+            [
+                {"label": "Race name", "value": "Hungarian Grand Prix"},
+                {"label": "Round", "value": "14"},
+            ],
+        )
+
+    def test_keys_are_humanised_so_no_raw_snake_case_reaches_the_user(self):
+        snippet = self._snippet({"fastest_lap_time": "1:16.627"})
+
+        self.assertEqual(snippet[0]["label"], "Fastest lap time")
+
+    def test_a_top_level_list_of_dicts_contributes_its_first_entry_prefixed(self):
+        snippet = self._snippet(
+            {
+                "season": 2026,
+                "results": [
+                    {"position": 1, "driver": "Norris"},
+                    {"position": 2, "driver": "Piastri"},
+                ],
+            }
+        )
+
+        self.assertEqual(snippet[0], {"label": "Season", "value": "2026"})
+        labels = [pair["label"] for pair in snippet]
+        self.assertIn("Results · Position", labels)
+        self.assertIn("Results · Driver", labels)
+        # The *second* entry never appears — one representative row, not a dump.
+        self.assertNotIn("Piastri", [pair["value"] for pair in snippet])
+
+    def test_a_nested_structure_is_summarised_rather_than_dumped(self):
+        snippet = self._snippet(
+            {
+                "laps": list(range(12)),
+                "meta": {"a": 1, "b": 2},
+            }
+        )
+
+        pairs = {pair["label"]: pair["value"] for pair in snippet}
+        self.assertEqual(pairs["Laps"], "12 items")
+        self.assertEqual(pairs["Meta"], "2 fields")
+
+    def test_none_valued_keys_are_dropped_rather_than_shown_as_none(self):
+        snippet = self._snippet({"winner": "Norris", "penalty": None})
+
+        self.assertEqual(snippet, [{"label": "Winner", "value": "Norris"}])
+
+    def test_private_mongo_keys_are_not_leaked(self):
+        snippet = self._snippet({"_id": "68a1", "winner": "Norris"})
+
+        self.assertEqual(snippet, [{"label": "Winner", "value": "Norris"}])
+
+    # --- the cap ----------------------------------------------------------
+
+    def test_at_most_six_pairs_ship(self):
+        snippet = self._snippet({f"key_{i}": i for i in range(30)})
+
+        self.assertEqual(len(snippet), 6)
+
+    def test_the_cap_holds_across_the_list_expansion_too(self):
+        snippet = self._snippet(
+            {
+                "a": 1,
+                "b": 2,
+                "results": [{f"c{i}": i for i in range(20)}],
+            }
+        )
+
+        self.assertLessEqual(len(snippet), 6)
+
+    def test_a_long_value_is_truncated_with_an_ellipsis(self):
+        snippet = self._snippet({"summary": "x" * 500})
+
+        value = snippet[0]["value"]
+        self.assertLessEqual(len(value), 120)
+        self.assertTrue(value.endswith("…"), value)
+
+    def test_a_value_at_the_limit_is_left_alone(self):
+        snippet = self._snippet({"summary": "x" * 120})
+
+        self.assertEqual(snippet[0]["value"], "x" * 120)
+
+    # --- never crash on shape --------------------------------------------
+
+    def test_an_empty_payload_yields_an_empty_snippet(self):
+        self.assertEqual(self._snippet({}), [])
+
+    def test_a_none_payload_yields_an_empty_snippet(self):
+        self.assertEqual(self._snippet(None), [])
+
+    def test_a_bare_string_payload_is_rendered_as_a_single_pair(self):
+        self.assertEqual(
+            self._snippet("Norris won in Budapest"),
+            [{"label": "Value", "value": "Norris won in Budapest"}],
+        )
+
+    def test_a_bare_number_payload_is_rendered_as_a_single_pair(self):
+        self.assertEqual(self._snippet(70), [{"label": "Value", "value": "70"}])
+
+    def test_a_list_at_root_is_counted_and_its_first_entry_expanded(self):
+        snippet = self._snippet([{"driver": "Norris"}, {"driver": "Piastri"}])
+
+        self.assertEqual(snippet[0], {"label": "Items", "value": "2 items"})
+        self.assertIn({"label": "Driver", "value": "Norris"}, snippet)
+
+    def test_a_list_of_scalars_at_root_is_only_counted(self):
+        self.assertEqual(
+            self._snippet([1, 2, 3]), [{"label": "Items", "value": "3 items"}]
+        )
+
+    def test_an_unrepresentable_value_does_not_break_the_answer_path(self):
+        """A formatting failure must never fail an otherwise-good turn."""
+
+        class Hostile:
+            def __repr__(self):
+                raise RuntimeError("boom")
+
+            __str__ = __repr__
+
+        snippet = self._snippet({"ok": "fine", "bad": Hostile()})
+
+        self.assertIsInstance(snippet, list)
+        self.assertIn({"label": "Ok", "value": "fine"}, snippet)
+
+    def test_a_hostile_mapping_still_returns_a_list(self):
+        class Exploding(dict):
+            def items(self):
+                raise RuntimeError("boom")
+
+        self.assertEqual(self._snippet(Exploding()), [])
+
+
+class FrameworkFreedomTests(unittest.TestCase):
+    def test_the_ledger_imports_no_framework(self):
+        """The ledger must stay usable without the agent stack (module docstring)."""
+        source = (
+            Path(__file__).resolve().parents[1] / "agent" / "ledger.py"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("import langchain", source)
+        self.assertNotIn("import langgraph", source)
+        self.assertNotIn("from langchain", source)
+        self.assertNotIn("from langgraph", source)
 
 
 class SerialisationTests(unittest.TestCase):
