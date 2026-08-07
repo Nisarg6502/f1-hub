@@ -76,6 +76,24 @@ class EventVocabularyTests(unittest.TestCase):
         payload = json.loads(sse.sources(items).split("data: ", 1)[1])
         self.assertEqual(payload["sources"], items)
 
+    def test_sources_carries_anchors(self):
+        anchors = [
+            {"evidence_id": "ev_1", "text": "George Russell", "start": 0,
+             "end": 14, "claim": "George Russell won [ev_1].",
+             "field": "driver", "value": "George Russell",
+             "path": "results[0]", "row": {"position": "1"}},
+        ]
+        payload = json.loads(
+            sse.sources([{"id": "ev_1"}], anchors=anchors).split("data: ", 1)[1]
+        )
+        self.assertEqual(payload["anchors"], anchors)
+
+    def test_sources_always_carries_an_anchors_key(self):
+        # A client reads it unconditionally — the echo fallback and a
+        # pre-CP72 cached answer both legitimately have none to offer.
+        payload = json.loads(sse.sources([]).split("data: ", 1)[1])
+        self.assertEqual(payload["anchors"], [])
+
     def test_done_passes_arbitrary_fields_through(self):
         payload = json.loads(sse.done(run_id="r1", mode="model").split("data: ", 1)[1])
         self.assertEqual(payload, {"run_id": "r1", "mode": "model"})

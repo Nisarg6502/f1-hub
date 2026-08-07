@@ -463,5 +463,164 @@ class SerialisationTests(unittest.TestCase):
         self.assertEqual(len(EvidenceLedger.from_dict({})), 0)
 
 
+class LocateTests(unittest.TestCase):
+    """CP72's `Evidence.locate` — where a claim's tokens sit inside a bundle."""
+
+    RACE_BUNDLE = {
+        "race_name": "Australian Grand Prix",
+        "season": 2026,
+        "round": 3,
+        "results": [
+            {"position": 1, "driver": "George Russell", "team": "Mercedes",
+             "time": "1:31:12.481", "points": 25},
+            {"position": 2, "driver": "Lando Norris", "team": "McLaren",
+             "time": "+4.812", "points": 18},
+        ],
+    }
+
+    def _entry(self, data):
+        ledger = EvidenceLedger()
+        return ledger.append(source="mongo:race_results/2026-3", data=data)
+
+    def test_who_won_locates_the_p1_driver_field(self):
+        """The exact reported bug: asking who won returned a table with the
+        winner nowhere in it, because a citation could only name the bundle.
+        The winner's name must resolve to the P1 row's `driver` field.
+        """
+        entry = self._entry(self.RACE_BUNDLE)
+
+        located = entry.locate(["George Russell"])
+
+        self.assertEqual(len(located), 1)
+        self.assertEqual(located[0]["field"], "driver")
+        self.assertEqual(located[0]["value"], "George Russell")
+        self.assertEqual(located[0]["path"], "results[0]")
+        self.assertEqual(located[0]["row"]["position"], "1")
+
+    def test_a_partial_name_still_locates_the_full_stored_value(self):
+        # Prose says "Russell"; the record says "George Russell". Both name
+        # the same fact.
+        located = self._entry(self.RACE_BUNDLE).locate(["Russell"])
+
+        self.assertEqual(located[0]["field"], "driver")
+        self.assertEqual(located[0]["value"], "George Russell")
+
+    def test_document_order_decides_between_two_matching_rows(self):
+        # Both rows carry a `team`, so "first match wins" is what makes an
+        # unqualified claim land on the leading row rather than an arbitrary
+        # one.
+        located = self._entry(self.RACE_BUNDLE).locate(["Mercedes", "McLaren"])
+
+        paths = [hit["path"] for hit in located]
+        self.assertEqual(paths, ["results[0]", "results[1]"])
+
+    def test_a_top_level_scalar_is_located_with_an_empty_path(self):
+        located = self._entry(self.RACE_BUNDLE).locate(["Australian Grand Prix"])
+
+        self.assertEqual(located[0]["field"], "race_name")
+        self.assertEqual(located[0]["path"], "")
+
+    def test_tokens_that_are_absent_are_simply_not_returned(self):
+        located = self._entry(self.RACE_BUNDLE).locate(["Verstappen", "Norris"])
+
+        self.assertEqual([hit["token"] for hit in located], ["Norris"])
+
+    def test_a_number_does_not_match_inside_a_longer_number(self):
+        located = self._entry({"points": 125}).locate(["25"])
+
+        self.assertEqual(located, [])
+
+    def test_thousands_separators_and_case_do_not_defeat_a_match(self):
+        located = self._entry({"laps": "1,234", "team": "MERCEDES"}).locate(
+            ["1234", "Mercedes"]
+        )
+
+        self.assertEqual({hit["field"] for hit in located}, {"laps", "team"})
+
+    def test_locate_never_raises_on_an_unwalkable_payload(self):
+        class Hostile:
+            def __str__(self):
+                raise RuntimeError("no")
+
+            def items(self):
+                raise RuntimeError("no")
+
+        # A failed locate must cost a citation its anchor, never cost the
+        # reader a finished answer — the same discipline `_snippet` follows.
+        self.assertEqual(self._entry({"x": Hostile()}).locate(["x"]), [])
+        self.assertEqual(self._entry(Hostile()).locate(["x"]), [])
+
+    def test_locate_tolerates_an_empty_or_absent_query(self):
+        entry = self._entry(self.RACE_BUNDLE)
+
+        self.assertEqual(entry.locate([]), [])
+        self.assertEqual(entry.locate(None), [])
+
+    def test_the_walk_is_bounded(self):
+        # A payload far past the node budget must return promptly rather than
+        # walking every lap row for a token that is not there.
+        deep = {"laps": [{"lap": n, "driver": "X"} for n in range(20_000)]}
+
+        self.assertEqual(self._entry(deep).locate(["Verstappen"]), [])
+
+    def test_underscore_prefixed_keys_are_skipped(self):
+        located = self._entry({"_id": "Norris", "driver": "Norris"}).locate(["Norris"])
+
+        self.assertEqual(located[0]["field"], "driver")
+
+
+class AnchoredCitationTests(unittest.TestCase):
+    """`anchored_citations` — the user-visible list, from the anchor set."""
+
+    def _ledger(self):
+        ledger = EvidenceLedger()
+        ledger.append(source="mongo:a", data={"driver": "Russell"})
+        ledger.append(source="mongo:b", data={"driver": "Norris"})
+        return ledger
+
+    def test_only_anchored_entries_are_listed(self):
+        ledger = self._ledger()
+
+        listed = ledger.anchored_citations([{"evidence_id": "ev_2"}])
+
+        self.assertEqual([c["id"] for c in listed], ["ev_2"])
+
+    def test_unanchored_entries_stay_in_the_ledger(self):
+        # Dropping them from the *list* must not drop them from the ledger:
+        # the verifier still has to resolve citations against them.
+        ledger = self._ledger()
+        ledger.anchored_citations([{"evidence_id": "ev_2"}])
+
+        self.assertEqual(len(ledger), 2)
+        self.assertIsNotNone(ledger.get("ev_1"))
+        self.assertEqual(len(ledger.citations()), 2)
+
+    def test_each_citation_carries_its_own_anchors(self):
+        ledger = self._ledger()
+        anchors = [{"evidence_id": "ev_1", "field": "driver"},
+                   {"evidence_id": "ev_1", "field": "team"}]
+
+        listed = ledger.anchored_citations(anchors)
+
+        self.assertEqual(listed[0]["anchors"], anchors)
+
+    def test_listing_follows_ledger_order_not_anchor_order(self):
+        ledger = self._ledger()
+
+        listed = ledger.anchored_citations(
+            [{"evidence_id": "ev_2"}, {"evidence_id": "ev_1"}]
+        )
+
+        self.assertEqual([c["id"] for c in listed], ["ev_1", "ev_2"])
+
+    def test_an_anchor_naming_an_unknown_entry_is_ignored(self):
+        ledger = self._ledger()
+
+        self.assertEqual(ledger.anchored_citations([{"evidence_id": "ev_99"}]), [])
+
+    def test_no_anchors_means_no_sources(self):
+        self.assertEqual(self._ledger().anchored_citations(None), [])
+
+
 if __name__ == "__main__":
     unittest.main()

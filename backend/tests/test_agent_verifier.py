@@ -198,5 +198,158 @@ class ToxicityGuardTests(unittest.TestCase):
         self.assertTrue(any(v.kind == "toxic_language" for v in violations))
 
 
+class AnchorTests(unittest.TestCase):
+    """CP72 — the location the verifier used to compute and throw away."""
+
+    RACE_BUNDLE = {
+        "race_name": "Australian Grand Prix",
+        "results": [
+            {"position": 1, "driver": "George Russell", "team": "Mercedes",
+             "points": 25},
+            {"position": 2, "driver": "Lando Norris", "team": "McLaren",
+             "points": 18},
+        ],
+    }
+
+    def test_who_won_anchors_on_the_p1_driver_field(self):
+        """The done-condition of the checkpoint, and the reported bug.
+
+        A reader asked who won the Australian GP and was shown a table with
+        nothing about the winner in it, because the citation named a bundle
+        rather than a field. The winner's name in the answer must now resolve
+        to the P1 row's `driver`.
+        """
+        ledger = _ledger_with(data=self.RACE_BUNDLE)
+        draft = "George Russell won the Australian Grand Prix [ev_1]."
+
+        anchors = verifier.anchors(draft, ledger)
+
+        winner = next(a for a in anchors if a.text == "George Russell")
+        self.assertEqual(winner.evidence_id, "ev_1")
+        self.assertEqual(winner.field, "driver")
+        self.assertEqual(winner.value, "George Russell")
+        self.assertEqual(winner.path, "results[0]")
+        self.assertEqual(winner.row["position"], "1")
+        self.assertEqual(draft[winner.start:winner.end], "George Russell")
+
+    def test_check_carries_the_anchors_as_a_by_product(self):
+        ledger = _ledger_with(data=self.RACE_BUNDLE)
+        result = verifier.check("George Russell won [ev_1].", ledger)
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.anchors[0].field, "driver")
+
+    def test_anchors_never_change_the_verdict(self):
+        # An answer whose claims anchor nowhere is not a new failure class —
+        # plenty of true sentences name nothing a bundle stores.
+        ledger = _ledger_with(data={"winner": "Norris"})
+        result = verifier.check("It was a strong drive all afternoon [ev_1].", ledger)
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.violations, ())
+        self.assertEqual(result.anchors, ())
+
+    def test_numbers_anchor_too(self):
+        ledger = _ledger_with(data=self.RACE_BUNDLE)
+        anchors = verifier.anchors("Russell took 25 points [ev_1].", ledger)
+
+        fields = {a.field for a in anchors}
+        self.assertIn("points", fields)
+        self.assertIn("driver", fields)
+
+    def test_an_uncited_sentence_produces_no_anchors(self):
+        ledger = _ledger_with(data=self.RACE_BUNDLE)
+
+        self.assertEqual(verifier.anchors("George Russell won.", ledger), [])
+
+    def test_an_unknown_citation_produces_no_anchors(self):
+        ledger = _ledger_with(data=self.RACE_BUNDLE)
+
+        self.assertEqual(verifier.anchors("George Russell won [ev_9].", ledger), [])
+
+    def test_spans_index_the_draft_not_the_sentence(self):
+        ledger = _ledger_with(data=self.RACE_BUNDLE)
+        draft = "The race was chaotic. Lando Norris finished second [ev_1]."
+
+        anchors = verifier.anchors(draft, ledger)
+
+        anchor = next(a for a in anchors if a.text == "Lando Norris")
+        self.assertEqual(draft[anchor.start:anchor.end], "Lando Norris")
+
+    def test_a_sentence_initial_article_is_stripped_from_an_entity(self):
+        # "The Australian Grand Prix" is capitalised by grammar; the record
+        # stores "Australian Grand Prix".
+        ledger = _ledger_with(data=self.RACE_BUNDLE)
+        draft = "The Australian Grand Prix ran long [ev_1]."
+
+        anchors = verifier.anchors(draft, ledger)
+
+        self.assertEqual(anchors[0].field, "race_name")
+        self.assertEqual(draft[anchors[0].start:anchors[0].end],
+                         "Australian Grand Prix")
+
+    def test_anchors_are_sorted_by_position_in_the_draft(self):
+        ledger = _ledger_with(data=self.RACE_BUNDLE)
+        draft = "Lando Norris was second [ev_1]. George Russell won [ev_1]."
+
+        anchors = verifier.anchors(draft, ledger)
+
+        self.assertEqual([a.start for a in anchors], sorted(a.start for a in anchors))
+
+    def test_repeated_citation_of_one_entry_does_not_duplicate_a_span(self):
+        ledger = _ledger_with(data=self.RACE_BUNDLE)
+        draft = "George Russell won [ev_1] [ev_1]."
+
+        anchors = verifier.anchors(draft, ledger)
+
+        self.assertEqual(len(anchors), 1)
+
+    def test_a_citation_marker_is_never_itself_anchored(self):
+        ledger = _ledger_with(data={"ev_1": "Norris", "driver": "Norris"})
+        anchors = verifier.anchors("Norris won [ev_1].", ledger)
+
+        self.assertTrue(all(a.text != "ev_1" for a in anchors))
+
+    def test_anchors_per_claim_is_capped(self):
+        ledger = _ledger_with(
+            data={"a": "Alpha", "b": "Bravo", "c": "Charlie", "d": "Delta",
+                  "e": "Echo", "f": "Foxtrot"}
+        )
+        draft = "Alpha Bravo Charlie Delta Echo Foxtrot [ev_1]."
+
+        anchors = verifier.anchors(draft, ledger)
+
+        self.assertLessEqual(len(anchors), verifier.ANCHORS_PER_CLAIM)
+
+    def test_an_anchor_serialises_to_plain_json(self):
+        import json
+
+        ledger = _ledger_with(data=self.RACE_BUNDLE)
+        anchor = verifier.anchors("George Russell won [ev_1].", ledger)[0]
+
+        self.assertIn("results[0]", json.dumps(anchor.to_dict()))
+
+    def test_empty_draft_yields_no_anchors(self):
+        self.assertEqual(verifier.anchors("", EvidenceLedger()), [])
+        self.assertEqual(verifier.anchors(None, EvidenceLedger()), [])
+
+
+class SentenceSpanTests(unittest.TestCase):
+    def test_spans_reproduce_the_existing_sentence_split_exactly(self):
+        # The splitter the checks run on and the splitter the anchors run on
+        # must not be able to drift apart.
+        for draft in [
+            "",
+            "One sentence only",
+            "Norris won [ev_1]. Verstappen was second [ev_2]!  Really?",
+            "  leading and trailing whitespace  ",
+            "Multi\nline\ndraft. With a second one.",
+        ]:
+            spans = verifier._sentence_spans(draft)
+            self.assertEqual(
+                [draft[s:e] for s, e in spans], verifier._sentences(draft)
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
