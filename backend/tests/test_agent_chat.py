@@ -284,6 +284,51 @@ class FailureTests(unittest.TestCase):
             self.assertEqual(post().payload_of("error")["code"], "timeout")
 
     @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_the_three_slow_or_busy_failures_read_differently(self):
+        """CP73: contention, quota and a slow question are three messages.
+
+        They shared a register before this checkpoint — "busy", "busy",
+        "took too long" — and the batch-20 design note names the cost: a
+        comparative question that ran long produced an *at capacity* message
+        that pointed the reader at the wrong problem. The SSE codes are
+        unchanged on purpose (`sse.ERROR_CODES` is owned elsewhere this
+        batch, and the frontend branches on them); what is asserted here is
+        that the human-readable text no longer collapses the three.
+        """
+        messages = {}
+
+        async def contended(*_a, **_k):
+            raise main.concurrency.AtCapacity(waited=45.0, queued_ahead=1)
+            yield  # pragma: no cover
+
+        async def out_of_quota(*_a, **_k):
+            raise model.ModelAtCapacity("HTTP 429")
+            yield  # pragma: no cover
+
+        async def slow(*_a, **_k):
+            raise model.ModelTimeout("agent turn exceeded 180s")
+            yield  # pragma: no cover
+
+        for key, boom in (
+            ("contention", contended),
+            ("quota", out_of_quota),
+            ("timeout", slow),
+        ):
+            with patch.object(main.graph, "astream_answer", boom):
+                messages[key] = post().payload_of("error")["message"]
+
+        self.assertEqual(len(set(messages.values())), 3)
+        # Contention is about someone else's question, and is worth retrying
+        # immediately.
+        self.assertIn("another question", messages["contention"].lower())
+        # Quota is about the plan, and is not worth retrying immediately.
+        self.assertIn("quota", messages["quota"].lower())
+        # A timeout is about *this* question, and the reader can act on it by
+        # narrowing what they asked.
+        self.assertIn("too long", messages["timeout"].lower())
+        self.assertNotIn("busy", messages["timeout"].lower())
+
+    @patch.object(main.config, "api_key", lambda: "test-key")
     def test_upstream_failure_does_not_leak_internals_to_the_client(self):
         async def broken(*_a, **_k):
             raise model.ModelError("connection refused to internal-host:11434")
