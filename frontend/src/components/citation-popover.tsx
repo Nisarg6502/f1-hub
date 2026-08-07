@@ -24,21 +24,14 @@ import { motion, useReducedMotion } from "motion/react";
 import { ExternalLink, X } from "lucide-react";
 import LocalDateTime from "./local-datetime";
 import { sourceKindStyle } from "@/lib/source-kind";
-import type { AgentSource } from "@/lib/agent-api";
-
-export interface CitationSnippetPair {
-  label: string;
-  value: string;
-}
+import type { AgentSnippetPair, AgentSource } from "@/lib/agent-api";
 
 /**
- * `AgentSource` gains `snippet` in Task 5's wiring; declaring it optional here
- * keeps this component compilable ahead of that edit and tolerant of an older
- * backend that doesn't send the field at all.
+ * Task 5 landed `snippet` on `AgentSource` itself, so this is now a plain
+ * re-export of the shared shape rather than a local widening.
  */
-export type CitationPopoverSource = AgentSource & {
-  snippet?: CitationSnippetPair[] | null;
-};
+export type CitationSnippetPair = AgentSnippetPair;
+export type CitationPopoverSource = AgentSource;
 
 interface CitationPopoverProps {
   source: CitationPopoverSource;

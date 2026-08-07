@@ -49,6 +49,18 @@ export const ERROR_COPY: Partial<Record<AgentErrorCode | ClientErrorCode, string
   network: "Couldn't reach the assistant — check your connection and try again.",
 };
 
+/**
+ * One `{label, value}` pair of the inspectable evidence a citation rests on
+ * (CP71 Task 1, `backend/agent/ledger.py::Evidence._snippet`). Capped at 6
+ * pairs with values truncated to ~120 chars, so this is safe to ship on every
+ * `sources` frame. An EMPTY list is a normal outcome — the backend builder has
+ * a catch-all returning `[]` — not an error state.
+ */
+export interface AgentSnippetPair {
+  label: string;
+  value: string;
+}
+
 export interface AgentSource {
   id: string;
   n: number;
@@ -57,6 +69,8 @@ export interface AgentSource {
   title: string;
   url?: string | null;
   as_of?: string | null;
+  /** Optional: an older agent build may not send it at all. */
+  snippet?: AgentSnippetPair[] | null;
 }
 
 export interface AgentDone {
@@ -183,8 +197,18 @@ export function parseFrame(
 
 /**
  * Turn a complete `[ev_N]` citation marker into a markdown link
- * `[N](#cite-ev_N)`, which `react-markdown`'s existing link rendering (via
- * a `components.a` override, see `CitationPill`) turns into a numbered pill.
+ * `[N](#cite-<messageId>-ev_N)`, which `react-markdown`'s existing link
+ * rendering (via a `components.a` override, see `CitationPill`) turns into a
+ * numbered pill.
+ *
+ * **Why the message id is in there (CP71).** Every turn builds a fresh
+ * `EvidenceLedger` starting at `ev_1`, so `ev_1` is the first source of *every*
+ * answer. The previous `#cite-ev_N` href — and the matching `id="source-ev_N"`
+ * on the card — put per-message ids into a document-global namespace: with
+ * three answers on screen, three elements shared `id="source-ev_1"` and
+ * `getElementById` returned the *first in document order*, i.e. the oldest
+ * answer. That was the reported "clicking a citation scrolls up to a previous
+ * answer". Prefixing with the message id gives each answer its own namespace.
  *
  * Deliberately a plain string rewrite rather than a custom remark plugin —
  * `react-markdown` already parses markdown links correctly, so reusing that
@@ -194,8 +218,32 @@ export function parseFrame(
  * does not match yet and passes through as literal text, unmodified, until
  * the closing bracket arrives in a later chunk.
  */
-export function rewriteCitations(text: string): string {
-  return text.replace(/\[ev_(\d+)\]/g, "[$1](#cite-ev_$1)");
+export function rewriteCitations(text: string, messageId: string): string {
+  return text.replace(/\[ev_(\d+)\]/g, `[$1](#cite-${messageId}-ev_$1)`);
+}
+
+/**
+ * Inverse of {@link rewriteCitations}' href shape.
+ *
+ * The message-id segment is matched greedily and the evidence segment is
+ * anchored to the end, so this survives *any* message id that does not itself
+ * end in `-ev_<digits>` — including uuids, which are full of hyphens. A naive
+ * `split("-")` would break on the first uuid.
+ *
+ * Returns `null` for an ordinary markdown link, which is what keeps
+ * `CitationPill`'s non-citation fallback branch working.
+ */
+export function parseCitationHref(
+  href: string | undefined
+): { messageId: string; evidenceId: string } | null {
+  const match = href?.match(/^#cite-(.+)-(ev_\d+)$/);
+  if (!match) return null;
+  return { messageId: match[1], evidenceId: match[2] };
+}
+
+/** The DOM id a `SourceCard` renders and a `CitationPill` resolves. */
+export function citationAnchorId(messageId: string, evidenceId: string): string {
+  return `source-${messageId}-${evidenceId}`;
 }
 
 /**

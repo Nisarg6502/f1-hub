@@ -31,7 +31,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
-import { motion, useReducedMotion } from "motion/react";
+import remarkGfm from "remark-gfm";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   streamChat,
   postFeedback,
@@ -40,17 +41,11 @@ import {
   type AgentDone,
   type AgentSource,
 } from "@/lib/agent-api";
-import CitationPill from "./citation-pill";
+import CitationPill, { CitationContext } from "./citation-pill";
 import SourceCard from "./source-card";
 import LocalDateTime from "./local-datetime";
 import FeedbackControls from "./feedback-controls";
-
-type ActivityEntry = {
-  label: string;
-  state: "start" | "done";
-  detail?: string | null;
-  kind: "tool" | "agent" | "system";
-};
+import { ActivityAccordion, type ActivityEntry } from "./activity-accordion";
 
 type Message = {
   id: string;
@@ -249,6 +244,9 @@ export default function PitwallAssistantPanel({
   // than derived purely from a start-time ref: `null` means "no turn
   // in flight and nothing to show".
   const [elapsedSec, setElapsedSec] = useState<number | null>(null);
+  // CP71 (5c): the inline "Discard this conversation?" confirmation state for
+  // the New chat control. Only ever true for a non-empty thread.
+  const [confirmingNewChat, setConfirmingNewChat] = useState(false);
   const elapsedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopElapsedTimer = useCallback(() => {
@@ -429,6 +427,43 @@ export default function PitwallAssistantPanel({
   const send = useCallback(() => ask(input), [ask, input]);
   const cancel = useCallback(() => abortRef.current?.abort(), []);
 
+  /**
+   * New chat (CP71, 5c) — this reverses CP70's "thread-per-open, no reset
+   * affordance" decision on the user's direct request; `HANDOFF.md` records
+   * the reversal and its trigger.
+   *
+   * Clearing the client's `messages` alone would be a lie: the backend
+   * checkpointer keys memory on `thread_id`, so a "cleared" panel that kept
+   * sending the old id would still answer with the old conversation in
+   * context. The id is regenerated with the same `crypto.randomUUID()` the
+   * initial mount uses, so a new chat is genuinely a new thread server-side.
+   *
+   * A one-tap wipe of a long thread has no undo, so a non-empty conversation
+   * asks first — inline in the header rather than via `window.confirm`, whose
+   * native dialog would be the only unstyled surface in the panel and would
+   * steal focus out of the dialog's own trap.
+   */
+  const startNewChat = useCallback(() => {
+    abortRef.current?.abort();
+    stopElapsedTimer();
+    setRunning(false);
+    setElapsedSec(null);
+    setMessages([]);
+    setInput("");
+    setConfirmingNewChat(false);
+    threadId.current = crypto.randomUUID();
+    isAtBottomRef.current = true;
+    inputRef.current?.focus();
+  }, [stopElapsedTimer]);
+
+  const requestNewChat = useCallback(() => {
+    if (messages.length === 0) {
+      startNewChat();
+      return;
+    }
+    setConfirmingNewChat(true);
+  }, [messages.length, startNewChat]);
+
   // Follow the stream to the bottom as new content arrives — but only while
   // the user is still parked at the bottom. Keyed on the streaming message's
   // text length (plus activity/sources counts, which also grow the bubble's
@@ -479,14 +514,63 @@ export default function PitwallAssistantPanel({
               Answers from this app&rsquo;s own F1 data, cited as it goes.
             </p>
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] bg-[rgba(16,14,11,0.5)] text-lg text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[rgba(16,14,11,0.7)] active:scale-90"
-          >
-            ×
-          </button>
+          <div className="flex items-center gap-1.5">
+            {/* New chat. Icon-only at 34px to match the close button's hit
+                target — a text button here would compete with the panel
+                title, and this is a secondary, occasional action. */}
+            <button
+              onClick={requestNewChat}
+              aria-label="New chat"
+              title="New chat"
+              className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] bg-[rgba(16,14,11,0.5)] text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[rgba(16,14,11,0.7)] active:scale-90"
+            >
+              <NewChatIcon />
+            </button>
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] bg-[rgba(16,14,11,0.5)] text-lg text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[rgba(16,14,11,0.7)] active:scale-90"
+            >
+              ×
+            </button>
+          </div>
         </div>
+
+        {/* Exit is animated too (and faster than the enter, 120ms vs 180ms):
+            the bar snapping out of existence on "Keep" reads as a glitch, and
+            once the user has decided the system should get out of the way. */}
+        <AnimatePresence initial={false}>
+          {confirmingNewChat && (
+          <motion.div
+            key="confirm-new-chat"
+            initial={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
+            animate={reduce ? { opacity: 1 } : { opacity: 1, height: "auto" }}
+            exit={
+              reduce
+                ? { opacity: 0 }
+                : { opacity: 0, height: 0, transition: { duration: 0.12, ease: [0.23, 1, 0.32, 1] } }
+            }
+            transition={{ duration: reduce ? 0.1 : 0.18, ease: [0.23, 1, 0.32, 1] }}
+            className="flex items-center gap-2 overflow-hidden border-b border-white/10 bg-[rgba(16,14,11,0.4)] px-5 py-2.5"
+          >
+            <p className="flex-1 text-[11px] text-[var(--color-on-surface-variant)]">
+              Start a new chat? This conversation will be discarded.
+            </p>
+            <button
+              onClick={() => setConfirmingNewChat(false)}
+              className="rounded-lg px-2.5 py-1 text-[11px] font-medium text-[var(--color-on-surface-variant)] transition-[color,transform] duration-150 hover:text-[var(--color-on-surface)] active:scale-[0.97]"
+            >
+              Keep
+            </button>
+            <button
+              onClick={startNewChat}
+              className="rounded-lg bg-[var(--color-primary)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-on-primary)] transition-transform duration-150 active:scale-[0.97]"
+            >
+              New chat
+            </button>
+          </motion.div>
+          )}
+        </AnimatePresence>
 
         <div
           ref={messageListRef}
@@ -595,11 +679,25 @@ function MessageBubble({
 
   return (
     <div className="flex flex-col gap-2">
-      <ElapsedIndicator done={message.done} liveElapsedSec={liveElapsedSec} />
-
-      {message.activity.length > 0 && (
-        <ActivityTimeline activity={message.activity} />
+      {/* Once settled, the accordion's summary row already carries the
+          elapsed time — showing it twice reads as a rendering bug. The
+          standalone readout stays for the in-flight case and for a turn that
+          produced no activity steps at all. */}
+      {!(message.done && message.activity.length > 0) && (
+        <ElapsedIndicator done={message.done} liveElapsedSec={liveElapsedSec} />
       )}
+
+      {/* CP71: the timeline collapses once the turn settles — no stale
+          "Thinking…" sitting next to a finished answer. `settled` is
+          `done || error` because a failed turn is just as finished as a
+          successful one. */}
+      <ActivityAccordion
+        activity={message.activity}
+        settled={Boolean(message.done || message.error)}
+        elapsedLabel={
+          message.done ? `${Math.round(message.done.elapsed_ms / 1000)}s` : undefined
+        }
+      />
 
       {message.error ? (
         <div className="flex max-w-[85%] flex-col items-start gap-2">
@@ -629,10 +727,21 @@ function MessageBubble({
           <div
             aria-live="polite"
             aria-atomic="false"
-            className="max-w-[85%] rounded-2xl border border-white/10 bg-[rgba(26,22,19,0.98)] px-4 py-3 text-sm leading-relaxed text-[var(--color-on-surface)] [&_p]:mb-2 [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5">
-            <ReactMarkdown components={{ a: CitationPill }}>
-              {rewriteCitations(message.text)}
-            </ReactMarkdown>
+            className={`max-w-[85%] min-w-0 rounded-2xl border border-white/10 bg-[rgba(26,22,19,0.98)] px-4 py-3 text-sm leading-relaxed text-[var(--color-on-surface)] ${ANSWER_PROSE}`}
+          >
+            {/* The pill needs this message's identity and evidence, and
+                `react-markdown` gives a `components.a` override no way to
+                receive props — hence context rather than a prop. */}
+            <CitationContext.Provider
+              value={{ messageId: message.id, sources: message.sources }}
+            >
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{ a: CitationPill, table: MarkdownTable }}
+              >
+                {rewriteCitations(message.text, message.id)}
+              </ReactMarkdown>
+            </CitationContext.Provider>
             <StatusFooter done={message.done} />
           </div>
         )
@@ -670,8 +779,16 @@ function MessageBubble({
 
       {message.sources.length > 0 && (
         <div className="flex flex-col gap-1.5">
-          {message.sources.map((source) => (
-            <SourceCard key={source.id} source={source} />
+          {message.sources.map((source, index) => (
+            <SourceCard
+              key={source.id}
+              source={source}
+              messageId={message.id}
+              // 1-based position in THIS message's list, so the cards read
+              // 1, 2, 3 — the ledger's own `n` restarts per message and can
+              // repeat, which is what produced the reported "1 1 1 1".
+              position={index + 1}
+            />
           ))}
         </div>
       )}
@@ -689,62 +806,65 @@ function MessageBubble({
 }
 
 /**
- * A completed step's marker, encoded redundantly by shape + color + size (not
- * size alone — at 10-11px text a 0.5px size delta doesn't reliably read) so
- * "agent" (a subagent delegation), "tool" (a single tool call) and "system"
- * (housekeeping) stay distinguishable without relying on color perception
- * alone: agent is a small rounded square in the secondary color, tool is the
- * plain round dot this timeline already used, system is the same dot dimmed
- * down so routine housekeeping recedes instead of competing for attention.
+ * A markdown table, wrapped in its own horizontal scroller (CP71, 5d).
+ *
+ * A results table with six columns is wider than a 480px drawer, and an
+ * unwrapped `<table>` stretches its container: the whole bubble — and with it
+ * the message list — grows a horizontal scrollbar, which is how a chat panel
+ * ends up feeling broken. Scrolling the table alone keeps the overflow where
+ * it belongs. `min-w-0` on the bubble is the other half of this: without it a
+ * flex child refuses to shrink below its content and the clamp never applies.
  */
-function ActivityMarker({ kind }: { kind: ActivityEntry["kind"] }) {
-  if (kind === "agent") {
-    return <span className="h-1.5 w-1.5 rounded-[2px] bg-[var(--color-secondary)]" />;
-  }
-  if (kind === "system") {
-    return <span className="h-1 w-1 rounded-full bg-[var(--color-warm-500)]/40" />;
-  }
-  return <span className="h-1 w-1 rounded-full bg-[var(--color-warm-500)]" />;
+function MarkdownTable({ children }: { children?: React.ReactNode }) {
+  return (
+    <div className="my-2 max-w-full overflow-x-auto rounded-lg border border-white/10">
+      <table className="w-full border-collapse text-left text-xs">{children}</table>
+    </div>
+  );
 }
 
 /**
- * Every step the assistant took, in order — not just the ones still
- * in-flight. `key` includes the index because the same label can legitimately
- * appear twice (a repaired draft re-running a step), and React needs a
- * stable-but-distinct key per occurrence, not per label.
+ * Prose styling for an answer bubble (CP71, 5d). Arbitrary descendant variants
+ * rather than `@tailwindcss/typography`: the plugin is not a dependency here,
+ * and its defaults are tuned for article width, not a 480px drawer at 14px.
+ *
+ * `emil-design-eng` notes: vertical rhythm is one consistent step (`mb-2`)
+ * with the last child zeroed so the bubble never carries a phantom bottom
+ * gutter; headings step down in weight and size only slightly (an `h1` inside
+ * a chat answer is a paragraph lead, not a page title) and use the headline
+ * family already in the design system; `code` gets a tint rather than a border
+ * so inline code does not disturb the line box; blockquotes use a left rule in
+ * the primary accent at low alpha — quiet, and the same language the rest of
+ * the app uses for aside content.
  */
-function ActivityTimeline({ activity }: { activity: ActivityEntry[] }) {
+const ANSWER_PROSE = [
+  "[&_p]:mb-2 [&_p:last-child]:mb-0",
+  "[&_strong]:font-semibold [&_em]:italic",
+  "[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1",
+  "[&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:space-y-1",
+  "[&_li]:leading-relaxed [&_li>ul]:my-1 [&_li>ol]:my-1",
+  "[&_h1]:mt-3 [&_h1]:mb-1.5 [&_h1]:text-[15px] [&_h1]:font-bold [&_h1]:font-[family-name:var(--font-headline)]",
+  "[&_h2]:mt-3 [&_h2]:mb-1.5 [&_h2]:text-[14px] [&_h2]:font-bold [&_h2]:font-[family-name:var(--font-headline)]",
+  "[&_h3]:mt-2.5 [&_h3]:mb-1 [&_h3]:text-[13px] [&_h3]:font-semibold [&_h3]:uppercase [&_h3]:tracking-wide [&_h3]:text-[var(--color-on-surface-variant)]",
+  "[&_h1:first-child]:mt-0 [&_h2:first-child]:mt-0 [&_h3:first-child]:mt-0",
+  "[&_code]:rounded [&_code]:bg-white/[0.07] [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[12px] [&_code]:font-mono",
+  "[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-white/10 [&_pre]:bg-[rgba(10,9,7,0.7)] [&_pre]:p-2.5",
+  "[&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[11.5px] [&_pre_code]:leading-relaxed",
+  "[&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--color-primary)]/40 [&_blockquote]:pl-3 [&_blockquote]:text-[var(--color-on-surface-variant)]",
+  "[&_hr]:my-3 [&_hr]:border-white/10",
+  "[&_th]:whitespace-nowrap [&_th]:border-b [&_th]:border-white/10 [&_th]:bg-white/[0.04] [&_th]:px-2.5 [&_th]:py-1.5 [&_th]:font-semibold [&_th]:text-[var(--color-on-surface-variant)]",
+  "[&_td]:whitespace-nowrap [&_td]:border-b [&_td]:border-white/[0.06] [&_td]:px-2.5 [&_td]:py-1.5",
+  "[&_tr:last-child_td]:border-b-0",
+].join(" ");
+
+/** Header affordance for 5c — a speech bubble with a "+". */
+function NewChatIcon() {
   return (
-    <ul className="space-y-1 text-xs text-[var(--color-warm-500)]">
-      {activity
-        .filter((entry) => entry.state === "done")
-        .map((entry, index) => (
-          <li key={`${entry.label}-${index}`} className="flex items-center gap-1.5">
-            <ActivityMarker kind={entry.kind} />
-            {entry.label}
-            {entry.detail && (
-              <span className="text-[var(--color-on-surface-variant)]"> — {entry.detail}</span>
-            )}
-          </li>
-        ))}
-      {activity
-        .filter(
-          (entry, index) =>
-            entry.state === "start" &&
-            !activity
-              .slice(index + 1)
-              .some((later) => later.label === entry.label && later.state === "done")
-        )
-        .map((entry, index) => (
-          <li key={`active-${entry.label}-${index}`} className="flex items-center gap-1.5">
-            <span className="h-1 w-1 animate-pulse rounded-full bg-[var(--color-primary)]" />
-            {entry.label}…
-            {entry.detail && (
-              <span className="text-[var(--color-on-surface-variant)]"> — {entry.detail}</span>
-            )}
-          </li>
-        ))}
-    </ul>
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+      <line x1="12" y1="8" x2="12" y2="14" />
+      <line x1="9" y1="11" x2="15" y2="11" />
+    </svg>
   );
 }
 
