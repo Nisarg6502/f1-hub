@@ -73,10 +73,24 @@ user-facing copy once (Batch 11 CP39, the OpenF1 paywall claims).
 
 ## Open questions — answer these before writing a plan
 
-1. **Does `race_laps` carry a usable per-lap duration for the leader on every synced race**, or are
-   there gaps (retirements, lapped cars, the sync gaps documented for `race_laps` in `ROADMAP.md`'s
-   Batch 6-7 retrospective) that would stall the clock? This determines whether variant 1 is one
-   checkpoint or two, and it is the first thing to check.
+1. ~~Does `race_laps` carry a usable per-lap duration?~~ **ANSWERED, 2026-08-08 — and the answer is
+   no, which changes the shape of variant 1.** `backend/app/race_laps.py` reads `LapTime` from
+   FastF1 into a scratch key `_lap_time_seconds`, uses it to compute cumulative time, and then
+   **pops it** (`_attach_gap_seconds`, ~line 129) — the persisted row is only
+   `driver_number`/`lap_number`/`position`/`gap_seconds`. The per-lap duration the real-time clock
+   needs is computed and thrown away on every sync.
+
+   So variant 1 is **two checkpoints, not one**: persist `lap_time_seconds` on each row, bump the
+   sync/replay version the way the Batch 12 data-shape fixes did (`REPLAY_VERSION` was bumped twice
+   for exactly this class of change), and re-sync — *then* build the UI. Note the re-sync must be
+   run locally: `race_laps` is FastF1-sourced, and FastF1 is intermittently IP-blocked from Cloud
+   Run, which is the same operational gap that left Lap Telemetry showing "not processed yet" in
+   Batch 6-7.
+
+   Worth checking at implementation time whether `gap_seconds` alone could drive the clock instead —
+   it cannot in general, because it is a *relative* figure and null whenever either the driver or
+   that lap's leader has no usable `LapTime`, so a race with sparse timing data would produce a
+   clock that stalls rather than one that is merely approximate.
 2. **Real-time only, or real-time with a "catch me up" fast-forward?** A viewer joining at lap 30
    needs to get there quickly; that is the existing fast clock, which means both clocks coexist and
    the UI has to make clear which one is running.
