@@ -58,8 +58,28 @@ keep the baseline" clause, exercised for real rather than left as a hypothetical
 deterministic verifier (`agent/verifier.py`); CP65 shipped the 24-case golden set and a deterministic
 CI gate (deliberately scoped down from the plan's ~60 real-trace-mined cases, since there is no
 production traffic yet to mine); CP66 shipped the production Pitwall Assistant panel (replacing the
-dev-only `/pitwall-chat` route) and a backend answer cache. **Batch 18 is closed; the next batch is
-not yet planned.**
+dev-only `/pitwall-chat` route) and a backend answer cache. **Batch 18 is closed.**
+
+**Batch 19 (CP67-70) is complete, merged, and closed.** See `BATCH-19-PLAN.md` for the batch design
+and `docs/superpowers/plans/` for each checkpoint's bite-sized implementation plan; `HANDOFF.md`
+carries the measured/decided specifics. CP67 shipped input guards (scope, injection, PII — run before
+an agent run is admitted, so a refusal costs no inference budget) and output guards, including
+`grounding_guard`, which closes the CP61-recorded "answered from parametric memory with zero tool
+calls" gap on **every tier including tier 1**, not just tiers 2-3. CP68 replaced raw `mongo:`/`web:`
+citation strings and dead `[ev_N]` text with human-titled, kind-tagged citations rendered as
+clickable numbered pills linking to real source cards, and gave the activity timeline tool/agent/
+system distinction plus per-step detail (e.g. the actual search query) and local-timezone
+timestamps. CP69 closed the CP65 feedback-loop deferral: `POST /api/feedback` forwards thumbs
+up/down to LangSmith (fail-soft, deterministic `feedback_id` as defense-in-depth against
+double-voting) and `scripts/curate_goldens.py` mines thumbs-down runs into human-reviewed golden-set
+candidates — it has no code path that writes to `agent/golden_set.py` automatically, by design. CP70
+added auto-scroll, an SSE heartbeat (closing a documented-but-unwired gap from CP61/CP59) with a live
+elapsed-time indicator, human-readable error copy plus retry/regenerate/copy actions (closing the
+underlying gap behind this session's "Failed to fetch" incident, not just that one CORS cause),
+per-page contextual suggestions, and keyboard/focus-trap/`aria-live` accessibility — a final
+whole-branch review caught and fixed a real regression where CP70's own heartbeat wrapper had broken
+cancellation propagation (closing a tab mid-answer no longer stopped the underlying model call).
+**The next batch is not yet planned.**
 
 Full architecture in **[`CHAT-AGENT-PLAN.md`](CHAT-AGENT-PLAN.md)** — that document is the source of
 truth for this batch and for Batch 18; this section only carries the summary and the checkpoint
