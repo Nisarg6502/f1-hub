@@ -8,6 +8,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useReducedMotion } from "motion/react";
 import {
@@ -847,8 +848,19 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
       </div>
 
       {/* ----------------------------- controls ----------------------------- */}
+      {/* `flex-wrap` is right on a tall screen and catastrophic on a short one.
+          Measured at 844×390 (landscape phone) before this rule existed: the bar
+          wrapped to **294px** of a 390px viewport, which squeezed the tower —
+          the entire point of the mode — down to **12px** and pushed the bar's
+          own bottom to 407px, past the root's `overflow-hidden`. The pinner
+          popover rendering off-screen was a symptom of that, not its own bug.
+
+          So below 520px of height the bar stops wrapping and scrolls sideways
+          instead. A control that needs a swipe to reach is a far smaller cost
+          than a timing tower with no room to exist. `min-w-0` lets the row
+          actually shrink, and the tower keeps the height it needs. */}
       <footer
-        className={`flex-none flex flex-wrap items-center gap-2 md:gap-3 px-4 md:px-6 py-2.5 [@media(max-height:520px)]:py-1.5 [@media(max-height:520px)]:gap-1.5 border-t border-white/[0.07] ${
+        className={`flex-none flex items-center gap-2 md:gap-3 px-4 md:px-6 py-2.5 flex-wrap [@media(max-height:520px)]:flex-nowrap [@media(max-height:520px)]:overflow-x-auto [@media(max-height:520px)]:min-w-0 [@media(max-height:520px)]:py-1.5 [@media(max-height:520px)]:gap-1.5 border-t border-white/[0.07] ${
           compact ? "[@media(max-height:520px)]:py-1" : ""
         }`}
       >
@@ -959,9 +971,20 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
             {pinned.size > 0 && <span className="tabular-nums">{pinned.size}</span>}
           </button>
 
-          {pinnerOpen && (
+          {pinnerOpen && createPortal(
             <>
-              {/* A click anywhere else closes it. Cheaper and more reliable on
+              {/* Portalled to `document.body`, following the same pattern as
+                  `pitwall-assistant-panel.tsx`. Rendered in place it was
+                  measured off the right edge (right 950 in an 844 viewport)
+                  and it sits inside a footer that becomes `overflow-x-auto` on
+                  a short screen — a clipping context that would eventually cut
+                  it off or scroll it away from its own button. Two rounds of
+                  Tailwind anchor classes failed to place it reliably, so the
+                  position is an inline style: a popover that can be pushed
+                  off-screen by an unrelated layout change is not worth the
+                  tidier class list.
+
+                  A click anywhere else closes it — cheaper and more reliable on
                   touch than a document listener that has to not fire on the
                   opening tap. */}
               <div
@@ -970,7 +993,35 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
                 aria-hidden
               />
               <div
-                className="absolute bottom-[calc(100%+8px)] left-0 z-50 apex-glass-strong rounded-2xl p-3 w-[min(84vw,420px)] max-h-[52vh] overflow-y-auto"
+                /* Fixed to the viewport, not absolute to the button. Two
+                   reasons, both measured rather than anticipated: anchored
+                   left-0 it ran off the right edge once the footer became
+                   horizontally scrollable (right edge 974 in an 844 viewport),
+                   and an `overflow-x-auto` ancestor is a clipping context, so
+                   a popover living inside the scroller is one layout change
+                   away from being cut off or scrolling away from its own
+                   button. Clamped to the viewport it cannot do either, at any
+                   size, and it no longer depends on where the button drifted
+                   to. `bottom` clears the controls bar; `max-h` leaves room
+                   above so it never reaches the header. */
+                className="z-50 apex-glass-strong rounded-2xl p-3 overflow-y-auto"
+                style={{
+                  // `position` is inline and NOT the `fixed` utility, which
+                  // loses here: `.apex-glass-strong` declares `position:
+                  // relative` (globals.css:118) and outranks it, so the class
+                  // was present and doing nothing — computed `relative` while
+                  // the markup said `fixed`. Batch 20 hit the identical trap
+                  // with `display: inline` on the citation mark. The rule that
+                  // keeps catching us: a utility class sitting next to a
+                  // component class that sets the same property is a coin
+                  // flip, and only `getComputedStyle` tells you which way it
+                  // landed.
+                  position: "fixed",
+                  right: "0.75rem",
+                  bottom: "max(4.25rem, env(safe-area-inset-bottom, 0px) + 4.25rem)",
+                  width: "min(calc(100vw - 1.5rem), 420px)",
+                  maxHeight: "min(52vh, calc(100dvh - 8rem))",
+                }}
                 role="group"
                 aria-label="Pin drivers"
               >
@@ -1019,7 +1070,8 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
                   })}
                 </div>
               </div>
-            </>
+            </>,
+            document.body
           )}
         </div>
 
