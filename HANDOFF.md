@@ -1,5 +1,36 @@
 # F1 Hub — Handoff (2026-08-08)
 
+## Batch 21 — CP78 is UNFINISHED, and its work is uncommitted (2026-08-08)
+
+CP76 and CP77 are merged, pushed and **verified live in production**: `/watch` and
+`/watch/2026-11` both serve, and `/watch/2026-14` — a genuinely unsynced round — names itself as
+not processed and offers the Hungarian GP instead, which is the fallback behaving correctly against
+real data rather than a fixture.
+
+**CP78 stopped mid-task when the session limit was reached, having committed nothing.** Its work
+survives only as uncommitted changes in its worktree:
+
+    .claude/worktrees/agent-af28799cc708c5047
+      M frontend/src/components/watch-view.tsx
+      ?? frontend/src/lib/watch-preferences.ts
+
+**Do not merge this blind.** Its final status was that the compact landscape layout is "a large win"
+but that a screenshot of the *pinned* state "showed a broken layout", and it was investigating the
+open-pinner state when it was cut off. So the last known state of that diff is one where the author
+had just found a bug in it. Resume it (the worktree is intact and the branch is
+`feat/cp78-watch-polish`), or restart the checkpoint — but do not treat the uncommitted diff as
+finished work.
+
+Still open from CP78's brief, all of it genuinely unstarted or unfinished:
+
+- driver favouriting with persistence (partially built — `watch-preferences.ts` is the new file)
+- compact/expanded density (compact reportedly working; the pinned state is the broken part)
+- **the decision CP77 deferred**: whether a very long lap (red flag) should be capped. CP77 chose not
+  to cap on the grounds that a cap fabricates pacing, and explicitly asked CP78 to revisit it after
+  real use. That decision has not been made.
+- Batch 21 has had **no whole-branch review**. Batch 20's review found four Important issues
+  including one that silently erased the entire feature's visible output, so this is not optional.
+
 ## Batch 21 — the `race_laps` backfill is DONE (2026-08-08)
 
 Run locally against production Mongo, all 11 synced 2026 rounds. **Do not re-run it** unless a new
