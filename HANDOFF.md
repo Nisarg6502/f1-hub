@@ -1,4 +1,57 @@
-# F1 Hub — Handoff (2026-08-08)
+# F1 Hub — Handoff (2026-08-09)
+
+## CP79 — per-second watch timing, shipped and then corrected five times (2026-08-09)
+
+`/watch` no longer updates once a lap. `race_timing.py` + `watch-timing.ts` serve real OpenF1
+`/intervals` and `/position` samples on a race-elapsed clock; the tower reorders when the feed says
+so, the interval counts down between samples, and an INT/GAP toggle picks which number leads.
+
+**The feature shipped wrong and every check I ran said it was right.** The user found it by watching
+the Australian GP against the replay: the tower opened with Ferrari 1-2 when Mercedes locked out the
+front row. Five defects came out of that one report:
+
+1. **The whole race was shifted a lap.** OpenF1's lap-1 row is the *formation* lap
+   (`is_pit_out_lap: true`, `lap_duration: null` on every driver), so `_lap_spans` took its
+   "drop lap 1 rather than guess" path on every real round — making `spans[0]` lap 2, so `t_ms = 0`
+   meant the start of lap 2. Lap 1's duration now comes from `race_laps`.
+2. **`t_ms` summed OpenF1 wall-clock boundaries while `watch-clock.ts` sums `race_laps` durations** —
+   two timelines drifting apart over ~58 laps. Wall-clock spans now only classify *which* lap an
+   instant falls in; elapsed time is expressed in the clock's own durations.
+3. **No starting grid**, so the lookup clamped backwards and showed a mid-race order as the grid.
+4. **The position number came from the row index**, so a car with no lap row (Piastri, retired lap 1)
+   renumbered everyone behind it.
+5. **Gaps on a stationary grid** — every car showed an interval under a second at t=0, lighting the
+   closing ring across the whole tower.
+
+**The trap worth carrying forward: `/position` has no instant that reliably means "on the grid."**
+Recovering the grid by collapsing pre-race position events to their final state reproduced the
+official grid **22/22** — and was wrong. The probe that "confirmed" it used the formation lap's start
+as the race start; measured against true lights-out, that state is the order at the *end* of the
+formation lap, where cars have shuffled: **1 of 22**. The grid is now read from `race_results`. A
+perfect-looking match against a source you also derived is not evidence.
+
+**A fix that made things worse, kept as a recorded score.** OpenF1 emits position events for a car
+*after* it finishes, as the cars behind it cross (Monaco walks Gasly P3→P7 in six seconds post-flag).
+Cutting each driver's samples at their own crossing sounds obviously right and measured **162/191**
+against **167/191** for the race-wide window. Reverted; the number is in the code so the argument
+does not get re-run on its plausibility.
+
+**Verification that actually works here:** `race_results` as independent ground truth.
+Grid **242/242 exact** across all 11 synced 2026 rounds; classified finishing positions **167/191**.
+Both are re-checkable against the deployed service in a few seconds and neither can be satisfied by
+the feed agreeing with itself — which is how all five defects passed 943 tests, a real browser, and
+observed intra-lap changes.
+
+**Known and accepted, not bugs to chase:** Monaco (round 6) scores 3/15 on finishing order because
+its position feed is genuinely unreliable; a duplicate position can show for ~1s during a swap
+(the feed updates the two cars at different instants); OpenF1 emits `+0.0` placeholders for some cars
+early; and the finish can never reach 191/191 because official classification includes post-race
+penalties a position feed cannot express (round 11's Hamilton/Leclerc inversion is a 0.7s time
+difference, not a position event).
+
+**`TIMING_VERSION` is 3.** Note *why* it went to 3: the tail fix changed how the payload is derived
+without changing its shape, so every v2 document stayed structurally valid while serving the pre-fix
+finishing order. Bump on derivation changes, not only shape changes — nothing else surfaces them.
 
 ## Batch 21 is COMPLETE, merged, deployed and reviewed (2026-08-08)
 
