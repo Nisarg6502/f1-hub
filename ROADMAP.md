@@ -123,12 +123,41 @@ Three findings from this batch that cost real time to discover and should not be
   lesson generalises past this batch: **a guard delegated to another component's flag needs a test
   that exercises the flag, not just the delegation.**
 
-**The next batch is not yet planned.** The leading candidate is watch-party / second-screen mode —
+**Batch 21 (CP76-78) — Watch-party mode, variant 1. In progress.** Design in
+[`docs/superpowers/specs/2026-08-08-batch21-cp76-78-watch-party-design.md`](docs/superpowers/specs/2026-08-08-batch21-cp76-78-watch-party-design.md).
+
+The batch exists because of one measurement: the race replay is **not** a slow-motion anything —
+`race-replay.tsx:42` sets a fixed `BASE_MS_PER_LAP = 560`, so its "1×" is roughly **150× real time**
+and its 2×/4× buttons move further from reality, not toward it. A companion screen you can line up
+with a broadcast needs a clock driven by each lap's *own* duration.
+
+That data did not exist. `race_laps.py` computed each lap's duration, used it for cumulative time,
+and popped it before storing — so the batch starts with a schema change and a local backfill, not
+with UI. `gap_seconds` cannot substitute: it is relative, and null whenever either the driver or the
+lap's leader lacks a usable `LapTime`, so a sparse race would produce a clock that *stalls* rather
+than one that is merely approximate.
+
+| CP | Scope | Status |
+|---|---|---|
+| CP76 | `race_laps` persists `lap_time_seconds` (both FastF1 and OpenF1 paths); `REPLAY_VERSION` 3→4; local backfill | merged |
+| CP77 | `/watch/[raceId]` — the real-time clock, timing tower, wake lock, jump-to-lap, unsynced fallback | in progress |
+| CP78 | Driver favourites, density modes, polish from real use | not started |
+
+Two notes from CP76 worth keeping:
+
+- **The OpenF1 path had to be filled too, and that was not in the spec.** OpenF1 is tried first and
+  is the only source reachable from Cloud Run, so a FastF1-only change would have left the field null
+  across nearly every production row — the feature would have shipped against an empty column.
+- **Carried-forward rows report no duration rather than the driver's last real one.** A frozen *gap*
+  is visibly stale and tagged `retired`; a frozen *duration* would be a fabricated measurement
+  indistinguishable from a real one, handed straight to a clock.
+
+**After Batch 21**, the leading candidate is watch-party variant 2 (phone-as-remote pairing) —
 designed but deliberately unscheduled, see
 [`docs/superpowers/specs/2026-08-08-watch-party-second-screen-design-note.md`](docs/superpowers/specs/2026-08-08-watch-party-second-screen-design-note.md),
-which already answers its own first open question (the per-lap durations that mode needs are computed
-and then discarded before `race_laps` is stored, so it starts with a data change and a local re-sync,
-not with UI).
+whose remaining open questions are about pairing (a shared session id via the backend, or a local
+network channel) — the only part of the watch-party idea that needs backend state, which is why it
+was split out of Batch 21 rather than built alongside it.
 
 Full architecture in **[`CHAT-AGENT-PLAN.md`](CHAT-AGENT-PLAN.md)** — that document is the source of
 truth for this batch and for Batch 18; this section only carries the summary and the checkpoint
