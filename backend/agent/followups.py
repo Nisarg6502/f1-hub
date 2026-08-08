@@ -81,6 +81,32 @@ produces one very long "question", which this drops."""
 
 MIN_QUESTION_CHARS = 12
 
+# `route.subjective` above is the intended guard against opinion-seeking chips,
+# and a live check after CP75 merged found it does not fire on the phrasings a
+# model actually produces: `router.classify` returns `subjective=False` for both
+# "Who do you think will win the title?" and "Which driver is the most
+# overrated?". That is not a bug in the router — its flags are tuned for how
+# *people* ask, and the tier-2/3 patterns those questions have to match first
+# never do — but it left the documented drop effectively inert.
+#
+# The router is deliberately not changed to fix this. Widening `subjective` for
+# the chip path would change how real user questions route, which is a much
+# larger blast radius than the problem justifies. This is a question-side check
+# owned by the chip surface, which is the only caller that needs it.
+#
+# Why drop these at all, when the app *will* answer them: CP64's framing
+# contract means an opinion question comes back hedged as commentary rather
+# than refused. That is right for a question the reader chose to ask, and wrong
+# for one the app volunteered — a chip is the app proposing a question, and it
+# should not propose ones whose best possible answer is a hedge.
+_OPINION_QUESTION_RE = re.compile(
+    r"\b(do you think|in your opinion|who do you|what do you think|"
+    r"should\s+\w+\s+have|most\s+(overrated|underrated|impressive|exciting)|"
+    r"best|worst|greatest|favou?rite|deserve[sd]?|"
+    r"who will win|will\s+\w+\s+win|predict)\b",
+    re.IGNORECASE,
+)
+
 _ANSWER_EXCERPT_CHARS = 1200
 """How much of the answer the model is shown. The suggestions only need the
 answer's *subject matter*, and this runs on a GPU-time-metered plan where the
@@ -219,6 +245,8 @@ def routable(question: str) -> bool:
         return False
     route = router.classify(text)
     if route.tier >= 3 or route.subjective:
+        return False
+    if _OPINION_QUESTION_RE.search(text):
         return False
     return True
 

@@ -76,6 +76,43 @@ class RoutableTests(unittest.TestCase):
         )
 
 
+    def test_opinion_seeking_suggestions_are_dropped(self):
+        """`route.subjective` does not fire on how a model actually phrases these.
+
+        Found by a live check after CP75 merged: `router.classify` returns
+        `subjective=False` for every question below, so the documented
+        subjective drop was inert and these rendered as chips. The app *would*
+        answer them — CP64's framing contract hedges rather than refuses — but
+        a chip is the app proposing a question, and it should not propose one
+        whose best possible answer is a hedge.
+        """
+        for question in (
+            "Who do you think will win the title?",
+            "Which driver is the most overrated?",
+            "Who is the greatest F1 driver ever?",
+            "Will Norris win the championship?",
+        ):
+            with self.subTest(question=question):
+                self.assertFalse(followups.routable(question))
+
+    def test_the_opinion_filter_keeps_real_suggestions(self):
+        """The four chips the deployed model actually produced, verbatim.
+
+        A filter that drops opinions by dropping everything would pass the test
+        above and ship a feature that renders nothing, so the guard is pinned
+        from both directions with real generated output rather than invented
+        examples.
+        """
+        for question in (
+            "What was George Russell's qualifying position for the 2026 Australian GP?",
+            "How many points did Max Verstappen receive for finishing second?",
+            "Which constructor earned the most points at the 2026 Australian Grand Prix?",
+            "What was the fastest lap time recorded in that race?",
+        ):
+            with self.subTest(question=question):
+                self.assertTrue(followups.routable(question))
+
+
 class ParseTests(unittest.TestCase):
     def test_plain_lines_become_chips(self):
         raw = "Who won in Monaco?\nHow many wins does Norris have this season?"
