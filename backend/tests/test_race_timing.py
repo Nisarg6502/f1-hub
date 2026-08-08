@@ -90,8 +90,10 @@ class LeaderBoundaryTests(unittest.TestCase):
 
 
 class AnchoringTests(unittest.TestCase):
-    def _drivers(self, intervals=(), positions=()):
-        return race_timing.build_timing(LAP_ROWS, list(intervals), list(positions))
+    def _drivers(self, intervals=(), positions=(), grid=None):
+        return race_timing.build_timing(
+            LAP_ROWS, list(intervals), list(positions), None, grid
+        )
 
     def test_a_mid_lap_sample_lands_at_its_hand_computed_elapsed_time(self):
         """12:03:45 is halfway through lap 3. Two laps of 90s have already
@@ -113,26 +115,81 @@ class AnchoringTests(unittest.TestCase):
 
         self.assertEqual(drivers["44"]["positions"], [[270000, 2]])
 
-    def test_samples_outside_every_lap_are_dropped_not_clamped(self):
-        """Grid-formation events sit well before lights out. Clamping them to
-        t=0 would render as a phantom position shuffle the instant the race
-        starts, so they are dropped — here that leaves the driver with nothing
-        and therefore out of `drivers` entirely."""
+    def test_a_post_race_position_is_dropped_not_clamped(self):
+        """An instant after the final crossing has no lap to belong to, and
+        clamping it back onto the last lap would report a position change that
+        happened after the chequered flag as though it happened during the
+        race."""
         drivers = self._drivers(positions=[
-            position_row("2026-03-08T11:45:00"),   # long before lap 1 started
             position_row("2026-03-08T12:10:00"),   # after the final crossing
         ])
 
         self.assertEqual(drivers, {})
 
-    def test_an_in_race_sample_survives_alongside_dropped_ones(self):
+    def test_the_starting_grid_is_seeded_at_zero_from_race_results(self):
+        """**The regression this test exists for.** Without a grid at t=0 the
+        lookup clamps backwards to the first in-race sample and presents it as
+        the starting order. On the real 2026 Australian GP that showed Ferrari
+        1-2 on the grid when Mercedes had locked out the front row and Leclerc
+        started P4.
+
+        The grid comes from `race_results`, not from the position feed. Two
+        feed-derived reconstructions were tried first and both measured wrong —
+        see `build_timing`'s note."""
+        drivers = self._drivers(
+            positions=[position_row("2026-03-08T12:03:45", driver_number=44, position=2)],
+            grid={"44": 7},
+        )
+
+        self.assertEqual(drivers["44"]["positions"], [[0, 7], [225000, 2]])
+
+    def test_pre_race_position_events_are_still_dropped(self):
+        """The formation-lap churn is not the grid — measured at 1 of 22 correct
+        on the real round — so it is dropped rather than mined for a starting
+        order."""
         drivers = self._drivers(positions=[
-            position_row("2026-03-08T11:45:00"),
-            position_row("2026-03-08T12:03:45"),
-            position_row("2026-03-08T12:10:00"),
+            position_row("2026-03-08T11:45:00", driver_number=44, position=4),
         ])
 
-        self.assertEqual(drivers["44"]["positions"], [[225000, 2]])
+        self.assertEqual(drivers, {})
+
+    def test_the_grid_snapshot_does_not_displace_a_real_sample_at_zero(self):
+        """A driver whose first in-race sample already lands exactly at t=0 has
+        nothing to gain from a grid entry at the same instant, and two samples
+        sharing a timestamp would make the array's ordering ambiguous."""
+        drivers = self._drivers(
+            positions=[position_row(RACE_START, driver_number=44, position=3)],
+            grid={"44": 4},
+        )
+
+        self.assertEqual(drivers["44"]["positions"], [[0, 3]])
+
+    def test_a_late_first_sample_does_not_backfill_over_the_grid(self):
+        """Hamilton's first in-race position sample on the real round 1 arrives
+        14.5 minutes in. Without a grid snapshot the lookup clamps that position
+        backwards over the entire opening stint, silently asserting he ran there
+        from lights out."""
+        drivers = self._drivers(
+            positions=[position_row("2026-03-08T12:03:00", driver_number=44, position=2)],
+            grid={"44": 7},
+        )
+
+        self.assertEqual(drivers["44"]["positions"], [[0, 7], [180000, 2]])
+
+    def test_an_in_race_sample_survives_alongside_a_grid_and_a_dropped_one(self):
+        """The three fates of a position event, in one case: the pre-race one
+        collapses into the grid snapshot at t=0, the in-race one anchors, and
+        the post-race one is dropped, and the grid is seeded at t=0."""
+        drivers = self._drivers(
+            positions=[
+                position_row("2026-03-08T11:45:00"),
+                position_row("2026-03-08T12:03:45"),
+                position_row("2026-03-08T12:10:00"),
+            ],
+            grid={"44": 9},
+        )
+
+        self.assertEqual(drivers["44"]["positions"], [[0, 9], [225000, 2]])
 
 
 class ValuePassthroughTests(unittest.TestCase):
@@ -225,7 +282,10 @@ class ShapeTests(unittest.TestCase):
         drivers = race_timing.build_timing(
             LAP_ROWS,
             [interval_row("2026-03-08T12:02:00", driver_number=1)],
-            [position_row("2026-03-08T11:30:00", driver_number=44)],
+            # Post-race, deliberately: a *pre*-race event is no longer
+            # unanchorable — it becomes this driver's grid slot — so it would
+            # no longer exercise what this test is about.
+            [position_row("2026-03-08T12:30:00", driver_number=44)],
         )
 
         self.assertEqual(set(drivers), {"1"})
