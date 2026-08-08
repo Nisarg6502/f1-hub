@@ -331,11 +331,21 @@ export function sampleAt(
   if (times.length > 0) {
     const i = seek(times, t, driver.timingCursor);
     if (i < 0) {
-      // Before the first measurement. The first one is the best available
-      // statement about this instant; a `null` here would blank the tower for
-      // however long the feed takes to warm up.
-      interval = driver.interval[0];
-      gapToLeader = driver.gap[0];
+      // **Before the first measurement, report nothing — do not clamp.**
+      //
+      // The first reading is not a statement about this instant, and treating
+      // it as one is the same mistake that put the wrong starting order on
+      // screen: the tower showed every car an interval like `+0.3` while the
+      // field was still stationary on the grid, and since those are all under a
+      // second, the closing-attack ring lit up almost the whole tower at
+      // lights out.
+      //
+      // A gap only exists once cars are running, so `null` (rendered `—`) is
+      // the honest answer and `isClosing` correctly declines to highlight it.
+      // Positions are unaffected: they are seeded from the starting grid at
+      // t=0, so there is always a real sample to carry forward from.
+      interval = null;
+      gapToLeader = null;
     } else {
       driver.timingCursor = i;
       const last = times.length - 1;
