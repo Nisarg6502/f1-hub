@@ -25,6 +25,26 @@ import type { ReplayLap } from "./api";
  */
 export const FALLBACK_LAP_SECONDS = 90;
 
+/**
+ * **A very long lap is not capped, and that is a decision, not an omission.**
+ *
+ * CP77 chose not to cap and asked CP78 to revisit it after real use. Revisited
+ * against the backfilled 2026 season, where every round's slowest lap sits
+ * 30-60s above its median (round 10's runs to 2:44 against a 1:52 median):
+ * keep it uncapped.
+ *
+ * The reasoning is the mode's whole premise. A cap would make a safety-car lap
+ * finish sooner than it did, which is the same failure as the old replay's
+ * fixed 560ms tick — just less obvious, and worse for being selective. Someone
+ * lining this up against a broadcast would silently drift out of sync at
+ * exactly the moment the race got interesting, and would have no way to tell
+ * why. The honest alternatives already exist: the lap's real duration is shown
+ * while it runs, and jump-to-lap is one tap.
+ *
+ * Revisit only with a concrete report of it feeling broken in use — not on the
+ * general principle that waiting is bad. Waiting is the feature.
+ */
+
 /** How a lap's duration was arrived at, so the UI can say which it was rather
  * than quietly presenting an estimate as a measurement. */
 export type LapDurationSource = "measured" | "estimated";
