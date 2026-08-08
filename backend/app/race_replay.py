@@ -64,8 +64,9 @@ router = APIRouter(prefix="/api")
 # replays stop matching and rebuild on next view. 2 added the
 # classified-finisher carry-forward fix; 3 adds a `retired` flag per runner
 # and carries retired drivers forward too, instead of dropping them from the
-# tower the moment they stop.
-REPLAY_VERSION = 3
+# tower the moment they stop; 4 surfaces `lap_time_seconds` per runner, which
+# every replay cached before Batch 21 is missing entirely.
+REPLAY_VERSION = 4
 
 
 async def _endpoint_payload(coroutine) -> dict:
@@ -196,6 +197,14 @@ def build_replay(
             "number": number,
             "position": row.get("position"),
             "gap_seconds": row.get("gap_seconds"),
+            # How long this driver's lap actually took. Surfaced because the
+            # replay endpoint is the only source a watch-party clock reads —
+            # persisting the field in `race_laps` without passing it through
+            # here would leave it unreachable by the feature it exists for.
+            # Null is expected and must not be mistaken for zero: a row from a
+            # doc cached before Batch 21, or a lap whose timing was never
+            # recorded, both read as None.
+            "lap_time_seconds": row.get("lap_time_seconds"),
             "compound": state.get("compound"),
             "tyre_age": state.get("tyre_age"),
             "stint_number": state.get("stint_number"),
@@ -237,7 +246,15 @@ def build_replay(
         status = str(entry.get("finish_status") or "").strip().lower()
         retired = not status.startswith(_FINISHER_STATUSES)
         for lap in range(last_seen + 1, last_lap + 1):
-            by_lap.setdefault(lap, []).append({**last_row, "pit": None, "retired": retired})
+            # `lap_time_seconds` is nulled on a carried row for the same reason
+            # `pit` is: it describes something that happened on one specific
+            # lap, and this driver did not run this one. Copying the last real
+            # duration forward would hand a clock a made-up measurement that is
+            # indistinguishable from a real one — worse than the honest null,
+            # which a consumer can see and apply its own fallback to.
+            by_lap.setdefault(lap, []).append({
+                **last_row, "pit": None, "lap_time_seconds": None, "retired": retired
+            })
 
     ordered_laps = [
         {

@@ -14,6 +14,16 @@ driver's cumulative race time (running sum of their own `LapTime`s) minus the
 lap's leader's cumulative time. See `_attach_gap_seconds` for the null-LapTime
 and lapped-traffic caveats baked into that computation.
 
+Each row also carries `lap_time_seconds`, that single lap's own duration.
+It was long computed here and discarded; it is kept because a real-time
+replay clock has to advance by each lap's actual length, and `gap_seconds`
+cannot stand in for it (a gap is relative and goes null wherever either side
+lacks timing, so a clock built on it stalls instead of merely approximating).
+The same "additional key" argument below applies to it: a doc cached before
+this change simply lacks the key and reads as `None`, so no forced rebuild is
+warranted here either — but note that means the field is null until a local
+re-sync backfills it.
+
 Because `gap_seconds` is just an additional key on each row dict, this is
 naturally backward compatible with documents cached before this change: an
 old cached doc's rows simply don't have the key, `.get("gap_seconds")` reads
@@ -88,8 +98,14 @@ def _attach_gap_seconds(rows: list[dict]) -> None:
     """Mutate `rows` in place, adding a `gap_seconds` key to each.
 
     `rows` must already be sorted by `(driver_number, lap_number)` (as
-    `positions_from_laps` sorts them) and each row must carry a scratch
-    `_lap_time_seconds` key, which this function consumes and removes.
+    `positions_from_laps` sorts them) and each row must carry a
+    `lap_time_seconds` key, which this function reads but -- unlike the
+    scratch key it used to consume -- leaves in place. That duration is now a
+    persisted field in its own right (it is what the watch-party mode's
+    real-time clock advances on), so throwing it away here would mean every
+    sync recomputing a number and discarding it, which is exactly the gap
+    Batch 21 exists to close. Nothing about the gap math below changed with
+    it: the key is read at the same point, with the same meaning.
 
     Per driver, this walks their laps in order and keeps a running total --
     their cumulative race time as of that lap. `gap_seconds` for a row is then
@@ -126,7 +142,7 @@ def _attach_gap_seconds(rows: list[dict]) -> None:
 
     for row in rows:
         driver = row["driver_number"]
-        seconds = row.pop("_lap_time_seconds", None)
+        seconds = row.get("lap_time_seconds")
         total = running_total.get(driver)
         if seconds is not None:
             total = (total or 0.0) + seconds
@@ -145,7 +161,7 @@ def _attach_gap_seconds(rows: list[dict]) -> None:
 
 
 def positions_from_laps(laps: list[dict]) -> list[dict]:
-    """Flatten lap rows into one record per (driver, lap) with position and gap.
+    """Flatten lap rows into one record per (driver, lap) with position, gap and duration.
 
     Kept independent of pandas so it can be exercised directly: the endpoint
     and the sync job both hand it plain row dicts. Rows missing a driver
@@ -154,6 +170,20 @@ def positions_from_laps(laps: list[dict]) -> list[dict]:
     reads as "line ends here" rather than a gap to fill in. A missing/null
     `LapTime` does NOT drop the row (position data is still valid); it only
     affects that row's `gap_seconds` -- see `_attach_gap_seconds`.
+
+    `lap_time_seconds` -- how long *this one lap* took -- is persisted
+    alongside the derived `gap_seconds` rather than being used and thrown
+    away. The two are not substitutes and the distinction matters: a gap is
+    *relative* (own cumulative minus the leader's) and goes null whenever
+    either side lacks timing, so a clock built on it would stall wherever
+    data is sparse. A duration is absolute and per-row: one driver's missing
+    sample costs exactly that one lap.
+
+    A null `lap_time_seconds` is a first-class case, not an error -- see
+    `_lap_time_seconds` for the in-lap/red-flag reasons a real lap legitimately
+    has no usable `LapTime`. Nothing here invents a stand-in value; a consumer
+    that needs the clock to keep moving decides its own fallback, with the
+    honest null in front of it.
     """
     rows: list[dict] = []
     for lap in laps:
@@ -166,7 +196,7 @@ def positions_from_laps(laps: list[dict]) -> list[dict]:
             "driver_number": driver_number,
             "lap_number": lap_number,
             "position": position,
-            "_lap_time_seconds": _lap_time_seconds(lap.get("LapTime")),
+            "lap_time_seconds": _lap_time_seconds(lap.get("LapTime")),
         })
 
     rows.sort(key=lambda r: (r["driver_number"], r["lap_number"]))
@@ -249,6 +279,21 @@ def positions_from_openf1(lap_rows: list[dict], position_rows: list[dict]) -> li
     Same contract as `_attach_gap_seconds`: 0 for the leader, None when either
     side's crossing instant is unknown — which the frontend already reads as
     "no gap data" rather than a crash.
+
+    `lap_time_seconds` comes straight off OpenF1's own `lap_duration`, not from
+    differencing the crossing instants this function already computes. Those
+    instants are *reconstructed* (a next lap's `date_start`, or a start plus a
+    duration), so differencing them would in the common case just recover
+    `lap_duration` by a longer route, and in the fallback case would be
+    circular. `lap_duration` is null on a handful of laps per race for the same
+    red-flag/pit-entry reasons FastF1 leaves `LapTime` as `NaT`; that null is
+    carried through rather than filled in, matching the FastF1 path exactly.
+
+    Filling this field on *both* paths is not optional politeness. OpenF1 is
+    tried first and is the only source reachable from Cloud Run, so it fills
+    most production rows; a duration on the FastF1 path alone would leave the
+    field null across nearly every synced round, and would break the key
+    parity the two paths are tested for.
     """
     by_driver: dict[int, list[dict]] = {}
     for row in lap_rows:
@@ -287,10 +332,14 @@ def positions_from_openf1(lap_rows: list[dict], position_rows: list[dict]) -> li
                     if moment > end:
                         break
                     position = value
+            duration = row.get("lap_duration")
             rows.append({
                 "driver_number": driver_number,
                 "lap_number": lap_number,
                 "position": position,
+                "lap_time_seconds": (
+                    float(duration) if isinstance(duration, (int, float)) else None
+                ),
                 "_end": end,
             })
 

@@ -75,7 +75,13 @@ class PositionsFromLapsTests(unittest.TestCase):
         self.assertEqual(len(rows), 3)
         self.assertEqual(
             rows[0],
-            {"driver_number": 1, "lap_number": 1, "position": 2, "gap_seconds": None},
+            {
+                "driver_number": 1,
+                "lap_number": 1,
+                "position": 2,
+                "lap_time_seconds": None,
+                "gap_seconds": None,
+            },
         )
 
     def test_orders_by_driver_then_lap_regardless_of_input_order(self):
@@ -112,12 +118,125 @@ class PositionsFromLapsTests(unittest.TestCase):
         self.assertEqual(race_laps.positions_from_laps([]), [])
 
 
-def _gap(rows, driver, lap_number):
+def _row(rows, driver, lap_number):
     driver = int(driver)
     for row in rows:
         if row["driver_number"] == driver and row["lap_number"] == lap_number:
-            return row["gap_seconds"]
+            return row
     raise AssertionError(f"no row for driver {driver} lap {lap_number}")
+
+
+def _gap(rows, driver, lap_number):
+    return _row(rows, driver, lap_number)["gap_seconds"]
+
+
+# A two-driver race with complete timing on every lap, plus the exact
+# `gap_seconds` it produced *before* `lap_time_seconds` was persisted. Driver 1
+# leads at 90s a lap; 44 runs 91.0/91.5/90.0 behind, so the gaps are uneven
+# rather than a constant offset -- a flat sequence could stay right under a
+# broken cumulative sum. See `GapSecondsIsUnchangedTests`.
+COMPLETE_TIMING_LAPS = [
+    lap("1", 1, 1, lap_time=90.0),
+    lap("1", 2, 1, lap_time=90.0),
+    lap("1", 3, 1, lap_time=90.0),
+    lap("44", 1, 2, lap_time=91.0),
+    lap("44", 2, 2, lap_time=91.5),
+    lap("44", 3, 2, lap_time=90.0),
+]
+GAPS_BEFORE_LAP_TIME_SECONDS = {
+    (1, 1): 0.0, (1, 2): 0.0, (1, 3): 0.0,
+    (44, 1): 1.0, (44, 2): 2.5, (44, 3): 2.5,
+}
+
+
+class GapSecondsIsUnchangedTests(unittest.TestCase):
+    """Pins `gap_seconds` against the values it produced before CP76.
+
+    CP76 adds `lap_time_seconds` by keeping a key `_attach_gap_seconds` used to
+    pop, which means it edits the exact function the live Lap Telemetry gap
+    chart depends on. A regression there would be silent -- the chart would
+    still render, with wrong numbers -- so the expected gaps are written out as
+    literals here rather than left to be inferred from the tests that were
+    already passing before the change. Recomputing them from the new code would
+    defeat the point of the pin.
+    """
+
+    def test_gaps_for_a_race_with_complete_timing_are_byte_identical(self):
+        rows = race_laps.positions_from_laps(COMPLETE_TIMING_LAPS)
+
+        self.assertEqual(
+            {(r["driver_number"], r["lap_number"]): r["gap_seconds"] for r in rows},
+            GAPS_BEFORE_LAP_TIME_SECONDS,
+        )
+
+    def test_adding_the_duration_field_did_not_disturb_the_other_keys(self):
+        rows = race_laps.positions_from_laps(COMPLETE_TIMING_LAPS)
+
+        # Position and ordering are the gap chart's other two contracts; the
+        # scratch key that used to be popped must not leak through under its
+        # old name either.
+        self.assertEqual(
+            [(r["driver_number"], r["lap_number"], r["position"]) for r in rows],
+            [(1, 1, 1), (1, 2, 1), (1, 3, 1), (44, 1, 2), (44, 2, 2), (44, 3, 2)],
+        )
+        self.assertTrue(all("_lap_time_seconds" not in r for r in rows))
+
+
+class LapTimeSecondsTests(unittest.TestCase):
+    """The per-lap duration CP76 persists for the watch-party clock."""
+
+    def test_each_row_carries_its_own_lap_duration(self):
+        rows = race_laps.positions_from_laps(COMPLETE_TIMING_LAPS)
+
+        # Not cumulative and not relative to anyone: lap 2 for 44 is that lap's
+        # own 91.5s, even though their gap to the leader by then is 2.5s.
+        self.assertEqual(_row(rows, "44", 1)["lap_time_seconds"], 91.0)
+        self.assertEqual(_row(rows, "44", 2)["lap_time_seconds"], 91.5)
+        self.assertEqual(_row(rows, "44", 3)["lap_time_seconds"], 90.0)
+        self.assertEqual(_row(rows, "1", 2)["lap_time_seconds"], 90.0)
+
+    def test_a_missing_lap_time_is_null_not_zero_and_not_an_error(self):
+        # The first-class null case: a lap can legitimately have no usable
+        # LapTime (in-lap, out-lap, red-flag pickup). Nothing here invents a
+        # stand-in -- a consumer that needs the clock to keep moving picks its
+        # own fallback, which is CP77's decision, not this function's.
+        laps = [
+            lap("1", 1, 1, lap_time=90.0),
+            lap("1", 2, 1, lap_time=None),
+            lap("1", 3, 1, lap_time=90.0),
+        ]
+
+        rows = race_laps.positions_from_laps(laps)
+
+        self.assertIsNone(_row(rows, "1", 2)["lap_time_seconds"])
+        self.assertIsNotNone(_row(rows, "1", 2)["gap_seconds"])
+        self.assertEqual(_row(rows, "1", 3)["lap_time_seconds"], 90.0)
+
+    def test_a_race_with_no_lap_times_at_all_yields_nulls_not_a_crash(self):
+        rows = race_laps.positions_from_laps([lap("1", 1, 1), lap("44", 1, 2)])
+
+        self.assertTrue(all(r["lap_time_seconds"] is None for r in rows))
+        self.assertEqual([r["position"] for r in rows], [1, 2])
+
+    def test_the_openf1_path_fills_it_from_lap_duration(self):
+        # OpenF1 is tried first and is the only source reachable from a
+        # datacenter IP, so a duration on the FastF1 path alone would leave the
+        # field null across most production rows.
+        rows = race_laps.positions_from_openf1(CLEAN_LAPS, CLEAN_POSITIONS)
+        by_key = {
+            (r["driver_number"], r["lap_number"]): r["lap_time_seconds"] for r in rows
+        }
+
+        self.assertEqual(by_key[(1, 1)], 90.0)
+        self.assertEqual(by_key[(44, 1)], 91.0)
+        self.assertEqual(by_key[(44, 2)], 91.0)
+
+    def test_a_null_openf1_lap_duration_stays_null(self):
+        laps = [openf1_lap(1, 1, "2026-07-26T13:00:00+00:00", None)]
+
+        rows = race_laps.positions_from_openf1(laps, CLEAN_POSITIONS)
+
+        self.assertIsNone(rows[0]["lap_time_seconds"])
 
 
 class GapToLeaderTests(unittest.TestCase):
