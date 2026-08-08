@@ -70,7 +70,13 @@ router = APIRouter(prefix="/api")
 # whole race was shifted a lap early and the starting grid was never in the
 # payload at all. A stale doc would keep serving that silently, since nothing
 # about its shape is wrong.
-TIMING_VERSION = 2
+# 3 retires the payloads built between the anchoring fix and the tail fix. Their
+# grid is right and their timeline is right, but they stop at the leader's final
+# crossing, so the tower's last state is the order at the winner's flag rather
+# than the finishing order. Bumped because "how it's derived" changed, which is
+# the harder half of this constant's rule to remember: the shape is identical,
+# so nothing else would ever reveal the difference.
+TIMING_VERSION = 3
 
 
 def _round_value(value):
