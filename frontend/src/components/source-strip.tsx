@@ -30,11 +30,37 @@ import { sourceKindStyle } from "@/lib/source-kind";
 export default function SourceStrip({
   sources,
   messageId,
+  resolved,
 }: {
   sources: AgentSource[];
   messageId: string;
+  /**
+   * The anchors that actually became underlines in the prose above.
+   *
+   * Counting the *backend's* anchors here was the reported divergence coming
+   * back in a new shape. The backend and the frontend dedupe overlapping spans
+   * by different rules — the backend per evidence id, the frontend globally —
+   * so a sentence citing two records that both contain the same value yields
+   * two backend anchors on one span and only one surviving mark. The strip
+   * would then advertise "Driver standings — 2 facts" while no underline in
+   * the answer could ever open that record. Any other reason a mark is dropped
+   * (a hostile token, a protected region) produced the same lie.
+   *
+   * So the count, and whether a record is listed at all, come from what the
+   * reader can actually reach. That is what makes the design's "inline and
+   * below-answer counts cannot diverge" true rather than merely intended.
+   */
+  resolved: readonly { evidence_id: string }[];
 }) {
-  if (sources.length === 0) return null;
+  const reachable = new Map<string, number>();
+  for (const anchor of resolved) {
+    reachable.set(anchor.evidence_id, (reachable.get(anchor.evidence_id) ?? 0) + 1);
+  }
+  // A record with no surviving mark is still shown — it *was* used, and hiding
+  // it would understate the answer's evidence — but it is shown without a
+  // count it cannot back up.
+  const visible = sources;
+  if (visible.length === 0) return null;
 
   return (
     <div>
@@ -42,8 +68,13 @@ export default function SourceStrip({
         {sources.length === 1 ? "Record used" : "Records used"}
       </h3>
       <ul className="flex flex-wrap gap-1.5">
-        {sources.map((source) => (
-          <SourceChip key={source.id} source={source} messageId={messageId} />
+        {visible.map((source) => (
+          <SourceChip
+            key={source.id}
+            source={source}
+            messageId={messageId}
+            factCount={reachable.get(source.id) ?? 0}
+          />
         ))}
       </ul>
     </div>
@@ -53,13 +84,15 @@ export default function SourceStrip({
 function SourceChip({
   source,
   messageId,
+  factCount,
 }: {
   source: AgentSource;
   messageId: string;
+  /** Marks the reader can actually reach — see `SourceStrip`'s `resolved`. */
+  factCount: number;
 }) {
   const kind = sourceKindStyle(source.kind);
   const asOfMs = source.as_of ? new Date(source.as_of).getTime() : null;
-  const factCount = source.anchors?.length ?? 0;
   // Internal data has no public address (`agent/tools/base.py`'s
   // `mongo_source`), so only web-ish records become links. A chip that looks
   // clickable and goes nowhere is worse than a chip that does not.

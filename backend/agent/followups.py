@@ -99,10 +99,25 @@ MIN_QUESTION_CHARS = 12
 # than refused. That is right for a question the reader chose to ask, and wrong
 # for one the app volunteered — a chip is the app proposing a question, and it
 # should not propose ones whose best possible answer is a hedge.
+#
+# **A superlative is not an opinion.** The first version of this pattern
+# matched bare `best`/`worst`/`greatest`/`deserve`, and Batch 20's review found
+# it dropping "What was Norris's best finish in 2025?" — a question answered by
+# a literal `best_finish` field that `get_driver_season_summary` has always
+# returned. With only four candidates generated and four rendered there is no
+# headroom, so an over-broad rule here does not merely lose a chip, it empties
+# the row on exactly the season-summary answers where a follow-up is most
+# natural. The superlatives now have to be attached to an opinion frame ("best
+# driver of all time") rather than to stored data ("best finish").
 _OPINION_QUESTION_RE = re.compile(
     r"\b(do you think|in your opinion|who do you|what do you think|"
     r"should\s+\w+\s+have|most\s+(overrated|underrated|impressive|exciting)|"
-    r"best|worst|greatest|favou?rite|deserve[sd]?|"
+    # "greatest F1 driver ever", "best modern-era team" — the qualifier between
+    # the superlative and the noun is why this allows up to two words. The noun
+    # list is the whole guard: "best *finish*", "best *result*", "best average
+    # finishing *position*" all name stored fields and must survive.
+    r"(greatest|best)\s+(?:\w+[\s-]+){0,2}(driver|team|race|season)s?\b|"
+    r"favou?rite|deserve[sd]?\s+to|"
     r"who will win|will\s+\w+\s+win|predict)\b",
     re.IGNORECASE,
 )

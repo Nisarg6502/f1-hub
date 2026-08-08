@@ -190,6 +190,15 @@ input::placeholder {
    14px. Colour and hover/focus weight come from the component, which knows
    the source kind; only the properties that must not vary live here. */
 .apex-anchor-mark {
+  /* The comment above claims the mark wraps with its words. It does not
+     unless this is here: the mark is a <button>, whose UA default is
+     `inline-block`, and an inline-block cannot break across lines. A
+     multi-word value — "the Australian Grand Prix", a full team name — is
+     then forced onto its own line inside an 85%-width chat bubble, or
+     overflows it on mobile. Buttons remain fully operable as `display: inline`;
+     only the box model changes. Measured in headless Chrome during Batch 20's
+     review: 1 client rect as inline-block, 2 as inline. */
+  display: inline;
   text-decoration-skip-ink: none;
   /* A button inside prose must inherit the paragraph's type, not the UA's
      button defaults, or the marked value renders in a different face and size

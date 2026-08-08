@@ -95,6 +95,35 @@ class RoutableTests(unittest.TestCase):
             with self.subTest(question=question):
                 self.assertFalse(followups.routable(question))
 
+    def test_a_superlative_over_stored_data_is_not_an_opinion(self):
+        """Batch 20's review caught the first version of the filter here.
+
+        It matched bare `best`/`worst`, which drops questions answered by
+        literal stored fields — `get_driver_season_summary` returns
+        `best_finish` and `average_finish`. With four candidates generated and
+        four rendered there is no headroom, so an over-broad rule empties the
+        chip row on exactly the season-summary answers where a follow-up is
+        most natural.
+        """
+        for question in (
+            "What was Norris's best finish in 2025?",
+            "What was Verstappen's worst result of the 2025 season?",
+            "Which driver had the best average finishing position in 2025?",
+            "What is Ferrari's best result at Monza since 2000?",
+            "Which team had the best pit stop times in 2024?",
+        ):
+            with self.subTest(question=question):
+                self.assertTrue(followups.routable(question))
+
+    def test_a_superlative_in_an_opinion_frame_is_still_dropped(self):
+        """The narrowing must not reopen what it was narrowed from."""
+        for question in (
+            "Who is the greatest F1 driver ever?",
+            "Who was the best driver of 2025?",
+        ):
+            with self.subTest(question=question):
+                self.assertFalse(followups.routable(question))
+
     def test_the_opinion_filter_keeps_real_suggestions(self):
         """The four chips the deployed model actually produced, verbatim.
 

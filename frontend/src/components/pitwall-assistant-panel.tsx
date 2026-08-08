@@ -853,7 +853,11 @@ const MessageBubble = memo(function MessageBubble({
         />
       )}
 
-      <SourceStrip sources={message.sources} messageId={message.id} />
+      <SourceStrip
+        sources={message.sources}
+        messageId={message.id}
+        resolved={anchored.resolved}
+      />
 
       <FollowUpChips
         suggestions={message.suggestions}

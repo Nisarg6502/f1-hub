@@ -60,6 +60,37 @@ class CitationCheckTests(unittest.TestCase):
         self.assertTrue(anchors)
         self.assertEqual(anchors[0].evidence_id, "ev_1")
 
+    def test_wire_offsets_are_utf16_not_code_points(self):
+        """An emoji before a claim must not shift the frontend's slice.
+
+        Python indexes by code point, JavaScript by UTF-16 code unit, so one
+        astral character ahead of a claim moves every JS index by one. The
+        frontend rejects an anchor whose slice does not equal its text, so a
+        single 🏁 at the top of an answer silently unmarks the whole thing —
+        no error, no failing test, just pre-CP72 plain prose under a source
+        strip still claiming its facts.
+        """
+        ledger = _ledger_with(data={"results": [{"position": 1, "driver": "Lando Norris"}]})
+        draft = "🏁 Lando Norris won the race [ev_1]."
+        anchor = verifier.anchors(draft, ledger)[0]
+
+        # What Python sees, and what a JS `String.prototype.slice` would see.
+        self.assertEqual(draft[anchor.start : anchor.end], "Lando Norris")
+        units = draft.encode("utf-16-le")
+        sliced = units[anchor.start_utf16 * 2 : anchor.end_utf16 * 2].decode("utf-16-le")
+        self.assertEqual(sliced, "Lando Norris")
+
+        # The wire form must carry the JS-shaped offsets, not the Python ones.
+        payload = anchor.to_dict()
+        self.assertEqual(payload["start"], anchor.start_utf16)
+        self.assertNotEqual(payload["start"], anchor.start)
+
+    def test_wire_offsets_match_code_points_for_plain_ascii(self):
+        """The common case must be untouched by the conversion."""
+        ledger = _ledger_with(data={"winner": "Lando Norris"})
+        anchor = verifier.anchors("Lando Norris won [ev_1].", ledger)[0]
+        self.assertEqual(anchor.to_dict()["start"], anchor.start)
+
     def test_empty_draft_passes(self):
         # An honest decline cites nothing and asserts nothing.
         ledger = EvidenceLedger()

@@ -405,19 +405,51 @@ class Anchor:
     value: str
     path: str
     row: dict = field(default_factory=dict)
+    # The same span measured the way JavaScript measures strings. See
+    # `to_dict` — these are what actually go on the wire.
+    start_utf16: int = 0
+    end_utf16: int = 0
 
     def to_dict(self) -> dict:
+        """The wire form. **Offsets are UTF-16, not code points.**
+
+        Python indexes strings by code point; JavaScript indexes by UTF-16 code
+        unit. Every character outside the BMP — an emoji, a flag — is one index
+        in Python and two in JS, so a single 🏁 at the start of an answer shifts
+        every subsequent JS index by one and `answer-anchors.ts`'s
+        `slice(start, end) !== text` check then rejects *every* anchor after it.
+
+        That fails soft: the answer renders as plain pre-CP72 prose while the
+        source strip still claims its facts. No error, no test failure, and the
+        whole batch's visible payoff silently gone on exactly the chatty,
+        emoji-prefixed answers a chat-tuned model likes to produce.
+
+        Converting here rather than in the frontend is deliberate: this is the
+        boundary where the offsets change meaning, and the draft — the only
+        thing that can do the conversion — exists on this side of it.
+        """
         return {
             "evidence_id": self.evidence_id,
             "text": self.text,
-            "start": self.start,
-            "end": self.end,
+            "start": self.start_utf16,
+            "end": self.end_utf16,
             "claim": self.claim,
             "field": self.field,
             "value": self.value,
             "path": self.path,
             "row": dict(self.row or {}),
         }
+
+
+def _utf16_offset(text: str, index: int) -> int:
+    """A code-point index in `text`, restated as a UTF-16 code-unit index.
+
+    Every code point above U+FFFF occupies two UTF-16 units, so this is the
+    count of characters before `index` plus one extra per astral character.
+    Encoding the prefix and halving its byte length is the cheapest way to say
+    that without enumerating the ranges by hand, and it is exact.
+    """
+    return len(text[:index].encode("utf-16-le")) // 2
 
 
 def anchors(draft: str, ledger: EvidenceLedger) -> list[Anchor]:
@@ -492,6 +524,8 @@ def anchors(draft: str, ledger: EvidenceLedger) -> list[Anchor]:
                         value=str(hit.get("value") or ""),
                         path=str(hit.get("path") or ""),
                         row=dict(hit.get("row") or {}),
+                        start_utf16=_utf16_offset(draft, span[1]),
+                        end_utf16=_utf16_offset(draft, span[2]),
                     )
                 )
                 emitted += 1
