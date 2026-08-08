@@ -17,6 +17,20 @@ export type TowerDensity = "compact" | "expanded";
 
 export const DEFAULT_DENSITY: TowerDensity = "expanded";
 
+/**
+ * Which timing column the tower emphasises: gap to the car ahead, or to the
+ * leader.
+ *
+ * A preference rather than a layout decision because compact density has room
+ * for exactly one of them, so the choice cannot be deferred to the screen.
+ * Default is `"interval"`: it is the number that moves — an attacker closing
+ * from 1.4s to 0.4s is the thing worth watching, whereas gap-to-leader for P14
+ * changes slowly and mostly measures how long ago the race was decided.
+ */
+export type TimingMode = "interval" | "gap";
+
+export const DEFAULT_TIMING_MODE: TimingMode = "interval";
+
 /* ------------------------------ persistence ------------------------------ */
 
 /** Namespaced so nothing else in the app collides, and versioned in the value
@@ -24,6 +38,7 @@ export const DEFAULT_DENSITY: TowerDensity = "expanded";
  * to change. */
 const PINNED_KEY = "apex.watch.pinnedDrivers";
 const DENSITY_KEY = "apex.watch.density";
+const TIMING_MODE_KEY = "apex.watch.timingMode";
 
 /** There is no auth in this app, so there is nowhere server-side to put "my
  * driver". `localStorage` is the whole persistence story, and it is the right
@@ -80,6 +95,18 @@ export function saveDensity(density: TowerDensity): void {
   writeStorage(DENSITY_KEY, density);
 }
 
+/** Anything that is not one of the two known modes — a hand-edited value, or a
+ * mode this app used to have — falls back to the default rather than being
+ * trusted into the render path. */
+export function loadTimingMode(): TimingMode {
+  const raw = readStorage(TIMING_MODE_KEY);
+  return raw === "interval" || raw === "gap" ? raw : DEFAULT_TIMING_MODE;
+}
+
+export function saveTimingMode(mode: TimingMode): void {
+  writeStorage(TIMING_MODE_KEY, mode);
+}
+
 /* ------------------------------ as a store ------------------------------ */
 
 /**
@@ -99,6 +126,7 @@ type Listener = () => void;
 const listeners = new Set<Listener>();
 
 let densityCache: TowerDensity | null = null;
+let timingModeCache: TimingMode | null = null;
 let pinnedCache: string[] | null = null;
 
 /** One module-level array, so the server snapshot is the same reference on
@@ -124,6 +152,18 @@ export function densityServerSnapshot(): TowerDensity {
   return DEFAULT_DENSITY;
 }
 
+/** Shares `listeners`/`emit` with the other preferences on purpose. A second
+ * listener set would mean a component subscribing for density silently missing
+ * a timing-mode change, which is the bug this store shape exists to prevent. */
+export function timingModeSnapshot(): TimingMode {
+  if (timingModeCache === null) timingModeCache = loadTimingMode();
+  return timingModeCache;
+}
+
+export function timingModeServerSnapshot(): TimingMode {
+  return DEFAULT_TIMING_MODE;
+}
+
 export function pinnedSnapshot(): string[] {
   if (pinnedCache === null) pinnedCache = loadPinnedDrivers();
   return pinnedCache;
@@ -136,6 +176,12 @@ export function pinnedServerSnapshot(): string[] {
 export function setDensityPreference(density: TowerDensity): void {
   densityCache = density;
   saveDensity(density);
+  emit();
+}
+
+export function setTimingModePreference(mode: TimingMode): void {
+  timingModeCache = mode;
+  saveTimingMode(mode);
   emit();
 }
 

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getRaceReplay, getSeasonRaces } from "@/lib/api";
+import { getRaceReplay, getRaceTiming, getSeasonRaces } from "@/lib/api";
 import { findWatchableFallback, parseRaceId, toRaceId } from "@/lib/watch-races";
 import WatchView from "@/components/watch-view";
 
@@ -45,7 +45,20 @@ export default async function WatchRacePage({ params }: PageProps) {
   }
 
   if (replay?.synced && replay.laps.length > 0) {
-    return <WatchView replay={replay} />;
+    // Fetched only once there is definitely a replay to pair it with, and
+    // never allowed to fail the page: the per-second track is an enhancement
+    // over a tower that already works without it. A round OpenF1 does not
+    // cover (anything pre-2023, or a round it is missing) answers
+    // `synced: false`, which `buildTimingIndex` reads as "no track" — the same
+    // outcome as this catch, by design, so there is only one degraded path to
+    // reason about rather than two.
+    let timing = null;
+    try {
+      timing = await getRaceTiming(season, round);
+    } catch {
+      timing = null;
+    }
+    return <WatchView replay={replay} timing={timing} />;
   }
 
   /* ------------------------- nothing to replay ------------------------- */

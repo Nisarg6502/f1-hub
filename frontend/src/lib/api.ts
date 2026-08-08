@@ -549,6 +549,86 @@ export async function getRaceReplay(year: number, round: number) {
   });
 }
 
+/**
+ * One gap or interval reading, exactly as OpenF1's `/intervals` feed reports it.
+ *
+ * **A string is a lapped car and must be rendered verbatim, never parsed.**
+ * `"+1 LAP"`, `"+2 LAPS"` and so on are broadcast semantics, not corrupt data:
+ * measured against 2026 round 1, `gap_to_leader` is only 79.2% numeric — 4,552
+ * of 22,276 rows are strings, and 78 are null. `interval` is 99.2% numeric.
+ *
+ * That ~20% is the whole reason this is a union rather than `number | null`.
+ * Any consumer that assumes numeric will break on real data, and it will break
+ * *quietly*: `Number("+1 LAP")` is `NaN`, so a naive `+${value.toFixed(1)}`
+ * renders `+NaN` on a fifth of the tower, and arithmetic (interpolation,
+ * comparison, "is this car closing?") silently poisons whatever it touches.
+ * Every read of this type must branch on `typeof value === "number"` first.
+ *
+ * `null` is "not reported at this instant" — a genuine absence, not a zero.
+ */
+export type TimingValue = number | string | null;
+
+/**
+ * `[t_ms, interval, gap_to_leader]`.
+ *
+ * A tuple rather than an object because these arrive ~22k at a time: the
+ * measured payload for one round is 454KB raw / 150KB gzipped as tuples, and
+ * repeating three JSON keys per sample would roughly triple the raw figure for
+ * no gain a reader can see.
+ *
+ * `t_ms` is **integer milliseconds of elapsed race time**, already resolved
+ * server-side against the leader's lap boundaries against the *same* per-lap
+ * durations `watch-clock.ts` runs on. A consumer never sees an OpenF1
+ * wall-clock timestamp, and must never try to derive one.
+ */
+export type TimingSample = [number, TimingValue, TimingValue];
+
+/** `[t_ms, position]`. Position is an integer, and these are *changes*, not a
+ * grid — roughly 531 across a whole race, so the array is short and sparse. */
+export type PositionSample = [number, number];
+
+export interface RaceTimingDriver {
+  /** Ascending by `t_ms`, non-empty. ~3.6s median cadence per driver. */
+  timing: TimingSample[];
+  /** Ascending by `t_ms`, non-empty. Carried forward between entries — a
+   * position holds until the next event says otherwise. */
+  positions: PositionSample[];
+}
+
+/**
+ * Per-second timing for a finished race, keyed by car number.
+ *
+ * The intra-lap layer the lap-indexed `RaceReplay` cannot express: `RaceReplay`
+ * collapses everything to one row per driver per lap, so a position that
+ * changed mid-lap and a gap that closed from 1.4s to 0.4s across half a lap are
+ * both invisible in it. This carries the real sampled readings at their native
+ * cadence instead, so the tower can count down between line crossings.
+ *
+ * **Nothing here is interpolated server-side.** These are real measurements at
+ * real instants; smoothing is the client's decision (see `watch-timing.ts`) and
+ * is deliberately refused wherever a reading is non-numeric.
+ *
+ * `synced: false` with `drivers: {}` means this round has no per-second track —
+ * pre-2023, or not yet ingested. It is **not an error**: same convention as
+ * `getRaceLaps` and `getRaceReplay`, and the view degrades to today's
+ * lap-stepped tower.
+ */
+export interface RaceTiming {
+  year: number;
+  round: number;
+  synced: boolean;
+  drivers: Record<string, RaceTimingDriver>;
+}
+
+export async function getRaceTiming(year: number, round: number) {
+  return fetchJson<RaceTiming>("/api/race_timing", {
+    year,
+    round,
+  }, {
+    next: { revalidate: 3600 }, // Cache for 1 hour
+  });
+}
+
 export async function getCircuitInfo(year: number, eventName: string) {
   return fetchJson<CircuitInfo>("/api/circuit_info", {
     year,
