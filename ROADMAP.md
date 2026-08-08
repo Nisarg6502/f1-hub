@@ -79,7 +79,56 @@ underlying gap behind this session's "Failed to fetch" incident, not just that o
 per-page contextual suggestions, and keyboard/focus-trap/`aria-live` accessibility — a final
 whole-branch review caught and fixed a real regression where CP70's own heartbeat wrapper had broken
 cancellation propagation (closing a tab mid-answer no longer stopped the underlying model call).
-**The next batch is not yet planned.**
+**Batch 20 (CP71-75) is complete and merged.** CP71 shipped first, on its own, as a reaction to live
+use of Batch 19's chat surface; CP72-75 were planned together afterwards once that live use had shown
+what was actually wrong. See
+[`docs/superpowers/specs/2026-08-08-batch20-cp72-75-evidence-and-answer-quality-design.md`](docs/superpowers/specs/2026-08-08-batch20-cp72-75-evidence-and-answer-quality-design.md)
+for the design and `HANDOFF.md` for measured specifics.
+
+The batch's finding, worth stating on its own because it shaped everything after CP71: **the citation
+plumbing was never the problem.** CP71 fixed namespacing, popovers and a collapsing timeline, and the
+next live session produced four complaints anyway — three of which turned out to be one root cause.
+`Evidence` bound to a whole tool *bundle*, so a citation could only ever name its source. Asking "who
+won the Australian GP" cited a table containing nothing about Russell, and the inline markers and the
+below-answer list were built from two independently-derived sets that disagreed about how many
+citations existed.
+
+| CP | Scope | Status |
+|---|---|---|
+| CP71 | Chat UX overhaul: per-message citation namespacing, inspectable popovers, source-kind identity, New chat, collapsing activity, markdown styling | merged |
+| CP72 | Claim anchors — `Evidence.locate()`, the verifier keeps the location it already computed, source list derives from the anchor set | merged |
+| CP73 | Comparative questions converge: 10 tool calls → 1-2, measured live | merged |
+| CP74 | Direction A — the cited value in the prose *is* the citation; numbered pills removed | merged |
+| CP75 | Model-generated follow-up chips, router-validated before rendering | merged |
+
+Three findings from this batch that cost real time to discover and should not be re-derived:
+
+- **The deployed model sometimes closes a citation with the CJK full-width `【ev_2】`.** Caught in
+  CP73's live runs against a *correct, properly cited* answer. Both the backend `_CITATION_RE` and
+  the frontend rewriter matched ASCII brackets only, so the verifier reported nine violations against
+  a good draft and CP72's anchors resolved to nothing — which would have made CP74's underlines
+  silently vanish on exactly the answers that were fine. Both sides now accept bracket variants; the
+  `ev_N` body stays exact so a hallucinated id is still a lookup miss. This is the CP41 lesson again:
+  the prompt asks for `[ev_N]` and the model *mostly* complies, and "mostly" is not a contract.
+- **`get_season_state` exposed its internal `today` argument to the model, which asserted a wrong
+  date.** CP73's trace caught it claiming today was 2025-11-03 (real date 2026-08-07), then reading
+  the wrong season and burning the whole step budget. `tools/context.py` documented `today` as being
+  "for tests and for replaying a past conversation" — it was never meant to be model-supplied, and
+  nothing stopped it. Now stripped from the public signature, making the failure impossible rather
+  than merely undocumented. **Worth auditing other tools for optional arguments the model can see.**
+- **A guard can be documented, merged, and inert.** CP75 dropped opinion-seeking chips via
+  `route.subjective`; a live check after merge found `router.classify` returns `subjective=False` for
+  both "Who do you think will win the title?" and "Which driver is the most overrated?". The router
+  is not wrong — its flags are tuned for how *people* ask — but the documented drop did nothing. The
+  lesson generalises past this batch: **a guard delegated to another component's flag needs a test
+  that exercises the flag, not just the delegation.**
+
+**The next batch is not yet planned.** The leading candidate is watch-party / second-screen mode —
+designed but deliberately unscheduled, see
+[`docs/superpowers/specs/2026-08-08-watch-party-second-screen-design-note.md`](docs/superpowers/specs/2026-08-08-watch-party-second-screen-design-note.md),
+which already answers its own first open question (the per-lap durations that mode needs are computed
+and then discarded before `race_laps` is stored, so it starts with a data change and a local re-sync,
+not with UI).
 
 Full architecture in **[`CHAT-AGENT-PLAN.md`](CHAT-AGENT-PLAN.md)** — that document is the source of
 truth for this batch and for Batch 18; this section only carries the summary and the checkpoint

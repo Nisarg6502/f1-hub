@@ -1,4 +1,54 @@
-# F1 Hub — Handoff (2026-08-05)
+# F1 Hub — Handoff (2026-08-08)
+
+## Batch 20 (CP71-75) — merged; measured numbers below
+
+### CP73's before/after, the batch's one hard measurement
+
+Reproduced against the **deployed** service before changing anything, using the user's own wording
+("Compare Norris and Verstappen this year"):
+
+| | tool calls | latency | outcome |
+|---|---|---|---|
+| Before (deployed) | **10** | 95.4s | `get_head_to_head` never called; step budget exhausted, no answer |
+| After, run A | **1** | 61.1s | converged, verifier passed, 0 violations |
+| After, run B | **2** | 49.1s | converged, correct cited answer |
+
+**The "after" runs are local against the same production Mongo and the same Ollama Cloud model** —
+the method CP61 and CP63 used for their own numbers. Latency across the deployed and local paths is
+not strictly comparable (different network, different container); the tool-call count and *whether it
+converges at all* are, and those are what moved. A post-deploy re-measurement is the one thing this
+batch has not done.
+
+Two mechanisms behind the original failure, neither previously named:
+
+1. `get_head_to_head` took opaque Jolpica ids (`max_verstappen`, not "Verstappen") and returned duel
+   counts *without* season totals — so even a correct call left a reason to keep calling more tools,
+   and CP61's baseline had already recorded calls failing **soft** on id mismatch, which teaches the
+   model the tool is useless. It now takes names and returns a bundle that is actually complete.
+2. `get_season_state` exposed its optional `today` argument to the model, which asserted 2025-11-03
+   (real date 2026-08-07), re-read the wrong season and burned the budget. Now stripped from the
+   model-visible signature.
+
+### Follow-up chips were live-checked, and the check found a real gap
+
+The deployed model produced 4 suggestions for "Who won the Australian Grand Prix this year?" and all
+4 survived the router guard — the feature works. But probing the guard's *drop* side found that
+`route.subjective` never fires on the phrasings a model produces, so CP75's documented opinion drop
+was inert. Fixed with a question-side filter owned by the chip surface (the router itself is
+deliberately unchanged — widening it would alter how real user questions route). See `ROADMAP.md`'s
+Batch 20 section for why this generalises.
+
+### Environment gotcha found this session
+
+**`remark-gfm` is in `frontend/package.json` but was not installed in the main checkout**, so
+`npm run build` failed on `main` with `TS2307: Cannot find module 'remark-gfm'` *before* this batch
+touched anything. `npm install` fixes it. Worth knowing because it looks exactly like a code
+regression introduced by whatever you just merged, and is not.
+
+**Four orphaned worktree directories exist on disk that `git worktree list` does not report** —
+`.claude/worktrees/agent-a10134c26331d6528`, `agent-a1895e413d9f9ec8b`, `agent-a822775c575765bfb`,
+`agent-abdf58d6442b85630`. This is the exact pattern `ROADMAP.md`'s Batch 6-7 retrospective warns
+about. They predate this session and were left alone rather than deleted blind.
 
 ## Where things stand
 
