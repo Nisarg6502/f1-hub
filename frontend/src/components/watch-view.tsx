@@ -299,17 +299,30 @@ export default function WatchView({
    * detached node for the rest of the race.
    */
   const cellRefs = useRef(
-    new Map<string, { primary: HTMLElement | null; secondary: HTMLElement | null; row: HTMLElement | null }>()
+    new Map<
+      string,
+      {
+        primary: HTMLElement | null;
+        secondary: HTMLElement | null;
+        row: HTMLElement | null;
+        position: HTMLElement | null;
+      }
+    >()
   );
 
   const registerCell = useCallback(
-    (number: string, key: "primary" | "secondary" | "row") => (node: HTMLElement | null) => {
-      const map = cellRefs.current;
-      const entry = map.get(number) ?? { primary: null, secondary: null, row: null };
-      entry[key] = node;
-      if (!entry.primary && !entry.secondary && !entry.row) map.delete(number);
-      else map.set(number, entry);
-    },
+    (number: string, key: "primary" | "secondary" | "row" | "position") =>
+      (node: HTMLElement | null) => {
+        const map = cellRefs.current;
+        const entry =
+          map.get(number) ?? { primary: null, secondary: null, row: null, position: null };
+        entry[key] = node;
+        if (!entry.primary && !entry.secondary && !entry.row && !entry.position) {
+          map.delete(number);
+        } else {
+          map.set(number, entry);
+        }
+      },
     []
   );
 
@@ -378,6 +391,15 @@ export default function WatchView({
           cell.secondary.textContent = isLeader
             ? ""
             : formatTimingValue(secondaryValue, false);
+        }
+        if (cell.position && snapshot.position !== null) {
+          // The position NUMBER comes from the same feed as the ORDER, never
+          // from the row's index. Using the index looked equivalent and is not:
+          // a car in the live order with no lap row is skipped from the tower
+          // (Piastri retired on lap 1 of round 1), and indexing then renumbers
+          // everyone behind the hole — the deployed grid read NOR 5, HAM 6
+          // where the official grid has them 6th and 7th, with Piastri 5th.
+          cell.position.textContent = String(snapshot.position);
         }
         if (cell.row) {
           // The closing highlight is the release valve for the design's "the
@@ -903,6 +925,7 @@ export default function WatchView({
                   />
                 )}
                 <span
+                  ref={runner.retired ? undefined : registerCell(runner.number, "position")}
                   className="font-extrabold tabular-nums w-[1.6em] text-right flex-none"
                   style={{
                     color: runner.retired
@@ -912,22 +935,14 @@ export default function WatchView({
                       : "#f6f1ea",
                   }}
                 >
-                  {/* The position NUMBER and the row's ORDER must come from the
-                      same source, or the tower prints "1, 3, 2, 4" down its own
-                      left edge — measured in a real browser doing exactly that,
-                      because the rows were sorted by the live feed while each
-                      still rendered `runner.position` from the lap row, which
-                      only agrees with it at a lap boundary.
-
-                      With a per-second track the row's index in the live order
-                      *is* its position, so it is used directly and the two
-                      cannot drift. A retired car keeps its dash: it is appended
-                      behind the live order and has no live position to state. */}
-                  {runner.retired
-                    ? "—"
-                    : perSecond
-                    ? positionOrder + 1
-                    : runner.position ?? "—"}
+                  {/* Initial value only — with a per-second track the frame loop
+                      overwrites this from the timing feed, which is also where
+                      the row's order comes from, so the number and the ordering
+                      can never disagree. See the note beside `cell.position`.
+                      A retired car keeps its dash and is not registered for
+                      painting: it sits behind the live order with no live
+                      position to state. */}
+                  {runner.retired ? "—" : runner.position ?? "—"}
                 </span>
 
                 {/* Position change on this lap, marked as it happens. */}
