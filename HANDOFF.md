@@ -1,5 +1,35 @@
 # F1 Hub — Handoff (2026-08-08)
 
+## Batch 21 — the `race_laps` backfill is DONE (2026-08-08)
+
+Run locally against production Mongo, all 11 synced 2026 rounds. **Do not re-run it** unless a new
+round syncs; `sync_race_laps` fills `lap_time_seconds` going forward without help.
+
+Two guards were used and are worth reusing for any future backfill of a live collection: the script
+refused to write when a rebuild produced *fewer* rows than were stored, and it compared row counts
+before/after. Every round came back byte-identical in row count, and `gap_seconds` remained non-null
+on **100%** of rows in every round — the CP76 regression that would have hurt most did not happen.
+
+| Round | rows | durations filled | median lap | max lap |
+|---|---|---|---|---|
+| 1 | 1004 | 1000 | 85.22s | 132.25s |
+| 2 | 919 | 904 | 98.37s | 149.98s |
+| 3 | 1106 | 1086 | 95.82s | 149.83s |
+| 4 | 1038 | 1033 | 94.72s | 149.96s |
+| 5 | 1208 | 1206 | 77.47s | 133.83s |
+| 6 | 1448 | 1415 | 79.06s | 149.16s |
+| 7 | 1234 | 1233 | 84.18s | 125.26s |
+| 8 | 1338 | 1338 | 73.14s | 113.38s |
+| 9 | 1111 | 1092 | 95.93s | 149.73s |
+| 10 | 871 | 810 | 112.02s | 164.35s |
+| 11 | 1430 | 1429 | 86.40s | 140.00s |
+
+**This data is the argument for the feature, not just an input to it.** Medians run 73-112s and vary
+by circuit exactly as real lap times should, and every round's maximum is 30-60 seconds *above* its
+median — those are safety-car and traffic laps. A fixed 560ms tick renders all of that identical.
+Coverage is 93-100%; the nulls are first laps, sparse timing and CP76's deliberately-unfabricated
+carried-forward rows, which is why CP77 must have a median fallback rather than assuming the field.
+
 ## Batch 20 (CP71-75) — merged; measured numbers below
 
 ### Verified in production, 2026-08-08, after deploy
