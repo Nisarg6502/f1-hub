@@ -121,10 +121,12 @@ class EventsByLapTests(unittest.TestCase):
 class BuildReplayTests(unittest.TestCase):
     def _replay(self):
         laps = [
-            {"driver_number": 12, "lap_number": 1, "position": 1, "gap_seconds": 0.0},
-            {"driver_number": 23, "lap_number": 1, "position": 2, "gap_seconds": 1.5},
-            {"driver_number": 12, "lap_number": 2, "position": 1, "gap_seconds": 0.0},
-            {"driver_number": 23, "lap_number": 2, "position": 2, "gap_seconds": 2.1},
+            {"driver_number": 12, "lap_number": 1, "position": 1, "gap_seconds": 0.0, "lap_time_seconds": 92.5},
+            {"driver_number": 23, "lap_number": 1, "position": 2, "gap_seconds": 1.5, "lap_time_seconds": 94.0},
+            # 12's lap 2 has no recorded duration — the first-class null case
+            # CP76 preserves rather than filling in.
+            {"driver_number": 12, "lap_number": 2, "position": 1, "gap_seconds": 0.0, "lap_time_seconds": None},
+            {"driver_number": 23, "lap_number": 2, "position": 2, "gap_seconds": 2.1, "lap_time_seconds": 95.6},
         ]
         stints = [
             {"driver_number": 12, "stint_number": 1, "lap_start": 1, "lap_end": 2, "compound": "SOFT", "tyre_age_at_start": 1},
@@ -176,6 +178,36 @@ class BuildReplayTests(unittest.TestCase):
         # The per-lap rows carry only the number, keeping the payload flat.
         self.assertNotIn("name", replay["laps"][0]["runners"][0])
 
+    def test_each_runner_carries_its_own_lap_duration(self):
+        """CP76's field has to reach the payload, not just the collection.
+
+        The replay endpoint is the only thing a watch-party clock reads, so
+        persisting `lap_time_seconds` in `race_laps` without passing it through
+        `build_replay` would leave it unreachable by the feature it exists for.
+        """
+        replay = self._replay()
+
+        lap1 = {r["number"]: r for r in replay["laps"][0]["runners"]}
+        self.assertEqual(lap1["12"]["lap_time_seconds"], 92.5)
+        self.assertEqual(lap1["23"]["lap_time_seconds"], 94.0)
+
+    def test_a_null_lap_duration_is_passed_through_as_null(self):
+        # Present-but-null, never absent and never coerced to 0: a consumer has
+        # to be able to see the miss and apply its own fallback.
+        replay = self._replay()
+
+        lap2 = {r["number"]: r for r in replay["laps"][1]["runners"]}
+        self.assertIn("lap_time_seconds", lap2["12"])
+        self.assertIsNone(lap2["12"]["lap_time_seconds"])
+
+    def test_a_row_cached_before_the_field_existed_reads_as_null(self):
+        """Old `race_laps` docs simply lack the key — that must not raise."""
+        laps = [{"driver_number": 12, "lap_number": 1, "position": 1, "gap_seconds": 0.0}]
+
+        replay = race_replay.build_replay(RACE, RESULTS, laps, [], [], {"events": []})
+
+        self.assertIsNone(replay["laps"][0]["runners"][0]["lap_time_seconds"])
+
     def test_no_track_coordinates_are_emitted(self):
         """Guards the module docstring's claim: there is no GPS data to serve."""
         replay = self._replay()
@@ -207,7 +239,7 @@ class CarryForwardFinisherTests(unittest.TestCase):
             # numerically as good as or better than the actively-racing
             # cars' positions on every later lap, which is exactly the case
             # that would sort it above them without the `retired`-first key.
-            {"driver_number": 44, "lap_number": 1, "position": 1, "gap_seconds": 0.0},
+            {"driver_number": 44, "lap_number": 1, "position": 1, "gap_seconds": 0.0, "lap_time_seconds": 93.0},
             {"driver_number": 12, "lap_number": 1, "position": 2, "gap_seconds": 1.0},
             {"driver_number": 23, "lap_number": 1, "position": 3, "gap_seconds": 2.0},
             {"driver_number": 12, "lap_number": 2, "position": 1, "gap_seconds": 0.0},
@@ -237,6 +269,20 @@ class CarryForwardFinisherTests(unittest.TestCase):
             self.assertIn("44", lap)
             self.assertTrue(lap["44"]["retired"])
             self.assertEqual(lap["44"]["gap_seconds"], 0.0)  # frozen, not live
+
+    def test_a_carried_row_reports_no_lap_duration(self):
+        """A frozen gap is defensible; a frozen duration is a fabricated
+        measurement. 44 ran lap 1 in 93s and then stopped — laps 2 and 3 must
+        not claim it took 93s to complete laps it never ran, and 23's carried
+        lap 3 must not either. Null is the only honest answer, and unlike the
+        frozen gap it is distinguishable from a real one."""
+        replay = self._replay()
+
+        lap2 = {r["number"]: r for r in replay["laps"][1]["runners"]}
+        lap3 = {r["number"]: r for r in replay["laps"][2]["runners"]}
+        self.assertEqual(lap2["44"]["lap_time_seconds"], None)
+        self.assertEqual(lap3["44"]["lap_time_seconds"], None)
+        self.assertEqual(lap3["23"]["lap_time_seconds"], None)
 
     def test_a_retired_driver_sorts_below_every_active_runner(self):
         """44's frozen position (1) ties or beats the active runners' real
