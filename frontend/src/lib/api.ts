@@ -481,6 +481,17 @@ export interface ReplayRunner {
   number: string;
   position: number | null;
   gap_seconds?: number | null;
+  /** How long this driver's lap actually took, in seconds — the field the
+   * real-pace watch clock runs on (see `lib/watch-clock.ts`).
+   *
+   * **Null is routine, not exceptional.** A driver's opening lap has no
+   * measured duration, sparse timing data drops rows, and `race_replay.py`
+   * deliberately reports carried-forward rows (retired cars, lapped finishers)
+   * as null rather than copying a real measurement onto a lap that driver never
+   * ran. Around one row in seven is null on a fully backfilled 2026 round, and
+   * a replay cached before Batch 21 has the field missing entirely — hence
+   * optional as well as nullable. Any consumer must have a fallback. */
+  lap_time_seconds?: number | null;
   compound: string | null;
   tyre_age: number | null;
   stint_number: number | null;

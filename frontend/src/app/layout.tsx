@@ -6,6 +6,7 @@ import NavLinks, { MobileNav } from "@/components/nav-links";
 import SeasonBadge from "@/components/season-badge";
 import GlobalSearch from "@/components/global-search";
 import PitwallAssistantLauncher from "@/components/pitwall-assistant-launcher";
+import AppShell from "@/components/app-shell";
 import "./globals.css";
 
 const bricolage = Bricolage_Grotesque({
@@ -89,7 +90,12 @@ export default function RootLayout({
           </defs>
         </svg>
 
-        {/* Ambient warmth — fixed behind everything */}
+        {/* Chrome is assembled here (so the nav's server components still
+            render on the server) but *placed* by AppShell, which drops all of
+            it on the full-screen /watch routes. */}
+        <AppShell
+          ambient={
+        /* Ambient warmth — fixed behind everything */
         <div
           className="fixed inset-0 z-0 pointer-events-none overflow-hidden"
           aria-hidden="true"
@@ -98,8 +104,8 @@ export default function RootLayout({
           <div className="absolute -bottom-[14%] -right-[4%] w-[48vw] h-[48vw] rounded-full blur-[12px] bg-[radial-gradient(circle,rgba(226,58,14,0.10),transparent_62%)]" />
           <div className="absolute top-[44%] left-[38%] w-[40vw] h-[40vw] rounded-full blur-[14px] bg-[radial-gradient(circle,rgba(255,138,61,0.07),transparent_64%)]" />
         </div>
-
-        {/* Top Navigation Bar */}
+          }
+          nav={
         <nav className="sticky top-0 z-50 bg-[rgba(18,15,12,0.55)] backdrop-blur-[16px] backdrop-saturate-150 border-b border-white/[0.08] shadow-[0_1px_0_rgba(255,255,255,0.06)_inset,0_10px_40px_rgba(0,0,0,0.4)]">
           <div className="max-w-[1440px] mx-auto flex items-center justify-between px-6 md:px-10 py-[15px]">
             <div className="flex items-center gap-8 md:gap-12">
@@ -122,13 +128,8 @@ export default function RootLayout({
             </div>
           </div>
         </nav>
-
-        {/* Main Content */}
-        <main className="relative z-10 min-h-screen max-w-[1440px] mx-auto pb-24 md:pb-12">
-          {children}
-        </main>
-
-        {/* Footer */}
+          }
+          footer={
         <footer className="relative z-10 border-t border-white/[0.07]">
           <div className="max-w-[1440px] mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-6 md:px-10 py-7">
             <div className="flex items-center gap-[10px]">
@@ -155,11 +156,15 @@ export default function RootLayout({
             </div>
           </div>
         </footer>
-
-        {/* Mobile Bottom Nav */}
+          }
+          mobileNav={
         <div className="md:hidden fixed bottom-0 left-0 w-full z-50 bg-[rgba(18,15,12,0.85)] backdrop-blur-xl border-t border-white/[0.08] px-6 py-3 flex justify-between items-center">
           <MobileNav />
         </div>
+          }
+        >
+          {children}
+        </AppShell>
       </body>
     </html>
   );
