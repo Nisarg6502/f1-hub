@@ -36,13 +36,14 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   streamChat,
   postFeedback,
-  rewriteCitations,
   ERROR_COPY,
+  type AgentAnchor,
   type AgentDone,
   type AgentSource,
 } from "@/lib/agent-api";
-import CitationPill, { CitationContext } from "./citation-pill";
-import SourceCard from "./source-card";
+import { buildAnchoredMarkdown } from "@/lib/answer-anchors";
+import AnchorMark, { AnchorContext } from "./anchor-mark";
+import SourceStrip from "./source-strip";
 import LocalDateTime from "./local-datetime";
 import FeedbackControls from "./feedback-controls";
 import { ActivityAccordion, type ActivityEntry } from "./activity-accordion";
@@ -53,6 +54,11 @@ type Message = {
   text: string;
   activity: ActivityEntry[];
   sources: AgentSource[];
+  // CP74: the flat, draft-ordered anchor list, arriving on the same `sources`
+  // frame. Kept alongside `sources` rather than flattened out of them so the
+  // inline marks read draft order directly — regrouping per record and then
+  // re-sorting would be a second copy of an ordering the backend already made.
+  anchors: AgentAnchor[];
   done: AgentDone | null;
   error: { code: string; message: string } | null;
   // Client-side send/creation time (CP68) — this doesn't need to come from
@@ -350,6 +356,7 @@ export default function PitwallAssistantPanel({
         text: trimmed,
         activity: [],
         sources: [],
+        anchors: [],
         done: null,
         error: null,
         timestampMs: Date.now(),
@@ -363,6 +370,7 @@ export default function PitwallAssistantPanel({
         text: "",
         activity: [],
         sources: [],
+        anchors: [],
         done: null,
         error: null,
         timestampMs: Date.now(),
@@ -396,7 +404,7 @@ export default function PitwallAssistantPanel({
               activity: [...m.activity, { label, state, detail, kind: kind ?? "system" }],
             })),
           onToken: (text) => patch((m) => ({ ...m, text: m.text + text })),
-          onSources: (sources) => patch((m) => ({ ...m, sources })),
+          onSources: (sources, anchors) => patch((m) => ({ ...m, sources, anchors })),
           onDone: (done) => patch((m) => ({ ...m, done })),
           onError: (code, message) =>
             patch((m) => ({ ...m, error: { code, message } })),
@@ -668,13 +676,27 @@ const MessageBubble = memo(function MessageBubble({
   // takes precedence over this client-ticked figure — see `ElapsedIndicator`.
   liveElapsedSec?: number | null;
 }) {
-  const citationContextValue = useMemo(
+  // CP74: one pass turns the raw draft into renderable markdown and reports
+  // which anchors survived. Both the marks and the context read that single
+  // result, so an anchor the rewrite dropped cannot be one the popover thinks
+  // exists. Memoised on the two inputs it actually depends on — it runs on
+  // every streamed token otherwise, and during streaming `anchors` is still
+  // empty anyway (the `sources` frame arrives at the end).
+  const anchored = useMemo(
+    () => buildAnchoredMarkdown(message.text, message.anchors, message.id),
+    [message.text, message.anchors, message.id]
+  );
+  const anchorContextValue = useMemo(
     () => ({
       messageId: message.id,
       sources: message.sources,
-      answerText: message.text,
+      anchors: anchored.resolved,
+      // The marker-stripped text, not the raw draft: this is what the reader
+      // sees, and `CitationPopover`'s snippet-highlight fallback asks "does
+      // the answer literally contain this value".
+      answerText: anchored.plainText,
     }),
-    [message.id, message.sources, message.text]
+    [message.id, message.sources, anchored.resolved, anchored.plainText]
   );
 
   if (message.role === "user") {
@@ -745,20 +767,17 @@ const MessageBubble = memo(function MessageBubble({
             aria-atomic="false"
             className={`max-w-[85%] min-w-0 rounded-2xl border border-white/10 bg-[rgba(26,22,19,0.98)] px-4 py-3 text-sm leading-relaxed text-[var(--color-on-surface)] ${ANSWER_PROSE}`}
           >
-            {/* The pill needs this message's identity, evidence and answer
-                text (the popover matches snippet values against it), and
-                `react-markdown` gives a `components.a` override no way to
-                receive props — hence context rather than a prop. */}
-            <CitationContext.Provider
-              value={citationContextValue}
-            >
+            {/* A mark needs this message's identity, evidence and resolved
+                anchors, and `react-markdown` gives a `components.a` override
+                no way to receive props — hence context rather than a prop. */}
+            <AnchorContext.Provider value={anchorContextValue}>
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
-                components={{ a: CitationPill, table: MarkdownTable }}
+                components={{ a: AnchorMark, table: MarkdownTable }}
               >
-                {rewriteCitations(message.text, message.id)}
+                {anchored.markdown}
               </ReactMarkdown>
-            </CitationContext.Provider>
+            </AnchorContext.Provider>
             <StatusFooter done={message.done} />
           </div>
         )
@@ -794,21 +813,7 @@ const MessageBubble = memo(function MessageBubble({
         />
       )}
 
-      {message.sources.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          {message.sources.map((source, index) => (
-            <SourceCard
-              key={source.id}
-              source={source}
-              messageId={message.id}
-              // 1-based position in THIS message's list, so the cards read
-              // 1, 2, 3 — the ledger's own `n` restarts per message and can
-              // repeat, which is what produced the reported "1 1 1 1".
-              position={index + 1}
-            />
-          ))}
-        </div>
-      )}
+      <SourceStrip sources={message.sources} messageId={message.id} />
 
       {(message.text || message.error) && (
         <span className="pl-1 text-[10px] text-[var(--color-on-surface-variant)]">

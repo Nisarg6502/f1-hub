@@ -175,11 +175,30 @@ input::placeholder {
   );
 }
 
-/* Brief attention flash for a SourceCard scrolled to via CitationPill.
-   CitationPill toggles this class for a fixed ~1200ms window; the ring
-   itself eases in/out over SourceCard's existing background-color/box-shadow
-   transition using APEX's strong ease-out curve so the highlight settles in
-   and fades out instead of popping abruptly. */
+/* Brief attention flash for the source-strip chip an inline AnchorMark points
+   at (CP74; CP71 used it to tie a numbered pill to its card). AnchorMark
+   toggles this class for a fixed ~1200ms window; the ring itself eases in/out
+   over the chip's existing background-color/box-shadow transition using
+   APEX's strong ease-out curve so the highlight settles in and fades out
+   instead of popping abruptly. */
+/* An inline cited value (CP74). The underline is the citation, so it is
+   `text-decoration` rather than a border or a hover-only background: it wraps
+   across a line break with the words it belongs to, it is visible at rest
+   rather than on hover, and it survives forced-colors mode, where a tinted
+   background would be painted over. `skip-ink: none` keeps the rule
+   continuous under descenders — a broken underline reads as an artefact at
+   14px. Colour and hover/focus weight come from the component, which knows
+   the source kind; only the properties that must not vary live here. */
+.apex-anchor-mark {
+  text-decoration-skip-ink: none;
+  /* A button inside prose must inherit the paragraph's type, not the UA's
+     button defaults, or the marked value renders in a different face and size
+     from the sentence containing it. */
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
 .apex-citation-flash {
   box-shadow: 0 0 0 2px var(--color-primary), 0 0 20px 2px rgba(255, 90, 31, 0.3);
   background-color: rgba(255, 90, 31, 0.1);
