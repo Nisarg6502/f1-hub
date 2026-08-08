@@ -25,7 +25,7 @@ import {
   Rows3,
   Rows2,
 } from "lucide-react";
-import type { RaceReplay, ReplayLap } from "@/lib/api";
+import type { RaceReplay, RaceTiming, ReplayLap, ReplayRunner } from "@/lib/api";
 import { getTeamColor } from "@/lib/team-colors";
 import {
   RealTimeLapClock,
@@ -35,6 +35,13 @@ import {
   lapDurations,
 } from "@/lib/watch-clock";
 import {
+  buildTimingIndex,
+  formatTimingValue,
+  isClosing,
+  orderAt,
+  sampleAt,
+} from "@/lib/watch-timing";
+import {
   densityServerSnapshot,
   densitySnapshot,
   orderRunners,
@@ -42,7 +49,10 @@ import {
   pinnedSnapshot,
   setDensityPreference,
   setPinnedPreference,
+  setTimingModePreference,
   subscribePreferences,
+  timingModeServerSnapshot,
+  timingModeSnapshot,
   towerLayout,
 } from "@/lib/watch-preferences";
 
@@ -93,8 +103,12 @@ function formatGap(gap: number | null | undefined, isLeader: boolean): string {
 }
 
 /** How far each driver moved since the previous lap, keyed by car number.
- * Positive is places gained. Computed against the previous lap only — a watch
- * party cares about "who just moved", which is a per-lap question. */
+ * Positive is places gained.
+ *
+ * This is the fallback used only when a round has no per-second position track.
+ * Where one exists, `recentDeltas` below answers the same question over a time
+ * window instead — see its comment for why a per-lap comparison stops meaning
+ * anything once the tower reorders continuously. */
 function positionDeltas(
   current: ReplayLap | undefined,
   previous: ReplayLap | undefined
@@ -109,6 +123,39 @@ function positionDeltas(
     const was = before[runner.number];
     if (was === undefined || was === order) return;
     deltas[runner.number] = was - order;
+  });
+  return deltas;
+}
+
+/**
+ * How long a "▲2" marker stands after the move that earned it, in ms.
+ *
+ * The lap-indexed tower could compare against the previous lap because a lap
+ * was the only thing that ever changed. Once positions move the instant the
+ * feed reports them, "since the previous lap" is no longer a meaningful window:
+ * a car that gained a place early in a long safety-car lap would wear its
+ * marker for two minutes, and one that gained a place moments before the line
+ * would lose it almost immediately — the same event marked for wildly
+ * different durations depending on when in the lap it happened.
+ *
+ * A fixed wall-clock window makes every overtake read the same. 30s is long
+ * enough to still be on screen when a viewer looks up at the tower after
+ * watching the move on the broadcast, and short enough that the tower isn't
+ * permanently speckled with arrows.
+ */
+const DELTA_WINDOW_MS = 30_000;
+
+/** Places gained per car between two orderings, positive for a gain. Both
+ * arguments are the stable arrays `orderAt` returns, so this runs only when the
+ * order actually changed rather than every frame. */
+function recentDeltas(now: string[], before: string[]): Record<string, number> {
+  const was = new Map<string, number>();
+  before.forEach((number, order) => was.set(number, order));
+  const deltas: Record<string, number> = {};
+  now.forEach((number, order) => {
+    const previous = was.get(number);
+    if (previous === undefined || previous === order) return;
+    deltas[number] = previous - order;
   });
   return deltas;
 }
@@ -171,9 +218,22 @@ function useWakeLock(enabled: boolean): boolean {
   return enabled && held;
 }
 
-export default function WatchView({ replay }: { replay: RaceReplay }) {
+export default function WatchView({
+  replay,
+  timing = null,
+}: {
+  replay: RaceReplay;
+  /** The per-second track. Optional and nullable on purpose: a pre-2023 round,
+   * or one OpenF1 does not cover, has none, and the tower falls back to the
+   * lap-stepped behaviour it had before CP79 rather than failing. */
+  timing?: RaceTiming | null;
+}) {
   const reduce = useReducedMotion();
   const laps = replay.laps;
+
+  /** Built once per race, not per render or per frame. */
+  const timingIndex = useMemo(() => buildTimingIndex(timing), [timing]);
+  const perSecond = timingIndex.usable;
 
   const durations = useMemo(() => lapDurations(laps), [laps]);
   const cumulative = useMemo(() => cumulativeMs(durations.ms), [durations]);
@@ -202,6 +262,11 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
   );
   const pinned = useMemo(() => new Set(pinnedList), [pinnedList]);
   const [pinnerOpen, setPinnerOpen] = useState(false);
+  const timingMode = useSyncExternalStore(
+    subscribePreferences,
+    timingModeSnapshot,
+    timingModeServerSnapshot
+  );
 
   const togglePinned = useCallback(
     (number: string) => {
@@ -224,6 +289,48 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
   const lapTimerRef = useRef<HTMLSpanElement>(null);
   const raceClockRef = useRef<HTMLSpanElement>(null);
 
+  /**
+   * Per-row timing cells, addressed by car number.
+   *
+   * Registered by callback ref rather than looked up from the DOM: these are
+   * written every frame, and a `querySelector` per driver per frame is the kind
+   * of cost that only shows up on the phone this mode is built for. Entries are
+   * deleted on unmount so a driver dropped from the field cannot leak a
+   * detached node for the rest of the race.
+   */
+  const cellRefs = useRef(
+    new Map<string, { primary: HTMLElement | null; secondary: HTMLElement | null; row: HTMLElement | null }>()
+  );
+
+  const registerCell = useCallback(
+    (number: string, key: "primary" | "secondary" | "row") => (node: HTMLElement | null) => {
+      const map = cellRefs.current;
+      const entry = map.get(number) ?? { primary: null, secondary: null, row: null };
+      entry[key] = node;
+      if (!entry.primary && !entry.secondary && !entry.row) map.delete(number);
+      else map.set(number, entry);
+    },
+    []
+  );
+
+  /** The live field order, and the deltas that go with it. Held in state
+   * because the tower genuinely has to re-render to reorder — but written only
+   * when the order *changes* (~531 times in a whole race), never per frame. */
+  const [liveOrder, setLiveOrder] = useState<string[] | null>(null);
+  const [liveDeltas, setLiveDeltas] = useState<Record<string, number>>({});
+  const orderRef = useRef<string[] | null>(null);
+
+  /**
+   * One frame of the clock: the lap readouts, then every driver's timing cell.
+   *
+   * **The tower's numbers are written straight to the DOM, not into state.** An
+   * interval counting down from 1.4 to 0.4 changes on every one of 60 frames a
+   * second, and routing that through React would re-render up to 22 rows at
+   * 60Hz to move text inside them — precisely the work CP77 removed to stop
+   * this view stuttering, and the reason `lapFillRef` already exists. State is
+   * reserved for the two things that are genuinely discrete: which lap it is,
+   * and what order the field is in.
+   */
   const paintProgress = useCallback(
     (index: number, elapsedMs: number) => {
       const lapMs = durations.ms[index] ?? 0;
@@ -234,14 +341,78 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
       if (lapTimerRef.current) {
         lapTimerRef.current.textContent = formatLapDuration(elapsedMs);
       }
+      const raceMs = (cumulative[index] ?? 0) + elapsedMs;
       if (raceClockRef.current) {
-        raceClockRef.current.textContent = formatRaceClock(
-          (cumulative[index] ?? 0) + elapsedMs
-        );
+        raceClockRef.current.textContent = formatRaceClock(raceMs);
+      }
+
+      if (!perSecond) return;
+
+      const order = orderAt(timingIndex, raceMs);
+      if (order && order !== orderRef.current) {
+        // `orderAt` returns a stable reference until the order genuinely
+        // changes, so this identity check is the whole gate on re-rendering.
+        orderRef.current = order;
+        setLiveOrder(order);
+        // Deltas are recomputed only here, against the order as it stood
+        // `DELTA_WINDOW_MS` ago — cheap at ~531 times a race, and impossible to
+        // keep consistent if computed per frame from mutable cursors.
+        const past = orderAt(timingIndex, raceMs - DELTA_WINDOW_MS);
+        setLiveDeltas(past && past !== order ? recentDeltas(order, past) : {});
+      }
+
+      const leader = order?.[0];
+      for (const [number, cell] of cellRefs.current) {
+        const snapshot = sampleAt(timingIndex, number, raceMs);
+        const isLeader = number === leader;
+        const primaryValue =
+          timingMode === "interval" ? snapshot.interval : snapshot.gapToLeader;
+        const secondaryValue =
+          timingMode === "interval" ? snapshot.gapToLeader : snapshot.interval;
+        if (cell.primary) {
+          cell.primary.textContent = formatTimingValue(primaryValue, isLeader);
+        }
+        if (cell.secondary) {
+          // The leader has no meaningful secondary reading — "LEADER" beside
+          // "LEADER" is noise, so the cell empties rather than repeating it.
+          cell.secondary.textContent = isLeader
+            ? ""
+            : formatTimingValue(secondaryValue, false);
+        }
+        if (cell.row) {
+          // The closing highlight is the release valve for the design's "the
+          // gap carries the tension" decision: it fires off the *interval*
+          // regardless of which mode is displayed, because whether a car is
+          // about to be attacked does not depend on what the viewer chose to
+          // read.
+          cell.row.style.setProperty(
+            "--closing",
+            isClosing(snapshot.interval) && !isLeader ? "1" : "0"
+          );
+        }
       }
     },
-    [cumulative, durations]
+    [cumulative, durations, perSecond, timingIndex, timingMode]
   );
+
+  /**
+   * The frame painter, reached through a ref rather than closed over.
+   *
+   * `paintProgress` now depends on the timing mode (it decides which value each
+   * cell shows), and the clock effect below depends on its `onFrame`. Wiring
+   * them together directly means toggling INT/GAP rebuilds `RealTimeLapClock`
+   * — which **restarts the race at lap 1**, mid-watch-party, on a control that
+   * is supposed to change nothing but a label. Found by tracing the dependency
+   * chain rather than by watching it happen, which is exactly the kind of bug
+   * that only reproduces 40 minutes into a session.
+   *
+   * The indirection keeps the clock's identity tied to the durations alone,
+   * which is the only thing that genuinely invalidates it.
+   */
+  const paintRef = useRef(paintProgress);
+  useEffect(() => {
+    paintRef.current = paintProgress;
+  }, [paintProgress]);
 
   // One clock for the life of the view. It is created in an effect (not in
   // render) so React strict-mode's double-invoke disposes the first one rather
@@ -250,7 +421,7 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
     const clock = new RealTimeLapClock({
       durationsMs: durations.ms,
       onLapChange: setLapIndex,
-      onFrame: paintProgress,
+      onFrame: (index, elapsedMs) => paintRef.current(index, elapsedMs),
       onEnd: () => setPlaying(false),
     });
     clockRef.current = clock;
@@ -258,7 +429,7 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
       clock.dispose();
       clockRef.current = null;
     };
-  }, [durations, paintProgress]);
+  }, [durations]);
 
   const toggle = useCallback(() => {
     const clock = clockRef.current;
@@ -337,10 +508,51 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
   /* ------------------------------ derived ------------------------------ */
 
   const current = laps[lapIndex];
-  const deltas = useMemo(
+
+  /**
+   * The field, in the order it was actually running in at this instant.
+   *
+   * Composition, not replacement: the per-second track knows *position* and
+   * *gaps*, and knows nothing about tyres, pit stops or retirement. Those come
+   * from the lap row exactly as before. So a runner's identity and race state
+   * are still the replay's, and only the ordering is the live feed's — which is
+   * why a round with timing but no position feed can fall straight back to
+   * `current.runners` without any other part of the row changing.
+   *
+   * A car in the live order with no lap row (and vice versa) is skipped rather
+   * than synthesised: the two feeds disagree at the edges of a race — the live
+   * order keeps reporting a car for a few samples after it has stopped — and
+   * inventing a runner to satisfy an ordering would put a row on screen with no
+   * tyre, no gap and no meaning.
+   */
+  const orderedRunners = useMemo<ReplayRunner[]>(() => {
+    const runners = current?.runners ?? [];
+    if (!liveOrder) return runners;
+    const byNumber = new Map(runners.map((runner) => [runner.number, runner]));
+    const ordered: ReplayRunner[] = [];
+    for (const number of liveOrder) {
+      const runner = byNumber.get(number);
+      if (runner) {
+        ordered.push(runner);
+        byNumber.delete(number);
+      }
+    }
+    // Anyone the live order does not mention keeps their lap-row order behind
+    // the cars it does — a retired car is the usual case, and dropping them
+    // would thin the field out, the exact failure PRs #72/#73 fixed.
+    for (const runner of runners) {
+      if (byNumber.has(runner.number)) ordered.push(runner);
+    }
+    return ordered;
+  }, [current, liveOrder]);
+
+  /** Per-lap deltas are the fallback; with a per-second track the markers come
+   * from `liveDeltas`, computed over a fixed time window instead. */
+  const lapDeltas = useMemo(
     () => positionDeltas(current, laps[lapIndex - 1]),
     [current, laps, lapIndex]
   );
+  const deltas = perSecond ? liveDeltas : lapDeltas;
 
   /** Race control up to and including the current lap, newest first — the lap
    * an event was issued on is part of the event, so it leads each row. Events
@@ -403,9 +615,24 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
    * carried through untouched so the row still knows its real place in the
    * field — pinning surfaces a driver, it never renumbers one. */
   const slots = useMemo(
-    () => orderRunners(current?.runners ?? [], pinned),
-    [current, pinned]
+    () => orderRunners(orderedRunners, pinned),
+    [orderedRunners, pinned]
   );
+
+  /**
+   * Repaint the timing cells outside the frame loop.
+   *
+   * The loop only runs while playing, so without this the tower would show
+   * stale numbers in three ordinary situations: on first mount before play is
+   * pressed, while paused, and immediately after toggling INT/GAP (where the
+   * labels would keep the old mode's values until the clock next ticked). Reads
+   * the clock rather than tracking a second copy of the time.
+   */
+  useEffect(() => {
+    const clock = clockRef.current;
+    if (!clock) return;
+    paintRef.current(clock.lapIndex, clock.elapsedInLapMs);
+  }, [timingMode, slots, density, perSecond]);
 
   /** The pinner lists the field in *running* order, not pin order: someone
    * reaching for it mid-race is looking for a driver they can see on the TV. */
@@ -618,6 +845,7 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
             return (
               <div
                 key={runner.number}
+                ref={registerCell(runner.number, "row")}
                 className={`absolute left-0 flex items-center rounded-lg ${
                   // Compact keeps its small gaps at every width: a two-column
                   // tower on an 844px phone is still past the `md` breakpoint,
@@ -634,8 +862,15 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
                     rowInColumn * layout.rowHeight
                   }px)`,
                   transition: rowTransitionMs
-                    ? `transform ${rowTransitionMs}ms ${EASE_OUT}, background-color 300ms ease, opacity 300ms ease`
+                    ? `transform ${rowTransitionMs}ms ${EASE_OUT}, background-color 300ms ease, opacity 300ms ease, box-shadow 220ms ease`
                     : "background-color 300ms ease, opacity 300ms ease",
+                  // The closing highlight. `--closing` is flipped between 0 and
+                  // 1 by the frame loop, and the visual result is interpolated
+                  // by CSS off that one number — so a car coming into range
+                  // fades in over 220ms rather than snapping, without React
+                  // re-rendering the row to do it. A custom property is used
+                  // rather than a class because the frame loop already holds the
+                  // node and toggling a class would fight Tailwind's own.
                   background: runner.pit
                     ? "rgba(255,90,31,0.16)"
                     : isPinned
@@ -645,8 +880,12 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
                     : "transparent",
                   // Pinned rows sit out of position order by design, so they
                   // carry a standing marker rather than relying on the viewer
-                  // remembering why row one isn't the leader.
-                  boxShadow: isPinned ? "inset 3px 0 0 0 #FF7A3D" : undefined,
+                  // remembering why row one isn't the leader — and it wins over
+                  // the closing ring, since a pinned row must stay identifiable
+                  // whatever the car is doing.
+                  boxShadow: isPinned
+                    ? "inset 3px 0 0 0 #FF7A3D"
+                    : "inset 0 0 0 calc(var(--closing, 0) * 1.5px) rgba(255,138,61,0.6)",
                   // A retired car's row is carried forward from its last real
                   // lap, not live — dimmed so it never reads as a current gap.
                   opacity: runner.retired ? 0.42 : 1,
@@ -673,7 +912,22 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
                       : "#f6f1ea",
                   }}
                 >
-                  {runner.retired ? "—" : runner.position ?? "—"}
+                  {/* The position NUMBER and the row's ORDER must come from the
+                      same source, or the tower prints "1, 3, 2, 4" down its own
+                      left edge — measured in a real browser doing exactly that,
+                      because the rows were sorted by the live feed while each
+                      still rendered `runner.position` from the lap row, which
+                      only agrees with it at a lap boundary.
+
+                      With a per-second track the row's index in the live order
+                      *is* its position, so it is used directly and the two
+                      cannot drift. A retired car keeps its dash: it is appended
+                      behind the live order and has no live position to state. */}
+                  {runner.retired
+                    ? "—"
+                    : perSecond
+                    ? positionOrder + 1
+                    : runner.position ?? "—"}
                 </span>
 
                 {/* Position change on this lap, marked as it happens. */}
@@ -726,16 +980,48 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
                   {runner.tyre_age !== null ? ` ${runner.tyre_age}` : ""}
                 </span>
 
-                <span
-                  className="font-bold tabular-nums text-right flex-none w-[4.6em]"
-                  style={{ color: runner.retired ? "#c98a8a" : "#c9c0b4" }}
-                >
-                  {runner.retired
-                    ? "OUT"
-                    : runner.pit
-                    ? "PIT"
-                    : formatGap(runner.gap_seconds, positionOrder === 0)}
-                </span>
+                {/* Timing. Three mutually exclusive states, in priority order:
+                    a retired car is OUT, a car in the pits is PIT, and anything
+                    else shows its live reading.
+
+                    The live reading's *text* is written by the frame loop, not
+                    rendered by React — the children below are the initial
+                    (server-rendered, pre-play) value, taken from the lap row so
+                    the tower is never blank and so a round without a per-second
+                    track keeps exactly its old behaviour. */}
+                {runner.retired || runner.pit ? (
+                  <span
+                    className="font-bold tabular-nums text-right flex-none w-[4.6em]"
+                    style={{ color: runner.retired ? "#c98a8a" : "#c9c0b4" }}
+                  >
+                    {runner.retired ? "OUT" : "PIT"}
+                  </span>
+                ) : (
+                  <span className="flex flex-col items-end flex-none w-[4.6em] leading-none">
+                    <span
+                      ref={registerCell(runner.number, "primary")}
+                      className="font-bold tabular-nums text-right"
+                      style={{ color: "#c9c0b4" }}
+                    >
+                      {formatGap(runner.gap_seconds, positionOrder === 0)}
+                    </span>
+                    {/* The other mode's number, small, beneath the chosen one.
+                        Expanded only: compact's rows are ~25px on the landscape
+                        phone this mode targets, and `requiredRowWidth` is
+                        measured tightly enough that a second reading there would
+                        cost the tower a whole column. The toggle therefore
+                        decides *emphasis* where there is room and
+                        *availability* where there is not. */}
+                    {density === "expanded" && perSecond && (
+                      <span
+                        ref={registerCell(runner.number, "secondary")}
+                        className="font-semibold tabular-nums text-right text-warm-500 mt-[0.15em]"
+                        style={{ fontSize: "0.62em" }}
+                        aria-hidden
+                      />
+                    )}
+                  </span>
+                )}
               </div>
             );
           })}
@@ -1094,6 +1380,46 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
             document.body
           )}
         </div>
+
+        {/* Interval vs gap-to-leader. Only offered when there is a per-second
+            track behind it: on a round without one the tower shows the same
+            per-lap gap-to-leader it always did, and a toggle that silently does
+            nothing is worse than no toggle. */}
+        {perSecond && (
+          <div
+            className="flex-none flex items-center gap-1 p-1 rounded-xl apex-glass-soft"
+            role="group"
+            aria-label="Timing mode"
+          >
+            {(
+              [
+                ["interval", "Interval", "INT"],
+                ["gap", "Gap to leader", "GAP"],
+              ] as const
+            ).map(([value, label, short]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setTimingModePreference(value)}
+                aria-pressed={timingMode === value}
+                aria-label={label}
+                title={
+                  value === "interval"
+                    ? "Gap to the car ahead — the number that moves when someone is closing"
+                    : "Gap to the race leader"
+                }
+                className="flex items-center justify-center h-9 [@media(max-height:520px)]:h-7 px-2.5 rounded-[9px] font-bold text-[11px] tracking-[0.08em] transition-colors duration-150"
+                style={{
+                  background:
+                    timingMode === value ? "rgba(255,90,31,0.20)" : "transparent",
+                  color: timingMode === value ? "#FFAE6A" : "#8f867a",
+                }}
+              >
+                {short}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Density. Two named states rather than a slider: the choice is
             "everything, comfortably" or "the whole field, as big as it will

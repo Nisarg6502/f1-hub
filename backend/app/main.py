@@ -13,6 +13,7 @@ from . import race_laps
 from . import circuit_history
 from . import session_recap
 from . import race_replay
+from . import race_timing
 from . import strategy_commentary
 from . import driver_comparison_recap
 from . import historical_index
@@ -41,6 +42,7 @@ app.include_router(race_laps.router)
 app.include_router(circuit_history.router)
 app.include_router(session_recap.router)
 app.include_router(race_replay.router)
+app.include_router(race_timing.router)
 app.include_router(strategy_commentary.router)
 app.include_router(driver_comparison_recap.router)
 app.include_router(historical_index.router)
