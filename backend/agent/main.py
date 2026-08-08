@@ -385,6 +385,11 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                             _, passed, violation_count = event
                             verification_status = "passed" if passed else "verification_failed"
                             verification_violations = violation_count
+                        elif kind == "degraded":
+                            # The step-budget degrade (see graph.py). It reads
+                            # as a normal answer on the wire by design, which
+                            # is exactly why the cache needs to be told.
+                            _, verification_status = event
                 finally:
                     # `_heartbeat_until_done` deliberately never cancels
                     # `next_task` (see its docstring) — polling with

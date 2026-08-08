@@ -203,6 +203,51 @@ async def _fake_anchored_stream(*_args, ledger=None, **_kwargs):
         yield ("token", chunk)
 
 
+async def _fake_degraded_stream(*_args, **_kwargs):
+    """A run that exhausts the step budget, exactly as `graph.py` reports it.
+
+    The degrade streams as ordinary tokens on purpose (failure mode 6b: never
+    show the reader a stack trace), which is precisely why the `degraded` event
+    has to precede them — it is the only thing that tells `main._stream` this
+    turn produced a failure rather than an answer.
+    """
+    await asyncio.sleep(0)
+    yield ("degraded", "budget_exhausted")
+    for chunk in ("I wasn't able to reach ", "a confident answer."):
+        await asyncio.sleep(0)
+        yield ("token", chunk)
+
+
+class DegradedTurnCacheTests(unittest.TestCase):
+    """A degrade is honest, but it is not a fact — and caching is for facts.
+
+    Found by a post-deploy check rather than by review: shipping CP73 appeared
+    to change nothing, because the pre-fix failure for the very question CP73
+    fixed was still being replayed out of the answer cache.
+    """
+
+    def setUp(self):
+        concurrency.reset_for_tests()
+
+    @patch.object(main.graph, "astream_answer", _fake_degraded_stream)
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    @patch.object(main.config, "mongodb_uri", lambda: "mongodb://stub")
+    def test_a_degraded_turn_is_never_written_to_the_cache(self):
+        with patch.object(main.answer_cache, "set_cached") as write:
+            with patch.object(main.answer_cache, "get_cached", return_value=None):
+                post("Compare Norris and Verstappen this year")
+        write.assert_not_called()
+
+    @patch.object(main.graph, "astream_answer", _fake_degraded_stream)
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_the_reader_still_gets_the_degrade_as_a_normal_answer(self):
+        """The fix must not turn a graceful degrade into an SSE error."""
+        events = post("Compare Norris and Verstappen this year").events
+        names = [name for name, _ in events]
+        self.assertIn("token", names)
+        self.assertNotIn("error", names)
+
+
 class ClaimAnchorTests(unittest.TestCase):
     """CP72 end-to-end: the `sources` event is the answer's anchor set."""
 

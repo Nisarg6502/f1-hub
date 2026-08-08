@@ -599,6 +599,16 @@ async def astream_answer(
         # in the plan: "at capacity" must never read as a stack trace, and
         # exhausting the step budget is that same failure reached a
         # different way.
+        # Announced before the tokens so `main.py` knows this turn produced a
+        # degrade rather than an answer *before* it decides whether to cache.
+        # Found in production: this path streams as ordinary tokens, so the
+        # cache could not tell it apart from a real answer and stored it under
+        # the question's key — turning one transient step-budget exhaustion
+        # into a permanent wrong answer. CP73 fixed the underlying stall for
+        # comparative questions and the fix was invisible in production,
+        # because the failed pre-fix answer was still being replayed from
+        # cache. A failure is not an answer and must never be cached.
+        yield ("degraded", "budget_exhausted")
         for text in _budget_exhausted_answer():
             yield ("token", text)
         return

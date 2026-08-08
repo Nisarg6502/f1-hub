@@ -103,6 +103,19 @@ class ShouldCacheTests(unittest.TestCase):
             answer_cache.should_cache(mode="model", verification="verification_failed")
         )
 
+    def test_a_step_budget_degrade_is_not_cacheable(self):
+        """Found in production, not in review.
+
+        `graph.py`'s `GraphRecursionError` path streams its degrade as ordinary
+        tokens, so this gate saw a normal model answer and cached it — one
+        transient exhaustion then answered that question forever. It hid CP73's
+        fix after deploy: the pre-fix failure for the exact question CP73 was
+        written to fix was still being replayed from cache.
+        """
+        self.assertFalse(
+            answer_cache.should_cache(mode="model", verification="budget_exhausted")
+        )
+
     def test_echo_mode_is_never_cacheable(self):
         self.assertFalse(answer_cache.should_cache(mode="echo", verification=None))
 

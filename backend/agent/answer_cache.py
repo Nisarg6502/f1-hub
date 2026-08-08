@@ -63,9 +63,24 @@ def cache_key(question: str, prompt_version: int) -> str:
     return digest.hexdigest()
 
 
+# Statuses that mean "this turn did not produce an answer worth keeping".
+#
+# `verification_failed` was the original member. `budget_exhausted` was added
+# after a live production check: the step-budget degrade in `graph.py` streams
+# as ordinary tokens, so this gate saw a normal model answer and cached it —
+# and a single transient exhaustion then answered that question forever. It
+# hid CP73's fix in production, since the pre-fix failure for "Compare Norris
+# and Verstappen this year" was still being replayed after the deploy.
+#
+# The general rule this encodes, worth keeping in mind when adding a third
+# member: a degrade that is *honest* to the reader is still not a fact, and
+# caching is for facts.
+UNCACHEABLE_STATUSES = frozenset({"verification_failed", "budget_exhausted"})
+
+
 def should_cache(*, mode: str, verification: str | None) -> bool:
     """The one gate every cache write goes through — see module docstring."""
-    return mode == "model" and verification != "verification_failed"
+    return mode == "model" and verification not in UNCACHEABLE_STATUSES
 
 
 async def get_cached(question: str, prompt_version: int, *, db: Any = None) -> dict | None:

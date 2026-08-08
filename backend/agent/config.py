@@ -134,7 +134,21 @@ def langsmith_configured() -> bool:
 # cache key from CP61 onward so a prompt edit cannot serve stale answers.
 # Bumped to 2 for CP61: `_answer` stopped being a bare chat completion and
 # became the deep agent's system prompt + tool contract.
-PROMPT_VERSION = 2
+#
+# Bumped to 3 for Batch 20 (CP73/CP75). Both halves of the contract this
+# version gates changed: `SYSTEM_PROMPT` gained the one-call comparison rule,
+# and the *tool* contract changed twice over — `get_head_to_head` and
+# `get_driver_season_summary` now take driver names instead of Jolpica ids,
+# and `today` was removed from the model-visible signature of
+# `get_season_state`.
+#
+# The bump was not noticed from the diff; it was forced by a post-deploy check.
+# The first live call after shipping CP73 replayed the *pre-fix* failure for
+# the exact question CP73 was written to fix, straight out of the cache, which
+# made a working fix look like a broken one. A checkpoint that changes what the
+# model is told, or what its tools accept, has changed the answer contract even
+# when no prompt string is edited — bump this.
+PROMPT_VERSION = 3
 
 # Defaults to local dev origins, NOT "*". Starlette echoes the caller's origin
 # rather than emitting a literal `*`, so a wildcard default on a public,
