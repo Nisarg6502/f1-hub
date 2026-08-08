@@ -60,6 +60,13 @@ type Message = {
   // re-sorting would be a second copy of an ordering the backend already made.
   anchors: AgentAnchor[];
   done: AgentDone | null;
+  // CP75: follow-up chips, arriving on their own SSE frame *after* `done`.
+  // Stored on the message rather than in a single panel-level slot so an
+  // older answer keeps its own chips when the reader scrolls back up — and so
+  // a new turn cannot retroactively change what a settled answer offered.
+  // Always non-empty when present: the backend omits the frame rather than
+  // sending an empty list, so there is no "zero chips" state to render.
+  suggestions: string[];
   error: { code: string; message: string } | null;
   // Client-side send/creation time (CP68) — this doesn't need to come from
   // the backend, it just needs to be stable for the life of the bubble, the
@@ -180,6 +187,28 @@ const ROUTE_SUGGESTIONS: { pattern: RegExp; suggestions: string[] }[] = [
     ],
   },
 ];
+
+/**
+ * The one look a suggested prompt has in this panel, shared by CP70's
+ * empty-state list and CP75's post-answer follow-up chips.
+ *
+ * Hoisted into a constant rather than copied because the two surfaces are the
+ * same affordance at two moments — "here is something you could ask" before
+ * the first question and after the last answer — and CP74's whole complaint
+ * about CP71's citations was two surfaces derived independently drifting
+ * apart. Only the layout differs at the call sites (a full-width stack in the
+ * empty state, where vertical room is free; a wrapped row under an answer,
+ * where four full-width buttons would out-weigh the answer itself).
+ *
+ * Warm-orange glassmorphism tokens throughout, matching the panel's other
+ * secondary controls: the same `border-white/10` hairline, the same
+ * `surface-container-low` fill, brightening to `on-surface` on hover, with the
+ * 150ms transition and `active:scale` press feedback this panel uses
+ * everywhere else. `disabled:` states are spelled out because a chip is
+ * genuinely inert while another turn is in flight.
+ */
+const SUGGESTION_CHIP_CLASS =
+  "rounded-lg border border-white/10 bg-[var(--color-surface-container-low)] px-3 py-2 text-left text-xs text-[var(--color-on-surface-variant)] transition-[color,border-color,transform] duration-150 hover:border-white/20 hover:text-[var(--color-on-surface)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--color-primary)] active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40";
 
 const DEFAULT_SUGGESTIONS = [
   "Who won the last race?",
@@ -358,6 +387,7 @@ export default function PitwallAssistantPanel({
         sources: [],
         anchors: [],
         done: null,
+        suggestions: [],
         error: null,
         timestampMs: Date.now(),
         feedback: null,
@@ -372,6 +402,7 @@ export default function PitwallAssistantPanel({
         sources: [],
         anchors: [],
         done: null,
+        suggestions: [],
         error: null,
         timestampMs: Date.now(),
         feedback: null,
@@ -406,6 +437,7 @@ export default function PitwallAssistantPanel({
           onToken: (text) => patch((m) => ({ ...m, text: m.text + text })),
           onSources: (sources, anchors) => patch((m) => ({ ...m, sources, anchors })),
           onDone: (done) => patch((m) => ({ ...m, done })),
+          onSuggestions: (suggestions) => patch((m) => ({ ...m, suggestions })),
           onError: (code, message) =>
             patch((m) => ({ ...m, error: { code, message } })),
         },
@@ -479,7 +511,11 @@ export default function PitwallAssistantPanel({
   // on unrelated state changes like `feedback`.
   const lastMessage = messages[messages.length - 1];
   const streamingSignature = lastMessage
-    ? `${lastMessage.id}:${lastMessage.text.length}:${lastMessage.activity.length}:${lastMessage.sources.length}:${lastMessage.done ? 1 : 0}:${lastMessage.error ? 1 : 0}`
+    ? // `suggestions.length` is in here because CP75's chips land *after*
+      // `done` and grow the bubble again once it looked settled — without it
+      // the follow-ups render just below the fold and the reader never learns
+      // they exist.
+      `${lastMessage.id}:${lastMessage.text.length}:${lastMessage.activity.length}:${lastMessage.sources.length}:${lastMessage.suggestions.length}:${lastMessage.done ? 1 : 0}:${lastMessage.error ? 1 : 0}`
     : "";
   useEffect(() => {
     if (!isAtBottomRef.current) return;
@@ -594,8 +630,9 @@ export default function PitwallAssistantPanel({
                 {suggestionsForPath(pathname ?? "/").map((suggestion) => (
                   <button
                     key={suggestion}
+                    type="button"
                     onClick={() => ask(suggestion)}
-                    className="rounded-lg border border-white/10 bg-[var(--color-surface-container-low)] px-3 py-2 text-left text-xs text-[var(--color-on-surface-variant)] transition-colors duration-150 hover:border-white/20 hover:text-[var(--color-on-surface)]"
+                    className={SUGGESTION_CHIP_CLASS}
                   >
                     {suggestion}
                   </button>
@@ -608,7 +645,7 @@ export default function PitwallAssistantPanel({
               key={message.id}
               message={message}
               onVote={onVote}
-              onRetry={ask}
+              onAsk={ask}
               running={running}
               liveElapsedSec={
                 running && index === messages.length - 1 ? elapsedSec : null
@@ -656,7 +693,7 @@ export default function PitwallAssistantPanel({
 const MessageBubble = memo(function MessageBubble({
   message,
   onVote,
-  onRetry,
+  onAsk,
   running,
   liveElapsedSec,
 }: {
@@ -665,7 +702,10 @@ const MessageBubble = memo(function MessageBubble({
   // CP70: Retry and Regenerate are functionally identical — both just
   // re-submit `message.question` through the same `ask` path. One prop
   // covers both call sites rather than plumbing two names for one function.
-  onRetry: (question: string) => void;
+  // CP75 renamed it from `onRetry`: the follow-up chips are a third caller
+  // and they are not a retry of anything — this is simply "ask this", and a
+  // prop named for one of its three uses reads as a bug at the other two.
+  onAsk: (question: string) => void;
   // Disables Retry/Regenerate while a turn is already in flight, the same
   // guard `ask` itself applies internally — this just keeps the button from
   // looking clickable when it would be a no-op.
@@ -751,7 +791,7 @@ const MessageBubble = memo(function MessageBubble({
           {message.question && (
             <button
               type="button"
-              onClick={() => onRetry(message.question!)}
+              onClick={() => onAsk(message.question!)}
               disabled={running}
               className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-[rgba(16,14,11,0.5)] px-3 py-1.5 text-xs font-medium text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[rgba(16,14,11,0.7)] active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40"
             >
@@ -789,7 +829,7 @@ const MessageBubble = memo(function MessageBubble({
           {message.question && (
             <button
               type="button"
-              onClick={() => onRetry(message.question!)}
+              onClick={() => onAsk(message.question!)}
               disabled={running}
               aria-label="Regenerate answer"
               title="Regenerate"
@@ -815,6 +855,12 @@ const MessageBubble = memo(function MessageBubble({
 
       <SourceStrip sources={message.sources} messageId={message.id} />
 
+      <FollowUpChips
+        suggestions={message.suggestions}
+        onAsk={onAsk}
+        running={running}
+      />
+
       {(message.text || message.error) && (
         <span className="pl-1 text-[10px] text-[var(--color-on-surface-variant)]">
           <LocalDateTime
@@ -826,6 +872,74 @@ const MessageBubble = memo(function MessageBubble({
     </div>
   );
 });
+
+/**
+ * CP75's follow-up chips — three or four things to ask next, under a finished
+ * answer. Clicking one sends it as a user message, exactly as if typed, which
+ * is why it goes through the same `ask` the input box uses rather than a
+ * parallel path.
+ *
+ * Renders nothing for an empty list, which is the normal outcome whenever the
+ * model's suggestions failed to generate or the backend's router dropped all
+ * of them. The feature is additive: no chips is a state, not a failure, and it
+ * gets no placeholder, no skeleton and no apology.
+ *
+ * Presentation is CP70's empty-state suggestions at a different density —
+ * `SUGGESTION_CHIP_CLASS` is literally the same string — because they are the
+ * same affordance offered at two moments. The layout differs: a wrapped row
+ * here, since four full-width buttons stacked under an answer would out-weigh
+ * the answer itself, and these arrive *after* the reader has already got what
+ * they asked for.
+ *
+ * Accessibility, per CP70/CP71/CP74's work in this panel: every chip is a real
+ * `<button>`, so it is in the Tab order and inside the dialog's focus trap for
+ * free, and it carries a visible `focus-visible` ring. The group is a labelled
+ * `<nav>`-less region — `role="group"` with an `aria-label` — so a screen
+ * reader announces what this cluster of buttons is before reading four
+ * questions that would otherwise sound like part of the answer. `aria-label`
+ * on each button restates the action ("Ask: …") because the bare text is a
+ * question, and a question read out in a button list is ambiguous about
+ * whether it is being asked *of* the reader.
+ */
+function FollowUpChips({
+  suggestions,
+  onAsk,
+  running,
+}: {
+  suggestions: string[];
+  onAsk: (question: string) => void;
+  // A chip is genuinely inert while another turn is in flight — `ask` itself
+  // no-ops in that case, so an enabled-looking button would silently do
+  // nothing. Same guard Retry/Regenerate already apply.
+  running: boolean;
+}) {
+  if (suggestions.length === 0) return null;
+  return (
+    <div
+      role="group"
+      aria-label="Suggested follow-up questions"
+      className="flex flex-col gap-1.5 pt-0.5"
+    >
+      <p className="text-[10px] uppercase tracking-wide text-[var(--color-on-surface-variant)]">
+        Ask next
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {suggestions.map((suggestion) => (
+          <button
+            key={suggestion}
+            type="button"
+            onClick={() => onAsk(suggestion)}
+            disabled={running}
+            aria-label={`Ask: ${suggestion}`}
+            className={SUGGESTION_CHIP_CLASS}
+          >
+            {suggestion}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /**
  * A markdown table, wrapped in its own horizontal scroller (CP71, 5d).
