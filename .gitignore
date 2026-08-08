@@ -33,3 +33,6 @@ stitch.zip
 
 # Superpowers session working files (brainstorm mockups, subagent reports)
 .superpowers/
+
+# Local API overrides used when pointing a dev server at deployed services
+.env.local

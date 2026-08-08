@@ -115,6 +115,36 @@ input::placeholder {
     0 24px 60px rgba(0, 0, 0, 0.45);
 }
 
+/* ---------------------------------------------------------------------------
+   READ THIS BEFORE PUTTING A TAILWIND UTILITY ON AN .apex-glass-* ELEMENT.
+
+   These classes are declared **unlayered**, while Tailwind v4 emits every
+   utility inside `@layer utilities`. In the CSS cascade an unlayered rule beats
+   a layered one *regardless of specificity*. So `.apex-glass*` unconditionally
+   wins on every property it declares — `position`, `background`,
+   `backdrop-filter`, `border`, `box-shadow` — against any utility on the same
+   element. The utility is not "overridden"; it never had a chance.
+
+   This has bitten this codebase three times, each time looking like a different
+   bug:
+     - `display: inline` on the citation mark (Batch 20) — shipped in the CSS
+       bundle, computed as inline-block.
+     - `class="fixed"` on the watch pinner (Batch 21) — computed as relative,
+       because .apex-glass-strong sets `position` below.
+     - `focus-visible:ring-2` on the jump-to-lap input (Batch 21) — `ring`
+       compiles to `box-shadow`, which .apex-glass-soft declares, so a keyboard
+       user got no focus indicator at all.
+
+   The first two were diagnosed as "specificity" and fixed with inline styles.
+   That worked but the diagnosis was wrong, which is why the third one happened.
+
+   Practical rules:
+     - Need a focus ring on glass? Use `outline`, not `ring` (glass declares
+       box-shadow, not outline).
+     - Need to position glass? Set `position` inline, or wrap it.
+     - Changing any of the properties above on a glass element? Verify with
+       `getComputedStyle`, never by reading the class list.
+   --------------------------------------------------------------------------- */
 .apex-glass-strong {
   position: relative;
   background: rgba(40, 32, 26, 0.62);

@@ -889,10 +889,20 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
           className="flex items-center gap-2 flex-none"
           onSubmit={(event) => {
             event.preventDefault();
-            const target = Number(jumpValue);
-            if (!Number.isFinite(target)) return;
-            const found = laps.findIndex((lap) => lap.lap === Math.round(target));
-            jumpTo(found >= 0 ? found : Math.round(target) - 1);
+            // The empty field is the dangerous input, not a malformed one, and
+            // it is the *normal* state: this handler clears `jumpValue` after
+            // every jump, so a second Enter always submits nothing. `Number("")`
+            // is `0` — finite, so the old guard let it through — and lap 0
+            // clamps to index 0, silently restarting the race. That is the same
+            // destructive action as the labelled "Back to lap 1" button,
+            // reachable by an accidental double Enter, with no undo. A blank or
+            // sub-1 lap is not a jump; it is a no-op.
+            const raw = jumpValue.trim();
+            if (raw === "") return;
+            const target = Math.round(Number(raw));
+            if (!Number.isFinite(target) || target < 1) return;
+            const found = laps.findIndex((lap) => lap.lap === target);
+            jumpTo(found >= 0 ? found : target - 1);
             setJumpValue("");
           }}
         >
@@ -907,7 +917,16 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
             onChange={(event) => setJumpValue(event.target.value)}
             placeholder={String(current?.lap ?? 1)}
             aria-label="Jump to lap"
-            className="w-[74px] h-11 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft px-3 font-bold text-sm tabular-nums text-center focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7A3D]"
+            /* Focus ring is an `outline`, deliberately, not Tailwind's `ring`.
+               `ring-*` compiles to `box-shadow`, and `.apex-glass-soft`
+               declares `box-shadow` while sitting *unlayered* in globals.css —
+               unlayered rules beat `@layer utilities` no matter the
+               specificity, so the ring was silently swallowed and this input
+               (the one control here that also sets `outline-none`) had **no
+               focus indicator at all** for keyboard users. `outline` is not a
+               property any `apex-glass-*` class declares, so it survives.
+               See the layering note in globals.css. */
+            className="w-[74px] h-11 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft px-3 font-bold text-sm tabular-nums text-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FF7A3D]"
           />
           <button
             type="submit"
@@ -1008,14 +1027,15 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
                 style={{
                   // `position` is inline and NOT the `fixed` utility, which
                   // loses here: `.apex-glass-strong` declares `position:
-                  // relative` (globals.css:118) and outranks it, so the class
-                  // was present and doing nothing — computed `relative` while
-                  // the markup said `fixed`. Batch 20 hit the identical trap
-                  // with `display: inline` on the citation mark. The rule that
-                  // keeps catching us: a utility class sitting next to a
-                  // component class that sets the same property is a coin
-                  // flip, and only `getComputedStyle` tells you which way it
-                  // landed.
+                  // relative`, so the class was present and doing nothing.
+                  //
+                  // The cause is NOT specificity, which is what this comment
+                  // originally claimed. `.apex-glass-*` is declared unlayered
+                  // while Tailwind emits utilities in `@layer utilities`, and
+                  // unlayered always beats layered — see the full note above
+                  // the glass definitions in globals.css. The wrong diagnosis
+                  // is why the same bug then reappeared on the jump-to-lap
+                  // input's focus ring.
                   position: "fixed",
                   right: "0.75rem",
                   bottom: "max(4.25rem, env(safe-area-inset-bottom, 0px) + 4.25rem)",

@@ -343,8 +343,16 @@ export function formatRaceClock(ms: number): string {
 /** `91.929` -> `1:31.9`. A lap duration, the number that makes the safety car
  * visible without needing a caption. */
 export function formatLapDuration(ms: number): string {
-  const totalSeconds = Math.max(0, ms) / 1000;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds - minutes * 60;
+  // Round to tenths FIRST, then split off minutes. Doing it the other way
+  // rounds after the split, so 59.95s-59.99s formats as "0:60.0" — a string
+  // that is not a time. This is not an edge case: the live readout is
+  // repainted every frame, so at 60Hz roughly three frames land in that 50ms
+  // band and "0:60.0" visibly flashes on *every* lap as it crosses a minute,
+  // and again at "1:60.0" on any lap over two. A lap whose real duration falls
+  // in the band is labelled that way permanently, and the backfilled season
+  // has rounds with maximum laps at 149-150s, squarely inside it.
+  const tenths = Math.round(Math.max(0, ms) / 100);
+  const minutes = Math.floor(tenths / 600);
+  const seconds = (tenths - minutes * 600) / 10;
   return `${minutes}:${seconds.toFixed(1).padStart(4, "0")}`;
 }

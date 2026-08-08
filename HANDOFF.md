@@ -1,35 +1,39 @@
 # F1 Hub — Handoff (2026-08-08)
 
-## Batch 21 — CP78 is UNFINISHED, and its work is uncommitted (2026-08-08)
+## Batch 21 is COMPLETE, merged, deployed and reviewed (2026-08-08)
 
-CP76 and CP77 are merged, pushed and **verified live in production**: `/watch` and
-`/watch/2026-11` both serve, and `/watch/2026-14` — a genuinely unsynced round — names itself as
-not processed and offers the Hungarian GP instead, which is the fallback behaving correctly against
-real data rather than a fixture.
+CP76, CP77 and CP78 are all on `main` and live. `/watch/2026-11` plays a race at the pace it
+actually happened; `/watch/2026-14` (genuinely unsynced) names itself and offers the Hungarian GP.
 
-**CP78 stopped mid-task when the session limit was reached, having committed nothing.** Its work
-survives only as uncommitted changes in its worktree:
+The whole-branch review found **no Critical issues** and four Important ones, all fixed:
 
-    .claude/worktrees/agent-af28799cc708c5047
-      M frontend/src/components/watch-view.tsx
-      ?? frontend/src/lib/watch-preferences.ts
+1. Submitting the *empty* jump-to-lap field silently restarted the race at lap 1. The field is
+   cleared after every jump, so a second Enter always submitted nothing — and `Number("")` is `0`,
+   which passed the `isFinite` guard and clamped to lap 1. Same destructive effect as the labelled
+   "Back to lap 1" button, reachable by accident, with no undo.
+2. `formatLapDuration` rounded *after* splitting minutes, so it rendered `0:60.0` and `1:60.0` — the
+   live readout repaints every frame, so this flashed on **every** lap crossing a minute.
+3. **`.apex-glass-*` is declared unlayered**, so it beats every Tailwind utility for a property it
+   declares, regardless of specificity. The live victim was the jump-to-lap input, which had
+   `outline-none` plus a `ring` that `.apex-glass-soft`'s `box-shadow` swallowed — leaving keyboard
+   users **no focus indicator at all**. Now uses `outline`, which no glass class declares.
+4. This section itself, which used to say CP78 was unfinished after it had merged.
 
-**Do not merge this blind.** Its final status was that the compact landscape layout is "a large win"
-but that a screenshot of the *pinned* state "showed a broken layout", and it was investigating the
-open-pinner state when it was cut off. So the last known state of that diff is one where the author
-had just found a bug in it. Resume it (the worktree is intact and the branch is
-`feat/cp78-watch-polish`), or restart the checkpoint — but do not treat the uncommitted diff as
-finished work.
+**The layering finding is the one worth carrying forward.** It had already caused two earlier bugs
+(`display: inline` on the citation mark in Batch 20, `position: fixed` on the watch pinner), both of
+which were diagnosed as "specificity" and patched with inline styles. The wrong diagnosis is exactly
+why it recurred a third time on the focus ring. The full explanation and the practical rules now live
+above the glass definitions in `globals.css`.
 
-Still open from CP78's brief, all of it genuinely unstarted or unfinished:
+Known and accepted, recorded rather than fixed: preference caches are per-tab with no `storage`
+listener, so two open `/watch` tabs diverge; `findWatchableFallback` can offer a later round than the
+one requested (harmless — the offered race is real and watchable); superseded `race_replay` cache
+docs from older `REPLAY_VERSION`s are never reaped.
 
-- driver favouriting with persistence (partially built — `watch-preferences.ts` is the new file)
-- compact/expanded density (compact reportedly working; the pinned state is the broken part)
-- **the decision CP77 deferred**: whether a very long lap (red flag) should be capped. CP77 chose not
-  to cap on the grounds that a cap fabricates pacing, and explicitly asked CP78 to revisit it after
-  real use. That decision has not been made.
-- Batch 21 has had **no whole-branch review**. Batch 20's review found four Important issues
-  including one that silently erased the entire feature's visible output, so this is not optional.
+**The long-lap question CP77 deferred is decided: no cap.** The reasoning lives in
+`watch-clock.ts` beside `FALLBACK_LAP_SECONDS`. Short version: a cap would make a safety-car lap
+finish sooner than it did, which is the fixed-tick failure this batch exists to remove, and anyone
+lining the mode up against a broadcast would drift out of sync exactly when the race got interesting.
 
 ## Batch 21 — the `race_laps` backfill is DONE (2026-08-08)
 
