@@ -94,6 +94,13 @@ class EventVocabularyTests(unittest.TestCase):
         payload = json.loads(sse.sources([]).split("data: ", 1)[1])
         self.assertEqual(payload["anchors"], [])
 
+    def test_suggestions_wraps_the_list(self):
+        chips = ["Who won in Monaco?", "How did Norris qualify there?"]
+        frame = sse.suggestions(chips)
+        self.assertTrue(frame.startswith("event: suggestions\n"))
+        payload = json.loads(frame.split("data: ", 1)[1])
+        self.assertEqual(payload, {"suggestions": chips})
+
     def test_done_passes_arbitrary_fields_through(self):
         payload = json.loads(sse.done(run_id="r1", mode="model").split("data: ", 1)[1])
         self.assertEqual(payload, {"run_id": "r1", "mode": "model"})

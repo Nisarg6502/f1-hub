@@ -44,6 +44,16 @@ Event types, in the order a normal answer produces them:
         replayed from `agent_answer_cache` rather than freshly generated —
         absent (not `false`) on every other answer, so existing clients that
         never check for it see no shape change at all.
+    suggestions {"suggestions": [str, ...]}
+        CP75's follow-up chips. **The one event emitted AFTER `done`**, which
+        reads like a protocol violation and is the point: generating them
+        costs a model call, and a reader must never wait on their own chips.
+        `done` still means "the answer is complete"; a client that stops
+        reading there loses nothing but the chips, which is the correct
+        degrade for an additive surface. Never empty — `followups.suggest`
+        returns `[]` for every failure and for a set the router emptied, and
+        `main.py` skips the frame entirely rather than sending one, so the
+        frontend has no "zero chips" state to render.
     error      {"code": str, "message": str}
         Terminal failure, and always a *stream* event rather than an HTTP
         error status: by the time anything goes wrong the response has already
@@ -123,6 +133,11 @@ def sources(items: list[dict], anchors: list[dict] | None = None) -> str:
     before this checkpoint.
     """
     return frame("sources", {"sources": items, "anchors": list(anchors or [])})
+
+
+def suggestions(items: list[str]) -> str:
+    """CP75's follow-up chips, after `done`. See this module's docstring."""
+    return frame("suggestions", {"suggestions": list(items)})
 
 
 def done(**fields: Any) -> str:
