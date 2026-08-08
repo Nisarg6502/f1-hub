@@ -76,7 +76,13 @@ router = APIRouter(prefix="/api")
 # than the finishing order. Bumped because "how it's derived" changed, which is
 # the harder half of this constant's rule to remember: the shape is identical,
 # so nothing else would ever reveal the difference.
-TIMING_VERSION = 3
+# 4 retires every payload built while the race start was *derived* rather than
+# read. That derivation landed ~90s late, so the opening of every race was
+# discarded as "pre-race": round 1 kept 253 in-race position events where the
+# feed has 509. The tower held cars on their grid slots through the whole first
+# lap — Hamilton ran P7 to P3 within ten seconds of lights out and showed P7 for
+# seventeen minutes.
+TIMING_VERSION = 4
 
 
 def _round_value(value):
@@ -107,7 +113,12 @@ def _round_value(value):
 
 def _leader_boundaries(
     lap_rows: list[dict],
-) -> tuple[dict[int, datetime.datetime], float | None, datetime.datetime | None]:
+) -> tuple[
+    dict[int, datetime.datetime],
+    float | None,
+    datetime.datetime | None,
+    datetime.datetime | None,
+]:
     """The leader's lap-completion instants, the leader's lap-1 duration, and
     the instant the *last* car crossed the line.
 
@@ -133,10 +144,37 @@ def _leader_boundaries(
     lap-1 crossing, so it is the leader's own measured lap, not an average.
     """
     by_driver: dict[int, list[dict]] = {}
+    # Lights out, straight from the feed.
+    #
+    # **Every driver's lap-1 `date_start` is the same timestamp** — 20 identical
+    # values on round 1 — because it is the race's start signal, not a per-car
+    # measurement. That makes it the authoritative race start, and it is what
+    # `_lap_spans` opens lap 1 with.
+    #
+    # It was previously mistaken for a formation-lap artefact and thrown away.
+    # The reasoning looked sound: the row carries `is_pit_out_lap: true` and a
+    # null `lap_duration`, and the gap to the leader's lap-1 crossing is 182.5s
+    # where `race_laps` reports lap 1 as 91.9s, so it appeared to start a lap too
+    # early. It does not. Lap 1 of that race genuinely took 182.5s — there was an
+    # incident (race control shows starting-procedure investigations) and lap 2
+    # took 81.4s by comparison. `is_pit_out_lap` is true simply because the cars
+    # drove out of the pit lane to reach the grid.
+    #
+    # The cost of that mistake was the entire opening of every race: the derived
+    # start landed 90 seconds late, so every position change in that window was
+    # discarded as "pre-race". Hamilton ran P7→P3 within ten seconds of lights
+    # out on round 1 and the tower showed him frozen on his grid slot for
+    # seventeen minutes, because his next surviving sample was at 04:21.
+    race_start: datetime.datetime | None = None
     for row in lap_rows:
         driver_number = _as_int(row.get("driver_number"))
-        if driver_number is None or _as_int(row.get("lap_number")) is None:
+        lap_number = _as_int(row.get("lap_number"))
+        if driver_number is None or lap_number is None:
             continue
+        if lap_number == 1:
+            started = _parse_iso(row.get("date_start"))
+            if started is not None and (race_start is None or started < race_start):
+                race_start = started
         by_driver.setdefault(driver_number, []).append(row)
 
     boundaries: dict[int, datetime.datetime] = {}
@@ -172,13 +210,14 @@ def _leader_boundaries(
                         float(duration) if isinstance(duration, (int, float)) else None
                     )
 
-    return boundaries, lap_one_duration, last_crossing
+    return boundaries, lap_one_duration, last_crossing, race_start
 
 
 def _lap_spans(
     boundaries: dict[int, datetime.datetime],
     lap_one_duration: float | None,
     clock_seconds: dict[int, float] | None = None,
+    race_start: datetime.datetime | None = None,
 ) -> list[tuple[datetime.datetime, datetime.datetime, float, float]]:
     """Turn lap-boundary instants into `(start, end, lap_seconds, cumulative)` spans.
 
@@ -224,14 +263,18 @@ def _lap_spans(
         end = boundaries[lap]
         start = previous
         if lap == 1:
-            # The clock's own lap 1 is preferred over OpenF1's, which is null on
-            # every real round for the reason above.
-            first = clock.get(1)
-            if first is None:
-                first = lap_one_duration
-            start = (
-                end - datetime.timedelta(seconds=first) if first is not None else None
-            )
+            # The feed's own start signal wins outright: it is a stated fact,
+            # where anything derived by subtracting a duration is an inference
+            # about when the race must have begun. Deriving it is how the
+            # opening ~90 seconds of every race came to be discarded.
+            start = race_start
+            if start is None:
+                first = clock.get(1) or lap_one_duration
+                start = (
+                    end - datetime.timedelta(seconds=first)
+                    if first is not None
+                    else None
+                )
         previous = end
 
         if start is None:
@@ -380,8 +423,10 @@ def build_timing(
     false`), so there is nothing for a raise to communicate that the empty dict
     does not.
     """
-    boundaries, lap_one_duration, last_crossing = _leader_boundaries(lap_rows or [])
-    spans = _lap_spans(boundaries, lap_one_duration, clock_seconds)
+    boundaries, lap_one_duration, last_crossing, race_start = _leader_boundaries(
+        lap_rows or []
+    )
+    spans = _lap_spans(boundaries, lap_one_duration, clock_seconds, race_start)
     if not spans:
         return {}
 

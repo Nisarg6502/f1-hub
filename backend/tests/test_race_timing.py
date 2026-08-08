@@ -1,3 +1,4 @@
+import datetime
 import sys
 import types
 import unittest
@@ -59,7 +60,7 @@ class LeaderBoundaryTests(unittest.TestCase):
     leader's crossing by definition — no `/position` lookup involved."""
 
     def test_boundaries_are_the_earliest_crossing_of_each_lap(self):
-        boundaries, lap_one, _last = race_timing._leader_boundaries(LAP_ROWS)
+        boundaries, lap_one, _last, _start = race_timing._leader_boundaries(LAP_ROWS)
 
         self.assertEqual(sorted(boundaries), [1, 2, 3])
         self.assertEqual(boundaries[1].isoformat(), "2026-03-08T12:01:30")
@@ -70,7 +71,7 @@ class LeaderBoundaryTests(unittest.TestCase):
         self.assertEqual(lap_one, 90.0)
 
     def test_lap_one_starts_a_leader_lap_duration_before_its_boundary(self):
-        boundaries, lap_one, _last = race_timing._leader_boundaries(LAP_ROWS)
+        boundaries, lap_one, _last, _start = race_timing._leader_boundaries(LAP_ROWS)
 
         spans = race_timing._lap_spans(boundaries, lap_one)
 
@@ -79,11 +80,14 @@ class LeaderBoundaryTests(unittest.TestCase):
         self.assertEqual([span[3] for span in spans], [0.0, 90.0, 180.0])
 
     def test_lap_one_is_dropped_rather_than_guessed_without_its_duration(self):
-        """Without the leader's own lap-1 duration there is no race start, and
-        inventing one would shift every sample in the race invisibly."""
-        boundaries, _, _last = race_timing._leader_boundaries(LAP_ROWS)
+        """With neither a start signal nor a lap-1 duration there is no race
+        start, and inventing one would shift every sample in the race
+        invisibly. `race_start` is passed as None here deliberately: the feed's
+        own signal now takes precedence over this derived fallback, so the
+        fallback has to be isolated to still be under test."""
+        boundaries, _, _last, _start = race_timing._leader_boundaries(LAP_ROWS)
 
-        spans = race_timing._lap_spans(boundaries, None)
+        spans = race_timing._lap_spans(boundaries, None, None, None)
 
         self.assertEqual(len(spans), 2)
         self.assertEqual(spans[0][0].isoformat(), "2026-03-08T12:01:30")
@@ -342,3 +346,43 @@ class FinishingOrderTests(unittest.TestCase):
         )
 
         self.assertEqual(drivers, {})
+
+
+class RaceStartTests(unittest.TestCase):
+    """Lap 1 opens at the feed's own start signal, not at a derived instant."""
+
+    def test_the_uniform_lap_one_date_start_is_the_race_start(self):
+        """Every driver's lap-1 `date_start` carries the same value because it
+        is the start signal rather than a per-car measurement. Deriving the
+        start instead (`boundaries[1] - lap_1_duration`) put it 90 seconds late
+        on round 1, which discarded every position change in the opening — the
+        tower showed Hamilton frozen on his grid slot for seventeen minutes
+        after he had actually run P7 to P3 within ten seconds of lights out."""
+        boundaries, lap_one, _last, start = race_timing._leader_boundaries(LAP_ROWS)
+
+        self.assertEqual(start.isoformat(), "2026-03-08T12:00:00")
+
+        spans = race_timing._lap_spans(boundaries, lap_one, None, start)
+        self.assertEqual(spans[0][0], start)
+
+    def test_the_start_signal_beats_a_derived_start(self):
+        """A real lap 1 can run far longer than the clock's nominal duration (a
+        safety car on the opening lap). The signal is a stated fact and wins;
+        subtracting a duration is an inference and would reopen the hole."""
+        boundaries, lap_one, _last, _s = race_timing._leader_boundaries(LAP_ROWS)
+        signalled = datetime.datetime.fromisoformat("2026-03-08T11:59:00")
+
+        spans = race_timing._lap_spans(boundaries, lap_one, {1: 30.0}, signalled)
+
+        self.assertEqual(spans[0][0], signalled)
+
+    def test_an_opening_sample_now_survives(self):
+        """The regression in one assertion: a position change seconds after
+        lights out used to be dropped as pre-race."""
+        drivers = race_timing.build_timing(
+            LAP_ROWS,
+            [],
+            [position_row("2026-03-08T12:00:10", driver_number=44, position=3)],
+        )
+
+        self.assertEqual(drivers["44"]["positions"][0][1], 3)
