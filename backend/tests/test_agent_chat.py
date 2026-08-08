@@ -31,7 +31,41 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agent import concurrency, main, model
+from agent import concurrency, followups, main, model
+
+
+_SUGGEST_PATCH = None
+
+
+def setUpModule():
+    """Stub CP75's follow-up generation for the whole module.
+
+    Every test here patches `config.api_key` to a fake string so the endpoint
+    takes its real path instead of the echo fallback — and CP75 added a second
+    reader of that key, `followups.suggest`, which is a genuine `httpx` call to
+    Ollama. Left alone, every test in this file would attempt a real network
+    request after `done` and sit through its timeout; that is not a behaviour
+    any of them mean to exercise, and a suite that touches the network is a
+    suite that fails for reasons unrelated to the code under test.
+
+    Stubbed at module scope rather than as a decorator on ~40 tests, and
+    returning `[]` (the no-chips outcome) so nothing here sees an extra event
+    it did not expect. `FollowUpChipTests` below re-patches the same attribute
+    per test to assert the real wiring; a decorator's restore puts this stub
+    back afterwards.
+    """
+    global _SUGGEST_PATCH
+
+    async def _no_chips(*_args, **_kwargs):
+        return []
+
+    _SUGGEST_PATCH = patch.object(main.followups, "suggest", _no_chips)
+    _SUGGEST_PATCH.start()
+
+
+def tearDownModule():
+    if _SUGGEST_PATCH is not None:
+        _SUGGEST_PATCH.stop()
 
 
 class Response:
@@ -543,6 +577,128 @@ class HeartbeatTests(unittest.TestCase):
             reached_end["value"],
             msg="the underlying _answer call kept running after _stream was cancelled",
         )
+
+
+class FollowUpChipTests(unittest.TestCase):
+    """CP75: the chips ride the same turn, land after `done`, and fail silent."""
+
+    def setUp(self):
+        concurrency.reset_for_tests()
+
+    @staticmethod
+    def _chips(result):
+        async def _suggest(*_args, **_kwargs):
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        return patch.object(main.followups, "suggest", _suggest)
+
+    @patch.object(main.graph, "astream_answer", _fake_agent_stream)
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_suggestions_arrive_on_their_own_event_after_done(self):
+        with self._chips(["Who won in Monaco?", "How did Norris qualify?"]):
+            response = post()
+
+        names = response.names()
+        self.assertEqual(names[-1], "suggestions")
+        self.assertLess(names.index("done"), names.index("suggestions"))
+        self.assertEqual(
+            response.payload_of("suggestions")["suggestions"],
+            ["Who won in Monaco?", "How did Norris qualify?"],
+        )
+
+    @patch.object(main.graph, "astream_answer", _fake_agent_stream)
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_no_usable_suggestion_emits_no_frame_at_all(self):
+        """An empty chip set is "no event", not "an event carrying nothing".
+
+        Everything the router dropped, a timeout, and a model that returned
+        prose all collapse to the same `[]`, so the frontend has exactly one
+        no-chips state to handle rather than two that look alike.
+        """
+        with self._chips([]):
+            response = post()
+
+        self.assertNotIn("suggestions", response.names())
+        self.assertEqual(response.names()[-1], "done")
+
+    @patch.object(main.graph, "astream_answer", _fake_agent_stream)
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_the_answer_survives_a_generation_that_raises(self):
+        """`suggest` is total, but the turn must not depend on it being so.
+
+        If a future edit lets an exception escape `followups.suggest`, the
+        outer except chain would emit an `error` frame *after* `done` — and
+        the panel treats an error on a message as replacing its answer, so a
+        bug in an optional surface would blank out a complete, correct answer
+        already on screen. The endpoint catches it locally instead.
+        """
+        with self._chips(RuntimeError("boom")):
+            response = post()
+
+        names = response.names()
+        self.assertIn("done", names)
+        self.assertIn("sources", names)
+        self.assertNotIn("suggestions", names)
+        self.assertNotIn("error", names)
+        self.assertEqual(response.text(), "Lando Norris won.")
+
+    @patch.object(main.config, "api_key", lambda: None)
+    def test_the_echo_fallback_gets_no_chips(self):
+        """No key means no inference — and the "answer" is the question back.
+
+        Suggesting follow-ups to an echo would be both impossible (the same
+        missing key) and meaningless, so the endpoint skips the call rather
+        than relying on `suggest`'s own key check to no-op it.
+        """
+        called = {"value": False}
+
+        async def _suggest(*_args, **_kwargs):
+            called["value"] = True
+            return ["Should never render"]
+
+        with patch.object(main.followups, "suggest", _suggest):
+            response = post()
+
+        self.assertFalse(called["value"])
+        self.assertNotIn("suggestions", response.names())
+
+    @patch.object(main.graph, "astream_answer", _fake_agent_stream)
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_generation_happens_while_the_run_slot_is_still_held(self):
+        """The load-bearing one: chips must not race the next queued caller.
+
+        Ollama Cloud's free tier serves one concurrent model and
+        `concurrency.py` is the only thing standing between that and a 429
+        mid-answer. Generating chips after the slot released would let this
+        turn's second model call overlap the next turn's first. The gate
+        snapshot read from inside `suggest` proves the slot is still held at
+        the moment the call is made.
+        """
+        seen: dict = {}
+
+        async def _suggest(*_args, **_kwargs):
+            seen["gate"] = concurrency.snapshot()
+            return ["Who won in Monaco?"]
+
+        with patch.object(main.followups, "suggest", _suggest):
+            post()
+
+        self.assertEqual(seen["gate"]["running"], 1)
+
+    @patch.object(main.graph, "astream_answer", _fake_agent_stream)
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_the_slot_is_released_once_the_turn_ends(self):
+        """The other half: holding it longer must not mean holding it forever.
+
+        CP75 replaced the slot's `async with` with an `AsyncExitStack`, which
+        moves responsibility for releasing it from the language to two explicit
+        `aclose()` calls. A leak here would deadlock every subsequent question
+        on the service, so it is asserted rather than assumed.
+        """
+        post()
+        self.assertEqual(concurrency.snapshot()["running"], 0)
 
 
 class HealthTests(unittest.TestCase):

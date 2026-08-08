@@ -22,7 +22,7 @@ import asyncio
 import datetime
 import time
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI
@@ -35,6 +35,7 @@ from . import (
     checkpointer,
     concurrency,
     config,
+    followups,
     graph,
     guardrails,
     model,
@@ -288,6 +289,20 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
         verification_status: str | None = None
         verification_violations: int | None = None
 
+        # CP75: the run slot is entered here rather than with a plain
+        # `async with`, because it now has to stay held *past* the `done`
+        # event. `followups.suggest` makes a real model call, and Ollama
+        # Cloud's free tier serves exactly one concurrent model — firing that
+        # call after the slot released would race whatever the gate admitted
+        # next, which is the single failure `concurrency.py` exists to
+        # prevent. An `AsyncExitStack` lets the acquire stay inside the inner
+        # `try` (so `AtCapacity` is still caught by the chain below, which
+        # never entered the stack and unwinds to a no-op) while the release
+        # moves down to after the chips are on the wire. `aclose()` is
+        # idempotent, so the explicit release on the success path and the
+        # `finally` backstop cannot double-release.
+        run_gate = AsyncExitStack()
+
         try:
             try:
                 # Announce the queue *before* blocking on the gate, so a wait
@@ -307,101 +322,103 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                         at=_now_iso(),
                     )
 
-                async with concurrency.run_slot() as admission:
-                    # Only worth reporting if the wait was long enough to have
-                    # been felt. Below that it rounds to "Waited 0s", which
-                    # reads as a bug rather than as reassurance.
-                    if admission.waited >= 1.0:
-                        yield sse.activity(
-                            f"Waited {admission.waited:.0f}s for a slot.",
-                            "done",
-                            kind="system",
-                            at=_now_iso(),
-                        )
+                admission = await run_gate.enter_async_context(
+                    concurrency.run_slot()
+                )
+                # Only worth reporting if the wait was long enough to have
+                # been felt. Below that it rounds to "Waited 0s", which
+                # reads as a bug rather than as reassurance.
+                if admission.waited >= 1.0:
                     yield sse.activity(
-                        "Thinking…", "start", kind="system", at=_now_iso()
+                        f"Waited {admission.waited:.0f}s for a slot.",
+                        "done",
+                        kind="system",
+                        at=_now_iso(),
                     )
+                yield sse.activity(
+                    "Thinking…", "start", kind="system", at=_now_iso()
+                )
 
-                    # Driven manually (rather than `async for`) so each step
-                    # of pulling the next event can be raced against
-                    # `HEARTBEAT_SECONDS` of silence without losing the event
-                    # that's still in flight when the clock runs out — see
-                    # `_heartbeat_until_done`'s docstring. This is the one
-                    # genuinely unbounded silence in the turn (model thinking,
-                    # tool calls); the queue-wait above it is bounded by
-                    # `config.QUEUE_TIMEOUT_SECONDS` (45s default) and always
-                    # resolves into a clean `AtCapacity` error on its own, so
-                    # it does not get the same treatment here.
-                    answer_iter = _answer(
-                        text, thread_id=thread_id, ledger=ledger
-                    ).__aiter__()
-                    next_task: "asyncio.Task | None" = None
-                    try:
-                        while True:
-                            next_task = asyncio.ensure_future(answer_iter.__anext__())
-                            async for heartbeat in _heartbeat_until_done(next_task):
-                                yield heartbeat
-                            try:
-                                event = await next_task
-                            except StopAsyncIteration:
-                                break
+                # Driven manually (rather than `async for`) so each step
+                # of pulling the next event can be raced against
+                # `HEARTBEAT_SECONDS` of silence without losing the event
+                # that's still in flight when the clock runs out — see
+                # `_heartbeat_until_done`'s docstring. This is the one
+                # genuinely unbounded silence in the turn (model thinking,
+                # tool calls); the queue-wait above it is bounded by
+                # `config.QUEUE_TIMEOUT_SECONDS` (45s default) and always
+                # resolves into a clean `AtCapacity` error on its own, so
+                # it does not get the same treatment here.
+                answer_iter = _answer(
+                    text, thread_id=thread_id, ledger=ledger
+                ).__aiter__()
+                next_task: "asyncio.Task | None" = None
+                try:
+                    while True:
+                        next_task = asyncio.ensure_future(answer_iter.__anext__())
+                        async for heartbeat in _heartbeat_until_done(next_task):
+                            yield heartbeat
+                        try:
+                            event = await next_task
+                        except StopAsyncIteration:
+                            break
 
-                            kind = event[0]
-                            if kind == "token":
-                                _, delta = event
-                                chars += len(delta)
-                                answer_parts.append(delta)
-                                yield sse.token(delta)
-                            elif kind == "activity":
-                                if len(event) == 5:
-                                    _, label, state, detail, activity_kind = event
-                                else:
-                                    _, label, state = event
-                                    detail, activity_kind = None, "system"
-                                yield sse.activity(
-                                    label, state, detail=detail, kind=activity_kind,
-                                    at=_now_iso(),
-                                )
-                            elif kind == "tier":
-                                _, tier, _reason = event
-                            elif kind == "verification":
-                                _, passed, violation_count = event
-                                verification_status = "passed" if passed else "verification_failed"
-                                verification_violations = violation_count
-                    finally:
-                        # `_heartbeat_until_done` deliberately never cancels
-                        # `next_task` (see its docstring) — polling with
-                        # `asyncio.wait` must not drop the in-flight event.
-                        # But that means nothing upstream of it cancels the
-                        # *real* model/tool call either, and `asyncio.wait`
-                        # does not propagate a cancellation of itself onto
-                        # the task it was waiting on (a well-documented
-                        # asyncio gotcha). Left alone, a client disconnect
-                        # here would let this loop's own `CancelledError`
-                        # sail through cleanly while `next_task` — the actual
-                        # live `_answer.__anext__()` call — kept running
-                        # detached in the background, still burning quota
-                        # for a request nobody is listening to. This is the
-                        # one place that can still be true when the loop
-                        # exits, for any reason (normal `StopAsyncIteration`,
-                        # an exception from `_answer`, or our own
-                        # cancellation), so it is the one place responsible
-                        # for making sure `next_task` never outlives it.
-                        if next_task is not None and not next_task.done():
-                            next_task.cancel()
-                            try:
-                                await next_task
-                            except BaseException:
-                                # Cancellation landing inside `_answer` can
-                                # surface as `CancelledError`,
-                                # `StopAsyncIteration`, or whatever the
-                                # underlying call was doing when the
-                                # cancellation hit it — none of those are
-                                # this function's to report, and none may be
-                                # left unretrieved (that logs an "exception
-                                # was never retrieved" warning once the task
-                                # is garbage collected).
-                                pass
+                        kind = event[0]
+                        if kind == "token":
+                            _, delta = event
+                            chars += len(delta)
+                            answer_parts.append(delta)
+                            yield sse.token(delta)
+                        elif kind == "activity":
+                            if len(event) == 5:
+                                _, label, state, detail, activity_kind = event
+                            else:
+                                _, label, state = event
+                                detail, activity_kind = None, "system"
+                            yield sse.activity(
+                                label, state, detail=detail, kind=activity_kind,
+                                at=_now_iso(),
+                            )
+                        elif kind == "tier":
+                            _, tier, _reason = event
+                        elif kind == "verification":
+                            _, passed, violation_count = event
+                            verification_status = "passed" if passed else "verification_failed"
+                            verification_violations = violation_count
+                finally:
+                    # `_heartbeat_until_done` deliberately never cancels
+                    # `next_task` (see its docstring) — polling with
+                    # `asyncio.wait` must not drop the in-flight event.
+                    # But that means nothing upstream of it cancels the
+                    # *real* model/tool call either, and `asyncio.wait`
+                    # does not propagate a cancellation of itself onto
+                    # the task it was waiting on (a well-documented
+                    # asyncio gotcha). Left alone, a client disconnect
+                    # here would let this loop's own `CancelledError`
+                    # sail through cleanly while `next_task` — the actual
+                    # live `_answer.__anext__()` call — kept running
+                    # detached in the background, still burning quota
+                    # for a request nobody is listening to. This is the
+                    # one place that can still be true when the loop
+                    # exits, for any reason (normal `StopAsyncIteration`,
+                    # an exception from `_answer`, or our own
+                    # cancellation), so it is the one place responsible
+                    # for making sure `next_task` never outlives it.
+                    if next_task is not None and not next_task.done():
+                        next_task.cancel()
+                        try:
+                            await next_task
+                        except BaseException:
+                            # Cancellation landing inside `_answer` can
+                            # surface as `CancelledError`,
+                            # `StopAsyncIteration`, or whatever the
+                            # underlying call was doing when the
+                            # cancellation hit it — none of those are
+                            # this function's to report, and none may be
+                            # left unretrieved (that logs an "exception
+                            # was never retrieved" warning once the task
+                            # is garbage collected).
+                            pass
 
             except model.ModelUnavailable:
                 # No key configured: fall back to the echo so the transport is
@@ -454,6 +471,47 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                     "verification_violations": verification_violations,
                 },
             )
+
+            # CP75's follow-up chips: after `done` — deliberately, and after
+            # `tracing.end` so the turn's own telemetry is settled whatever
+            # this does — but *before* the run slot is released, which is the
+            # part that is easy to get wrong. `followups.suggest` is a real
+            # model call, and Ollama Cloud's free tier serves one concurrent
+            # model; released first, this would be the second caller the gate
+            # was built to prevent. Held here, the reader already has the
+            # complete answer and its sources, and the only cost is that the
+            # *next* asker's slot opens up to `followups.TIMEOUT_SECONDS`
+            # later — bounded, and paid only on turns that got that far.
+            #
+            # `suggest` is total: no key, a timeout, exhausted quota,
+            # unparseable output, or a candidate set the router emptied all
+            # return `[]`. An empty list emits no frame at all rather than an
+            # empty one, so "no chips" is one state on the wire, not two.
+            # The echo fallback is excluded because its "answer" is the
+            # question echoed back — there is nothing to follow up on, and it
+            # runs precisely when no key is configured anyway.
+            # Belt and braces on top of `suggest`'s own totality, and not
+            # redundant: the outer except chain below is *already past* the
+            # point where it can help. It would turn an exception here into an
+            # `error` frame emitted after `done`, and the frontend treats an
+            # error on a message as replacing its answer — so a bug in an
+            # optional surface would blank out a complete, correct answer the
+            # reader is already looking at. Nothing this far down the turn may
+            # reach that handler.
+            if mode != "echo":
+                try:
+                    chips = await followups.suggest(text, "".join(answer_parts))
+                except asyncio.CancelledError:
+                    raise
+                except Exception as error:  # noqa: BLE001 - additive surface
+                    print(f"follow-up chips skipped: {type(error).__name__}: {error}")
+                    chips = []
+                if chips:
+                    yield sse.suggestions(chips)
+
+            # Everything below this point is off the critical path and must
+            # not hold a slot the next caller is queued for.
+            await run_gate.aclose()
 
             # After `done` is already on the wire — a slow or failed cache
             # write must never delay or break the response the asker is
@@ -539,6 +597,17 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
             print(f"agent internal failure: {type(error).__name__}: {error}")
             yield sse.error("internal", "Something went wrong answering that.")
             tracing.end(run, {"error": "internal", "detail": str(error)})
+
+        finally:
+            # The backstop for every path that does not reach the explicit
+            # release above: an error handler, a client disconnect, or the
+            # generator being closed mid-stream. Since CP75 moved the slot's
+            # lifetime out of an `async with`, this is the thing standing
+            # between a failed turn and a permanently-held gate — `aclose()`
+            # is idempotent, so running it twice on the success path is a
+            # no-op, and running it on a stack that never acquired a slot
+            # (the `AtCapacity` path) is also a no-op.
+            await run_gate.aclose()
 
 
 @app.post("/api/chat")

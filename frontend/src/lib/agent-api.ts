@@ -142,6 +142,21 @@ export interface AgentHandlers {
    */
   onSources?: (sources: AgentSource[], anchors: AgentAnchor[]) => void;
   onDone?: (done: AgentDone) => void;
+  /**
+   * CP75's follow-up chips — the one event that arrives **after** `done`.
+   *
+   * That ordering is deliberate on the backend (`sse.py`): generating them
+   * costs a model call, and a reader must never wait on their own chips. It
+   * means `onDone` is no longer the last handler a turn fires, so anything
+   * that treats `done` as "the stream is finished" must keep reading — which
+   * `streamChat`'s loop does anyway, since it reads to EOF rather than
+   * stopping on an event name.
+   *
+   * Never called with an empty array: the backend skips the frame entirely
+   * when generation failed or the router dropped every candidate, so "no
+   * chips" is the absence of a call rather than a call carrying nothing.
+   */
+  onSuggestions?: (suggestions: string[]) => void;
   onError?: (code: AgentErrorCode, message: string) => void;
 }
 
@@ -424,6 +439,21 @@ function dispatch(event: string, data: unknown, handlers: AgentHandlers): void {
     case "done":
       handlers.onDone?.(payload as unknown as AgentDone);
       break;
+    case "suggestions": {
+      // Re-validated at the boundary rather than trusted: the backend already
+      // drops anything unroutable, but this arrives over the wire from a
+      // model-generated list and CP44's lesson is that a documented shape is
+      // not a guaranteed one. A non-array, a nested object, or a stray empty
+      // string would each render as a blank, unclickable chip.
+      const items = Array.isArray(payload.suggestions)
+        ? payload.suggestions
+            .filter((s): s is string => typeof s === "string")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+      if (items.length > 0) handlers.onSuggestions?.(items);
+      break;
+    }
     case "error":
       handlers.onError?.(
         (payload.code ?? "internal") as AgentErrorCode,
