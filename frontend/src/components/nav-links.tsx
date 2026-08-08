@@ -7,6 +7,7 @@ import { motion } from "motion/react";
 const navItems = [
   { href: "/", label: "Home" },
   { href: "/schedule", label: "Schedule" },
+  { href: "/watch", label: "Watch" },
   { href: "/standings", label: "Standings" },
   { href: "/drivers", label: "Drivers" },
   { href: "/teams", label: "Teams" },

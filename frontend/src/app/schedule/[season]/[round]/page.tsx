@@ -208,6 +208,19 @@ export default async function RaceDetailPage({ params }: PageProps) {
             currentRound={String(roundNumber)}
             seasonYear={seasonYear}
           />
+          {/* Watch-party mode, offered from the round it replays. Only for a
+              round that has actually run — there is nothing to replay
+              otherwise, and the watch page's empty state is for an unsynced
+              round, not an unraced one. */}
+          {isPast && (
+            <Link
+              href={`/watch/${seasonYear}-${roundNumber}`}
+              className="font-bold text-xs px-5 h-[46px] rounded-[11px] flex items-center justify-center text-[#1a1210] transition-transform duration-150 active:scale-95"
+              style={{ background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)" }}
+            >
+              Watch at race pace
+            </Link>
+          )}
           <Link
             href="/schedule"
             className="font-bold text-xs px-5 h-[46px] rounded-[11px] apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
