@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import Link from "next/link";
 import { useReducedMotion } from "motion/react";
 import {
@@ -13,6 +20,9 @@ import {
   X,
   Lightbulb,
   LightbulbOff,
+  Pin,
+  Rows3,
+  Rows2,
 } from "lucide-react";
 import type { RaceReplay, ReplayLap } from "@/lib/api";
 import { getTeamColor } from "@/lib/team-colors";
@@ -23,6 +33,17 @@ import {
   formatRaceClock,
   lapDurations,
 } from "@/lib/watch-clock";
+import {
+  densityServerSnapshot,
+  densitySnapshot,
+  orderRunners,
+  pinnedServerSnapshot,
+  pinnedSnapshot,
+  setDensityPreference,
+  setPinnedPreference,
+  subscribePreferences,
+  towerLayout,
+} from "@/lib/watch-preferences";
 
 /** Shared with `race-replay.tsx` and `tire-stints-chart.tsx` — the same tyre
  * reads the same colour everywhere in the app. */
@@ -164,6 +185,34 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
   const [keepAwake, setKeepAwake] = useState(true);
   const wakeLockHeld = useWakeLock(keepAwake);
 
+  // Persisted viewer preferences. Read through `useSyncExternalStore` rather
+  // than an effect: this view is server-rendered, so the server tree has to be
+  // the default and the stored value has to arrive at hydration without a
+  // mismatch — which is exactly the swap that hook performs.
+  const density = useSyncExternalStore(
+    subscribePreferences,
+    densitySnapshot,
+    densityServerSnapshot
+  );
+  const pinnedList = useSyncExternalStore(
+    subscribePreferences,
+    pinnedSnapshot,
+    pinnedServerSnapshot
+  );
+  const pinned = useMemo(() => new Set(pinnedList), [pinnedList]);
+  const [pinnerOpen, setPinnerOpen] = useState(false);
+
+  const togglePinned = useCallback(
+    (number: string) => {
+      setPinnedPreference(
+        pinnedList.includes(number)
+          ? pinnedList.filter((value) => value !== number)
+          : [...pinnedList, number]
+      );
+    },
+    [pinnedList]
+  );
+
   const clockRef = useRef<RealTimeLapClock | null>(null);
   // Sub-lap progress is written straight to the DOM rather than into React
   // state: it changes every frame, and re-rendering twenty tower rows at 60Hz
@@ -259,7 +308,16 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
     const onKey = (event: KeyboardEvent) => {
       // Typing a lap number into the jump field must not also toggle playback.
       const target = event.target as HTMLElement | null;
+      // A focused button must keep Space for its own activation — otherwise
+      // tabbing to "Go" and pressing Space both submits the jump and toggles
+      // playback. Found by keyboard-driving the finished view rather than
+      // reasoning about it.
       if (target && (target.tagName === "INPUT" || target.isContentEditable)) return;
+      if (target?.tagName === "BUTTON" && event.key === " ") return;
+      if (event.key === "Escape") {
+        setPinnerOpen(false);
+        return;
+      }
       if (event.key === " ") {
         event.preventDefault();
         toggle();
@@ -297,44 +355,95 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
     return rows;
   }, [laps, lapIndex]);
 
+  /** The single line compact density has room for. */
+  const latest = feed[0];
+
   const currentLapMs = durations.ms[lapIndex] ?? 0;
   const currentIsEstimated = durations.source[lapIndex] === "estimated";
 
-  // Rows are sized off the measured tower height so a full field fills a
-  // landscape screen instead of being sized for a desk. Measured rather than
-  // computed from a viewport unit because the header and control bar wrap
-  // differently at different widths, and guessing their height is how a tower
-  // ends up scrolling on exactly one device.
+  // Rows are sized off the measured tower box so a full field fills a landscape
+  // screen instead of being sized for a desk. Measured rather than computed
+  // from a viewport unit because the header and control bar wrap differently at
+  // different widths, and guessing their height is how a tower ends up
+  // scrolling on exactly one device. Width matters as much as height now: it is
+  // what decides whether the field can be split into two columns.
   const towerRef = useRef<HTMLDivElement>(null);
-  const [rowHeight, setRowHeight] = useState(44);
+  const [towerBox, setTowerBox] = useState({ width: 0, height: 0 });
   const runnerCount = current?.runners.length ?? 20;
 
   useEffect(() => {
     const node = towerRef.current;
     if (!node || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(([entry]) => {
-      const available = entry.contentRect.height;
-      if (available <= 0) return;
-      // There is deliberately **no lower bound**. An earlier version floored
-      // this at a comfortable 30px, and on a 720p window that asked for 600px
-      // of a 440px column — the last five cars were simply off the bottom of
-      // the screen. Measured, not guessed. A whole field that is smaller than
-      // ideal beats a large field with P16-P20 missing, and the tall screens
-      // this mode is really for hit the 72px ceiling instead. CP78's
-      // compact/expanded densities are where the cramped end gets a real
-      // answer.
-      setRowHeight(Math.min(72, available / Math.max(1, runnerCount)));
+      const { width, height } = entry.contentRect;
+      if (height <= 0) return;
+      setTowerBox((previous) =>
+        previous.width === width && previous.height === height
+          ? previous
+          : { width, height }
+      );
     });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [runnerCount]);
+  }, []);
+
+  const layout = useMemo(
+    () =>
+      towerLayout({
+        width: towerBox.width,
+        height: towerBox.height || 400,
+        rowCount: runnerCount,
+        density,
+      }),
+    [towerBox, runnerCount, density]
+  );
+
+  /** Pinned drivers first, everyone else in position order. `positionOrder` is
+   * carried through untouched so the row still knows its real place in the
+   * field — pinning surfaces a driver, it never renumbers one. */
+  const slots = useMemo(
+    () => orderRunners(current?.runners ?? [], pinned),
+    [current, pinned]
+  );
+
+  /** The pinner lists the field in *running* order, not pin order: someone
+   * reaching for it mid-race is looking for a driver they can see on the TV. */
+  const pinnableDrivers = useMemo(() => {
+    const seen = new Set<string>();
+    const list: Array<{ number: string; code: string; name: string; team: string | null }> = [];
+    for (const runner of current?.runners ?? []) {
+      if (seen.has(runner.number)) continue;
+      seen.add(runner.number);
+      const driver = replay.drivers[runner.number];
+      list.push({
+        number: runner.number,
+        code: driver?.code ?? runner.number,
+        name: driver?.name ?? runner.number,
+        team: driver?.team ?? null,
+      });
+    }
+    return list;
+  }, [current, replay.drivers]);
 
   const rowTransitionMs = reduce ? 0 : 420;
+
+  /* Compact's chrome trims, measured rather than guessed. On an 844x390 phone
+   * CP77's chrome took 171 of the 390 available pixels — 44% of the screen, for
+   * a header, a lap rail and a control bar — and every pixel of it is worth a
+   * row of tower. These classes are written out in full at each use because
+   * Tailwind scans source text for complete class names and would not emit one
+   * assembled at runtime. They key on viewport *height*, since height is the
+   * thing in short supply: an 844x390 phone is wide. */
+  const compact = density === "compact";
 
   return (
     <div className="flex flex-col h-[100dvh] overflow-hidden bg-[#070605] text-on-background select-none">
       {/* ------------------------------ header ------------------------------ */}
-      <header className="flex items-center gap-4 px-4 md:px-6 py-2.5 [@media(max-height:520px)]:py-1 border-b border-white/[0.07] flex-none">
+      <header
+        className={`flex items-center gap-4 px-4 md:px-6 py-2.5 [@media(max-height:520px)]:py-1 border-b border-white/[0.07] flex-none ${
+          compact ? "[@media(max-height:520px)]:py-0.5 [@media(max-height:520px)]:gap-2.5" : ""
+        }`}
+      >
         <Link
           href="/watch"
           aria-label="Leave watch mode"
@@ -343,13 +452,29 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
           <X size={18} />
         </Link>
 
-        <div className="min-w-0">
-          <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-lg md:text-2xl [@media(max-height:520px)]:text-base leading-none truncate">
+        {/* On a short screen compact runs the title and the framing on one
+            line instead of two. The framing itself is never dropped: this app
+            has no live feed and the mode must never imply one, least of all on
+            the propped-up phone it is built for. */}
+        <div
+          className={`min-w-0 ${
+            compact
+              ? "[@media(max-height:520px)]:flex [@media(max-height:520px)]:items-baseline [@media(max-height:520px)]:gap-2 [@media(max-height:520px)]:min-w-0"
+              : ""
+          }`}
+        >
+          <h1
+            className={`font-[family-name:var(--font-headline)] font-extrabold text-lg md:text-2xl [@media(max-height:520px)]:text-base leading-none truncate ${
+              compact ? "[@media(max-height:520px)]:flex-none" : ""
+            }`}
+          >
             {replay.race_name ?? `Round ${replay.round}`}
           </h1>
-          {/* The framing, stated where it cannot be missed. This app has no
-              live feed and this mode must never imply one. */}
-          <p className="font-semibold text-[10px] md:text-[11px] tracking-[0.12em] uppercase text-warm-500 mt-1">
+          <p
+            className={`font-semibold text-[10px] md:text-[11px] tracking-[0.12em] uppercase text-warm-500 mt-1 truncate ${
+              compact ? "[@media(max-height:520px)]:mt-0" : ""
+            }`}
+          >
             Replay · paced from recorded lap times · not live
           </p>
         </div>
@@ -362,7 +487,11 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
             >
               {formatRaceClock(cumulative[lapIndex] ?? 0)}
             </span>
-            <span className="font-semibold text-[9px] tracking-[0.12em] uppercase text-warm-500">
+            <span
+              className={`font-semibold text-[9px] tracking-[0.12em] uppercase text-warm-500 ${
+                compact ? "[@media(max-height:520px)]:hidden" : ""
+              }`}
+            >
               of {formatRaceClock(totalMs)}
             </span>
           </div>
@@ -371,7 +500,13 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
               {current?.lap ?? 0}
               <span className="text-warm-500 text-base md:text-2xl"> / {replay.total_laps}</span>
             </span>
-            <span className="font-semibold text-[9px] tracking-[0.12em] uppercase text-warm-500">
+            {/* "Lap" is the one label compact can afford to lose: the number is
+                already followed by "/ 78". */}
+            <span
+              className={`font-semibold text-[9px] tracking-[0.12em] uppercase text-warm-500 ${
+                compact ? "[@media(max-height:520px)]:hidden" : ""
+              }`}
+            >
               Lap
             </span>
           </div>
@@ -379,8 +514,23 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
       </header>
 
       {/* --------------------------- lap progress --------------------------- */}
-      <div className="flex-none px-4 md:px-6 pt-2.5 [@media(max-height:520px)]:pt-1">
-        <div className="flex items-baseline gap-2 mb-1.5">
+      {/* Compact puts the readout and the rail on one line rather than two —
+          the rail does not need its own row, and the row it was taking is a
+          tower row per column. */}
+      <div
+        className={`flex-none px-4 md:px-6 pt-2.5 [@media(max-height:520px)]:pt-1 ${
+          compact
+            ? "[@media(max-height:520px)]:flex [@media(max-height:520px)]:items-center [@media(max-height:520px)]:gap-3 [@media(max-height:520px)]:pt-1.5"
+            : ""
+        }`}
+      >
+        <div
+          className={`flex items-baseline gap-2 mb-1.5 ${
+            compact
+              ? "[@media(max-height:520px)]:mb-0 [@media(max-height:520px)]:flex-none"
+              : ""
+          }`}
+        >
           <span className="font-bold text-[10px] tracking-[0.12em] uppercase text-[#FF7A3D]">
             This lap
           </span>
@@ -410,7 +560,9 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
             screen reader should be able to say so too. `aria-valuetext` gives
             the useful answer ("1:31.9 lap") instead of a bare percentage. */}
         <div
-          className="h-1.5 rounded-full bg-white/[0.08] overflow-hidden"
+          className={`h-1.5 rounded-full bg-white/[0.08] overflow-hidden ${
+            compact ? "[@media(max-height:520px)]:flex-1" : ""
+          }`}
           role="progressbar"
           aria-label="Progress through this lap"
           aria-valuemin={0}
@@ -431,49 +583,93 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
           of the tower and eat a quarter of the 390px the tower has to work
           with. Orientation is the property that actually decides whether there
           is room beside the tower or above it. */}
-      <div className="flex-1 min-h-0 flex flex-col landscape:flex-row gap-3 px-4 md:px-6 py-3 [@media(max-height:520px)]:py-1.5">
+      <div
+        className={`flex-1 min-h-0 flex flex-col gap-3 [@media(max-height:520px)]:gap-1.5 px-4 md:px-6 py-3 [@media(max-height:520px)]:py-1.5 ${
+          // Compact keeps a column layout at every orientation: its race-control
+          // line belongs *under* the tower, so the tower keeps the full width it
+          // needs to split into two columns.
+          compact ? "[@media(max-height:520px)]:py-1" : "landscape:flex-row"
+        }`}
+      >
         {/* Timing tower. Rows are absolutely positioned and moved with
             transform only — twenty rows reordering in the DOM every lap would
             thrash layout, and transform keeps the movement on the compositor.
             Same approach as race-replay.tsx, at watch-party scale. */}
-        <div ref={towerRef} className="relative flex-1 min-h-0 overflow-hidden">
-          {current?.runners.map((runner, order) => {
+        <div
+          ref={towerRef}
+          className="relative flex-1 min-h-0 overflow-hidden"
+          aria-label={
+            pinned.size > 0
+              ? "Timing tower. Pinned drivers are shown first; each row states its real position."
+              : "Timing tower, in position order"
+          }
+        >
+          {slots.map(({ runner, positionOrder, slot, pinned: isPinned }) => {
             const driver = replay.drivers[runner.number];
             const color = getTeamColor(driver?.team ?? undefined);
             const compound = runner.compound
               ? COMPOUND_COLORS[runner.compound] ?? "#8f867a"
               : "#8f867a";
             const delta = deltas[runner.number] ?? 0;
+            const column = Math.floor(slot / layout.rowsPerColumn);
+            const rowInColumn = slot % layout.rowsPerColumn;
+            const columnWidth = layout.columns > 1 ? towerBox.width / layout.columns : 0;
             return (
               <div
                 key={runner.number}
-                className="absolute left-0 right-0 flex items-center gap-2 md:gap-4 px-2 md:px-3 rounded-lg"
+                className={`absolute left-0 flex items-center rounded-lg ${
+                  // Compact keeps its small gaps at every width: a two-column
+                  // tower on an 844px phone is still past the `md` breakpoint,
+                  // and 16px gaps there are ~100px of a 400px column.
+                  compact ? "gap-1.5 px-2" : "gap-2 md:gap-4 px-2 md:px-3"
+                } ${layout.columns > 1 ? "" : "right-0"}`}
                 style={{
-                  height: rowHeight - 3,
-                  transform: `translateY(${order * rowHeight}px)`,
+                  height: layout.rowHeight - 3,
+                  // A two-column tower places by x as well as y, and both move
+                  // on the same transform so a driver crossing between columns
+                  // slides rather than teleporting.
+                  width: columnWidth > 0 ? columnWidth - 8 : undefined,
+                  transform: `translate(${column * columnWidth}px, ${
+                    rowInColumn * layout.rowHeight
+                  }px)`,
                   transition: rowTransitionMs
                     ? `transform ${rowTransitionMs}ms ${EASE_OUT}, background-color 300ms ease, opacity 300ms ease`
                     : "background-color 300ms ease, opacity 300ms ease",
                   background: runner.pit
                     ? "rgba(255,90,31,0.16)"
-                    : order % 2 === 0
+                    : isPinned
+                    ? "rgba(255,138,61,0.13)"
+                    : slot % 2 === 0
                     ? "rgba(255,255,255,0.025)"
                     : "transparent",
+                  // Pinned rows sit out of position order by design, so they
+                  // carry a standing marker rather than relying on the viewer
+                  // remembering why row one isn't the leader.
+                  boxShadow: isPinned ? "inset 3px 0 0 0 #FF7A3D" : undefined,
                   // A retired car's row is carried forward from its last real
                   // lap, not live — dimmed so it never reads as a current gap.
                   opacity: runner.retired ? 0.42 : 1,
                   // Everything inside the row is sized in `em` off this, so
                   // one number scales the whole tower from a phone to a TV.
-                  // The 9px floor is a legibility backstop for the shortest
-                  // screens; the row height itself is never floored, because
-                  // that is what pushes cars off-screen.
-                  fontSize: Math.max(9, rowHeight * 0.42),
+                  fontSize: layout.fontSize,
                 }}
               >
+                {isPinned && (
+                  <Pin
+                    size={Math.max(8, layout.fontSize * 0.62)}
+                    className="flex-none"
+                    style={{ color: "#FF7A3D" }}
+                    aria-label="Pinned"
+                  />
+                )}
                 <span
                   className="font-extrabold tabular-nums w-[1.6em] text-right flex-none"
                   style={{
-                    color: runner.retired ? "#8f867a" : order === 0 ? "#FFAE6A" : "#f6f1ea",
+                    color: runner.retired
+                      ? "#8f867a"
+                      : positionOrder === 0
+                      ? "#FFAE6A"
+                      : "#f6f1ea",
                   }}
                 >
                   {runner.retired ? "—" : runner.position ?? "—"}
@@ -500,15 +696,20 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
                   {driver?.code ?? runner.number}
                 </span>
 
-                <span
-                  className="font-semibold text-warm-300 truncate hidden md:block flex-1"
-                  style={{ fontSize: "0.72em" }}
-                >
-                  {driver?.name ?? ""}
-                </span>
+                {/* The full name is the first thing compact gives up: it is the
+                    widest column and the least useful one, since the three-letter
+                    code is what the broadcast shows too. */}
+                {density === "expanded" && (
+                  <span
+                    className="font-semibold text-warm-300 truncate hidden md:block flex-1"
+                    style={{ fontSize: "0.72em" }}
+                  >
+                    {driver?.name ?? ""}
+                  </span>
+                )}
 
                 <span
-                  className="font-bold tabular-nums px-1.5 py-0.5 rounded flex-none ml-auto md:ml-0"
+                  className="font-bold tabular-nums px-1.5 py-0.5 rounded flex-none ml-auto"
                   style={{
                     fontSize: "0.62em",
                     color: compound,
@@ -532,76 +733,125 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
                     ? "OUT"
                     : runner.pit
                     ? "PIT"
-                    : formatGap(runner.gap_seconds, order === 0)}
+                    : formatGap(runner.gap_seconds, positionOrder === 0)}
                 </span>
               </div>
             );
           })}
         </div>
 
-        {/* Race control. On a landscape screen it lives beside the tower; on a
-            phone held upright it drops below and keeps only the newest few. */}
-        <aside className="landscape:w-[34%] lg:w-[330px] xl:w-[380px] flex-none flex flex-col min-h-0 max-h-[26%] landscape:max-h-none">
-          <h2 className="font-bold text-[10px] tracking-[0.14em] uppercase text-warm-500 mb-2 flex-none">
-            Race control
-          </h2>
-          <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 pr-1">
-            {feed.length === 0 && (
-              <p className="font-semibold text-xs text-warm-600">
-                Nothing reported yet this race.
-              </p>
-            )}
-            {feed.map((event, index) => {
-              const urgent = URGENT_EVENT_KINDS.has(event.kind);
-              const fresh = event.lap === current?.lap;
-              return (
-                <div
-                  key={`${event.lap}-${event.kind}-${index}`}
-                  className="rounded-xl px-3 py-2 flex-none"
+        {/* Race control. Expanded gives it a panel beside the tower (or below,
+            on a phone held upright). Compact reduces it to the newest line —
+            which is what actually buys the landscape phone its second tower
+            column, since the panel was taking a third of the width. */}
+        {density === "expanded" ? (
+          <aside className="landscape:w-[34%] lg:w-[330px] xl:w-[380px] flex-none flex flex-col min-h-0 max-h-[26%] landscape:max-h-none">
+            <h2 className="font-bold text-[10px] tracking-[0.14em] uppercase text-warm-500 mb-2 flex-none">
+              Race control
+            </h2>
+            <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 pr-1">
+              {feed.length === 0 && (
+                <p className="font-semibold text-xs text-warm-600">
+                  Nothing reported yet this race.
+                </p>
+              )}
+              {feed.map((event, index) => {
+                const urgent = URGENT_EVENT_KINDS.has(event.kind);
+                const fresh = event.lap === current?.lap;
+                return (
+                  <div
+                    key={`${event.lap}-${event.kind}-${index}`}
+                    className="rounded-xl px-3 py-2 flex-none"
+                    style={{
+                      background: urgent ? "rgba(255,68,68,0.10)" : "rgba(255,255,255,0.035)",
+                      border: `1px solid ${
+                        fresh
+                          ? urgent
+                            ? "rgba(255,68,68,0.55)"
+                            : "rgba(255,138,61,0.5)"
+                          : "rgba(255,255,255,0.07)"
+                      }`,
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Flag
+                        size={12}
+                        className="flex-none"
+                        style={{ color: urgent ? "#FF6B6B" : "#FFAE6A" }}
+                      />
+                      <span
+                        className="font-extrabold text-[12px] md:text-[13px]"
+                        style={{ color: urgent ? "#FF6B6B" : "#FFAE6A" }}
+                      >
+                        {eventLabel(event.kind)}
+                      </span>
+                      <span className="ml-auto font-bold text-[10px] tabular-nums text-warm-500">
+                        L{event.lap}
+                      </span>
+                    </div>
+                    {event.drivers.length > 0 && (
+                      <p className="font-semibold text-[11px] md:text-xs text-warm-200 mt-0.5">
+                        {event.drivers.join(", ")}
+                      </p>
+                    )}
+                    <p className="font-medium text-[10px] md:text-[11px] text-warm-500 mt-0.5 leading-snug">
+                      {event.message}
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+          </aside>
+        ) : (
+          <div
+            className="flex-none flex items-center gap-2 rounded-lg px-2.5 py-1 min-w-0"
+            style={{
+              background: latest && URGENT_EVENT_KINDS.has(latest.kind)
+                ? "rgba(255,68,68,0.12)"
+                : "rgba(255,255,255,0.035)",
+            }}
+            aria-live="off"
+          >
+            <Flag
+              size={11}
+              className="flex-none"
+              style={{
+                color: latest && URGENT_EVENT_KINDS.has(latest.kind) ? "#FF6B6B" : "#FFAE6A",
+              }}
+            />
+            {latest ? (
+              <>
+                <span className="font-bold text-[11px] tabular-nums text-warm-500 flex-none">
+                  L{latest.lap}
+                </span>
+                <span
+                  className="font-extrabold text-[11px] flex-none"
                   style={{
-                    background: urgent ? "rgba(255,68,68,0.10)" : "rgba(255,255,255,0.035)",
-                    border: `1px solid ${
-                      fresh
-                        ? urgent
-                          ? "rgba(255,68,68,0.55)"
-                          : "rgba(255,138,61,0.5)"
-                        : "rgba(255,255,255,0.07)"
-                    }`,
+                    color: URGENT_EVENT_KINDS.has(latest.kind) ? "#FF6B6B" : "#FFAE6A",
                   }}
                 >
-                  <div className="flex items-center gap-2">
-                    <Flag
-                      size={12}
-                      className="flex-none"
-                      style={{ color: urgent ? "#FF6B6B" : "#FFAE6A" }}
-                    />
-                    <span
-                      className="font-extrabold text-[12px] md:text-[13px]"
-                      style={{ color: urgent ? "#FF6B6B" : "#FFAE6A" }}
-                    >
-                      {eventLabel(event.kind)}
-                    </span>
-                    <span className="ml-auto font-bold text-[10px] tabular-nums text-warm-500">
-                      L{event.lap}
-                    </span>
-                  </div>
-                  {event.drivers.length > 0 && (
-                    <p className="font-semibold text-[11px] md:text-xs text-warm-200 mt-0.5">
-                      {event.drivers.join(", ")}
-                    </p>
-                  )}
-                  <p className="font-medium text-[10px] md:text-[11px] text-warm-500 mt-0.5 leading-snug">
-                    {event.message}
-                  </p>
-                </div>
-              );
-            })}
+                  {eventLabel(latest.kind)}
+                </span>
+                <span className="font-medium text-[11px] text-warm-400 truncate min-w-0">
+                  {latest.drivers.length > 0 ? `${latest.drivers.join(", ")} · ` : ""}
+                  {latest.message}
+                </span>
+              </>
+            ) : (
+              <span className="font-semibold text-[11px] text-warm-600">
+                Nothing reported yet this race.
+              </span>
+            )}
           </div>
-        </aside>
+        )}
       </div>
 
       {/* ----------------------------- controls ----------------------------- */}
-      <footer className="flex-none flex flex-wrap items-center gap-2 md:gap-3 px-4 md:px-6 py-2.5 [@media(max-height:520px)]:py-1.5 [@media(max-height:520px)]:gap-1.5 border-t border-white/[0.07]">
+      <footer
+        className={`flex-none flex flex-wrap items-center gap-2 md:gap-3 px-4 md:px-6 py-2.5 [@media(max-height:520px)]:py-1.5 [@media(max-height:520px)]:gap-1.5 border-t border-white/[0.07] ${
+          compact ? "[@media(max-height:520px)]:py-1" : ""
+        }`}
+      >
         <button
           type="button"
           onClick={toggle}
@@ -657,7 +907,15 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
 
         {/* Copy carries the honest bits rather than a tooltip: what this clock
             is, and what it does when a lap has no recorded time. */}
-        <p className="font-medium text-[10px] md:text-[11px] text-warm-500 leading-snug flex-1 min-w-[220px]">
+        {/* Compact drops this prose on short screens — three wrapped lines of
+            it is ~40px of footer, which is a whole tower row per column. The
+            claims it carries are not lost: the header still says "replay, not
+            live" and the current lap still wears its own "estimated" badge. */}
+        <p
+          className={`font-medium text-[10px] md:text-[11px] text-warm-500 leading-snug flex-1 min-w-[220px] ${
+            density === "compact" ? "[@media(max-height:520px)]:hidden" : ""
+          }`}
+        >
           Every lap runs for as long as it really did — safety-car laps take
           longer than green ones. Catching up jumps straight to the lap; nothing
           fast-forwards.
@@ -678,6 +936,128 @@ export default function WatchView({ replay }: { replay: RaceReplay }) {
             </>
           )}
         </p>
+
+        {/* Pinning. A per-row star would be the obvious control and is the
+            wrong one here: at compact density on a landscape phone a row is
+            ~25px tall, so its star would be a ~12px touch target on the device
+            this mode is built for. One list, full-size targets, and the rows
+            stay pure readout. */}
+        <div className="relative flex-none">
+          <button
+            type="button"
+            onClick={() => setPinnerOpen((open) => !open)}
+            aria-expanded={pinnerOpen}
+            aria-label={
+              pinned.size > 0
+                ? `Pinned drivers (${pinned.size}). Change`
+                : "Pin drivers to the top of the tower"
+            }
+            className="flex items-center gap-1.5 h-11 [@media(max-height:520px)]:h-9 px-3 rounded-xl apex-glass-soft font-bold text-xs transition-[color,border-color,transform] duration-150 active:scale-[0.97]"
+            style={{ color: pinned.size > 0 ? "#FFAE6A" : undefined }}
+          >
+            <Pin size={15} />
+            {pinned.size > 0 && <span className="tabular-nums">{pinned.size}</span>}
+          </button>
+
+          {pinnerOpen && (
+            <>
+              {/* A click anywhere else closes it. Cheaper and more reliable on
+                  touch than a document listener that has to not fire on the
+                  opening tap. */}
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setPinnerOpen(false)}
+                aria-hidden
+              />
+              <div
+                className="absolute bottom-[calc(100%+8px)] left-0 z-50 apex-glass-strong rounded-2xl p-3 w-[min(84vw,420px)] max-h-[52vh] overflow-y-auto"
+                role="group"
+                aria-label="Pin drivers"
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <p className="font-bold text-[10px] tracking-[0.14em] uppercase text-warm-500">
+                    Pin to the top
+                  </p>
+                  {pinned.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPinnedPreference([]);
+                      }}
+                      className="ml-auto font-bold text-[10px] tracking-[0.1em] uppercase text-warm-400 hover:text-[#FFAE6A] transition-colors"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
+                  {pinnableDrivers.map((driver) => {
+                    const isPinned = pinned.has(driver.number);
+                    const color = getTeamColor(driver.team ?? undefined);
+                    return (
+                      <button
+                        key={driver.number}
+                        type="button"
+                        onClick={() => togglePinned(driver.number)}
+                        aria-pressed={isPinned}
+                        title={driver.name}
+                        className="flex items-center gap-1.5 h-10 px-2 rounded-lg font-extrabold text-xs transition-[background-color,transform] duration-150 active:scale-95"
+                        style={{
+                          background: isPinned
+                            ? "rgba(255,138,61,0.18)"
+                            : "rgba(255,255,255,0.04)",
+                          color: isPinned ? "#FFAE6A" : "#c9c0b4",
+                        }}
+                      >
+                        <span
+                          className="w-[3px] h-[1.3em] rounded-[2px] flex-none"
+                          style={{ background: color.hex }}
+                        />
+                        {driver.code}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Density. Two named states rather than a slider: the choice is
+            "everything, comfortably" or "the whole field, as big as it will
+            go", and there is nothing useful in between. */}
+        <div
+          className="flex-none flex items-center gap-1 p-1 rounded-xl apex-glass-soft"
+          role="group"
+          aria-label="Tower density"
+        >
+          {(
+            [
+              ["expanded", "Expanded", Rows2],
+              ["compact", "Compact", Rows3],
+            ] as const
+          ).map(([value, label, Icon]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setDensityPreference(value)}
+              aria-pressed={density === value}
+              aria-label={label}
+              title={
+                value === "compact"
+                  ? "Whole field as large as it will go: no names, race control on one line, two columns when there is width for them"
+                  : "Names, and race control in full"
+              }
+              className="flex items-center justify-center w-9 h-9 [@media(max-height:520px)]:w-7 [@media(max-height:520px)]:h-7 rounded-[9px] transition-colors duration-150"
+              style={{
+                background: density === value ? "rgba(255,90,31,0.20)" : "transparent",
+                color: density === value ? "#FFAE6A" : "#8f867a",
+              }}
+            >
+              <Icon size={16} />
+            </button>
+          ))}
+        </div>
 
         <button
           type="button"
