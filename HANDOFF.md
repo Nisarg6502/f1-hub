@@ -2,6 +2,24 @@
 
 ## Batch 20 (CP71-75) — merged; measured numbers below
 
+### Verified in production, 2026-08-08, after deploy
+
+`prompt_version: 3`. One live call to the deployed service with the user's own question
+("Compare Norris and Verstappen this year") confirms the whole batch end to end:
+
+- **CP73**: **1 tool call, 41.5s, converged** — against the pre-fix 10 calls / 95.4s / no answer.
+- **CP72**: 7 anchors, each resolved to a real field — `Max Verstappen → name`, `109 → points`,
+  `11 → rounds_entered` — with real spans. The cited thing is the claimed thing.
+
+**Two production bugs were found by this check that no review or test caught**, both recorded in
+`ROADMAP.md`: the answer cache stored the step-budget degrade (so one transient failure answered
+that question forever, and it made CP73's fix look broken after deploy), and `PROMPT_VERSION` had
+not been bumped despite the prompt and two tool signatures changing.
+
+**Still unverified:** nobody has driven the citation UI in a real browser against the live agent.
+The data path is proven and the rendering logic was fuzzed over 200k cases in review, but no one has
+watched an underline open a popover in production.
+
 ### CP73's before/after, the batch's one hard measurement
 
 Reproduced against the **deployed** service before changing anything, using the user's own wording
