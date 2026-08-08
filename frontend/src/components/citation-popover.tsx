@@ -17,6 +17,14 @@
  *
  * Props are pure data-in / callbacks-out — it owns no panel state, so Task 5
  * can mount it wherever a pill lives.
+ *
+ * **CP74 changes what it shows, not how it behaves.** Given an `anchor` it
+ * renders the located row *in context* — the whole record, with the field
+ * that proves the claim pulled to the top and highlighted — rather than the
+ * bundle's first six keys. The snippet path below is kept intact as the
+ * fallback for an answer with no anchor, so a cached or pre-CP72 answer still
+ * opens something. Kind, freshness and the real link for web sources are
+ * untouched: CP71 established them and they work.
  */
 
 import { useEffect, useMemo, useRef } from "react";
@@ -24,16 +32,74 @@ import { motion, useReducedMotion } from "motion/react";
 import { ExternalLink, X } from "lucide-react";
 import LocalDateTime from "./local-datetime";
 import { sourceKindStyle } from "@/lib/source-kind";
-import type { AgentSnippetPair, AgentSource } from "@/lib/agent-api";
+import type { AgentAnchor, AgentSnippetPair, AgentSource } from "@/lib/agent-api";
 
 interface CitationPopoverProps {
   source: AgentSource;
+  /**
+   * CP74: the specific claim this popover was opened for. When present, the
+   * body shows the **located row in context** — the whole record, with the
+   * proving field highlighted inside it — instead of the claim-blind snippet.
+   * That is the entire fix for "it cited a table with nothing about the
+   * winner": the excerpt was the bundle's first six keys, chosen before
+   * anybody knew what was being claimed.
+   *
+   * Optional because an anchor can be absent (a pre-CP72 cached answer, an
+   * anchor whose span did not resolve). Then this falls back to CP71's
+   * snippet rendering, which is a smaller answer but never a broken one.
+   */
+  anchor?: AgentAnchor | null;
   /**
    * The full answer text this citation appears in. Snippet values that
    * literally occur in it are emphasised — see {@link findHighlightedIndices}.
    */
   answerText?: string;
   onClose: () => void;
+}
+
+/** Longest a single cell may render before it is cut. */
+const CELL_MAX = 140;
+
+/**
+ * One record field, flattened to something a popover line can show.
+ *
+ * The row comes from a tool bundle, so a value can be a nested object or a
+ * list. Those are summarised rather than dumped, matching the discipline
+ * `Evidence._snippet` already applies backend-side: this is a glance at the
+ * fact in its record, not a JSON viewer.
+ */
+function cellText(value: unknown): string {
+  if (value == null) return "—";
+  if (typeof value === "string") return value.slice(0, CELL_MAX);
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return `${value.length} items`;
+  if (typeof value === "object") {
+    return `${Object.keys(value as Record<string, unknown>).length} fields`;
+  }
+  return String(value).slice(0, CELL_MAX);
+}
+
+/**
+ * The located row as `{label, value}` lines, with the proving field first.
+ *
+ * Ordering matters more than it looks: the point of showing the row is
+ * context, but the reader came here for one field, and a record with fourteen
+ * keys buries it. The proving field leads and is highlighted; the rest follow
+ * in the record's own order, which is how the tool laid the record out.
+ */
+function rowLines(anchor: AgentAnchor): { label: string; value: string }[] {
+  const row = (anchor.row ?? {}) as Record<string, unknown>;
+  const keys = Object.keys(row);
+  if (keys.length === 0) {
+    // No row survived the locate — the field and value alone are still a
+    // strictly better citation than a claim-blind excerpt.
+    return anchor.field
+      ? [{ label: anchor.field, value: anchor.value ?? anchor.text }]
+      : [];
+  }
+  const field = anchor.field ?? "";
+  const ordered = keys.includes(field) ? [field, ...keys.filter((k) => k !== field)] : keys;
+  return ordered.map((key) => ({ label: key, value: cellText(row[key]) }));
 }
 
 /**
@@ -69,6 +135,7 @@ export function findHighlightedIndices(
 
 export default function CitationPopover({
   source,
+  anchor,
   answerText,
   onClose,
 }: CitationPopoverProps) {
@@ -85,6 +152,8 @@ export default function CitationPopover({
     () => findHighlightedIndices(pairs, answerText),
     [pairs, answerText]
   );
+  const lines = useMemo(() => (anchor ? rowLines(anchor) : []), [anchor]);
+  const provingField = anchor?.field ?? "";
 
   const asOfMs = source.as_of ? new Date(source.as_of).getTime() : null;
   const hasLink = source.kind !== "data" && Boolean(source.url);
@@ -160,7 +229,11 @@ export default function CitationPopover({
       transition={{ duration: reduce ? 0.1 : 0.18, ease: [0.23, 1, 0.32, 1] }}
       style={{ transformOrigin: "top left" }}
       role="dialog"
-      aria-label={`Evidence for ${source.title}`}
+      aria-label={
+        anchor
+          ? `Evidence for ${anchor.value || anchor.text}, from ${source.title}`
+          : `Evidence for ${source.title}`
+      }
       className="absolute top-full left-0 z-50 mt-1.5 w-72 max-w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-white/10 bg-[rgba(26,22,19,0.98)] p-3 shadow-2xl"
     >
       <div className="flex items-start gap-2">
@@ -189,7 +262,63 @@ export default function CitationPopover({
         {source.title}
       </p>
 
-      {pairs.length > 0 ? (
+      {anchor ? (
+        <>
+          {/* `path` is the record's address inside the bundle
+              (`results[0]`) — small, monospaced and muted, because it is
+              orientation for a curious reader rather than the answer. */}
+          {anchor.path && (
+            <p className="mt-0.5 font-mono text-[10px] text-[var(--color-on-surface-variant)]">
+              {anchor.path}
+            </p>
+          )}
+          {lines.length > 0 ? (
+            <dl className="mt-2 space-y-0.5">
+              {lines.map((line) => {
+                const proving = line.label === provingField;
+                return (
+                  <div
+                    key={line.label}
+                    className={`flex items-baseline gap-2 rounded-md px-1.5 py-1 ${
+                      proving ? "bg-[rgba(255,138,61,0.12)]" : ""
+                    }`}
+                  >
+                    <dt className="shrink-0 text-[10px] tracking-wide text-[var(--color-on-surface-variant)] uppercase">
+                      {line.label}
+                    </dt>
+                    <dd
+                      className={`min-w-0 flex-1 text-right text-[11px] break-words ${
+                        proving
+                          ? "font-semibold text-[var(--color-primary)]"
+                          : "text-[var(--color-on-surface)]"
+                      }`}
+                    >
+                      {line.value}
+                      {/* The record's wording and the answer's wording
+                          legitimately differ ("George Russell" vs
+                          "Russell"). Saying so is more honest than quietly
+                          showing one and claiming it is the other. */}
+                      {proving &&
+                        anchor.text &&
+                        anchor.value &&
+                        anchor.text !== anchor.value && (
+                          <span className="ml-1 font-normal text-[10px] text-[var(--color-on-surface-variant)]">
+                            (cited as &ldquo;{anchor.text}&rdquo;)
+                          </span>
+                        )}
+                    </dd>
+                  </div>
+                );
+              })}
+            </dl>
+          ) : (
+            <p className="mt-2 text-[11px] text-[var(--color-on-surface-variant)]">
+              This value came from {source.title}, but the surrounding record
+              was not recorded.
+            </p>
+          )}
+        </>
+      ) : pairs.length > 0 ? (
         <dl className="mt-2 space-y-1">
           {pairs.map((pair, i) => {
             const hit = highlighted.has(i);
