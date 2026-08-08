@@ -61,6 +61,36 @@ export interface AgentSnippetPair {
   value: string;
 }
 
+/**
+ * One claim token tied to the exact field of the exact record proving it
+ * (CP72, `backend/agent/verifier.py::Anchor`).
+ *
+ * `start`/`end` index the **raw draft** — the answer text exactly as it
+ * streamed, `[ev_N]` markers included — not the rendered prose. That is the
+ * whole reason `answer-anchors.ts` exists: reconciling those offsets against
+ * what `ReactMarkdown` finally paints is CP74's hardest problem, and it is
+ * solved in one place rather than at each call site.
+ *
+ * `text` is the draft's own wording; `value` is the stored one. They
+ * legitimately differ ("Russell" in the prose, "George Russell" in the
+ * record), so the mark uses `text` and the evidence panel uses `value`.
+ *
+ * Every field is optional-by-defensiveness at the boundary: this arrives over
+ * the wire from a heuristic token matcher, and CP44's lesson is that a
+ * documented shape is not a guaranteed one.
+ */
+export interface AgentAnchor {
+  evidence_id: string;
+  text: string;
+  start: number;
+  end: number;
+  claim?: string;
+  field?: string;
+  value?: string;
+  path?: string;
+  row?: Record<string, unknown> | null;
+}
+
 export interface AgentSource {
   id: string;
   n: number;
@@ -71,6 +101,12 @@ export interface AgentSource {
   as_of?: string | null;
   /** Optional: an older agent build may not send it at all. */
   snippet?: AgentSnippetPair[] | null;
+  /**
+   * This record's own anchors, in draft order (CP72). Present so the source
+   * strip and the inline marks are two views of ONE set — the structural fix
+   * for CP71's "one citation inline, five listed below".
+   */
+  anchors?: AgentAnchor[] | null;
 }
 
 export interface AgentDone {
@@ -97,7 +133,14 @@ export interface AgentHandlers {
     kind?: "tool" | "agent" | "system"
   ) => void;
   onToken?: (text: string) => void;
-  onSources?: (sources: AgentSource[]) => void;
+  /**
+   * CP74: the flat, draft-ordered anchor list arrives alongside the grouped
+   * sources because the two are derived from one set backend-side. It is
+   * always an array — the backend sends `[]` rather than omitting the key on
+   * the paths that have no anchors (echo fallback, cached pre-CP72 answers) —
+   * so a caller never has to distinguish "none" from "old build".
+   */
+  onSources?: (sources: AgentSource[], anchors: AgentAnchor[]) => void;
   onDone?: (done: AgentDone) => void;
   onError?: (code: AgentErrorCode, message: string) => void;
 }
@@ -196,52 +239,71 @@ export function parseFrame(
 }
 
 /**
- * Turn a complete `[ev_N]` citation marker into a markdown link
- * `[N](#cite-<messageId>-ev_N)`, which `react-markdown`'s existing link
- * rendering (via a `components.a` override, see `CitationPill`) turns into a
- * numbered pill.
+ * A `[ev_N]` citation marker as the model actually writes it.
  *
- * **Why the message id is in there (CP71).** Every turn builds a fresh
- * `EvidenceLedger` starting at `ev_1`, so `ev_1` is the first source of *every*
- * answer. The previous `#cite-ev_N` href — and the matching `id="source-ev_N"`
- * on the card — put per-message ids into a document-global namespace: with
- * three answers on screen, three elements shared `id="source-ev_1"` and
- * `getElementById` returned the *first in document order*, i.e. the oldest
- * answer. That was the reported "clicking a citation scrolls up to a previous
- * answer". Prefixing with the message id gives each answer its own namespace.
+ * **Mirror of `_CITATION_RE` in `backend/agent/verifier.py`.** Keep the two in
+ * sync: they parse the same strings out of the same draft, and a frontend that
+ * recognises fewer variants than the verifier leaves the extras on screen as
+ * raw text — the dead-`[ev_N]` symptom CP68 was supposed to have eliminated.
  *
- * Deliberately a plain string rewrite rather than a custom remark plugin —
- * `react-markdown` already parses markdown links correctly, so reusing that
- * avoids a new AST-visiting dependency for something a regex already solves.
- * The regex's own requirement of a closing `]` is what makes this
- * streaming-safe: a partial marker at a chunk boundary (`"...[ev_"`) simply
- * does not match yet and passes through as literal text, unmodified, until
- * the closing bracket arrives in a later chunk.
+ * Bracket *shape* is tolerated because CP73's live runs caught the deployed
+ * model closing a marker with the CJK full-width `【ev_2】`. The backend was
+ * blind to it and reported nine violations against a correct, properly cited
+ * draft. This is the CP41 lesson again — the prompt asks for `[ev_N]`, the
+ * model mostly complies, and "mostly" is not a contract. Widening the parser
+ * costs nothing; asking the model more firmly is the approach CP41 already
+ * watched fail in ALL CAPS.
+ *
+ * Only the brackets are loose. The `ev_N` body stays exact, so a hallucinated
+ * id is still a lookup miss rather than a silently-accepted citation. Any
+ * opening variant may pair with any closing one, matching the backend
+ * character-class-for-character-class rather than requiring a matched pair —
+ * a model that mixes `[ev_2】` is doing something no stricter rule predicts.
+ *
+ * **Streaming safety is a property of the closing bracket being required.** A
+ * marker split across a chunk boundary (`"…【ev_"`) simply does not match yet
+ * and passes through as literal text until its closing bracket arrives in a
+ * later chunk. Any future widening must preserve that.
  */
-export function rewriteCitations(text: string, messageId: string): string {
-  return text.replace(/\[ev_(\d+)\]/g, `[$1](#cite-${messageId}-ev_$1)`);
+export const CITATION_MARKER_SOURCE = "[[【［]ev_(\\d+)[\\]】］]";
+
+/**
+ * The href an inline anchor mark carries: `#anchor-<messageId>-<index>`.
+ *
+ * CP74 keeps CP71's transport — a plain string rewrite into a markdown link,
+ * rendered through a `components.a` override — because `react-markdown`
+ * already parses links correctly and a custom remark plugin would be a new
+ * AST-visiting dependency for something a rewrite already solves. What
+ * changed is the *payload*: CP71 encoded an evidence id and rendered a
+ * numbered pill; CP74 encodes an index into the message's resolved anchor
+ * list, because an anchor names a field and a row, which no href could carry.
+ *
+ * The message id stays in the href for exactly CP71's reason: evidence ids
+ * restart at `ev_1` every turn, so anything document-global collides across
+ * answers on screen.
+ */
+export function anchorHref(messageId: string, index: number): string {
+  return `#anchor-${messageId}-${index}`;
 }
 
 /**
- * Inverse of {@link rewriteCitations}' href shape.
+ * Inverse of {@link anchorHref}.
  *
- * The message-id segment is matched greedily and the evidence segment is
- * anchored to the end, so this survives *any* message id that does not itself
- * end in `-ev_<digits>` — including uuids, which are full of hyphens. A naive
- * `split("-")` would break on the first uuid.
- *
- * Returns `null` for an ordinary markdown link, which is what keeps
- * `CitationPill`'s non-citation fallback branch working.
+ * The message-id segment is matched greedily and the index is anchored to the
+ * end, so this survives any message id that does not itself end in
+ * `-<digits>`. Returns `null` for an ordinary markdown link, which is what
+ * keeps `AnchorMark`'s plain-link fallback working — an answer containing a
+ * genuine external link must still render it as a link.
  */
-export function parseCitationHref(
+export function parseAnchorHref(
   href: string | undefined
-): { messageId: string; evidenceId: string } | null {
-  const match = href?.match(/^#cite-(.+)-(ev_\d+)$/);
+): { messageId: string; index: number } | null {
+  const match = href?.match(/^#anchor-(.+)-(\d+)$/);
   if (!match) return null;
-  return { messageId: match[1], evidenceId: match[2] };
+  return { messageId: match[1], index: Number(match[2]) };
 }
 
-/** The DOM id a `SourceCard` renders and a `CitationPill` resolves. */
+/** The DOM id a source-strip chip renders and an `AnchorMark` resolves. */
 export function citationAnchorId(messageId: string, evidenceId: string): string {
   return `source-${messageId}-${evidenceId}`;
 }
@@ -354,7 +416,10 @@ function dispatch(event: string, data: unknown, handlers: AgentHandlers): void {
       handlers.onToken?.(String(payload.text ?? ""));
       break;
     case "sources":
-      handlers.onSources?.((payload.sources ?? []) as AgentSource[]);
+      handlers.onSources?.(
+        (payload.sources ?? []) as AgentSource[],
+        (payload.anchors ?? []) as AgentAnchor[]
+      );
       break;
     case "done":
       handlers.onDone?.(payload as unknown as AgentDone);
