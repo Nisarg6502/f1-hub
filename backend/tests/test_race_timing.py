@@ -59,7 +59,7 @@ class LeaderBoundaryTests(unittest.TestCase):
     leader's crossing by definition — no `/position` lookup involved."""
 
     def test_boundaries_are_the_earliest_crossing_of_each_lap(self):
-        boundaries, lap_one = race_timing._leader_boundaries(LAP_ROWS)
+        boundaries, lap_one, _last = race_timing._leader_boundaries(LAP_ROWS)
 
         self.assertEqual(sorted(boundaries), [1, 2, 3])
         self.assertEqual(boundaries[1].isoformat(), "2026-03-08T12:01:30")
@@ -70,7 +70,7 @@ class LeaderBoundaryTests(unittest.TestCase):
         self.assertEqual(lap_one, 90.0)
 
     def test_lap_one_starts_a_leader_lap_duration_before_its_boundary(self):
-        boundaries, lap_one = race_timing._leader_boundaries(LAP_ROWS)
+        boundaries, lap_one, _last = race_timing._leader_boundaries(LAP_ROWS)
 
         spans = race_timing._lap_spans(boundaries, lap_one)
 
@@ -81,7 +81,7 @@ class LeaderBoundaryTests(unittest.TestCase):
     def test_lap_one_is_dropped_rather_than_guessed_without_its_duration(self):
         """Without the leader's own lap-1 duration there is no race start, and
         inventing one would shift every sample in the race invisibly."""
-        boundaries, _ = race_timing._leader_boundaries(LAP_ROWS)
+        boundaries, _, _last = race_timing._leader_boundaries(LAP_ROWS)
 
         spans = race_timing._lap_spans(boundaries, None)
 
@@ -314,3 +314,31 @@ class ShapeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FinishingOrderTests(unittest.TestCase):
+    """The race does not end when the winner crosses the line."""
+
+    def test_a_sample_after_the_winner_finishes_anchors_to_the_race_end(self):
+        """Car 44 crosses 5s after the leader. A position settled in that window
+        is the *finishing* order, and dropping it left the tower showing the
+        order at the winner's crossing instead — Hamilton ahead of Leclerc on
+        round 11, where the official times have Leclerc 0.7s in front."""
+        drivers = race_timing.build_timing(
+            LAP_ROWS,
+            [],
+            [position_row("2026-03-08T12:04:33", driver_number=44, position=1)],
+        )
+
+        # 3 laps x 90s: the race's final instant, not a point inside lap 3.
+        self.assertEqual(drivers["44"]["positions"], [[270000, 1]])
+
+    def test_a_sample_beyond_the_last_car_is_still_dropped(self):
+        """The tail window ends at the last crossing; it is not an open door."""
+        drivers = race_timing.build_timing(
+            LAP_ROWS,
+            [],
+            [position_row("2026-03-08T12:20:00", driver_number=44, position=1)],
+        )
+
+        self.assertEqual(drivers, {})
