@@ -329,9 +329,24 @@ export default function WatchView({
   /** The live field order, and the deltas that go with it. Held in state
    * because the tower genuinely has to re-render to reorder — but written only
    * when the order *changes* (~531 times in a whole race), never per frame. */
-  const [liveOrder, setLiveOrder] = useState<string[] | null>(null);
+  /**
+   * Seeded with the order at t=0 rather than starting `null`.
+   *
+   * `null` means "fall back to the lap row", and the lap row for lap 1 is the
+   * order at the *end* of lap 1 — so the tower rendered a mid-race order until
+   * the first painted frame replaced it. On the Australian GP that put Leclerc
+   * P1 and Hamilton P3 on screen before the race had started, which is exactly
+   * the wrong-looking state a viewer sees when they open the page and have not
+   * pressed play yet.
+   *
+   * Seeding also makes the server-rendered markup correct on its own, instead of
+   * correct-after-hydration.
+   */
+  const [liveOrder, setLiveOrder] = useState<string[] | null>(() =>
+    orderAt(timingIndex, 0)
+  );
   const [liveDeltas, setLiveDeltas] = useState<Record<string, number>>({});
-  const orderRef = useRef<string[] | null>(null);
+  const orderRef = useRef<string[] | null>(liveOrder);
 
   /**
    * One frame of the clock: the lap readouts, then every driver's timing cell.
