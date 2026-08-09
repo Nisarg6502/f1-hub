@@ -1,6 +1,69 @@
 # F1 Hub — Handoff (2026-08-09)
 
-## CP79 — per-second watch timing, shipped and then corrected five times (2026-08-09)
+## CP79 — read this first: the verification lesson, not the bug list (2026-08-09)
+
+Seven defects shipped in this checkpoint. **One user, checking one race against
+what they remembered, found every category of them.** The unit suite (952 tests),
+a real browser, and "we can see intra-lap movement" all passed on a payload whose
+timeline was shifted a lap, which discarded the opening 90 seconds of every race,
+and which rendered a mid-race order before the race had started.
+
+The single cause: **every check compared the OpenF1 feed against itself.** A feed
+always agrees with itself. `backend/scripts/verify_race_timing.py` exists because
+of this and should be run after any change to `race_timing.py`:
+
+```
+cd backend && python -m scripts.verify_race_timing            # local rebuild
+cd backend && python -m scripts.verify_race_timing --deployed # the live service
+```
+
+Every assertion in it is against a source the payload is **not** built from — the
+official grid and classification from `race_results`, this app's own `race_laps`
+positions (same feed, different join, so it disagrees when anchoring is wrong),
+and the raw feed's own event count. It exits non-zero, so it can gate a deploy.
+
+Two things it has already taught, both worth keeping:
+
+- **It caught a round-10 "failure" that was the harness's fault, not the code's.**
+  Two laps there have no recorded duration; the script treated them as zero and
+  drifted its comparison instant 220s, reporting 60% timeline misalignment in a
+  correct payload. A harness that models the clock differently from the clock
+  invents failures. Fixed in the harness; the code was right.
+- **The payload being correct does not mean the page is.** Defect 7 below was
+  invisible in every payload check and only appeared when the deployed page was
+  driven in a browser *before pressing play*. Check both.
+
+## CP79 — per-second watch timing, shipped and then corrected seven times (2026-08-09)
+
+Two defects beyond the five listed below, both found after the first "it's fixed":
+
+6. **The race start was inferred rather than read, and landed ~90s late.** Lap 1
+   opened at `boundaries[1] - lap_1_duration`. The feed states the start outright:
+   every driver's lap-1 `date_start` is the *same* timestamp (20 identical values
+   on round 1) because it is the start signal, not a per-car measurement. The
+   derived instant discarded every position change in the opening — round 1 kept
+   253 in-race position events where the feed has 509, and Hamilton showed P7 for
+   seventeen minutes after actually running P7→P3 within ten seconds of lights
+   out. **The earlier reasoning for discarding that timestamp was careful and
+   still wrong**: the row carries `is_pit_out_lap: true` with a null
+   `lap_duration` and sits 182.5s before the leader's lap-1 crossing while
+   `race_laps` calls lap 1 91.9s, so it read as a formation lap. Lap 1 genuinely
+   took 182.5s (starting-procedure investigations; lap 2 took 81.4s), and
+   `is_pit_out_lap` is true only because the cars drove out of the pits to the
+   grid. A stated fact beats a plausible inference.
+7. **The tower rendered a mid-race order before the race started.** `liveOrder`
+   began `null`, and null means "fall back to the lap row" — whose lap-1 entry is
+   the order at the *end* of lap 1. So opening the page showed Leclerc P1 and
+   Hamilton P3 until the clock produced its first frame. Now seeded from
+   `orderAt(index, 0)`, which also makes the server-rendered markup correct
+   rather than correct-after-hydration.
+
+`TIMING_VERSION` is **4**. Note the pattern in why it kept moving: 3 and 4 both
+changed *how the payload is derived* without changing its shape, so stale
+documents stayed structurally valid while serving wrong data. Bump on derivation
+changes, not only shape changes.
+
+## CP79 — the first five defects (2026-08-09)
 
 `/watch` no longer updates once a lap. `race_timing.py` + `watch-timing.ts` serve real OpenF1
 `/intervals` and `/position` samples on a race-elapsed clock; the tower reorders when the feed says
