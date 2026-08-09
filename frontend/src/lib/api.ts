@@ -593,6 +593,15 @@ export interface RaceTimingDriver {
   /** Ascending by `t_ms`, non-empty. Carried forward between entries — a
    * position holds until the next event says otherwise. */
   positions: PositionSample[];
+  /**
+   * Elapsed time after which this car is out of the race. Absent for a car that
+   * took the flag, including a lapped one.
+   *
+   * Consumers must stop carrying the last position forward past this instant.
+   * Without it a retirement keeps its place in the running order for the rest
+   * of the race, which also pushes every car behind it down by one.
+   */
+  out_ms?: number;
 }
 
 /**
@@ -618,6 +627,21 @@ export interface RaceTiming {
   round: number;
   synced: boolean;
   drivers: Record<string, RaceTimingDriver>;
+  /**
+   * The leader's duration for each lap in ms, index-aligned to laps 1..N.
+   *
+   * **The clock must run on this whenever it is present, not on
+   * `lapDurations(replay.laps)`.** Both describe the same race, but `t_ms` above
+   * is measured on *this* timeline — it is elapsed time in the official lap
+   * archive, where the replay's durations are a sum of per-lap minima drawn
+   * from a different source. Mixing them is what the predecessor did, and the
+   * drift between the two is where the position bugs lived: on round 1 it
+   * placed the whole opening of the race at half its true offset, so laps 1 and
+   * 2 landed on top of each other and rendered in the wrong order.
+   *
+   * Empty on an unsynced round, where there is no timing to be in step with.
+   */
+  lap_ms: number[];
 }
 
 export async function getRaceTiming(year: number, round: number) {

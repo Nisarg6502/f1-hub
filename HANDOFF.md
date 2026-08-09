@@ -1,5 +1,74 @@
 # F1 Hub — Handoff (2026-08-09)
 
+## CP80 — watch timing rebuilt on the official record (2026-08-09)
+
+**Supersedes the CP79 section below wherever they disagree.** The user reported
+that lap 2 of the 2026 Australian GP showed Russell ahead of Leclerc. Checked
+against Jolpica's official lap-by-lap, the payload had laps 1 *and* 2 exactly
+inverted — and `race_laps` agreed with the official record, so the fault was
+ours alone. The official times are self-consistent (RUS 177.701s vs LEC 178.141s
+at the end of lap 2, a real 0.44s lead).
+
+**Two faults, neither reachable from inside OpenF1:**
+
+- Its `/laps` feed is **missing lap-2 rows for cars 16, 63 and 44** on that
+  round — the entire podium fight. The "leader's crossing" for lap 1 came from
+  Hadjar in P4.
+- The race start read off the uniform lap-1 `date_start` (see CP79 defect 6) is
+  the **formation-lap departure, ~90s early**. Lap 1's 182.5s of wall clock was
+  then squeezed onto the clock's 91.9s lap, compressing the opening 2:1 so laps
+  1 and 2 landed on top of each other. *CP79's defect 6 reasoning is wrong and
+  is retained below only as a record of the mistake.*
+
+Correcting the start alone scored **worse** (57% vs 69% against official), which
+is what forced the rewrite rather than a sixth patch.
+
+**The architecture now:** the official lap archive (`app/official_laps.py`) is
+the spine. Every driver gets an exact position sample at their own crossing, for
+every lap; OpenF1 fills between crossings and is corrected at each one. Cumulative
+official lap times *are* real elapsed seconds, so the payload ships `lap_ms` and
+the clock runs on it — **there is no rescaling anywhere**, which is what removed
+the whole class of bug. Aligning OpenF1's wall clock needs one number, measured
+as the median of per-lap estimates (`race_start_offset`): stable to 0.2s across a
+race, and robust to round 1's 13 bad laps.
+
+Four further defects this rewrite surfaced, all found by measuring, not by eye:
+
+1. **Truncated races cached silently.** Jolpica rate-limits a season sync; keeping
+   the pages that arrived cached rounds 9-11 as 28-, 15- and 14-lap races, and a
+   prefix of a race passes every consistency check. Now all-or-nothing with backoff.
+2. **DNS cars parked on the grid forever.** Piastri and Hulkenberg held P5 and
+   P11 all race, duplicating every position behind them — some position was
+   duplicated in **19% of round 1**.
+3. **Ghosts in the order.** Excluding them from the grid seed was not enough:
+   OpenF1 emits rows for cars that never started, so they re-entered through the
+   fill and sat in the order with no tower row, punching holes in the rendered
+   ranks (`1,2,3,4,6,7,8,9,11,...`). The payload is now restricted to cars the
+   official record says took part, and `verify_race_timing` has a `ghosts` check.
+4. **Retirements never left.** A retired car's last sample carried forward to the
+   flag. The payload now carries `out_ms` per driver.
+
+**The tower renders rank over the live order, not the raw sampled position.**
+Positions are stamped at each car's own crossing, so two cars on different laps
+routinely report the same number; ranking makes the numbers unique and contiguous
+by construction and impossible to disagree with the row order. This is *not* the
+renumbering bug fixed earlier — that indexed the rendered rows, this indexes the
+order itself.
+
+Measured across all 11 rounds: archive 100%, boundaries 100%, grid 100% of
+starters, rendered ranks collide in 0% of every race. `flag-order` is now
+reported **without a threshold** — the deviations are post-race penalties, and
+asserting on them was scoring the stewards rather than the code.
+
+```
+cd backend && python -m scripts.sync_race_timing     # build + cache all rounds
+cd backend && python -m scripts.verify_race_timing   # gate the deploy
+```
+
+Verify the *page* too, not just the payload — `data-car` on each tower row exists
+for that. A stale Next fetch cache made the browser show pre-fix data for two
+rounds of debugging; clear `.next` when a UI check disagrees with the payload.
+
 ## CP79 — read this first: the verification lesson, not the bug list (2026-08-09)
 
 Seven defects shipped in this checkpoint. **One user, checking one race against

@@ -19,27 +19,56 @@ if "motor.motor_asyncio" not in sys.modules:
     sys.modules["motor"] = motor_module
     sys.modules["motor.motor_asyncio"] = motor_asyncio_module
 
-from app import race_timing
+from app import official_laps, race_timing
 
 
-# A three-lap race with two drivers, chosen so every boundary is a round number
-# and every expected `t_ms` below can be worked out by hand.
+# A three-lap race with two drivers, chosen so every number below can be worked
+# out by hand.
 #
-# Car 1 leads: it starts lap 1 at 12:00:00 and crosses the line at 12:01:30,
-# 12:03:00 and 12:04:30 — three 90-second laps. Car 44 is two seconds behind
-# throughout, which is what proves the boundaries come from the *earliest*
-# crossing rather than from whichever driver's rows happen to be seen first.
-LAP_ROWS = [
-    {"driver_number": 44, "lap_number": 1, "date_start": "2026-03-08T12:00:02", "lap_duration": 93.0},
-    {"driver_number": 44, "lap_number": 2, "date_start": "2026-03-08T12:01:35", "lap_duration": 90.0},
-    {"driver_number": 44, "lap_number": 3, "date_start": "2026-03-08T12:03:05", "lap_duration": 90.0},
-    {"driver_number": 1, "lap_number": 1, "date_start": "2026-03-08T12:00:00", "lap_duration": 90.0},
-    {"driver_number": 1, "lap_number": 2, "date_start": "2026-03-08T12:01:30", "lap_duration": 90.0},
-    {"driver_number": 1, "lap_number": 3, "date_start": "2026-03-08T12:03:00", "lap_duration": 90.0},
+# Car 1 leads and laps in 90s flat: it crosses at 90s, 180s and 270s. Car 44 is
+# 2s behind at the end of lap 1 and holds that: 92s, 182s, 272s. Lights out is
+# 12:00:00 in wall-clock terms.
+#
+# The official record is the spine, so it — not OpenF1 — decides positions at
+# every crossing.
+OFFICIAL_ROWS = [
+    {"lap": 1, "timings": [
+        {"driverId": "verstappen", "position": 1, "cumulative_ms": 90_000},
+        {"driverId": "hamilton", "position": 2, "cumulative_ms": 92_000},
+    ]},
+    {"lap": 2, "timings": [
+        {"driverId": "verstappen", "position": 1, "cumulative_ms": 180_000},
+        {"driverId": "hamilton", "position": 2, "cumulative_ms": 182_000},
+    ]},
+    {"lap": 3, "timings": [
+        {"driverId": "verstappen", "position": 1, "cumulative_ms": 270_000},
+        {"driverId": "hamilton", "position": 2, "cumulative_ms": 272_000},
+    ]},
 ]
 
-RACE_START = "2026-03-08T12:00:00"
-LAST_BOUNDARY = "2026-03-08T12:04:30"
+DRIVER_NUMBERS = {"verstappen": "1", "hamilton": "44"}
+
+# OpenF1's wall-clock crossings for the same race. Every lap implies the same
+# lights-out instant, 12:00:00.
+# Stamped `+00:00` deliberately. OpenF1's real rows carry an offset, and a naive
+# string here would be read in the runner's local zone — which silently moves
+# lights out by hours and makes every anchoring assertion below meaningless in a
+# way that looks like a logic failure.
+LAP_ROWS = [
+    {"driver_number": 1, "lap_number": 1, "date_start": "2026-03-08T12:00:00+00:00", "lap_duration": 90.0},
+    {"driver_number": 1, "lap_number": 2, "date_start": "2026-03-08T12:01:30+00:00", "lap_duration": 90.0},
+    {"driver_number": 1, "lap_number": 3, "date_start": "2026-03-08T12:03:00+00:00", "lap_duration": 90.0},
+    {"driver_number": 44, "lap_number": 1, "date_start": "2026-03-08T12:00:00+00:00", "lap_duration": 92.0},
+    {"driver_number": 44, "lap_number": 2, "date_start": "2026-03-08T12:01:32+00:00", "lap_duration": 90.0},
+    {"driver_number": 44, "lap_number": 3, "date_start": "2026-03-08T12:03:02+00:00", "lap_duration": 90.0},
+]
+
+RACE_START = datetime.datetime(2026, 3, 8, 12, 0, 0, tzinfo=datetime.timezone.utc)
+
+
+def at(seconds: float) -> str:
+    """A wall-clock ISO stamp `seconds` after lights out."""
+    return (RACE_START + datetime.timedelta(seconds=seconds)).isoformat()
 
 
 def interval_row(date, driver_number=44, interval=1.0, gap_to_leader=2.0):
@@ -55,334 +84,332 @@ def position_row(date, driver_number=44, position=2):
     return {"driver_number": driver_number, "date": date, "position": position}
 
 
-class LeaderBoundaryTests(unittest.TestCase):
-    """The timeline is derived from the earliest crossing per lap, which is the
-    leader's crossing by definition — no `/position` lookup involved."""
-
-    def test_boundaries_are_the_earliest_crossing_of_each_lap(self):
-        boundaries, lap_one, _last, _start = race_timing._leader_boundaries(LAP_ROWS)
-
-        self.assertEqual(sorted(boundaries), [1, 2, 3])
-        self.assertEqual(boundaries[1].isoformat(), "2026-03-08T12:01:30")
-        self.assertEqual(boundaries[2].isoformat(), "2026-03-08T12:03:00")
-        self.assertEqual(boundaries[3].isoformat(), LAST_BOUNDARY)
-        # Read off the driver who actually set that earliest lap-1 crossing —
-        # car 1's 90s, not car 44's 93s.
-        self.assertEqual(lap_one, 90.0)
-
-    def test_lap_one_starts_a_leader_lap_duration_before_its_boundary(self):
-        boundaries, lap_one, _last, _start = race_timing._leader_boundaries(LAP_ROWS)
-
-        spans = race_timing._lap_spans(boundaries, lap_one)
-
-        self.assertEqual(spans[0][0].isoformat(), RACE_START)
-        self.assertEqual([span[2] for span in spans], [90.0, 90.0, 90.0])
-        self.assertEqual([span[3] for span in spans], [0.0, 90.0, 180.0])
-
-    def test_lap_one_is_dropped_rather_than_guessed_without_its_duration(self):
-        """With neither a start signal nor a lap-1 duration there is no race
-        start, and inventing one would shift every sample in the race
-        invisibly. `race_start` is passed as None here deliberately: the feed's
-        own signal now takes precedence over this derived fallback, so the
-        fallback has to be isolated to still be under test."""
-        boundaries, _, _last, _start = race_timing._leader_boundaries(LAP_ROWS)
-
-        spans = race_timing._lap_spans(boundaries, None, None, None)
-
-        self.assertEqual(len(spans), 2)
-        self.assertEqual(spans[0][0].isoformat(), "2026-03-08T12:01:30")
+def build(**overrides):
+    kwargs = {
+        "official_rows": OFFICIAL_ROWS,
+        "driver_numbers": DRIVER_NUMBERS,
+        "lap_rows": LAP_ROWS,
+        "interval_rows": [],
+        "position_rows": [],
+        "grid_positions": None,
+    }
+    kwargs.update(overrides)
+    return race_timing.build_timing(**kwargs)
 
 
-class AnchoringTests(unittest.TestCase):
-    def _drivers(self, intervals=(), positions=(), grid=None):
-        return race_timing.build_timing(
-            LAP_ROWS, list(intervals), list(positions), None, grid
+class OfficialSkeletonTests(unittest.TestCase):
+    """Positions at line crossings come from the official record and nowhere else."""
+
+    def test_each_driver_is_stamped_at_their_own_crossing_not_the_leaders(self):
+        samples, _, _ = race_timing.official_samples(OFFICIAL_ROWS, DRIVER_NUMBERS)
+        # Car 44 finishes lap 1 at 92s, two seconds after the leader. Stamping
+        # the whole field at the leader's instant is what made the old tower
+        # snap the entire order at once, once a lap.
+        self.assertEqual(samples["44"][0], [92_000, 2])
+        self.assertEqual(samples["1"][0], [90_000, 1])
+
+    def test_lap_durations_are_the_leaders_and_index_align_to_lap_one(self):
+        _, lap_ms, _ = race_timing.official_samples(OFFICIAL_ROWS, DRIVER_NUMBERS)
+        self.assertEqual(lap_ms, [90_000, 90_000, 90_000])
+
+    def test_a_driver_with_no_car_number_is_skipped_not_keyed_by_driver_id(self):
+        # A mixed-key map joins against nothing else in the app and fails far
+        # more quietly than an absent driver does.
+        samples, _, _ = race_timing.official_samples(
+            OFFICIAL_ROWS, {"verstappen": "1"}
         )
+        self.assertEqual(set(samples), {"1"})
 
-    def test_a_mid_lap_sample_lands_at_its_hand_computed_elapsed_time(self):
-        """12:03:45 is halfway through lap 3. Two laps of 90s have already
-        elapsed, plus 45s into this one: 225.000s exactly."""
-        drivers = self._drivers(positions=[position_row("2026-03-08T12:03:45")])
+    def test_the_official_order_wins_over_a_contradicting_openf1_sample(self):
+        # This is the Australian GP defect in miniature: OpenF1 claims car 44
+        # leads at the lap-2 crossing, the official record says car 1 does.
+        drivers = build(position_rows=[position_row(at(180), driver_number=44, position=1)])
+        positions = drivers["drivers"]["44"]["positions"]
+        # The bad claim is shown while it stands — that is the intra-lap fill
+        # doing its job — and is corrected the instant car 44 crosses the line.
+        self.assertIn([180_000, 1], positions)
+        self.assertIn([182_000, 2], positions)
 
-        self.assertEqual(drivers["44"]["positions"], [[225000, 2]])
+    def test_an_openf1_sample_between_crossings_survives(self):
+        # The whole point of the module: intra-lap movement must reach the tower.
+        drivers = build(position_rows=[position_row(at(120), driver_number=44, position=1)])
+        self.assertIn([120_000, 1], drivers["drivers"]["44"]["positions"])
 
-    def test_the_race_start_instant_anchors_to_zero(self):
-        drivers = self._drivers(positions=[position_row(RACE_START)])
 
-        self.assertEqual(drivers["44"]["positions"][0][0], 0)
+class RaceStartTests(unittest.TestCase):
+    """Lights out is measured against the official record, robustly."""
 
-    def test_the_final_crossing_is_kept_rather_than_falling_off_the_end(self):
-        """The last span is closed at the top — there is no following lap to
-        claim the instant, so a half-open interval would silently discard the
-        chequered-flag sample."""
-        drivers = self._drivers(positions=[position_row(LAST_BOUNDARY)])
+    def test_the_start_is_the_offset_the_laps_agree_on(self):
+        _, _, leader = race_timing.official_samples(OFFICIAL_ROWS, DRIVER_NUMBERS)
+        start = race_timing.race_start_offset(LAP_ROWS, leader)
+        self.assertEqual(start, RACE_START)
 
-        self.assertEqual(drivers["44"]["positions"], [[270000, 2]])
-
-    def test_a_post_race_position_is_dropped_not_clamped(self):
-        """An instant after the final crossing has no lap to belong to, and
-        clamping it back onto the last lap would report a position change that
-        happened after the chequered flag as though it happened during the
-        race."""
-        drivers = self._drivers(positions=[
-            position_row("2026-03-08T12:10:00"),   # after the final crossing
-        ])
-
-        self.assertEqual(drivers, {})
-
-    def test_the_starting_grid_is_seeded_at_zero_from_race_results(self):
-        """**The regression this test exists for.** Without a grid at t=0 the
-        lookup clamps backwards to the first in-race sample and presents it as
-        the starting order. On the real 2026 Australian GP that showed Ferrari
-        1-2 on the grid when Mercedes had locked out the front row and Leclerc
-        started P4.
-
-        The grid comes from `race_results`, not from the position feed. Two
-        feed-derived reconstructions were tried first and both measured wrong —
-        see `build_timing`'s note."""
-        drivers = self._drivers(
-            positions=[position_row("2026-03-08T12:03:45", driver_number=44, position=2)],
-            grid={"44": 7},
+    def test_a_single_wildly_wrong_lap_is_outvoted(self):
+        # Round 1 really does have laps whose implied start is 30s out, because
+        # OpenF1 is missing crossings for the leading cars there. The median must
+        # not follow them.
+        rows = [dict(row) for row in LAP_ROWS]
+        rows.append(
+            {"driver_number": 77, "lap_number": 2, "date_start": "2026-03-08T11:59:00+00:00"}
         )
+        _, _, leader = race_timing.official_samples(OFFICIAL_ROWS, DRIVER_NUMBERS)
+        self.assertEqual(race_timing.race_start_offset(rows, leader), RACE_START)
 
-        self.assertEqual(drivers["44"]["positions"], [[0, 7], [225000, 2]])
+    def test_no_shared_lap_yields_no_start(self):
+        _, _, leader = race_timing.official_samples(OFFICIAL_ROWS, DRIVER_NUMBERS)
+        self.assertIsNone(race_timing.race_start_offset([], leader))
 
-    def test_pre_race_position_events_are_still_dropped(self):
-        """The formation-lap churn is not the grid — measured at 1 of 22 correct
-        on the real round — so it is dropped rather than mined for a starting
-        order."""
-        drivers = self._drivers(positions=[
-            position_row("2026-03-08T11:45:00", driver_number=44, position=4),
-        ])
+    def test_openf1_samples_are_dropped_when_the_start_is_unknown(self):
+        # Without a start there is no way to place a wall-clock sample, and
+        # guessing one is how the opening of every race ended up 90s out.
+        drivers = build(lap_rows=[], position_rows=[position_row(at(120), position=1)])
+        positions = drivers["drivers"]["44"]["positions"]
+        self.assertNotIn([120_000, 1], positions)
+        # The official skeleton still stands on its own. Car 44 holds P2 from
+        # its first crossing to the flag, so `_collapse_positions` reduces that
+        # to the single sample which states it.
+        self.assertEqual(positions, [[92_000, 2]])
 
-        self.assertEqual(drivers, {})
 
-    def test_the_grid_snapshot_does_not_displace_a_real_sample_at_zero(self):
-        """A driver whose first in-race sample already lands exactly at t=0 has
-        nothing to gain from a grid entry at the same instant, and two samples
-        sharing a timestamp would make the array's ordering ambiguous."""
-        drivers = self._drivers(
-            positions=[position_row(RACE_START, driver_number=44, position=3)],
-            grid={"44": 4},
+class WindowTests(unittest.TestCase):
+    """Samples outside the race are dropped, never clamped."""
+
+    def test_a_pre_race_sample_is_dropped(self):
+        # OpenF1's feeds run through grid formation and the reconnaissance laps.
+        # Clamping those to t=0 renders as a phantom shuffle at lights out.
+        drivers = build(position_rows=[position_row(at(-120), position=1)])
+        self.assertNotIn(1, [s[1] for s in drivers["drivers"]["44"]["positions"]])
+
+    def test_a_sample_after_the_final_crossing_is_dropped(self):
+        # A position claim 128s after the flag — OpenF1's `/position` feed keeps
+        # emitting through the slow-down lap, and on Monaco it walks a car from
+        # P3 to P7 in the six seconds after it finishes.
+        drivers = build(position_rows=[position_row(at(400), position=1)])
+        positions = drivers["drivers"]["44"]["positions"]
+        self.assertLessEqual(max(sample[0] for sample in positions), 272_000)
+        self.assertNotIn(1, [sample[1] for sample in positions])
+
+    def test_the_last_state_is_the_official_finishing_order(self):
+        drivers = build()
+        self.assertEqual(drivers["drivers"]["1"]["positions"][-1][1], 1)
+        self.assertEqual(drivers["drivers"]["44"]["positions"][-1][1], 2)
+
+
+class OutOfRaceTests(unittest.TestCase):
+    """A car that stops is marked, so consumers stop carrying it forward."""
+
+    def retiring(self):
+        """Car 44 completes lap 1 and stops; car 1 runs the full three laps."""
+        return [
+            {"lap": 1, "timings": [
+                {"driverId": "verstappen", "position": 1, "cumulative_ms": 90_000},
+                {"driverId": "hamilton", "position": 2, "cumulative_ms": 92_000},
+            ]},
+            {"lap": 2, "timings": [
+                {"driverId": "verstappen", "position": 1, "cumulative_ms": 180_000},
+            ]},
+            {"lap": 3, "timings": [
+                {"driverId": "verstappen", "position": 1, "cumulative_ms": 270_000},
+            ]},
+        ]
+
+    def test_a_retirement_is_stamped_with_when_it_left(self):
+        payload = race_timing.build_timing(self.retiring(), DRIVER_NUMBERS, LAP_ROWS, [], [], None)
+        self.assertEqual(payload["drivers"]["44"]["out_ms"], 92_000)
+
+    def test_a_car_that_took_the_flag_is_not_marked(self):
+        # Including a lapped one: it is classified laps down but still crosses
+        # the line at the end of the race, so its final crossing is late.
+        payload = build()
+        self.assertNotIn("out_ms", payload["drivers"]["1"])
+        self.assertNotIn("out_ms", payload["drivers"]["44"])
+
+
+class GridTests(unittest.TestCase):
+    def test_the_grid_is_seeded_at_zero(self):
+        drivers = build(grid_positions={"44": 1, "1": 2})
+        self.assertEqual(drivers["drivers"]["44"]["positions"][0], [0, 1])
+
+    def test_a_car_that_never_started_is_absent_even_with_openf1_rows(self):
+        # Excluding it from the grid seed alone was not enough: OpenF1 emits
+        # interval and position rows for cars that never started, so they
+        # re-entered through the fill and sat in the running order with no tower
+        # row to draw them — the rendered ranks came out 1,2,3,4,6,7,8,9,11,...
+        drivers = build(
+            grid_positions={"81": 5},
+            position_rows=[position_row(at(100), driver_number=81, position=5)],
+            interval_rows=[interval_row(at(100), driver_number=81)],
+        )["drivers"]
+        self.assertNotIn("81", drivers)
+
+    def test_a_car_that_never_started_is_not_seeded_onto_its_grid_slot(self):
+        # A "did not start" still holds a grid slot in the classification.
+        # Seeding it parked a car on that position for the whole race, because
+        # nothing ever moved it — on round 1 that put Piastri on P5 and
+        # Hulkenberg on P11 permanently, duplicating every position behind them.
+        drivers = build(grid_positions={"44": 1, "1": 2, "81": 5})["drivers"]
+        self.assertNotIn("81", drivers)
+
+    def test_the_grid_beats_an_openf1_event_landing_exactly_on_zero(self):
+        drivers = build(
+            grid_positions={"44": 1},
+            position_rows=[position_row(at(0), driver_number=44, position=9)],
         )
-
-        self.assertEqual(drivers["44"]["positions"], [[0, 3]])
-
-    def test_a_late_first_sample_does_not_backfill_over_the_grid(self):
-        """Hamilton's first in-race position sample on the real round 1 arrives
-        14.5 minutes in. Without a grid snapshot the lookup clamps that position
-        backwards over the entire opening stint, silently asserting he ran there
-        from lights out."""
-        drivers = self._drivers(
-            positions=[position_row("2026-03-08T12:03:00", driver_number=44, position=2)],
-            grid={"44": 7},
-        )
-
-        self.assertEqual(drivers["44"]["positions"], [[0, 7], [180000, 2]])
-
-    def test_an_in_race_sample_survives_alongside_a_grid_and_a_dropped_one(self):
-        """The three fates of a position event, in one case: the pre-race one
-        collapses into the grid snapshot at t=0, the in-race one anchors, and
-        the post-race one is dropped, and the grid is seeded at t=0."""
-        drivers = self._drivers(
-            positions=[
-                position_row("2026-03-08T11:45:00"),
-                position_row("2026-03-08T12:03:45"),
-                position_row("2026-03-08T12:10:00"),
-            ],
-            grid={"44": 9},
-        )
-
-        self.assertEqual(drivers["44"]["positions"], [[0, 9], [225000, 2]])
+        self.assertEqual(drivers["drivers"]["44"]["positions"][0], [0, 1])
 
 
-class ValuePassthroughTests(unittest.TestCase):
-    def test_a_string_gap_survives_verbatim(self):
-        """`"+1 LAP"` is broadcast semantics for a lapped car, not corrupt data
-        — roughly a fifth of real `gap_to_leader` values. Parsing or dropping it
-        would blank the gap column for most of the field for most of the race."""
-        drivers = race_timing.build_timing(
-            LAP_ROWS,
-            [interval_row("2026-03-08T12:03:45", gap_to_leader="+1 LAP")],
-            [],
-        )
+class CollapseTests(unittest.TestCase):
+    def test_a_repeated_position_is_not_emitted_twice(self):
+        # OpenF1 restates a position on its own cadence whether or not it moved;
+        # those runs are roughly two thirds of the raw feed.
+        collapsed = race_timing._collapse_positions([[0, 3], [1000, 3], [2000, 3], [3000, 2]])
+        self.assertEqual(collapsed, [[0, 3], [3000, 2]])
 
-        self.assertEqual(drivers["44"]["timing"], [[225000, 1.0, "+1 LAP"]])
+    def test_a_tie_keeps_the_first_inserted(self):
+        self.assertEqual(race_timing._collapse_positions([[5, 1], [5, 7]]), [[5, 1]])
 
-    def test_a_string_interval_survives_verbatim_too(self):
-        drivers = race_timing.build_timing(
-            LAP_ROWS,
-            [interval_row("2026-03-08T12:03:45", interval="+2 LAPS", gap_to_leader="+2 LAPS")],
-            [],
-        )
-
-        self.assertEqual(drivers["44"]["timing"][0][1], "+2 LAPS")
-
-    def test_a_none_gap_stays_none_and_keeps_its_row(self):
-        """`null` is "not reported at this instant" — a real state the sample
-        still belongs in the series for."""
-        drivers = race_timing.build_timing(
-            LAP_ROWS,
-            [interval_row("2026-03-08T12:03:45", interval=None, gap_to_leader=None)],
-            [],
-        )
-
-        self.assertEqual(drivers["44"]["timing"], [[225000, None, None]])
-
-    def test_floats_are_rounded_to_two_decimals(self):
-        drivers = race_timing.build_timing(
-            LAP_ROWS,
-            [interval_row("2026-03-08T12:03:45", interval=1.2340000000000002, gap_to_leader=9.876)],
-            [],
-        )
-
-        self.assertEqual(drivers["44"]["timing"][0][1], 1.23)
-        self.assertEqual(drivers["44"]["timing"][0][2], 9.88)
+    def test_samples_are_sorted_by_time(self):
+        collapsed = race_timing._collapse_positions([[900, 1], [100, 3], [500, 2]])
+        self.assertEqual([s[0] for s in collapsed], [100, 500, 900])
 
 
 class ShapeTests(unittest.TestCase):
-    def test_arrays_are_sorted_ascending_by_t_ms(self):
-        drivers = race_timing.build_timing(
-            LAP_ROWS,
-            [
-                interval_row("2026-03-08T12:04:00"),
-                interval_row("2026-03-08T12:00:30"),
-                interval_row("2026-03-08T12:02:00"),
-            ],
-            [
-                position_row("2026-03-08T12:04:00"),
-                position_row("2026-03-08T12:00:30", position=3),
-            ],
+    def test_no_official_record_yields_nothing_at_all(self):
+        # Policy, not an oversight: a timeline with no exact skeleton is the
+        # thing that shipped laps 1 and 2 inverted. `synced: false` degrades to
+        # the lap-stepped tower, which is honest rather than wrong.
+        self.assertEqual(
+            race_timing.build_timing([], DRIVER_NUMBERS, LAP_ROWS, [], [], None), {}
         )
 
-        timing_times = [sample[0] for sample in drivers["44"]["timing"]]
-        position_times = [sample[0] for sample in drivers["44"]["positions"]]
-        self.assertEqual(timing_times, sorted(timing_times))
-        self.assertEqual(position_times, sorted(position_times))
-        self.assertEqual(timing_times, [30000, 120000, 240000])
-
-    def test_every_sample_has_the_arity_the_contract_states(self):
-        """Key parity: a triple for timing, a pair for positions, always."""
-        drivers = race_timing.build_timing(
-            LAP_ROWS,
-            [interval_row("2026-03-08T12:02:00"), interval_row("2026-03-08T12:03:00", driver_number=1)],
-            [position_row("2026-03-08T12:02:00"), position_row("2026-03-08T12:03:00", driver_number=1, position=1)],
-        )
-
-        self.assertEqual(set(drivers), {"1", "44"})
+    def test_both_keys_always_exist_for_a_present_driver(self):
+        drivers = build()["drivers"]
         for entry in drivers.values():
-            self.assertEqual(set(entry), {"timing", "positions"})
-            for sample in entry["timing"]:
-                self.assertEqual(len(sample), 3)
-                self.assertIsInstance(sample[0], int)
+            self.assertIn("timing", entry)
+            self.assertIn("positions", entry)
+
+    def test_timing_samples_are_time_ordered_triples(self):
+        drivers = build(interval_rows=[
+            interval_row(at(200)), interval_row(at(100)), interval_row(at(150)),
+        ])
+        samples = drivers["drivers"]["44"]["timing"]
+        self.assertEqual([s[0] for s in samples], [100_000, 150_000, 200_000])
+        self.assertTrue(all(len(s) == 3 for s in samples))
+
+
+class ValuePassthroughTests(unittest.TestCase):
+    def test_a_lapped_cars_gap_string_reaches_the_client_verbatim(self):
+        drivers = build(interval_rows=[interval_row(at(100), gap_to_leader="+1 LAP")])
+        self.assertEqual(drivers["drivers"]["44"]["timing"][0][2], "+1 LAP")
+
+    def test_floats_are_rounded_to_two_places(self):
+        drivers = build(interval_rows=[interval_row(at(100), interval=1.2340000000000002)])
+        self.assertEqual(drivers["drivers"]["44"]["timing"][0][1], 1.23)
+
+    def test_none_stays_none(self):
+        drivers = build(interval_rows=[interval_row(at(100), interval=None)])
+        self.assertIsNone(drivers["drivers"]["44"]["timing"][0][1])
+
+    def test_a_boolean_is_not_emitted_as_one(self):
+        self.assertIsNone(race_timing._round_value(True))
+
+
+class OfficialLapParsingTests(unittest.TestCase):
+    def test_lap_times_accumulate_into_elapsed_race_time(self):
+        page = {"MRData": {"RaceTable": {"Races": [{"Laps": [
+            {"number": "1", "Timings": [{"driverId": "leclerc", "position": "1", "time": "1:31.929"}]},
+            {"number": "2", "Timings": [{"driverId": "leclerc", "position": "2", "time": "1:26.212"}]},
+        ]}]}}}
+        laps = official_laps.parse_lap_pages([page])
+        self.assertEqual(laps[0]["timings"][0]["cumulative_ms"], 91_929)
+        self.assertEqual(laps[1]["timings"][0]["cumulative_ms"], 178_141)
+
+    def test_an_unparseable_lap_time_costs_only_that_entry(self):
+        page = {"MRData": {"RaceTable": {"Races": [{"Laps": [
+            {"number": "1", "Timings": [
+                {"driverId": "leclerc", "position": "1", "time": "boom"},
+                {"driverId": "russell", "position": "2", "time": "1:32.694"},
+            ]},
+        ]}]}}}
+        laps = official_laps.parse_lap_pages([page])
+        self.assertEqual([t["driverId"] for t in laps[0]["timings"]], ["russell"])
+
+    def test_seconds_only_and_hour_forms_both_parse(self):
+        self.assertAlmostEqual(official_laps._lap_seconds("31.929"), 31.929)
+        self.assertAlmostEqual(official_laps._lap_seconds("1:00:01.5"), 3601.5)
+
+
+class RegressionTests(unittest.TestCase):
+    """The 2026 Australian GP, laps 1 and 2, as reported by the user.
+
+    Official: Leclerc leads lap 1, Russell leads lap 2, Leclerc leads lap 3.
+    Confirmed independently by cumulative lap times (RUS 177.701s vs LEC
+    178.141s at the end of lap 2). The shipped payload had 1 and 2 inverted.
+    """
+
+    OFFICIAL = [
+        {"lap": 1, "timings": [
+            {"driverId": "leclerc", "position": 1, "cumulative_ms": 91_929},
+            {"driverId": "russell", "position": 2, "cumulative_ms": 92_694},
+        ]},
+        {"lap": 2, "timings": [
+            {"driverId": "russell", "position": 1, "cumulative_ms": 177_701},
+            {"driverId": "leclerc", "position": 2, "cumulative_ms": 178_141},
+        ]},
+        {"lap": 3, "timings": [
+            {"driverId": "leclerc", "position": 1, "cumulative_ms": 263_594},
+            {"driverId": "russell", "position": 2, "cumulative_ms": 264_145},
+        ]},
+    ]
+    NUMBERS = {"leclerc": "16", "russell": "63"}
+
+    def order_at(self, drivers, ms):
+        out = []
+        for number, entry in drivers.items():
+            position = None
             for sample in entry["positions"]:
-                self.assertEqual(len(sample), 2)
-                self.assertIsInstance(sample[0], int)
-                self.assertIsInstance(sample[1], int)
+                if sample[0] <= ms:
+                    position = sample[1]
+                else:
+                    break
+            if position is not None:
+                out.append((position, number))
+        return [number for _, number in sorted(out)]
 
-    def test_a_driver_with_no_anchorable_samples_is_absent_entirely(self):
-        """Absent, not present-with-empty-arrays: a driver in `drivers` always
-        means there is something to draw."""
-        drivers = race_timing.build_timing(
-            LAP_ROWS,
-            [interval_row("2026-03-08T12:02:00", driver_number=1)],
-            # Post-race, deliberately: a *pre*-race event is no longer
-            # unanchorable — it becomes this driver's grid slot — so it would
-            # no longer exercise what this test is about.
-            [position_row("2026-03-08T12:30:00", driver_number=44)],
+    def test_the_lead_changes_hands_exactly_as_the_official_record_says(self):
+        payload = race_timing.build_timing(self.OFFICIAL, self.NUMBERS, [], [], [], None)
+        drivers = payload["drivers"]
+        # Read once both cars have crossed, which is when the lap's order is
+        # fully expressed. **In the 0.44s between Russell's crossing and
+        # Leclerc's, both legitimately read P1** — each is stamped with the
+        # position they held at their own line crossing, and Leclerc has not yet
+        # reached his. That transient is inherent to per-driver stamping and is
+        # the honest rendering: the alternative, stamping the whole field at the
+        # leader's instant, snaps the entire order at once and is exactly the
+        # once-a-lap behaviour this module exists to remove.
+        self.assertEqual(self.order_at(drivers, 92_694), ["16", "63"])
+        self.assertEqual(self.order_at(drivers, 178_141), ["63", "16"])
+        self.assertEqual(self.order_at(drivers, 264_145), ["16", "63"])
+
+    def test_openf1_cannot_invert_a_lap_it_disagrees_with(self):
+        # OpenF1's own crossings put Leclerc 0.56s ahead at the end of lap 2,
+        # where the official times have Russell ahead by 0.44s. The official
+        # record must win.
+        start = datetime.datetime(2026, 3, 8, 4, 4, 50, tzinfo=datetime.timezone.utc)
+        lap_rows = [
+            {"driver_number": 16, "lap_number": 1, "date_start": start.isoformat()},
+            {"driver_number": 16, "lap_number": 2,
+             "date_start": (start + datetime.timedelta(seconds=91.929)).isoformat()},
+        ]
+        payload = race_timing.build_timing(
+            self.OFFICIAL, self.NUMBERS, lap_rows,
+            [],
+            [{"driver_number": 16, "position": 1,
+              "date": (start + datetime.timedelta(seconds=170)).isoformat()}],
+            None,
         )
-
-        self.assertEqual(set(drivers), {"1"})
-
-    def test_empty_inputs_produce_an_empty_map_rather_than_raising(self):
-        """"No data" is a normal state of the world here — the endpoint reports
-        it as `synced: false`, and there is nothing a raise could add."""
-        self.assertEqual(race_timing.build_timing([], [], []), {})
-        self.assertEqual(race_timing.build_timing(LAP_ROWS, [], []), {})
-        self.assertEqual(race_timing.build_timing([], [interval_row(RACE_START)], []), {})
-
-    def test_malformed_rows_are_skipped_without_taking_the_build_down(self):
-        drivers = race_timing.build_timing(
-            LAP_ROWS,
-            [
-                {"driver_number": None, "date": "2026-03-08T12:02:00", "interval": 1.0},
-                {"driver_number": 44, "date": "not a timestamp", "interval": 1.0},
-                interval_row("2026-03-08T12:02:00"),
-            ],
-            [{"driver_number": 44, "date": "2026-03-08T12:02:00", "position": None}],
-        )
-
-        self.assertEqual(drivers["44"]["timing"], [[120000, 1.0, 2.0]])
-        self.assertEqual(drivers["44"]["positions"], [])
+        self.assertEqual(self.order_at(payload["drivers"], 178_141), ["63", "16"])
 
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class FinishingOrderTests(unittest.TestCase):
-    """The race does not end when the winner crosses the line."""
-
-    def test_a_sample_after_the_winner_finishes_anchors_to_the_race_end(self):
-        """Car 44 crosses 5s after the leader. A position settled in that window
-        is the *finishing* order, and dropping it left the tower showing the
-        order at the winner's crossing instead — Hamilton ahead of Leclerc on
-        round 11, where the official times have Leclerc 0.7s in front."""
-        drivers = race_timing.build_timing(
-            LAP_ROWS,
-            [],
-            [position_row("2026-03-08T12:04:33", driver_number=44, position=1)],
-        )
-
-        # 3 laps x 90s: the race's final instant, not a point inside lap 3.
-        self.assertEqual(drivers["44"]["positions"], [[270000, 1]])
-
-    def test_a_sample_beyond_the_last_car_is_still_dropped(self):
-        """The tail window ends at the last crossing; it is not an open door."""
-        drivers = race_timing.build_timing(
-            LAP_ROWS,
-            [],
-            [position_row("2026-03-08T12:20:00", driver_number=44, position=1)],
-        )
-
-        self.assertEqual(drivers, {})
-
-
-class RaceStartTests(unittest.TestCase):
-    """Lap 1 opens at the feed's own start signal, not at a derived instant."""
-
-    def test_the_uniform_lap_one_date_start_is_the_race_start(self):
-        """Every driver's lap-1 `date_start` carries the same value because it
-        is the start signal rather than a per-car measurement. Deriving the
-        start instead (`boundaries[1] - lap_1_duration`) put it 90 seconds late
-        on round 1, which discarded every position change in the opening — the
-        tower showed Hamilton frozen on his grid slot for seventeen minutes
-        after he had actually run P7 to P3 within ten seconds of lights out."""
-        boundaries, lap_one, _last, start = race_timing._leader_boundaries(LAP_ROWS)
-
-        self.assertEqual(start.isoformat(), "2026-03-08T12:00:00")
-
-        spans = race_timing._lap_spans(boundaries, lap_one, None, start)
-        self.assertEqual(spans[0][0], start)
-
-    def test_the_start_signal_beats_a_derived_start(self):
-        """A real lap 1 can run far longer than the clock's nominal duration (a
-        safety car on the opening lap). The signal is a stated fact and wins;
-        subtracting a duration is an inference and would reopen the hole."""
-        boundaries, lap_one, _last, _s = race_timing._leader_boundaries(LAP_ROWS)
-        signalled = datetime.datetime.fromisoformat("2026-03-08T11:59:00")
-
-        spans = race_timing._lap_spans(boundaries, lap_one, {1: 30.0}, signalled)
-
-        self.assertEqual(spans[0][0], signalled)
-
-    def test_an_opening_sample_now_survives(self):
-        """The regression in one assertion: a position change seconds after
-        lights out used to be dropped as pre-race."""
-        drivers = race_timing.build_timing(
-            LAP_ROWS,
-            [],
-            [position_row("2026-03-08T12:00:10", driver_number=44, position=3)],
-        )
-
-        self.assertEqual(drivers["44"]["positions"][0][1], 3)

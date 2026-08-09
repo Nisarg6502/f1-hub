@@ -235,7 +235,44 @@ export default function WatchView({
   const timingIndex = useMemo(() => buildTimingIndex(timing), [timing]);
   const perSecond = timingIndex.usable;
 
-  const durations = useMemo(() => lapDurations(laps), [laps]);
+  /**
+   * The clock runs on the timing feed's own lap durations wherever they exist.
+   *
+   * **This is a correctness requirement, not an optimisation.** Every `t_ms` in
+   * the timing feed is elapsed time on the official lap archive's timeline;
+   * `lapDurations(laps)` builds a *different* timeline by summing per-lap
+   * minima out of `race_replay`. Running the clock on one while drawing samples
+   * stamped on the other is precisely the bug that shipped the 2026 Australian
+   * GP with laps 1 and 2 inverted — the two disagree most in the opening
+   * minutes, where the race is at its busiest.
+   *
+   * `lapDurations` remains the fallback, and keeps its `source`/`medianMs`
+   * reporting for the "N laps have no measured time" note: an unsynced round
+   * still needs a clock, and its honesty about estimated laps is unchanged.
+   */
+  const replayDurations = useMemo(() => lapDurations(laps), [laps]);
+  const durations = useMemo(() => {
+    const fromTiming = timing?.lap_ms;
+    if (!fromTiming || fromTiming.length === 0) return replayDurations;
+    // Index-aligned to `replay.laps`, which is what the clock and every readout
+    // below assume. A timing feed covering more or fewer laps than the replay
+    // is trimmed or topped up rather than silently shifting the alignment.
+    const ms = replayDurations.ms.map(
+      (fallback, index) => fromTiming[index] ?? fallback
+    );
+    return {
+      ...replayDurations,
+      ms,
+      // Every lap the feed covers is a real measurement from the official
+      // archive, so it is no longer estimated whatever the replay thought.
+      source: replayDurations.source.map((value, index) =>
+        index < fromTiming.length ? ("measured" as const) : value
+      ),
+      estimatedCount: replayDurations.source.filter(
+        (value, index) => value === "estimated" && index >= fromTiming.length
+      ).length,
+    };
+  }, [replayDurations, timing]);
   const cumulative = useMemo(() => cumulativeMs(durations.ms), [durations]);
   const totalMs = cumulative[cumulative.length - 1] ?? 0;
 
@@ -348,6 +385,13 @@ export default function WatchView({
   const [liveDeltas, setLiveDeltas] = useState<Record<string, number>>({});
   const orderRef = useRef<string[] | null>(liveOrder);
 
+  /** The live order as a `{car number -> rank}` map, cached against the order's
+   * identity so the frame loop does a map hit instead of a linear scan per row. */
+  const ranksRef = useRef<{ order: string[] | null; ranks: Map<string, number> }>({
+    order: null,
+    ranks: new Map(),
+  });
+
   /**
    * One frame of the clock: the lap readouts, then every driver's timing cell.
    *
@@ -389,6 +433,16 @@ export default function WatchView({
         setLiveDeltas(past && past !== order ? recentDeltas(order, past) : {});
       }
 
+      // Rebuilt only when the order's identity changes (~531 times a race, not
+      // 60 times a second), so the per-cell lookup below stays a map hit rather
+      // than a linear scan inside the frame loop.
+      if (order && ranksRef.current.order !== order) {
+        const ranks = new Map<string, number>();
+        order.forEach((number, position) => ranks.set(number, position + 1));
+        ranksRef.current = { order, ranks };
+      }
+      const ranks = order ? ranksRef.current.ranks : null;
+
       const leader = order?.[0];
       for (const [number, cell] of cellRefs.current) {
         const snapshot = sampleAt(timingIndex, number, raceMs);
@@ -407,14 +461,30 @@ export default function WatchView({
             ? ""
             : formatTimingValue(secondaryValue, false);
         }
-        if (cell.position && snapshot.position !== null) {
-          // The position NUMBER comes from the same feed as the ORDER, never
-          // from the row's index. Using the index looked equivalent and is not:
-          // a car in the live order with no lap row is skipped from the tower
-          // (Piastri retired on lap 1 of round 1), and indexing then renumbers
-          // everyone behind the hole — the deployed grid read NOR 5, HAM 6
-          // where the official grid has them 6th and 7th, with Piastri 5th.
-          cell.position.textContent = String(snapshot.position);
+        if (cell.position) {
+          // **The number is the car's rank in the live order, not its raw
+          // sampled position.** Those differ, and the raw value is not
+          // renderable: each car's position is stamped at its own line crossing
+          // and carried forward, so two cars on different laps routinely report
+          // the same number. Measured on round 1, some position was duplicated
+          // in 19% of the race — the tower showed two P18s and no P16 at all.
+          //
+          // Ranking the order the rows are already sorted by makes the numbers
+          // unique and contiguous by construction, and makes it impossible for
+          // the number and the row's place to disagree.
+          //
+          // **This is not the renumbering bug that was fixed before.** That one
+          // indexed the *rendered rows*, so a car in the live order with no lap
+          // row (a lap-1 retirement) left a hole that shifted everyone behind
+          // it — the grid read NOR 5, HAM 6 against an official 6th and 7th.
+          // This indexes the live order itself, which is exactly the set the
+          // positions describe, and cars that leave the race are dropped from
+          // it via `out_ms` rather than lingering as ghosts.
+          const rank = ranks?.get(number);
+          if (rank !== undefined) cell.position.textContent = String(rank);
+          else if (snapshot.position !== null) {
+            cell.position.textContent = String(snapshot.position);
+          }
         }
         if (cell.row) {
           // The closing highlight is the release valve for the design's "the
@@ -883,6 +953,15 @@ export default function WatchView({
               <div
                 key={runner.number}
                 ref={registerCell(runner.number, "row")}
+                // A stable hook for driving this route headlessly. The tower's
+                // rows are absolutely positioned by transform, so their DOM
+                // order is *not* their running order, and the position itself
+                // is painted straight to a child node by the frame loop —
+                // between them there is no way to read the running order out of
+                // the markup by structure alone. Verifying the order against
+                // the official record is the check that catches the class of
+                // defect this view kept shipping, so it needs to be cheap.
+                data-car={runner.number}
                 className={`absolute left-0 flex items-center rounded-lg ${
                   // Compact keeps its small gaps at every width: a two-column
                   // tower on an 844px phone is still past the `md` breakpoint,

@@ -64,6 +64,16 @@ interface DriverIndex {
   timingCursor: number;
   /** Search hint for `positionT`. */
   positionCursor: number;
+  /**
+   * Elapsed time after which this car is no longer in the race, or
+   * `Infinity` for one that took the flag.
+   *
+   * A retired car's samples simply stop, and carrying the last one forward —
+   * which is right between line crossings — otherwise holds it in the running
+   * order for the rest of the race. With the order rendered as a rank, a ghost
+   * sitting in P4 pushes every car behind it down one for an hour.
+   */
+  outAt: number;
 }
 
 /** A precomputed snapshot of the whole field's order at one instant. */
@@ -140,6 +150,10 @@ export function buildTimingIndex(timing: RaceTiming | null | undefined): TimingI
       position: sortedPositions.map((row) => row[1]),
       timingCursor: 0,
       positionCursor: 0,
+      outAt:
+        typeof driver?.out_ms === "number" && Number.isFinite(driver.out_ms)
+          ? driver.out_ms
+          : Infinity,
     });
   }
 
@@ -183,6 +197,9 @@ function buildOrderSnapshots(drivers: Map<string, DriverIndex>): OrderSnapshot[]
     const entries: Array<{ number: string; position: number }> = [];
     for (const [number, driver] of drivers) {
       if (driver.positionT.length === 0) continue;
+      // Out of the race: stop carrying them forward, or they hold a slot in the
+      // order — and therefore a rank — until the flag.
+      if (t > driver.outAt) continue;
       const i = lastAtOrBefore(driver.positionT, t);
       // Before this driver's own first sample, use their first known position:
       // the alternative is a hole in the order on lap 1 for anyone whose first

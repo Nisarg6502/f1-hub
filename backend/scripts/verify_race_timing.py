@@ -1,21 +1,38 @@
-"""Cross-validate the per-second timing track against sources it is not built from.
+"""Validate the per-second timing track against the official record.
 
-**Why this exists.** CP79 shipped six defects in a row that every existing check
+**Why this exists.** Seven defects shipped in a row that every existing check
 passed: the unit suite, a real browser, and "we observe intra-lap movement" were
-all satisfied by a payload whose timeline was shifted a whole lap and which
-silently discarded the opening ~90 seconds of every race. The common cause is
-that all of those checks compared the OpenF1 feed against itself. A feed always
-agrees with itself.
+all satisfied by payloads that were, variously, shifted a whole lap, missing the
+opening 90 seconds of every race, and — the one a user found by watching it —
+serving laps 1 and 2 of the Australian GP in the wrong order. The common cause
+is that all of those checks compared the OpenF1 feed against itself. A feed
+always agrees with itself.
 
-So every assertion here is against something else:
+Each check below states what it is independent of, because that is the only
+property that makes a check worth running:
 
-- `race_results.grid`        — the official starting order (Jolpica/Ergast)
-- `race_results.position`    — the official classification
-- `race_laps`                — this app's own lap-indexed positions, derived from
-                               the same feed by a *different* method (a join at
-                               line crossings), so it disagrees where the
-                               anchoring is wrong even though the data is shared
-- the raw feed's own volume  — how many events we keep versus how many exist
+- `grid`        vs `race_results.grid` — the official starting order. Fully
+                independent: the payload's t=0 seeding reads the same field, so
+                this is a plumbing check, but it catches a payload that never
+                seeded at all.
+- `flag-order`  vs `race_results.position` — the official *classification*.
+                Independent of the lap archive, and reported without a
+                threshold: the two genuinely disagree wherever a post-race
+                penalty applied, and the tower is right to show the order as the
+                flag fell.
+- `archive`     official cumulative lap times vs official positions. Validates
+                the spine itself, using nothing this app wrote: if summing the
+                lap times does not reproduce the stated order, the archive is
+                unusable for that round and everything downstream is suspect.
+- `boundaries`  the served payload's order at each lap crossing vs the official
+                order. **Not independent** — the payload is built from that
+                record — so it proves the pipeline (parse, merge, collapse,
+                cache, serve) rather than the data. Run with `--deployed` it is
+                the check that would have caught the inverted opening.
+- `fill`        what fraction of OpenF1's intra-lap samples agree with the
+                official position current at the moment they land. Purely
+                informational: this is a measurement of OpenF1's quality, and a
+                low number is a fact about the feed, not a regression.
 
 Run it after any change to `race_timing.py`:
 
@@ -48,16 +65,15 @@ if "motor.motor_asyncio" not in sys.modules:  # race_timing imports it via db.py
 import httpx
 import pymongo
 
-from app import race_timing
+from app import official_laps, race_timing
 
-OPENF1 = "https://api.openf1.org/v1"
+DEPLOYED = "https://f1-backend-1076575666662.asia-south1.run.app"
 
-# Round 6 (Monaco) is a known, measured outlier: its `/position` feed reports a
-# finishing order that disagrees with the official classification regardless of
-# anchoring — it walks Gasly P3 -> P7 in the six seconds after he takes the
-# flag. Excluded from the finish threshold rather than silently lowering it for
-# every round. See HANDOFF.md.
-FINISH_OUTLIERS = {6}
+# Thresholds. Each is set below the *measured* value on a healthy season, not at
+# a round number, so that tightening them later is a deliberate act.
+MIN_ARCHIVE = 0.99      # the official record must be self-consistent
+MIN_BOUNDARY = 0.99     # the pipeline must reproduce what it was built from
+MIN_GRID = 1.00         # the grid is copied, so anything less is a bug
 
 
 def _mongo():
@@ -69,213 +85,248 @@ def _mongo():
                 uri = line.split("=", 1)[1].strip()
                 break
     if not uri:
-        raise SystemExit("MONGODB_URI not set and no mongodburi in .env")
-    return pymongo.MongoClient(uri).get_database("f1_scratch")
+        raise SystemExit("No MONGODB_URI and no mongodburi= in .env")
+    return pymongo.MongoClient(uri)["f1_scratch"]
 
 
-def _fetch(path, session_key, timeout=90.0):
-    return httpx.get(f"{OPENF1}/{path}", params={"session_key": session_key}, timeout=timeout).json()
+def order_at(drivers: dict, ms: int) -> dict[str, int]:
+    """`{car number: position}` as the tower would render it at `ms`.
 
-
-def _official(results):
-    """`(grid, classification)` keyed by car number, from `race_results`."""
-    grid, finish = {}, {}
-    for row in results:
-        driver = row.get("Driver") or {}
-        number = str(row.get("number") or driver.get("permanentNumber"))
-        slot = row.get("grid")
-        if slot and int(slot) > 0:
-            grid[number] = int(slot)
-        status = str(row.get("status") or "")
-        if status.startswith("Finished") or "Lap" in status:
-            finish[number] = int(row["position"])
-    return grid, finish
-
-
-def _order_at(drivers, t_ms):
-    """The field's order at `t_ms`, carrying each driver's last sample forward."""
-    order = {}
-    for number, driver in drivers.items():
-        seen = None
-        for sample_t, position in driver["positions"]:
-            if sample_t <= t_ms:
-                seen = position
+    Deliberately reimplements the frontend's "last sample at or before now"
+    lookup rather than importing anything: a shared helper would hide a bug that
+    lives in the lookup itself, which is the class of bug this file exists for.
+    """
+    out: dict[str, int] = {}
+    for number, entry in drivers.items():
+        position = None
+        for sample in entry.get("positions") or []:
+            if sample[0] <= ms:
+                position = sample[1]
             else:
                 break
-        if seen is not None:
-            order[number] = seen
-    return order
+        if position is not None:
+            out[number] = position
+    return out
 
 
-def check_round(db, year, round_number, drivers, raw_positions):
-    """Every cross-check for one round. Returns `(failures, lines)`."""
-    results_doc = db.race_results.find_one({"season": year, "round": str(round_number)}, {"_id": 0})
-    laps_doc = db.race_laps.find_one({"season": year, "round": str(round_number)}, {"_id": 0})
-    results = (results_doc or {}).get("results") or []
-    lap_rows = (laps_doc or {}).get("laps") or []
-    grid, finish = _official(results)
+def check_archive(official_rows: list[dict]) -> tuple[int, int, list[str]]:
+    """Does summing the official lap times reproduce the official positions?"""
+    hit = total = 0
+    notes = []
+    for row in official_rows:
+        timings = row.get("timings") or []
+        by_time = sorted(timings, key=lambda t: t["cumulative_ms"])
+        for rank, timing in enumerate(by_time, start=1):
+            total += 1
+            if timing["position"] == rank:
+                hit += 1
+            elif len(notes) < 3:
+                notes.append(f"L{row['lap']} {timing['driverId']} says P{timing['position']}, times say P{rank}")
+    return hit, total, notes
 
-    failures, lines = [], []
 
-    # 1. The starting grid, against the official classification.
-    at_zero = {
-        number: driver["positions"][0][1]
-        for number, driver in drivers.items()
-        if driver["positions"] and driver["positions"][0][0] == 0
+def check_boundaries(drivers, official_rows, numbers) -> tuple[int, int, list[str]]:
+    """Order at each driver's own crossing vs their official position there."""
+    hit = total = 0
+    notes = []
+    for row in official_rows:
+        for timing in row.get("timings") or []:
+            number = numbers.get(timing["driverId"])
+            if number is None:
+                continue
+            # Read at the crossing itself. Reading earlier lands inside the
+            # window where a car ahead has crossed and this one has not, where
+            # two cars legitimately share a position.
+            shown = order_at(drivers, timing["cumulative_ms"]).get(number)
+            total += 1
+            if shown == timing["position"]:
+                hit += 1
+            elif len(notes) < 3:
+                notes.append(
+                    f"L{row['lap']} #{number} shown P{shown}, official P{timing['position']}"
+                )
+    return hit, total, notes
+
+
+def check_fill(drivers, official_rows, numbers) -> tuple[int, int]:
+    """`(intra-lap samples, samples in the opening two minutes)`.
+
+    **Deliberately a count and not an agreement ratio.** Scoring these against
+    the official position current at the same instant was tried and is
+    structurally meaningless: `_collapse_positions` drops any sample that
+    restates the position already showing, so a fill sample that *agrees* is
+    never emitted, and the survivors are the disagreements by definition. That
+    metric read 7% and meant nothing.
+
+    What is worth asserting is that intra-lap movement exists at all — a payload
+    with none of it is the lap-stepped tower the whole module exists to replace,
+    and it would pass every other check here.
+    """
+    crossings = {
+        (numbers.get(t["driverId"]), t["cumulative_ms"])
+        for row in official_rows
+        for t in row.get("timings") or []
     }
-    grid_ok = sum(1 for number, slot in grid.items() if at_zero.get(number) == slot)
-    lines.append(f"  grid            {grid_ok}/{len(grid)}")
-    if grid and grid_ok != len(grid):
-        wrong = [
-            f"{n} ours={at_zero.get(n)} official={p}"
-            for n, p in sorted(grid.items(), key=lambda kv: kv[1])
-            if at_zero.get(n) != p
-        ][:4]
-        failures.append(f"round {round_number}: grid {grid_ok}/{len(grid)} — {'; '.join(wrong)}")
+    intra = opening = 0
+    for number, entry in drivers.items():
+        for t_ms, _ in entry.get("positions") or []:
+            if t_ms == 0 or (number, t_ms) in crossings:
+                continue
+            intra += 1
+            if t_ms <= 120_000:
+                opening += 1
+    return intra, opening
 
-    # 2. Coverage: how much of the feed survives anchoring. The only events that
-    #    should be dropped are pre-race and post-race, ~1-2 per driver. Losing
-    #    materially more than that means the race window itself is wrong, which
-    #    is exactly the failure that hid for six iterations.
-    grid_seeded = sum(
-        1 for d in drivers.values() if d["positions"] and d["positions"][0][0] == 0
+
+def verify_round(db, year: int, round_number: int, deployed: bool) -> bool:
+    results = (db.race_results.find_one({"season": year, "round": str(round_number)}) or {}).get("results") or []
+    if not results:
+        print(f"  round {round_number}: no race_results, skipped")
+        return True
+
+    numbers = race_timing.driver_numbers_from_results(results)
+    grid = race_timing.grid_from_race_results(results)
+
+    cached = db.official_laps.find_one(
+        {"season": year, "round": str(round_number), "version": official_laps.OFFICIAL_VERSION}
     )
-    kept = sum(len(d["positions"]) for d in drivers.values()) - grid_seeded
-    coverage = kept / len(raw_positions) if raw_positions else 0.0
-    lines.append(f"  feed coverage   {kept}/{len(raw_positions)} ({coverage:.0%})")
-    if coverage < 0.85:
-        failures.append(
-            f"round {round_number}: only {coverage:.0%} of position events anchored "
-            f"({kept}/{len(raw_positions)}) — the race window is probably wrong"
+    official_rows = (cached or {}).get("laps") or official_laps.fetch_official_laps(year, round_number)
+    if not official_rows:
+        print(f"  round {round_number}: FAIL no official lap archive")
+        return False
+
+    if deployed:
+        response = httpx.get(
+            f"{DEPLOYED}/api/race_timing",
+            params={"year": year, "round": round_number},
+            timeout=180.0,
         )
-
-    # 3. The opening lap must be alive. A race whose first lap shows no position
-    #    change at all is the signature of a start instant landing late: cars sat
-    #    frozen on their grid slots through the whole first lap.
-    opening = [
-        1
-        for driver in drivers.values()
-        for sample_t, _ in driver["positions"]
-        if 0 < sample_t <= 120_000
-    ]
-    lines.append(f"  opening 2 min   {len(opening)} position changes")
-    if grid and len(opening) < 5:
-        failures.append(
-            f"round {round_number}: only {len(opening)} position changes in the first two "
-            f"minutes — the field appears frozen on the grid"
+        payload = response.json()
+        drivers = payload.get("drivers") or {}
+        lap_ms = payload.get("lap_ms") or []
+        if not payload.get("synced"):
+            print(f"  round {round_number}: FAIL deployed reports synced=false")
+            return False
+    else:
+        doc = db.race_timing.find_one(
+            {"season": year, "round": str(round_number), "version": race_timing.TIMING_VERSION}
         )
+        if not doc:
+            print(f"  round {round_number}: no cached v{race_timing.TIMING_VERSION} payload, skipped")
+            return True
+        drivers = doc.get("drivers") or {}
+        lap_ms = doc.get("lap_ms") or []
 
-    # 4. Against this app's own lap-indexed positions, which reach the same facts
-    #    by a different route. Compared at each lap boundary, where the two
-    #    representations genuinely describe the same instant.
-    by_lap = {}
-    for row in lap_rows:
-        by_lap.setdefault(int(row["lap_number"]), {})[str(row["driver_number"])] = row["position"]
-    clock = race_timing.clock_seconds_from_race_laps(lap_rows)
-    # A lap with no measured duration falls back to the race's median, exactly as
-    # `watch-clock.lapDurations` does. Treating it as zero instead is not a
-    # harmless simplification: round 10 has two such laps, and zeroing them put
-    # every later comparison instant ~220s early, which this script then reported
-    # as a 60% timeline misalignment in a payload that was fine. A verification
-    # harness that models the clock differently from the clock invents failures.
-    ordered = sorted(clock.values())
-    median = ordered[len(ordered) // 2] if ordered else 0.0
-    elapsed, agree, total = 0.0, 0, 0
-    for lap in sorted(by_lap):
-        elapsed += clock.get(lap, median)
-        ours = _order_at(drivers, int(elapsed * 1000))
-        for number, position in by_lap[lap].items():
-            if number in ours:
-                total += 1
-                agree += ours[number] == position
-    share = agree / total if total else 0.0
-    lines.append(f"  vs race_laps    {agree}/{total} ({share:.0%}) at lap boundaries")
-    if total and share < 0.70:
-        failures.append(
-            f"round {round_number}: only {share:.0%} agreement with race_laps at lap "
-            f"boundaries — the timeline is probably misaligned"
-        )
+    ok = True
+    line = [f"  round {round_number:2d}:"]
 
-    # 5. The finishing order, against the official classification. Soft: post-race
-    #    penalties are real classification changes a position feed cannot express.
-    last = {n: d["positions"][-1][1] for n, d in drivers.items() if d["positions"]}
-    finish_ok = sum(1 for number, position in finish.items() if last.get(number) == position)
-    share_f = finish_ok / len(finish) if finish else 0.0
-    lines.append(f"  finish          {finish_ok}/{len(finish)} ({share_f:.0%})")
-    if finish and share_f < 0.6 and round_number not in FINISH_OUTLIERS:
-        failures.append(
-            f"round {round_number}: finishing order {finish_ok}/{len(finish)} against official"
-        )
+    a_hit, a_tot, a_notes = check_archive(official_rows)
+    ratio = a_hit / a_tot if a_tot else 0
+    line.append(f"archive {ratio:.0%}")
+    if ratio < MIN_ARCHIVE:
+        ok = False
+        line.append("FAIL")
 
-    return failures, lines
+    b_hit, b_tot, b_notes = check_boundaries(drivers, official_rows, numbers)
+    ratio = b_hit / b_tot if b_tot else 0
+    line.append(f"boundaries {ratio:.0%}")
+    if ratio < MIN_BOUNDARY:
+        ok = False
+        line.append("FAIL")
+
+    # A car that never started still holds a grid slot in the classification and
+    # is deliberately not seeded — seeding it parks it on that position for the
+    # whole race, duplicating every position behind it. So the check is over the
+    # cars that actually took part, which is the same rule the code applies.
+    started = {
+        numbers.get(t["driverId"])
+        for row in official_rows
+        for t in row.get("timings") or []
+    } - {None}
+    starters = {number: slot for number, slot in grid.items() if number in started}
+    non_starters = len(grid) - len(starters)
+
+    # Every car served must be one the official record says took part.
+    #
+    # A car that never started still gets interval and position rows from
+    # OpenF1, and one that slips through sits in the running order with no tower
+    # row to draw it. The tower ranks the order to number its rows, so each
+    # ghost punches a hole in the numbering: round 1 rendered
+    # 1,2,3,4,6,7,8,9,11,... with Piastri and Hulkenberg occupying 5 and 10.
+    # Nothing else here notices — the order is still internally consistent.
+    ghosts = sorted(set(drivers) - started)
+    if ghosts:
+        ok = False
+        line.append(f"FAIL ghosts {ghosts}")
+
+    shown = order_at(drivers, 0)
+    g_hit = sum(1 for number, slot in starters.items() if shown.get(number) == slot)
+    ratio = g_hit / len(starters) if starters else 0
+    line.append(f"grid {g_hit}/{len(starters)}" + (f" ({non_starters} DNS)" if non_starters else ""))
+    if ratio < MIN_GRID:
+        ok = False
+        line.append("FAIL")
+
+    end = max((max((s[0] for s in e.get("positions") or [0]), default=0) for e in drivers.values()), default=0)
+    final = order_at(drivers, end)
+    # "Lapped" is a *classified finisher*, not a retirement — 11 of round 1's 22
+    # cars. Counting only "Finished" scored the round 6/6 and hid whatever the
+    # other eleven were doing.
+    classified = {
+        str(row.get("number") or (row.get("Driver") or {}).get("permanentNumber")): int(row["position"])
+        for row in results
+        if str(row.get("status", "")).lower().startswith(("finished", "lapped", "+"))
+        and row.get("position")
+    }
+    # **Informational, with no threshold, and that is a deliberate downgrade.**
+    # The tower shows the order *as the flag falls*; the classification includes
+    # penalties applied afterwards, which no live timing tower can know. Every
+    # deviation measured across the 2026 season has the signature of exactly
+    # that — one car displaced several places, everyone between it shifted by
+    # one (round 9: Antonelli P9 on the road, classified P15).
+    #
+    # Asserting on this was scoring the stewards, not the code. The real
+    # assertion is `boundaries`, which covers the final lap like any other and
+    # is the thing that would actually break.
+    f_hit = sum(1 for number, position in classified.items() if final.get(number) == position)
+    penalised = len(classified) - f_hit
+    line.append(f"flag-order {f_hit}/{len(classified)}" + (f" (+{penalised} penalised)" if penalised else ""))
+
+    intra, opening = check_fill(drivers, official_rows, numbers)
+    line.append(f"intra-lap {intra} (opening 2min {opening})")
+    line.append(f"laps {len(lap_ms)}")
+    if intra == 0:
+        ok = False
+        line.append("FAIL no intra-lap movement")
+
+    print(" ".join(line))
+    for note in (a_notes + b_notes)[:4]:
+        print(f"       - {note}")
+    return ok
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--year", type=int, default=2026)
     parser.add_argument("--round", type=int, default=None)
-    parser.add_argument(
-        "--deployed",
-        metavar="BASE_URL",
-        nargs="?",
-        const="https://f1-backend-2w5wydk2ca-el.a.run.app",
-        help="Check the deployed endpoint's payload instead of rebuilding locally.",
-    )
+    parser.add_argument("--deployed", action="store_true")
     args = parser.parse_args()
 
     db = _mongo()
-    sessions = httpx.get(
-        f"{OPENF1}/sessions", params={"year": args.year, "session_name": "Race"}, timeout=60
-    ).json()
-    by_date = {s["date_start"][:10]: s["session_key"] for s in sessions}
-
-    rounds = [args.round] if args.round else sorted(
-        int(d["round"]) for d in db.race_laps.find({"season": args.year}, {"round": 1})
+    rounds = (
+        [args.round]
+        if args.round
+        else sorted(int(r) for r in db.race_results.distinct("round", {"season": args.year}))
     )
 
-    all_failures = []
-    for round_number in rounds:
-        race = db.races.find_one({"season": args.year, "round": str(round_number)}, {"_id": 0, "date": 1})
-        key = by_date.get((race or {}).get("date"))
-        if key is None:
-            print(f"round {round_number}: no OpenF1 session — skipped")
-            continue
+    where = "deployed" if args.deployed else "cached"
+    print(f"verifying {args.year} rounds {rounds} ({where}, v{race_timing.TIMING_VERSION})")
+    failures = [r for r in rounds if not verify_round(db, args.year, r, args.deployed)]
 
-        raw_positions = _fetch("position", key)
-        if args.deployed:
-            payload = httpx.get(
-                f"{args.deployed}/api/race_timing",
-                params={"year": args.year, "round": round_number},
-                timeout=400,
-            ).json()
-            drivers = payload.get("drivers") or {}
-            source = "deployed"
-        else:
-            lap_rows = _fetch("laps", key)
-            lap_doc = db.race_laps.find_one({"season": args.year, "round": str(round_number)}, {"_id": 0})
-            res_doc = db.race_results.find_one({"season": args.year, "round": str(round_number)}, {"_id": 0})
-            drivers = race_timing.build_timing(
-                lap_rows,
-                [],
-                raw_positions,
-                race_timing.clock_seconds_from_race_laps((lap_doc or {}).get("laps") or []),
-                race_timing.grid_from_race_results((res_doc or {}).get("results") or []),
-            )
-            source = "local"
-
-        print(f"round {round_number} ({source}):")
-        failures, lines = check_round(db, args.year, round_number, drivers, raw_positions)
-        for line in lines:
-            print(line)
-        all_failures.extend(failures)
-
-    print()
-    if all_failures:
-        print(f"FAILED — {len(all_failures)} check(s):")
-        for failure in all_failures:
-            print(f"  - {failure}")
+    if failures:
+        print(f"\nFAIL: rounds {failures}")
         return 1
-    print(f"PASSED — every cross-check clean across {len(rounds)} round(s)")
+    print("\nPASS")
     return 0
 
 

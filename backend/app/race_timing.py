@@ -3,34 +3,40 @@
 `race_laps` and `race_replay` are both lap-indexed: one answer per driver per
 lap. That shape is what makes watch mode's timing tower change only when a lap
 completes, and it is not a rendering bug — the intra-lap data is discarded at
-ingest. This module is the un-discarding. It reads OpenF1's `/intervals` feed
-(never called anywhere else in this app) and its `/position` feed at their
-native cadence and serves them as raw samples on a race-elapsed clock.
+ingest. This module is the un-discarding. It serves the official lap-by-lap
+record as an exact skeleton and fills the space between line crossings with
+OpenF1's `/position` and `/intervals` feeds at their native cadence.
 
 **Nothing here is interpolated.** Every number served is a real measurement
-OpenF1 reported at a real instant. The rejected alternative — deriving
-intra-lap gaps by interpolating between lap boundaries — would have invented
-every number it produced, in a mode whose stated premise is refusing to
-fabricate pacing. A round OpenF1 cannot cover reports `synced: false` and
-degrades to the existing lap-stepped tower rather than smoothing over the hole.
+someone reported at a real instant.
 
-**The anchoring is the whole difficulty.** OpenF1 stamps every sample with
-wall-clock time. The frontend's `RealTimeLapClock` runs a *synthetic* timeline
-built by summing measured lap durations, and the two drift — a red flag, a
-formation-lap delay, or simply accumulated rounding puts them minutes apart by
-the end of a race. Subtracting a race-start timestamp from each sample would
-therefore place late-race samples at visibly wrong points on the clock the
-frontend actually runs. So samples are instead resolved against the *leader's*
-lap boundaries into `(lap, fraction through that lap)` and re-expressed as
-elapsed time on the same summed-duration timeline the clock uses. See
-`_lap_spans` and `_anchor`.
+**The official record is the spine, and that is the whole design.** Earlier
+versions of this module built the timeline out of OpenF1's `/laps` feed and
+validated it against OpenF1's other feeds, which is not a check at all — a feed
+always agrees with itself. Measured against the official classification, the
+2026 Australian GP came out with laps 1 and 2 inverted. See `official_laps` for
+the two independent faults behind that, both of them unreachable from inside
+OpenF1's data.
 
-**A sample that lands outside every lap span is dropped, never clamped.**
-OpenF1's feeds start well before lights out — grid formation, the reconnaissance
-laps — and clamping those to `t=0` would pile dozens of position events onto the
-first instant of the race, which renders as a phantom position shuffle the
-moment the lights go out. Dropping them costs nothing real: there is no race
-happening yet.
+So the shape of the derivation is now:
+
+* **Lap boundaries are exact.** Each driver gets a position sample at their own
+  official crossing time for every lap. Those samples cannot drift, because
+  they are not derived from anything — they are the classification.
+* **OpenF1 fills the gaps between them**, and is *corrected at every crossing*.
+  A wrong intra-lap sample can now cost at most the remainder of one lap
+  instead of propagating for the rest of the race.
+* **There is no rescaling.** Cumulative official lap times are real elapsed
+  race seconds, and the replay clock is driven by the same numbers (`lap_ms` in
+  the payload), so a sample's timestamp and the clock's reading are the same
+  quantity. The predecessor mapped wall-clock instants onto a *synthetic* clock
+  built from summed lap minima, stretching each lap by the ratio between the
+  two; that distortion is where every position bug lived. Round 1's lap 1
+  spanned 182.5s of wall clock against a 91.9s clock lap, so its opening was
+  compressed 2:1 — laps 1 and 2 landed on top of each other.
+
+Aligning OpenF1's wall clock to that timeline needs exactly one number: the
+instant of lights out. It is measured, not assumed — see `race_start_offset`.
 
 **`interval` and `gap_to_leader` are `number | string | null` and strings are
 load-bearing.** About 20% of `gap_to_leader` values in a real race are strings
@@ -41,18 +47,20 @@ are passed through verbatim; only genuine floats are rounded.
 
 Cached in `race_timing` for the same reason `race_replay` caches: a finished
 race's timing is immutable, and the payload is ~450 KB raw, which is far too
-much to rebuild from three OpenF1 fetches on every view. `TIMING_VERSION` is
-part of the cache key so a change to the payload shape retires existing
-documents instead of serving them to a frontend expecting the new one.
+much to rebuild from four fetches on every view. `TIMING_VERSION` is part of
+the cache key so a change to the payload shape retires existing documents
+instead of serving them to a frontend expecting the new one.
 """
 
 import asyncio
 import datetime
+import statistics
 
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from .db import get_db
+from .official_laps import official_laps_for
 from .race_laps import (
     OPENF1_BASE,
     _as_int,
@@ -65,24 +73,22 @@ router = APIRouter(prefix="/api")
 
 # Bump when the payload shape *or* how it's derived changes. Existing cached
 # documents stop matching and rebuild on next view.
-# 2 retires every payload built before the anchoring fix. Those are not merely
-# imperfect: lap 1 was absent and `t_ms = 0` meant the start of lap 2, so the
-# whole race was shifted a lap early and the starting grid was never in the
-# payload at all. A stale doc would keep serving that silently, since nothing
-# about its shape is wrong.
-# 3 retires the payloads built between the anchoring fix and the tail fix. Their
-# grid is right and their timeline is right, but they stop at the leader's final
-# crossing, so the tower's last state is the order at the winner's flag rather
-# than the finishing order. Bumped because "how it's derived" changed, which is
-# the harder half of this constant's rule to remember: the shape is identical,
-# so nothing else would ever reveal the difference.
-# 4 retires every payload built while the race start was *derived* rather than
-# read. That derivation landed ~90s late, so the opening of every race was
-# discarded as "pre-race": round 1 kept 253 in-race position events where the
-# feed has 509. The tower held cars on their grid slots through the whole first
-# lap — Hamilton ran P7 to P3 within ten seconds of lights out and showed P7 for
-# seventeen minutes.
-TIMING_VERSION = 4
+#
+# 5 retires every payload built on the OpenF1-derived timeline. Those are not
+# merely imprecise: on round 1 they invert laps 1 and 2 against the official
+# classification, because the opening of the race was compressed 2:1 by the
+# clock rescaling and because OpenF1's `/laps` feed is missing lap-2 rows for
+# the leading three cars. Nothing about their *shape* is wrong, so without this
+# bump a stale document would keep serving the inverted order indefinitely —
+# which is the harder half of this constant's rule to remember.
+TIMING_VERSION = 5
+
+# How far an individual lap's implied lights-out instant may sit from the
+# median before it is discarded as a bad boundary. Measured across rounds 3 and
+# 6, the true spread is 0.2s peak-to-peak over a full race; round 1 has a
+# handful of laps 30s out, which is OpenF1's missing rows rather than any real
+# drift. 5s is comfortably outside the noise and comfortably inside the fault.
+OFFSET_TOLERANCE_SECONDS = 5.0
 
 
 def _round_value(value):
@@ -111,240 +117,373 @@ def _round_value(value):
     return None
 
 
-def _leader_boundaries(
-    lap_rows: list[dict],
-) -> tuple[
-    dict[int, datetime.datetime],
-    float | None,
-    datetime.datetime | None,
-    datetime.datetime | None,
-]:
-    """The leader's lap-completion instants, the leader's lap-1 duration, and
-    the instant the *last* car crossed the line.
+def driver_numbers_from_results(results: list[dict]) -> dict[str, str]:
+    """`{driverId: car number}` from a round's `race_results`.
 
-    Returns `({lap_number: instant lap N ended}, lap_1_duration_seconds,
-    instant the last car crossed the line)`.
+    The official lap archive identifies drivers by `driverId` (`"leclerc"`) and
+    every other feed in this app by car number, so one of these is needed to
+    join them. `race_results` is the only place both appear on the same row.
+    """
+    mapping: dict[str, str] = {}
+    for row in results or []:
+        driver = row.get("Driver") or {}
+        driver_id = driver.get("driverId")
+        number = row.get("number") or driver.get("permanentNumber")
+        if driver_id and number:
+            mapping[str(driver_id)] = str(number)
+    return mapping
 
-    Position is never consulted. The earliest line crossing for a given lap
-    number *is* the leader's crossing of it, by the definition of leading — so
-    taking the minimum across drivers gets the same answer as
-    `race_laps.positions_from_openf1`'s time-joined position lookup without
-    depending on the `/position` feed at all. That independence matters here:
-    positions are one of the two things this endpoint is trying to serve, so
-    deriving the timeline from them would make the timeline fail exactly on the
-    rounds where the position feed is the thing that's missing.
 
-    Per-driver crossing instants come from `race_laps._lap_end_times`, which
-    already handles OpenF1's two ways of expressing them (the next lap's
-    `date_start`, falling back to this lap's start plus its duration) and
-    returns None where neither is available.
+def official_samples(
+    official_rows: list[dict], driver_numbers: dict[str, str]
+) -> tuple[dict[str, list[list[int]]], list[int], dict[int, int]]:
+    """The exact skeleton: `(boundary samples, lap_ms, leader cumulative ms)`.
 
-    The second return value exists because lap 1 has no preceding boundary to
-    start from. It is read off whichever driver actually made that earliest
-    lap-1 crossing, so it is the leader's own measured lap, not an average.
+    `boundary samples` is `{car number: [[elapsed_ms, position], ...]}` — one
+    entry per driver per lap they completed, stamped with *their own* crossing
+    time rather than the leader's. That distinction is the point: a car 20s down
+    the road genuinely takes the position it is classified in 20s after the
+    leader does, and stamping the whole field at the leader's instant would make
+    the tower snap the entire order at once, once a lap, which is the very
+    behaviour this module exists to remove.
+
+    `lap_ms` is the leader's duration for each lap, index-aligned to laps 1..N,
+    and is what the replay clock runs on. Deriving it here rather than letting
+    the frontend sum `race_laps` is what keeps the clock and these timestamps on
+    one timeline.
+
+    A driver the results have no car number for is skipped rather than keyed by
+    `driverId` — a mixed-key map would silently fail to join against every other
+    feed, which is much harder to notice than an absent driver.
+    """
+    samples: dict[str, list[list[int]]] = {}
+    leader_cumulative: dict[int, int] = {}
+
+    for row in official_rows or []:
+        lap = _as_int(row.get("lap"))
+        if lap is None:
+            continue
+        for timing in row.get("timings") or []:
+            number = driver_numbers.get(str(timing.get("driverId")))
+            position = _as_int(timing.get("position"))
+            elapsed = _as_int(timing.get("cumulative_ms"))
+            if number is None or position is None or elapsed is None:
+                continue
+            samples.setdefault(number, []).append([elapsed, position])
+            if lap not in leader_cumulative or elapsed < leader_cumulative[lap]:
+                leader_cumulative[lap] = elapsed
+
+    lap_ms: list[int] = []
+    previous = 0
+    for lap in sorted(leader_cumulative):
+        current = leader_cumulative[lap]
+        # A non-positive duration cannot be consumed by the clock's frame loop
+        # and means the archive's cumulative times went backwards — bad data,
+        # not a short lap. The lap is held at the previous boundary instead.
+        if current > previous:
+            lap_ms.append(current - previous)
+            previous = current
+
+    return samples, lap_ms, leader_cumulative
+
+
+def race_start_offset(
+    lap_rows: list[dict], leader_cumulative: dict[int, int]
+) -> datetime.datetime | None:
+    """The wall-clock instant of lights out, measured against the official record.
+
+    For every lap that both sources describe, `OpenF1's leader crossing minus
+    the official leader's elapsed time at that lap` is an independent estimate
+    of when the race started. Because the official timeline is real elapsed
+    seconds and OpenF1 stamps real wall-clock instants, these estimates are all
+    the same number up to measurement noise — confirmed at 0.2s peak-to-peak
+    across a full race on rounds 3 and 6.
+
+    **The median is taken rather than any single lap**, and that is what makes
+    this robust where the previous approach was not. Round 1 has laps whose
+    estimate is 30s out, because OpenF1 is missing crossings for the leading
+    cars there; 44 of its 57 laps still agree within a second, so the median
+    lands on the truth and the bad laps are simply outvoted. Reading the start
+    off any one lap — or off the uniform lap-1 `date_start`, which is the
+    formation-lap departure and lands ~90s early — puts the whole opening of the
+    race in the wrong place.
+
+    Returns None when the two sources share no lap, which leaves the round with
+    no way to place OpenF1's samples and degrades it to the official skeleton
+    alone.
     """
     by_driver: dict[int, list[dict]] = {}
-    # Lights out, straight from the feed.
-    #
-    # **Every driver's lap-1 `date_start` is the same timestamp** — 20 identical
-    # values on round 1 — because it is the race's start signal, not a per-car
-    # measurement. That makes it the authoritative race start, and it is what
-    # `_lap_spans` opens lap 1 with.
-    #
-    # It was previously mistaken for a formation-lap artefact and thrown away.
-    # The reasoning looked sound: the row carries `is_pit_out_lap: true` and a
-    # null `lap_duration`, and the gap to the leader's lap-1 crossing is 182.5s
-    # where `race_laps` reports lap 1 as 91.9s, so it appeared to start a lap too
-    # early. It does not. Lap 1 of that race genuinely took 182.5s — there was an
-    # incident (race control shows starting-procedure investigations) and lap 2
-    # took 81.4s by comparison. `is_pit_out_lap` is true simply because the cars
-    # drove out of the pit lane to reach the grid.
-    #
-    # The cost of that mistake was the entire opening of every race: the derived
-    # start landed 90 seconds late, so every position change in that window was
-    # discarded as "pre-race". Hamilton ran P7→P3 within ten seconds of lights
-    # out on round 1 and the tower showed him frozen on his grid slot for
-    # seventeen minutes, because his next surviving sample was at 04:21.
-    race_start: datetime.datetime | None = None
-    for row in lap_rows:
+    for row in lap_rows or []:
         driver_number = _as_int(row.get("driver_number"))
-        lap_number = _as_int(row.get("lap_number"))
-        if driver_number is None or lap_number is None:
+        if driver_number is None:
             continue
-        if lap_number == 1:
-            started = _parse_iso(row.get("date_start"))
-            if started is not None and (race_start is None or started < race_start):
-                race_start = started
         by_driver.setdefault(driver_number, []).append(row)
 
-    boundaries: dict[int, datetime.datetime] = {}
-    # Kept alongside the boundary so lap 1's duration can be read off the driver
-    # who set it, rather than re-searching the rows afterwards.
-    lap_one_duration: float | None = None
-    # The last car's final crossing — see `_lap_spans` for why the final lap's
-    # span runs to this rather than to the leader's own crossing.
-    # The last car's crossing, used as the tail window in `_anchor`.
-    #
-    # A per-driver window (each car's samples ending at its own crossing) was
-    # tried here and measured *worse* — 162 of 191 classified finishing
-    # positions against 167 for this race-wide one. It is kept race-wide on that
-    # evidence rather than on the argument, which sounded better than it scored.
-    last_crossing: datetime.datetime | None = None
-
+    crossings: dict[int, datetime.datetime] = {}
     for driver_laps in by_driver.values():
-        driver_laps.sort(key=lambda r: _as_int(r.get("lap_number")))
-        ends = _lap_end_times(driver_laps)
-        for row in driver_laps:
-            lap_number = _as_int(row.get("lap_number"))
-            end = ends.get(lap_number)
+        driver_laps.sort(key=lambda row: _as_int(row.get("lap_number")) or 0)
+        for lap, end in _lap_end_times(driver_laps).items():
             if end is None:
                 continue
-            if last_crossing is None or end > last_crossing:
-                last_crossing = end
-            known = boundaries.get(lap_number)
-            if known is None or end < known:
-                boundaries[lap_number] = end
-                if lap_number == 1:
-                    duration = row.get("lap_duration")
-                    lap_one_duration = (
-                        float(duration) if isinstance(duration, (int, float)) else None
-                    )
+            if lap not in crossings or end < crossings[lap]:
+                crossings[lap] = end
 
-    return boundaries, lap_one_duration, last_crossing, race_start
-
-
-def _lap_spans(
-    boundaries: dict[int, datetime.datetime],
-    lap_one_duration: float | None,
-    clock_seconds: dict[int, float] | None = None,
-    race_start: datetime.datetime | None = None,
-) -> list[tuple[datetime.datetime, datetime.datetime, float, float]]:
-    """Turn lap-boundary instants into `(start, end, lap_seconds, cumulative)` spans.
-
-    Lap N spans `boundaries[N-1] .. boundaries[N]` in wall-clock terms — that is
-    what a sample's instant gets classified against. `lap_seconds` and
-    `cumulative` are the *clock* terms: what the frontend believes each lap
-    lasted, and how much race time preceded it.
-
-    **Those two are not the same thing, and conflating them was a real bug.**
-    `t_ms` is consumed by `watch-clock.ts`, whose timeline is the running sum of
-    `race_laps.lap_time_seconds`. Summing OpenF1's wall-clock boundaries instead
-    produces a second, subtly different timeline: every lap's measured duration
-    disagrees slightly, the difference accumulates over ~58 laps, and samples
-    drift out of step with the very clock they are drawn against. So when
-    `clock_seconds` is supplied it governs both terms, and the wall-clock spans
-    are used only to decide *which lap* an instant belongs to and *how far
-    through it* — the exact split the two-term formula was written for.
-
-    **Lap 1 needs its duration from outside OpenF1.** Its `/laps` row is the
-    formation/out lap (`is_pit_out_lap: true`) with `lap_duration: null` on every
-    driver, so `lap_one_duration` is `None` in practice on a real round, and this
-    function's original "drop lap 1 rather than guess" path fired every time.
-    The consequence was not a missing lap 1: it made `spans[0]` **lap 2**, so
-    `t_ms = 0` meant the start of lap 2 and the entire race was shifted a lap
-    early. On the 2026 Australian GP that rendered the order ~3 minutes in as the
-    starting grid — Ferrari shown 1-2 when Mercedes had locked out the front row.
-    `clock_seconds[1]` (91.929s there, via FastF1) is a real measurement of lap 1
-    and resolves it. Guessing is still refused: with neither source, lap 1 is
-    still dropped.
-
-    A missing intermediate boundary (OpenF1 does drop the occasional lap) leaves
-    the following lap's span stretching across both laps rather than splitting
-    the sequence. The fractions inside that stretch are then coarse, but elapsed
-    time stays monotonic and every sample in the region still lands in the right
-    minute — much better than dropping two laps of the race outright.
-    """
-    clock = clock_seconds or {}
-    spans: list[tuple[datetime.datetime, datetime.datetime, float, float]] = []
-    previous: datetime.datetime | None = None
-    cumulative = 0.0
-
-    for lap in sorted(boundaries):
-        end = boundaries[lap]
-        start = previous
-        if lap == 1:
-            # The feed's own start signal wins outright: it is a stated fact,
-            # where anything derived by subtracting a duration is an inference
-            # about when the race must have begun. Deriving it is how the
-            # opening ~90 seconds of every race came to be discarded.
-            start = race_start
-            if start is None:
-                first = clock.get(1) or lap_one_duration
-                start = (
-                    end - datetime.timedelta(seconds=first)
-                    if first is not None
-                    else None
-                )
-        previous = end
-
-        if start is None:
+    estimates: list[float] = []
+    for lap, elapsed_ms in leader_cumulative.items():
+        crossing = crossings.get(lap)
+        if crossing is None:
             continue
-        wall_seconds = (end - start).total_seconds()
-        # A non-positive span is unusable as a denominator and means the two
-        # boundaries are out of order — bad data, not a short lap.
-        if wall_seconds <= 0:
-            continue
-        # The clock's duration where there is one, the wall-clock span otherwise,
-        # so a lap the clock has no measurement for still advances sensibly.
-        lap_seconds = clock.get(lap, wall_seconds)
-        spans.append((start, end, lap_seconds, cumulative))
-        cumulative += lap_seconds
+        estimates.append(crossing.timestamp() - elapsed_ms / 1000)
 
-    return spans
+    if not estimates:
+        return None
+
+    median = statistics.median(estimates)
+    # Re-centre on just the agreeing estimates. The median already ignores the
+    # outliers' magnitude, but averaging the survivors shaves the residual
+    # quantisation noise off a value everything else is measured against.
+    agreeing = [e for e in estimates if abs(e - median) <= OFFSET_TOLERANCE_SECONDS]
+    best = statistics.fmean(agreeing) if agreeing else median
+    return datetime.datetime.fromtimestamp(best, datetime.timezone.utc)
 
 
-def _anchor(
-    moment: datetime.datetime,
-    spans: list[tuple[datetime.datetime, datetime.datetime, float, float]],
-    tail_end: datetime.datetime | None = None,
-) -> int | None:
-    """Elapsed race time in integer milliseconds for a wall-clock instant, or None.
+def _elapsed_ms(moment: datetime.datetime, race_start: datetime.datetime) -> int:
+    """Race-elapsed milliseconds for a wall-clock instant. May be negative."""
+    return round((moment - race_start).total_seconds() * 1000)
 
-    None means the instant sits outside every lap — before the leader started
-    lap 1, or after they crossed the line for the last time — and per the design
-    such a sample is dropped by the caller rather than clamped to an endpoint.
 
-    A linear scan is deliberate over a bisect: the span list is one entry per lap
-    (~60), and it is walked ~23,000 times per race, once at build time, once
-    ever, behind a cache. Bisect would buy nothing and would have to get the
-    half-open/closed boundary handling right in a less obvious way.
+def build_timing(
+    official_rows: list[dict],
+    driver_numbers: dict[str, str],
+    lap_rows: list[dict] | None = None,
+    interval_rows: list[dict] | None = None,
+    position_rows: list[dict] | None = None,
+    grid_positions: dict[str, int] | None = None,
+) -> dict:
+    """The `{drivers, lap_ms}` payload, from the official record plus OpenF1.
+
+    Pure: no Mongo, no network, no clock. Every behaviour worth testing —
+    the official skeleton, the measured start, the drop-don't-clamp rule, string
+    and null gap passthrough, ordering, arity — is reachable from here with
+    plain dicts, which is why the endpoint below is kept to nothing but fetching
+    and caching.
+
+    **Without the official record this returns `{}`**, even when OpenF1 has
+    plenty to say. That is deliberate and it is a change in policy: a timeline
+    with no exact skeleton is precisely the thing that shipped laps 1 and 2
+    inverted, and `synced: false` degrades to the lap-stepped tower, which is
+    honest rather than wrong.
     """
-    last = len(spans) - 1
-    for index, (start, end, lap_seconds, cumulative) in enumerate(spans):
-        # Half-open at the top so an instant exactly on a boundary belongs to the
-        # lap it starts, not the one it ends — except at the very last boundary,
-        # where there is no following lap to claim it and closing the interval is
-        # what keeps the chequered-flag sample.
-        inside = start <= moment < end or (index == last and moment == end)
-        if inside:
-            # The fraction is measured against the WALL-CLOCK span, then applied
-            # to the CLOCK duration. Dividing by `lap_seconds` here would mix the
-            # two timelines — it happens to be identical whenever they agree,
-            # which is precisely why it would go unnoticed when they stop
-            # agreeing. See `_lap_spans` for why they are separate at all.
-            wall_seconds = (end - start).total_seconds()
-            fraction = (moment - start).total_seconds() / wall_seconds
-            return round(1000 * (cumulative + fraction * lap_seconds))
+    boundary, lap_ms, leader_cumulative = official_samples(official_rows, driver_numbers)
+    if not boundary or not lap_ms:
+        return {}
 
-    # **The race does not end when the winner crosses the line.** The rest of
-    # the field races on for the ~25s it takes them to finish, and positions
-    # genuinely settle in that window. Dropping it left the tower's final state
-    # as the order at the moment the winner finished rather than the finishing
-    # order — on round 11 that showed Hamilton ahead of Leclerc, where the
-    # official times have Leclerc 0.7s in front.
+    race_end = max(leader_cumulative.values())
+    race_start = race_start_offset(lap_rows or [], leader_cumulative)
+
+    timing: dict[str, list] = {}
+    positions: dict[str, list[list[int]]] = {
+        number: list(samples) for number, samples in boundary.items()
+    }
+
+    # The starting grid at t=0, read from `race_results` — the official
+    # classification, not a reconstruction.
     #
-    # These samples anchor to the race's final instant rather than to a
-    # position within the last lap. That is deliberate: the clock stops when the
-    # winner finishes, so there is no later moment to place them at, and their
-    # only job is to leave the tower holding the true finishing order. Stretching
-    # the final lap's span to cover them instead was tried and rejected — it
-    # dilates every fraction on the last lap, which the anchoring tests caught
-    # immediately (a hand-computed 225.000s became 222.632s).
-    if spans and tail_end is not None:
-        start, end, lap_seconds, cumulative = spans[-1]
-        if end < moment <= tail_end:
-            return round(1000 * (cumulative + lap_seconds))
-    return None
+    # **Two feed-derived reconstructions were tried before this and both looked
+    # plausible.** The first dropped every pre-race position event, which left
+    # the earliest surviving sample well into lap 1; the lookup then clamped
+    # backwards to it and rendered a mid-lap-1 order as the grid. The second
+    # collapsed the pre-race events to their final state — which appeared to
+    # reproduce the official grid exactly, but only because the probe that
+    # "confirmed" it used the formation lap's start as the race start. Measured
+    # against the true lights-out instant, that state is the order at the *end*
+    # of the formation lap, where cars have already shuffled: 1 of 22 correct on
+    # the 2026 Australian GP. `/position` has no instant that reliably means "on
+    # the grid", so no amount of care with it recovers the starting order.
+    #
+    # Seeded before the OpenF1 fill, not after. `_collapse_positions` resolves a
+    # timestamp tie in favour of whichever sample was inserted first, so this
+    # ordering is what makes the official grid win over any OpenF1 event that
+    # happens to land exactly on t=0.
+    #
+    # Seeded rather than appended for a second reason: a driver whose in-race
+    # samples start late is still placed on the grid for the opening stint,
+    # instead of having a later position clamped backwards over it.
+    #
+    # **Only cars that actually took part are seeded.** A "did not start" is
+    # still given a grid slot by the classification, and seeding it produced the
+    # worst-looking defect of this rewrite: Piastri and Hulkenberg sat on P5 and
+    # P11 for the entire 2026 Australian GP, because a car with no lap samples
+    # never moves off its seed. Every position behind them was consequently a
+    # duplicate, and the tower rendered two P18s and no P16 at all.
+    #
+    # Presence in the official lap archive is the test rather than the `status`
+    # string: it is the same fact without the string matching, and it covers
+    # "did not start", "did not qualify" and a withdrawal identically.
+    for number, position in (grid_positions or {}).items():
+        if number not in boundary:
+            continue
+        positions.setdefault(number, []).append([0, position])
+
+    if race_start is not None:
+        for row in interval_rows or []:
+            driver_number = _as_int(row.get("driver_number"))
+            moment = _parse_iso(row.get("date"))
+            if driver_number is None or moment is None:
+                continue
+            t_ms = _elapsed_ms(moment, race_start)
+            # Outside the race is dropped, never clamped. OpenF1's feeds start
+            # well before lights out — grid formation, the reconnaissance laps —
+            # and clamping those to t=0 piles dozens of samples onto the first
+            # instant, which renders as a phantom shuffle the moment the lights
+            # go out.
+            if t_ms < 0 or t_ms > race_end:
+                continue
+            timing.setdefault(str(driver_number), []).append([
+                t_ms,
+                _round_value(row.get("interval")),
+                _round_value(row.get("gap_to_leader")),
+            ])
+
+        for row in position_rows or []:
+            driver_number = _as_int(row.get("driver_number"))
+            position = _as_int(row.get("position"))
+            moment = _parse_iso(row.get("date"))
+            if driver_number is None or position is None or moment is None:
+                continue
+            t_ms = _elapsed_ms(moment, race_start)
+            if t_ms < 0 or t_ms > race_end:
+                continue
+            positions.setdefault(str(driver_number), []).append([t_ms, position])
+
+    # When each car stops being part of the race.
+    #
+    # A retired car's samples simply stop, and a consumer that carries the last
+    # one forward — which is what the tower does, correctly, between crossings —
+    # will hold it in the running order for the rest of the afternoon. That is
+    # both wrong on its own and corrupting: with the order rendered as a rank, a
+    # ghost occupying P4 pushes every car behind it down one for an hour.
+    #
+    # The test is **when** the car last crossed, not how many laps it did. A
+    # lapped car is classified two laps down but still takes the flag, so its
+    # final crossing sits within the last lap of the race; a retirement's sits
+    # much earlier. `status` is deliberately not consulted: it is free text with
+    # a dozen spellings ("Accident", "Engine", "+1 Lap"), and the timing already
+    # states the fact plainly.
+    final_lap_ms = lap_ms[-1] if lap_ms else 0
+    still_running = race_end - 1.5 * final_lap_ms
+    out_ms: dict[str, int] = {}
+    for number, samples in boundary.items():
+        last = max(sample[0] for sample in samples)
+        if last < still_running:
+            out_ms[number] = last
+
+    drivers: dict[str, dict] = {}
+    # **Only cars the official record says took part are served at all.**
+    #
+    # Restricting the grid seed alone was not enough and the difference is
+    # instructive: OpenF1 emits interval and position rows for cars that never
+    # started, so Piastri and Hulkenberg re-entered the field through the fill
+    # even after the seed excluded them. They then sat in the running order
+    # while no tower row existed to draw them — the order had 22 entries, the
+    # tower had 20, and the rendered ranks came out 1,2,3,4,6,7,8,9,11,...
+    # with holes exactly where the two ghosts were.
+    #
+    # The official archive is the definition of who is in the race, which is the
+    # same principle the rest of this module runs on.
+    for number in (set(timing) | set(positions)) & set(boundary):
+        driver_timing = sorted(timing.get(number, []), key=lambda sample: sample[0])
+        driver_positions = _collapse_positions(positions.get(number, []))
+        # Present-with-one-feed is a real and useful state (the design's
+        # "timing only" degradation row), so a driver is kept as long as at
+        # least one array has something in it — but the empty one is still
+        # emitted as an empty list so the two keys always exist.
+        if not driver_timing and not driver_positions:
+            continue
+        entry: dict = {"timing": driver_timing, "positions": driver_positions}
+        if number in out_ms:
+            entry["out_ms"] = out_ms[number]
+        drivers[number] = entry
+
+    return {"drivers": drivers, "lap_ms": lap_ms}
+
+
+def _collapse_positions(samples: list[list[int]], _unused=None) -> list[list[int]]:
+    """Sort by time and drop samples that restate the position already showing.
+
+    Two things are resolved here, both of which matter for correctness rather
+    than only for size.
+
+    **Ties go to the official sample.** An OpenF1 event landing on the exact
+    millisecond of a line crossing would otherwise make the array's order
+    ambiguous, and the frontend's "last sample at or before now" lookup would
+    pick whichever happened to sort last. Sorting by `(time, is_openf1)` puts
+    the official value second, so it wins — which is the correction-at-every-
+    crossing rule the module's docstring describes, expressed in the sort.
+
+    **A repeated position is not a change.** OpenF1 restates a driver's position
+    on its own cadence whether or not it moved, and those runs are roughly two
+    thirds of the raw feed. Emitting them costs payload and makes the frontend's
+    change-detection fire on non-events.
+    """
+    # Provenance is recoverable without threading a flag through: an official
+    # boundary sample and an OpenF1 sample never need to be told apart *except*
+    # when they share a timestamp, and there the official one is the one to keep.
+    # Sorting is stable, so ordering by time alone preserves insertion order,
+    # and official samples are inserted first.
+    ordered = sorted(samples, key=lambda sample: sample[0])
+
+    collapsed: list[list[int]] = []
+    for sample in ordered:
+        if collapsed and collapsed[-1][0] == sample[0]:
+            # Same instant: the first one inserted wins, which is the official
+            # boundary sample wherever one exists.
+            continue
+        if collapsed and collapsed[-1][1] == sample[1]:
+            continue
+        collapsed.append(sample)
+    return collapsed
+
+
+def fetch_openf1_feeds(race_date: str) -> tuple[list, list, list]:
+    """`(/laps, /intervals, /position)` for the race on `race_date`.
+
+    Returns three empty lists for every failure mode — no session for that date,
+    a feed that 404s or times out, a season before OpenF1's 2023 coverage
+    starts. The caller still has the official skeleton in that case and serves a
+    lap-boundary-accurate tower without intra-lap fill.
+
+    `/laps` is fetched even though this module serves no per-lap data: it is the
+    only source of wall-clock line crossings, which is what `race_start_offset`
+    measures the start against. Without it the other two feeds cannot be placed
+    on the timeline at all.
+    """
+    from .race_stints import fetch_openf1_session_key
+
+    try:
+        session_key = fetch_openf1_session_key(race_date)
+    except Exception as error:
+        print(f"race_timing: OpenF1 session lookup failed for {race_date}: {error}")
+        return [], [], []
+    if session_key is None:
+        return [], [], []
+
+    def rows(value):
+        return value if isinstance(value, list) else []
+
+    lap_rows = rows(_fetch_json(f"{OPENF1_BASE}/laps", {"session_key": session_key}))
+    if not lap_rows:
+        return [], [], []
+
+    # The intervals feed is ~22,000 rows for one race, comfortably past the
+    # default timeout on a slow link, so it gets a longer one of its own.
+    interval_rows = rows(
+        _fetch_json(f"{OPENF1_BASE}/intervals", {"session_key": session_key}, timeout=60.0)
+    )
+    position_rows = rows(
+        _fetch_json(f"{OPENF1_BASE}/position", {"session_key": session_key})
+    )
+    return lap_rows, interval_rows, position_rows
 
 
 def grid_from_race_results(results: list[dict]) -> dict[str, int]:
@@ -370,189 +509,6 @@ def grid_from_race_results(results: list[dict]) -> dict[str, int]:
     return grid
 
 
-def clock_seconds_from_race_laps(rows: list[dict]) -> dict[int, float]:
-    """`{lap_number: seconds}` — the leader's duration for each lap, as the
-    frontend clock measures it.
-
-    Sourced from `race_laps`, the same rows `watch-clock.lapDurations` reads, and
-    taken as the **minimum** usable duration on each lap. That is the leader's
-    lap by the same argument `_leader_boundaries` uses for crossings, and it
-    matches `lapDurations`' "first usable value in runner order" closely enough
-    that the two timelines stay in step (runners are sorted leader-first).
-
-    This is also the only available measurement of lap 1, which OpenF1 reports as
-    a formation lap with no duration at all.
-    """
-    best: dict[int, float] = {}
-    for row in rows or []:
-        lap = _as_int(row.get("lap_number"))
-        seconds = row.get("lap_time_seconds")
-        if lap is None or not isinstance(seconds, (int, float)):
-            continue
-        if seconds <= 0 or seconds != seconds:
-            continue
-        if lap not in best or seconds < best[lap]:
-            best[lap] = float(seconds)
-    return best
-
-
-def build_timing(
-    lap_rows: list[dict],
-    interval_rows: list[dict],
-    position_rows: list[dict],
-    clock_seconds: dict[int, float] | None = None,
-    grid_positions: dict[str, int] | None = None,
-) -> dict:
-    """The `drivers` map of the contract, from three raw OpenF1 feeds.
-
-    Pure: no Mongo, no network, no clock. Every behaviour worth testing —
-    anchoring, the drop-don't-clamp rule, string and null gap passthrough,
-    ordering, arity — is reachable from here with plain dicts, which is why the
-    endpoint below is kept to nothing but fetching and caching.
-
-    A driver who ends up with no anchorable samples at all is omitted from the
-    result entirely rather than emitted with two empty arrays, so a driver's
-    presence in `drivers` always means there is something to draw for them.
-    The one exception is deliberate: a driver with samples in one feed and not
-    the other is kept, with the missing side as `[]`. That is the design's
-    "timing only" degradation row, and dropping those drivers would turn a
-    round with no `/position` coverage into a round with no data whatsoever.
-
-    Empty or unusable input yields `{}`, never an exception. Every caller of
-    this module treats "no data" as a normal state of the world (`synced:
-    false`), so there is nothing for a raise to communicate that the empty dict
-    does not.
-    """
-    boundaries, lap_one_duration, last_crossing, race_start = _leader_boundaries(
-        lap_rows or []
-    )
-    spans = _lap_spans(boundaries, lap_one_duration, clock_seconds, race_start)
-    if not spans:
-        return {}
-
-    timing: dict[str, list] = {}
-    positions: dict[str, list] = {}
-
-    for row in interval_rows or []:
-        driver_number = _as_int(row.get("driver_number"))
-        moment = _parse_iso(row.get("date"))
-        if driver_number is None or moment is None:
-            continue
-        t_ms = _anchor(moment, spans, last_crossing)
-        if t_ms is None:
-            continue
-        timing.setdefault(str(driver_number), []).append([
-            t_ms,
-            _round_value(row.get("interval")),
-            _round_value(row.get("gap_to_leader")),
-        ])
-
-    # The instant the leader began lap 1. Everything before it is pre-race.
-    race_start = spans[0][0]
-
-    for row in position_rows or []:
-        driver_number = _as_int(row.get("driver_number"))
-        position = _as_int(row.get("position"))
-        moment = _parse_iso(row.get("date"))
-        if driver_number is None or position is None or moment is None:
-            continue
-        if moment < race_start:
-            # Pre-race churn, still dropped. See the grid seeding below for why
-            # this feed is not the place to recover the starting order from.
-            continue
-        t_ms = _anchor(moment, spans, last_crossing)
-        if t_ms is None:
-            continue
-        positions.setdefault(str(driver_number), []).append([t_ms, position])
-
-    # The starting grid, seeded at t=0 from `race_results` — the official
-    # classification, not a reconstruction.
-    #
-    # **Two wrong answers were tried before this one, and both looked
-    # plausible.** The first was to drop every pre-race position event, which
-    # left the earliest surviving sample well into lap 1; the lookup then clamped
-    # backwards to it and rendered a mid-lap-1 order as the grid. The second was
-    # to collapse the pre-race events to their final state — which appeared to
-    # reproduce the official grid exactly, but only because the probe that
-    # "confirmed" it used the formation lap's start as the race start. Measured
-    # against the true lights-out instant, that state is the order at the *end*
-    # of the formation lap, where cars have already shuffled: 1 of 22 correct on
-    # the 2026 Australian GP.
-    #
-    # The lesson is that `/position` has no instant that reliably means "on the
-    # grid", so no amount of care with it recovers the starting order. The grid
-    # is a fact this app already stores, and it is simply read.
-    #
-    # Seeded rather than appended, so a driver whose in-race samples start late
-    # (Hamilton's first is 14.5 minutes in on round 1) is still placed on the
-    # grid for the opening stint instead of having a mid-race position clamped
-    # backwards over it. A real sample already at t=0 wins: it describes the
-    # same instant with better provenance, and two samples sharing a timestamp
-    # would make the array's order ambiguous.
-    for number, position in (grid_positions or {}).items():
-        existing = positions.setdefault(number, [])
-        if not any(sample[0] == 0 for sample in existing):
-            existing.append([0, position])
-
-    drivers: dict[str, dict] = {}
-    for number in set(timing) | set(positions):
-        driver_timing = sorted(timing.get(number, []), key=lambda sample: sample[0])
-        driver_positions = sorted(positions.get(number, []), key=lambda sample: sample[0])
-        # Present-with-one-feed is a real and useful state (the design's
-        # "timing only" degradation row), so a driver is kept as long as at
-        # least one array has something in it — but the empty one is still
-        # emitted as an empty list so the two keys always exist.
-        if not driver_timing and not driver_positions:
-            continue
-        drivers[number] = {"timing": driver_timing, "positions": driver_positions}
-
-    return drivers
-
-
-def fetch_timing_openf1(
-    race_date: str,
-    clock_seconds: dict[int, float] | None = None,
-    grid_positions: dict[str, int] | None = None,
-) -> dict:
-    """Build the `drivers` map for the race on `race_date` straight from OpenF1.
-
-    Returns `{}` for every failure mode — no session for that date, a feed that
-    404s or times out, a season before OpenF1's 2023 coverage starts. The caller
-    turns that into `synced: false`, which is the honest answer and not an
-    error. Unlike the FastF1 path `race_laps` falls back to, this works from a
-    datacenter IP, so the self-heal below actually fires in production.
-
-    `/laps` is fetched even though this module serves no per-lap data: it is the
-    only source of the lap boundaries the whole anchoring rests on. Without it
-    there is nothing to place a sample against, so the two large feeds are not
-    paid for at all.
-    """
-    from .race_stints import fetch_openf1_session_key
-
-    session_key = fetch_openf1_session_key(race_date)
-    if session_key is None:
-        return {}
-
-    lap_rows = _fetch_json(f"{OPENF1_BASE}/laps", {"session_key": session_key})
-    if not isinstance(lap_rows, list) or not lap_rows:
-        return {}
-
-    # The intervals feed is ~22,000 rows for one race, comfortably past the
-    # default timeout on a slow link, so it gets a longer one of its own.
-    interval_rows = _fetch_json(
-        f"{OPENF1_BASE}/intervals", {"session_key": session_key}, timeout=60.0
-    )
-    position_rows = _fetch_json(f"{OPENF1_BASE}/position", {"session_key": session_key})
-
-    return build_timing(
-        lap_rows,
-        interval_rows if isinstance(interval_rows, list) else [],
-        position_rows if isinstance(position_rows, list) else [],
-        clock_seconds,
-        grid_positions,
-    )
-
-
 async def _race_date(db, year: int, round_number: int) -> str | None:
     """The `YYYY-MM-DD` date of a round, from the already-synced `races` collection.
 
@@ -574,12 +530,11 @@ async def get_race_timing(
     year: int = Query(..., description="Season year, e.g. 2026"),
     round_number: int = Query(..., alias="round", description="Round number within the season"),
 ):
-    """Per-second timing and position samples for a race, Mongo-first with an OpenF1 rebuild.
+    """Per-second timing and position samples for a race, Mongo-first with a rebuild.
 
     A round with no per-second track is not an error — `synced: false` with an
     empty `drivers` map is the honest answer, and the frontend degrades to the
-    existing lap-stepped tower on it. That covers pre-2023 seasons entirely
-    (OpenF1 has no data before then) and any later round its feeds missed.
+    existing lap-stepped tower on it.
 
     Nothing in here raises. A rebuild that fails for any reason answers exactly
     like a round that has no data, because from a consumer's point of view those
@@ -599,50 +554,54 @@ async def get_race_timing(
             "year": year,
             "round": round_number,
             "drivers": cached["drivers"],
+            "lap_ms": cached.get("lap_ms") or [],
             "synced": True,
         })
 
-    drivers: dict = {}
+    payload: dict = {}
     try:
-        race_date = await _race_date(db, year, round_number)
-        if race_date:
-            # The frontend clock's own per-lap durations, so `t_ms` is expressed
-            # on the same timeline the tower is drawn against rather than on
-            # OpenF1's wall clock. Also the only measurement of lap 1 that
-            # exists — see `_lap_spans`. Read straight from the cached
-            # collection: a miss here degrades the anchoring rather than failing
-            # the request, so it is deliberately not self-healed through
-            # `get_race_laps`.
-            laps_doc = await db.race_laps.find_one(
-                {"season": year, "round": str(round_number)}, {"_id": 0, "laps": 1}
-            )
-            clock = clock_seconds_from_race_laps((laps_doc or {}).get("laps") or [])
-            # `fetch_timing_openf1` is blocking httpx over ~25,000 rows; running
-            # it inline would stall the event loop for the length of three
-            # sequential HTTP fetches and block every other request served by
-            # this process meanwhile.
+        official_rows = await official_laps_for(year, round_number)
+        if official_rows:
             results_doc = await db.race_results.find_one(
                 {"season": year, "round": str(round_number)}, {"_id": 0, "results": 1}
             )
-            grid = grid_from_race_results((results_doc or {}).get("results") or [])
-            drivers = await asyncio.to_thread(
-                fetch_timing_openf1, race_date, clock, grid
+            results = (results_doc or {}).get("results") or []
+            numbers = driver_numbers_from_results(results)
+            grid = grid_from_race_results(results)
+
+            race_date = await _race_date(db, year, round_number)
+            lap_rows, interval_rows, position_rows = [], [], []
+            if race_date:
+                # Blocking httpx over ~25,000 rows; running it inline would
+                # stall the event loop for the length of three sequential HTTP
+                # fetches and block every other request served by this process.
+                lap_rows, interval_rows, position_rows = await asyncio.to_thread(
+                    fetch_openf1_feeds, race_date
+                )
+
+            payload = build_timing(
+                official_rows, numbers, lap_rows, interval_rows, position_rows, grid
             )
     except Exception as error:
         print(f"race_timing: rebuild failed for {year} R{round_number}: {error}")
-        drivers = {}
+        payload = {}
 
+    drivers = payload.get("drivers") or {}
     if not drivers:
         return JSONResponse(content={
             "year": year,
             "round": round_number,
             "drivers": {},
+            "lap_ms": [],
             "synced": False,
         })
 
+    lap_ms = payload.get("lap_ms") or []
     try:
         await db.race_timing.update_one(
-            cache_key, {"$set": {**cache_key, "drivers": drivers}}, upsert=True
+            cache_key,
+            {"$set": {**cache_key, "drivers": drivers, "lap_ms": lap_ms}},
+            upsert=True,
         )
     except Exception as error:
         print(f"Failed to cache race_timing for {year} R{round_number}: {error}")
@@ -651,5 +610,6 @@ async def get_race_timing(
         "year": year,
         "round": round_number,
         "drivers": drivers,
+        "lap_ms": lap_ms,
         "synced": True,
     })
