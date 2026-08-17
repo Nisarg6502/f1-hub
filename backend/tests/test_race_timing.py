@@ -159,6 +159,47 @@ class RaceStartTests(unittest.TestCase):
         _, _, leader = race_timing.official_samples(OFFICIAL_ROWS, DRIVER_NUMBERS)
         self.assertIsNone(race_timing.race_start_offset([], leader))
 
+    def test_a_missing_opening_boundary_cannot_shift_the_start_by_a_lap(self):
+        """The 2026 Australian GP defect, in miniature.
+
+        OpenF1's `/laps` there has **no crossing at the end of racing lap 1** —
+        its lap-1 row spans two official laps (null duration), so its lap N is
+        the official lap N+1 from then on. Every per-lap estimate is therefore
+        one lap duration too large *and they all agree with each other*, so the
+        median and the tolerance filter both endorse a start 90s late.
+
+        The stated lap-1 `date_start` is the tiebreak, and it is a measured fact
+        rather than a preference: on all eleven synced 2026 rounds it equals race
+        control's `SESSION STARTED` message to the millisecond.
+        """
+        merged = [
+            # Lap 1 covers official laps 1 and 2 — the boundary at 90s is absent.
+            {"driver_number": 1, "lap_number": 1,
+             "date_start": "2026-03-08T12:00:00+00:00", "lap_duration": None},
+            {"driver_number": 1, "lap_number": 2,
+             "date_start": "2026-03-08T12:03:00+00:00", "lap_duration": 90.0},
+            {"driver_number": 1, "lap_number": 3,
+             "date_start": "2026-03-08T12:04:30+00:00", "lap_duration": 90.0},
+        ]
+        _, _, leader = race_timing.official_samples(OFFICIAL_ROWS, DRIVER_NUMBERS)
+        self.assertEqual(race_timing.race_start_offset(merged, leader), RACE_START)
+
+    def test_the_stated_start_is_a_coarse_anchor_not_the_answer(self):
+        """A lap-1 `date_start` half a second out must not override the estimates.
+
+        OpenF1 stamps a lap boundary ~0.45s after the official crossing on every
+        healthy round, so the estimates are systematically that much later than
+        the stated instant — and they are the *better* number, because the
+        samples being placed are OpenF1's own. The anchor exists to reject a
+        whole-lap misalignment, not to win sub-second arguments.
+        """
+        rows = [dict(row) for row in LAP_ROWS]
+        for row in rows:
+            if row["lap_number"] == 1:
+                row["date_start"] = "2026-03-08T11:59:59.500+00:00"
+        _, _, leader = race_timing.official_samples(OFFICIAL_ROWS, DRIVER_NUMBERS)
+        self.assertEqual(race_timing.race_start_offset(rows, leader), RACE_START)
+
     def test_openf1_samples_are_dropped_when_the_start_is_unknown(self):
         # Without a start there is no way to place a wall-clock sample, and
         # guessing one is how the opening of every race ended up 90s out.

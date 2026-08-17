@@ -1,4 +1,92 @@
-# F1 Hub — Handoff (2026-08-09)
+# F1 Hub — Handoff (2026-08-18)
+
+## CP81 — the Australian GP replay was 84 seconds late (2026-08-18)
+
+**Supersedes CP80 on the race start.** The user reported the watch replay still
+wrong on round 1 — Leclerc showing "—" and "0" for timings, data missing
+outright. Both were real, and they were two separate defects.
+
+**Ground truth was available all along and nobody had looked for it.** OpenF1
+serves `/race_control`, which carries a `SESSION STARTED` message. On the
+Australian GP that is `04:03:26.365Z`; `CHEQUERED FLAG` minus the official
+winner's race time (1:23:06.801) lands within 0.17s of it. Two independent
+sources fixing lights-out to a fifth of a second.
+
+Measured against that, across all eleven synced rounds:
+
+| | round 1 | rounds 2-11 |
+|---|---|---|
+| uniform lap-1 `date_start` | **+0.000s** | **+0.000s** |
+| `race_start_offset` (CP80) | **+83.99s** | +0.42 to +0.77s |
+
+**Defect 1 — the derived start is a lap late on round 1.** `race_start_offset`
+pairs OpenF1 lap N's crossing with the official lap N's cumulative time. On this
+round OpenF1's `/laps` has *no boundary at the end of racing lap 1*: its lap-1
+row spans two official laps (null duration), so its lap N is the official lap
+N+1 from then on. Every per-lap estimate is one lap duration too large — **and
+they all agree with each other**, so the median endorsed the wrong answer and
+the 5s tolerance filter saw a textbook-tight cluster. 0 of 57 estimates were
+within a lap of the truth. Consequences: every OpenF1 sample in the opening 84
+seconds fell below `t=0` and was dropped (the missing data), and everything
+after read a lap later's race beside a correct official position (the "0" — 
+Leclerc parked on his P4 grid slot showing `+0.0/+0.0`, which is OpenF1's
+*leader* reading from 84s later).
+
+This is the file's own warning about a feed agreeing with itself, one level up:
+the estimates are independent of each other but not of OpenF1's lap numbering.
+The fix keeps the median for precision and adds `stated_race_start` as a coarse
+anchor — an estimate more than 30s from the stated instant is describing a
+different lap and is dropped. The two scales are far apart (0.45s residual vs a
+≥64s minimum lap) and nothing lives between them. Rounds 2-11 come out
+**identical to the microsecond**; round 1 moves −83.991s.
+
+**The stated lap-1 `date_start` was discarded twice before, and both arguments
+are now answered.** It reads as a formation lap only because round 1's lap-1 row
+has a null duration and a 182.5s span — that row is *two laps*, not a formation
+lap. CP80 then measured it "~90s early" against `race_start_offset`'s own
+output, which is 84s late on exactly that round. Comparing two derived numbers
+cannot say which is wrong; `/race_control` can.
+
+**Defect 2 — the tower's first paint contradicted itself.** CP79's defect 7
+seeded `liveOrder` from `orderAt(index, 0)` so the rows open in grid order. The
+*contents* of those rows still rendered from the lap row, whose lap-1 entry is
+the state at the **end** of lap 1. The served HTML had the rows in grid order
+with Leclerc's row — sitting fourth — labelled **P1** and **+0.0**, Russell's
+first and labelled P2, Hamilton's sixth and labelled P3. Every number real, none
+describing the instant shown. `initialCells` now seeds the number and both gap
+readings from the same `orderAt`/`sampleAt` calls the frame loop makes. Half a
+fix is how this survived: order was correct before hydration, contents only
+after.
+
+**`verify_race_timing` gained a `gaps` check, and it is the point of this
+checkpoint.** Every existing check scores *positions*, which are stamped from
+the official record at each crossing and therefore survived the 84s shift
+untouched — `boundaries` and `grid` read 100% on a payload whose entire timing
+column was a lap out. `gaps` compares `gap_to_leader` at each crossing against
+the gap the archive's cumulative times state there: independent, and it reads
+**47% (median error 1.13s) on the deployed payload** against **97% (median
+0.01s)** after the fix. Scored over numeric readings only — `"+1 LAP"` states a
+fact a float comparison cannot.
+
+Measured after: all 11 rounds pass; round 1 gaps 97%, boundaries 100%, grid
+20/20, flag-order 17/17. Driven in headless Chrome, the tower opens on the
+official grid with every gap `—` (honest: the cars are stationary) and Leclerc
+runs P4 → P2 at 10s → the lead at 20s, which the archive independently confirms
+he held at the end of lap 1.
+
+`TIMING_VERSION` is **6**. All 11 rounds are already rebuilt and cached, so the
+deploy serves them without a refetch. **The backend is not deployed yet.**
+
+Two things worth carrying forward:
+
+- **`/race_control` is an independent clock for any timing work here**, and
+  neither this module nor `race_laps` had ever read it. `SESSION STARTED`,
+  `CHEQUERED FLAG`, and the safety-car and flag messages are all wall-clock
+  stamped and derived from nothing this app builds.
+- **The preview pane cannot verify this route** — it hides the tab, which
+  starves the rAF-driven replay clock, so the tower never advances and the check
+  reads as a hang. Drive it with headless Chrome over CDP. This is a second
+  instance of the pane note already recorded for the circuit viewer.
 
 ## CP80 — watch timing rebuilt on the official record (2026-08-09)
 

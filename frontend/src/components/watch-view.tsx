@@ -727,6 +727,59 @@ export default function WatchView({
   );
 
   /**
+   * What every cell reads before the first frame paints.
+   *
+   * **The row's order and the row's contents must come from the same source, or
+   * they contradict each other on screen.** `liveOrder` is seeded from
+   * `orderAt(timingIndex, 0)`, so the rows open in the starting-grid order; the
+   * number and gap inside them used to render from the lap row, whose lap-1
+   * entry is the state at the *end* of lap 1. The Australian GP opened with the
+   * rows in grid order and Leclerc's row — sitting fourth — labelled **P1** and
+   * **+0.0**, Russell's sitting first and labelled P2, Hamilton's sixth and
+   * labelled P3. Every number was a real measurement; none of them described
+   * the instant being shown.
+   *
+   * This is the other half of the fix that seeded `liveOrder`. That one made
+   * the *ordering* correct before hydration and left the contents
+   * correct-only-after-hydration, which is a state a viewer can see: the repaint
+   * effect below runs after mount, so the contradiction is served in the HTML
+   * and survives until React has hydrated and run effects.
+   *
+   * Computed with the same `orderAt` / `sampleAt` / `formatTimingValue` calls
+   * the frame loop makes, so "before play" and "one frame after play" cannot
+   * disagree by construction. `null` when there is no per-second track, where
+   * the lap row genuinely is the best available answer and the old behaviour
+   * stands.
+   */
+  const initialCells = useMemo(() => {
+    if (!perSecond) return null;
+    const order = orderAt(timingIndex, 0);
+    const leader = order?.[0];
+    const ranks = new Map<string, number>();
+    order?.forEach((number, index) => ranks.set(number, index + 1));
+
+    const cells = new Map<
+      string,
+      { position: string | null; primary: string; secondary: string }
+    >();
+    for (const number of timingIndex.drivers.keys()) {
+      const snapshot = sampleAt(timingIndex, number, 0);
+      const isLeader = number === leader;
+      const primaryValue =
+        timingMode === "interval" ? snapshot.interval : snapshot.gapToLeader;
+      const secondaryValue =
+        timingMode === "interval" ? snapshot.gapToLeader : snapshot.interval;
+      const rank = ranks.get(number) ?? snapshot.position;
+      cells.set(number, {
+        position: rank === undefined || rank === null ? null : String(rank),
+        primary: formatTimingValue(primaryValue, isLeader),
+        secondary: isLeader ? "" : formatTimingValue(secondaryValue, false),
+      });
+    }
+    return cells;
+  }, [perSecond, timingIndex, timingMode]);
+
+  /**
    * Repaint the timing cells outside the frame loop.
    *
    * The loop only runs while playing, so without this the tower would show
@@ -1029,14 +1082,19 @@ export default function WatchView({
                       : "#f6f1ea",
                   }}
                 >
-                  {/* Initial value only — with a per-second track the frame loop
-                      overwrites this from the timing feed, which is also where
-                      the row's order comes from, so the number and the ordering
-                      can never disagree. See the note beside `cell.position`.
-                      A retired car keeps its dash and is not registered for
-                      painting: it sits behind the live order with no live
-                      position to state. */}
-                  {runner.retired ? "—" : runner.position ?? "—"}
+                  {/* Initial value only — the frame loop overwrites it. It is
+                      read from the timing index at t=0 rather than the lap row
+                      wherever there is one, because the row's *order* comes from
+                      that index too and the two must agree on the very first
+                      paint, not merely once React has hydrated. See
+                      `initialCells`. A retired car keeps its dash and is not
+                      registered for painting: it sits behind the live order with
+                      no live position to state. */}
+                  {runner.retired
+                    ? "—"
+                    : initialCells?.get(runner.number)?.position ??
+                      runner.position ??
+                      "—"}
                 </span>
 
                 {/* Position change on this lap, marked as it happens. */}
@@ -1095,9 +1153,11 @@ export default function WatchView({
 
                     The live reading's *text* is written by the frame loop, not
                     rendered by React — the children below are the initial
-                    (server-rendered, pre-play) value, taken from the lap row so
-                    the tower is never blank and so a round without a per-second
-                    track keeps exactly its old behaviour. */}
+                    (server-rendered, pre-play) value. It comes from the timing
+                    index at t=0 where there is one, so the pre-play tower states
+                    the grid rather than the end of lap 1, and falls back to the
+                    lap row otherwise, which keeps a round without a per-second
+                    track at exactly its old behaviour. */}
                 {runner.retired || runner.pit ? (
                   <span
                     className="font-bold tabular-nums text-right flex-none w-[4.6em]"
@@ -1112,7 +1172,8 @@ export default function WatchView({
                       className="font-bold tabular-nums text-right"
                       style={{ color: "#c9c0b4" }}
                     >
-                      {formatGap(runner.gap_seconds, positionOrder === 0)}
+                      {initialCells?.get(runner.number)?.primary ??
+                        formatGap(runner.gap_seconds, positionOrder === 0)}
                     </span>
                     {/* The other mode's number, small, beneath the chosen one.
                         Expanded only: compact's rows are ~25px on the landscape
@@ -1127,7 +1188,9 @@ export default function WatchView({
                         className="font-semibold tabular-nums text-right text-warm-500 mt-[0.15em]"
                         style={{ fontSize: "0.62em" }}
                         aria-hidden
-                      />
+                      >
+                        {initialCells?.get(runner.number)?.secondary ?? ""}
+                      </span>
                     )}
                   </span>
                 )}

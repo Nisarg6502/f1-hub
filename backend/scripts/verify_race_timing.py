@@ -29,10 +29,23 @@ property that makes a check worth running:
                 record — so it proves the pipeline (parse, merge, collapse,
                 cache, serve) rather than the data. Run with `--deployed` it is
                 the check that would have caught the inverted opening.
+- `gaps`        the payload's `gap_to_leader` at each driver's own crossing vs
+                the gap the official cumulative times state there. **Fully
+                independent, and the only check here that reads the timing
+                column at all** — every other one scores positions. The archive
+                states each driver's elapsed time at every crossing, so the true
+                gap is arithmetic on numbers OpenF1 never sees.
 - `fill`        what fraction of OpenF1's intra-lap samples agree with the
                 official position current at the moment they land. Purely
                 informational: this is a measurement of OpenF1's quality, and a
                 low number is a fact about the feed, not a regression.
+
+`gaps` exists because everything above it passed a round-1 payload whose whole
+timeline sat 84 seconds late. Positions survived the shift — they are stamped
+from the official record at every crossing, so `boundaries` and `grid` scored
+100% while the interval and gap columns beside them showed a lap later's race
+and the opening lap had no readings at all. A check that only scores the spine
+cannot see a fault in the flesh.
 
 Run it after any change to `race_timing.py`:
 
@@ -74,6 +87,7 @@ DEPLOYED = "https://f1-backend-1076575666662.asia-south1.run.app"
 MIN_ARCHIVE = 0.99      # the official record must be self-consistent
 MIN_BOUNDARY = 0.99     # the pipeline must reproduce what it was built from
 MIN_GRID = 1.00         # the grid is copied, so anything less is a bug
+MIN_GAPS = 0.90         # set once the season was measured; see below
 
 
 def _mongo():
@@ -146,6 +160,67 @@ def check_boundaries(drivers, official_rows, numbers) -> tuple[int, int, list[st
                     f"L{row['lap']} #{number} shown P{shown}, official P{timing['position']}"
                 )
     return hit, total, notes
+
+
+def check_gaps(drivers, official_rows, numbers) -> tuple[int, int, float, list[str]]:
+    """`gap_to_leader` at each crossing vs the gap the archive states there.
+
+    Returns `(within tolerance, numeric readings, median error, notes)`.
+
+    **Scored over numeric readings only, and the string branch is not a
+    loophole.** A fifth of a real race's gaps are `"+1 LAP"`, which states a fact
+    this comparison cannot express as a float; counting them as misses would put
+    a floor of ~20% failure under a healthy round and make the threshold
+    meaningless. They are already covered by `boundaries`, which scores every
+    car on every lap regardless of what its gap column says.
+
+    A tolerance of 1s rather than something tighter: the payload's reading is
+    OpenF1's most recent sample carried forward, and that sample can be a few
+    seconds old at the instant of a crossing, during which a real gap genuinely
+    moves. The fault this exists to catch is a whole lap — ~85s — so a loose
+    tolerance costs nothing and avoids scoring the feed's cadence.
+    """
+    leader_at: dict[int, int] = {}
+    for row in official_rows:
+        for timing in row.get("timings") or []:
+            lap = row["lap"]
+            if lap not in leader_at or timing["cumulative_ms"] < leader_at[lap]:
+                leader_at[lap] = timing["cumulative_ms"]
+
+    hit = 0
+    errors: list[float] = []
+    notes: list[str] = []
+    for row in official_rows:
+        leader = leader_at.get(row["lap"])
+        if leader is None:
+            continue
+        for timing in row.get("timings") or []:
+            number = numbers.get(timing["driverId"])
+            entry = drivers.get(number) if number else None
+            if not entry:
+                continue
+            at = timing["cumulative_ms"]
+            shown = None
+            for sample in entry.get("timing") or []:
+                if sample[0] <= at:
+                    shown = sample[2]
+                else:
+                    break
+            if not isinstance(shown, (int, float)) or isinstance(shown, bool):
+                continue
+            truth = (at - leader) / 1000
+            error = abs(shown - truth)
+            errors.append(error)
+            if error <= 1.0:
+                hit += 1
+            elif len(notes) < 3:
+                notes.append(
+                    f"L{row['lap']} #{number} gap {shown:+.2f}, archive says {truth:+.2f}"
+                )
+
+    errors.sort()
+    median = errors[len(errors) // 2] if errors else 0.0
+    return hit, len(errors), median, notes
 
 
 def check_fill(drivers, official_rows, numbers) -> tuple[int, int]:
@@ -292,6 +367,13 @@ def verify_round(db, year: int, round_number: int, deployed: bool) -> bool:
     penalised = len(classified) - f_hit
     line.append(f"flag-order {f_hit}/{len(classified)}" + (f" (+{penalised} penalised)" if penalised else ""))
 
+    g_hit2, g_tot2, g_med, g_notes = check_gaps(drivers, official_rows, numbers)
+    ratio = g_hit2 / g_tot2 if g_tot2 else 0
+    line.append(f"gaps {ratio:.0%} (med {g_med:.2f}s)")
+    if ratio < MIN_GAPS:
+        ok = False
+        line.append("FAIL")
+
     intra, opening = check_fill(drivers, official_rows, numbers)
     line.append(f"intra-lap {intra} (opening 2min {opening})")
     line.append(f"laps {len(lap_ms)}")
@@ -300,7 +382,7 @@ def verify_round(db, year: int, round_number: int, deployed: bool) -> bool:
         line.append("FAIL no intra-lap movement")
 
     print(" ".join(line))
-    for note in (a_notes + b_notes)[:4]:
+    for note in (a_notes + b_notes + g_notes)[:6]:
         print(f"       - {note}")
     return ok
 

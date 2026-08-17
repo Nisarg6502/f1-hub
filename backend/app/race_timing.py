@@ -81,7 +81,14 @@ router = APIRouter(prefix="/api")
 # the leading three cars. Nothing about their *shape* is wrong, so without this
 # bump a stale document would keep serving the inverted order indefinitely —
 # which is the harder half of this constant's rule to remember.
-TIMING_VERSION = 5
+#
+# 6 retires round 1's 84-second timeline shift (see `race_start_offset`). A v5
+# round-1 document is structurally perfect and states the wrong thing on every
+# row: no interval or gap reading exists for the opening lap, and every reading
+# after it belongs to a lap later than the position beside it. The other ten
+# rounds rebuild to a byte-identical payload, so the cost of the bump is one
+# round's worth of refetching.
+TIMING_VERSION = 6
 
 # How far an individual lap's implied lights-out instant may sit from the
 # median before it is discarded as a bad boundary. Measured across rounds 3 and
@@ -89,6 +96,17 @@ TIMING_VERSION = 5
 # handful of laps 30s out, which is OpenF1's missing rows rather than any real
 # drift. 5s is comfortably outside the noise and comfortably inside the fault.
 OFFSET_TOLERANCE_SECONDS = 5.0
+
+# How far the estimates may sit from OpenF1's *stated* start before they are
+# judged to be describing a different lap. See `stated_race_start`.
+#
+# The two failure scales are far apart and nothing lives between them: a healthy
+# round's estimates land 0.42-0.77s after the stated instant (measured on all
+# eleven synced 2026 rounds), and a whole-lap misalignment is at least the
+# shortest lap on the calendar — ~64s at the Red Bull Ring, and 73s on the
+# fastest 2026 round actually synced. 30s is ~40x the observed residual and
+# under half the smallest possible fault.
+LAP_ALIGNMENT_TOLERANCE_SECONDS = 30.0
 
 
 def _round_value(value):
@@ -187,6 +205,40 @@ def official_samples(
     return samples, lap_ms, leader_cumulative
 
 
+def stated_race_start(lap_rows: list[dict]) -> datetime.datetime | None:
+    """Lights out as OpenF1 states it: the earliest lap-1 `date_start`.
+
+    Every driver's lap-1 row carries the *same* timestamp, because it is the
+    start signal rather than a per-car measurement. That claim is no longer
+    inferred — on all eleven synced 2026 rounds this instant equals race
+    control's `SESSION STARTED` message **to the millisecond**, and on each one
+    `CHEQUERED FLAG` minus the official winner's race duration corroborates it
+    to within 1.7s. Two OpenF1 endpoints and the Jolpica archive, agreeing.
+
+    `min` rather than an equality check because round 6 emits two distinct
+    values; the earlier is the start signal and the later a straggler's row.
+
+    **This module twice reached the opposite conclusion, so the correction is
+    worth stating.** The instant was first discarded because lap 1 carries
+    `is_pit_out_lap: true` with a null `lap_duration` and sits 182.5s before the
+    following crossing on round 1, against a 91.9s official lap — it read as a
+    formation lap. It is not. Round 1 is a round where OpenF1's `/laps` has no
+    boundary at the end of racing lap 1 at all, so its lap-1 row spans two
+    official laps; the timestamp on it was right the whole time and the row's
+    *duration* was the broken part. It was then discarded a second time on a
+    measurement that scored it ~90s early — against a reference computed by
+    `race_start_offset` below, which is itself 84s late on exactly that round.
+    Comparing two derived numbers cannot say which one is wrong.
+    """
+    starts = [
+        _parse_iso(row.get("date_start"))
+        for row in lap_rows or []
+        if _as_int(row.get("lap_number")) == 1
+    ]
+    starts = [start for start in starts if start is not None]
+    return min(starts) if starts else None
+
+
 def race_start_offset(
     lap_rows: list[dict], leader_cumulative: dict[int, int]
 ) -> datetime.datetime | None:
@@ -200,17 +252,37 @@ def race_start_offset(
     across a full race on rounds 3 and 6.
 
     **The median is taken rather than any single lap**, and that is what makes
-    this robust where the previous approach was not. Round 1 has laps whose
-    estimate is 30s out, because OpenF1 is missing crossings for the leading
-    cars there; 44 of its 57 laps still agree within a second, so the median
-    lands on the truth and the bad laps are simply outvoted. Reading the start
-    off any one lap — or off the uniform lap-1 `date_start`, which is the
-    formation-lap departure and lands ~90s early — puts the whole opening of the
-    race in the wrong place.
+    this robust against a scattered bad boundary: a lap whose estimate is 30s
+    out is simply outvoted by the 44 that agree.
 
-    Returns None when the two sources share no lap, which leaves the round with
-    no way to place OpenF1's samples and degrades it to the official skeleton
-    alone.
+    **A median cannot survive a systematic fault, though, and round 1 has one.**
+    OpenF1's `/laps` there has no crossing at the end of racing lap 1, so its
+    lap-1 row spans two official laps and every subsequent lap N is the official
+    lap N+1. Each estimate is then one lap duration too large — *and they all
+    agree with each other*, so the median endorses a start 84s late and the
+    tolerance filter above sees a textbook-tight cluster. Measured against race
+    control, the served payload was 84s out for the whole race: every sample
+    from the opening lap fell below t=0 and was dropped, and everything after it
+    read the state of a lap later. This is the module's own warning about a feed
+    agreeing with itself, reappearing one level up — the estimates are
+    independent of each *other* but not of OpenF1's lap numbering.
+
+    So `stated_race_start` supplies a coarse anchor and the estimates supply the
+    precision. An estimate more than `LAP_ALIGNMENT_TOLERANCE_SECONDS` from the
+    stated instant is describing a different lap and is dropped before the
+    median is taken.
+
+    **The anchor deliberately does not win outright**, even though it is exact.
+    OpenF1 stamps its boundaries 0.42-0.77s after the official crossing on every
+    healthy round, and it is OpenF1's own samples being placed on this timeline,
+    so the estimates absorb that bias and the stated instant does not. Keeping
+    both is worth the extra step: across rounds 2-11 this returns a value
+    identical to the pre-fix one to the microsecond, and moves round 1 by
+    -83.991s.
+
+    Returns None when the two sources share no usable lap and OpenF1 states no
+    start, which leaves the round with no way to place OpenF1's samples and
+    degrades it to the official skeleton alone.
     """
     by_driver: dict[int, list[dict]] = {}
     for row in lap_rows or []:
@@ -234,6 +306,21 @@ def race_start_offset(
         if crossing is None:
             continue
         estimates.append(crossing.timestamp() - elapsed_ms / 1000)
+
+    stated = stated_race_start(lap_rows)
+    if stated is not None:
+        aligned = [
+            estimate
+            for estimate in estimates
+            if abs(estimate - stated.timestamp()) <= LAP_ALIGNMENT_TOLERANCE_SECONDS
+        ]
+        # None survived: the lap numbering is systematically misaligned, which is
+        # round 1's fault exactly — 0 of its 57 estimates land within a lap of
+        # the stated start. The stated instant is then the only reading left
+        # that is not built on the misalignment.
+        if not aligned:
+            return stated
+        estimates = aligned
 
     if not estimates:
         return None
