@@ -24,7 +24,10 @@ import {
   Pin,
   Rows3,
   Rows2,
+  Smartphone,
+  RefreshCw,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import type { RaceReplay, RaceTiming, ReplayLap, ReplayRunner } from "@/lib/api";
 import { getTeamColor } from "@/lib/team-colors";
 import {
@@ -42,6 +45,12 @@ import {
   sampleAt,
 } from "@/lib/watch-timing";
 import { buildPitWindows, pitSetAt, samePitSet } from "@/lib/watch-pit";
+import { toRaceId } from "@/lib/watch-races";
+import {
+  groupCode,
+  useWatchParty,
+  type WatchPosition,
+} from "@/lib/watch-session";
 import {
   densityServerSnapshot,
   densitySnapshot,
@@ -585,23 +594,124 @@ export default function WatchView({
     };
   }, [durations]);
 
+  /* ------------------------- the paired second screen ------------------------- */
+
+  const router = useRouter();
+  const raceId = toRaceId(replay.year, replay.round);
+  const [partyOpen, setPartyOpen] = useState(false);
+  const [joinCode, setJoinCode] = useState("");
+
+  /**
+   * This device's position, read at the moment of publishing rather than held
+   * in state.
+   *
+   * The clock is the only thing that knows where the race actually is — the
+   * sub-lap offset never enters React state, because it changes sixty times a
+   * second and re-rendering the tower for it is the cost CP77 removed. So this
+   * asks the clock directly. Reading `lapIndex` from state instead would publish
+   * a value that is correct but stale by up to a frame, and reading elapsed from
+   * state is not possible at all.
+   */
+  const readPartyState = useCallback(() => {
+    const clock = clockRef.current;
+    return {
+      lap_index: clock?.lapIndex ?? 0,
+      lap_elapsed_ms: Math.max(0, Math.round(clock?.elapsedInLapMs ?? 0)),
+      playing: clock?.playing ?? false,
+      timing_mode: timingMode,
+    };
+  }, [timingMode]);
+
+  /**
+   * Put this device where the other screen says it is.
+   *
+   * `setPosition`, not `jumpTo`: the offset within the lap is the whole point of
+   * the sync, and `jumpTo` deliberately discards it. See the note on
+   * `RealTimeLapClock.setPosition`.
+   *
+   * Play state is applied by comparison rather than by calling `play()`/`pause()`
+   * unconditionally — `play()` on an already-running clock is a no-op, but
+   * `pause()` on a paused one is too and the guard costs nothing, while calling
+   * `play()` when the clock has run to the end silently restarts the race at lap
+   * 1. Better to only touch the clock when the state genuinely differs.
+   */
+  const applyPartyState = useCallback((position: WatchPosition) => {
+    const clock = clockRef.current;
+    if (!clock) return;
+    clock.setPosition(position.lapIndex, position.elapsedMs);
+    if (position.playing !== clock.playing) {
+      if (position.playing) clock.play();
+      else clock.pause();
+    }
+    setLapIndex(clock.lapIndex);
+    setPlaying(clock.playing);
+    // A shared preference, not just a shared position: two people reading
+    // different columns while pointing at the same tower is the confusion this
+    // avoids. It does outlive the party, which is the honest cost of syncing a
+    // stored preference at all.
+    if (position.timingMode) setTimingModePreference(position.timingMode);
+  }, []);
+
+  const party = useWatchParty({
+    raceId,
+    durationsMs: durations.ms,
+    readState: readPartyState,
+    applyState: applyPartyState,
+  });
+
+  const { publish: publishParty } = party;
+
+  /**
+   * How long the displayed code has left.
+   *
+   * Presentation only, and deliberately not load-bearing: this is the *client's*
+   * clock measured against a server deadline, so a device with a wrong clock
+   * shows a wrong countdown. The server decides whether a code still works, and
+   * a join refused for a code this counter thought was alive reads as an
+   * ordinary "that code doesn't match" — which is the same message a mistype
+   * gets, and the right one either way.
+   */
+  const [codeSecondsLeft, setCodeSecondsLeft] = useState<number | null>(null);
+  useEffect(() => {
+    const deadline = party.codeExpiresAt ? Date.parse(party.codeExpiresAt) : NaN;
+    if (!Number.isFinite(deadline)) {
+      setCodeSecondsLeft(null);
+      return;
+    }
+    const tick = () =>
+      setCodeSecondsLeft(Math.max(0, Math.round((deadline - Date.now()) / 1000)));
+    tick();
+    const handle = setInterval(tick, 1000);
+    return () => clearInterval(handle);
+  }, [party.codeExpiresAt]);
+
   const toggle = useCallback(() => {
     const clock = clockRef.current;
     if (!clock) return;
     clock.toggle();
     setLapIndex(clock.lapIndex);
     setPlaying(clock.playing);
-  }, []);
+    // Published from the handler, never from an effect watching `playing`. An
+    // effect would fire again when a *remote* state was applied, and the two
+    // devices would trade echoes for as long as the party lasted.
+    publishParty();
+  }, [publishParty]);
 
   /** The catch-up control. An instant snap, never a fast-forward: exactly one
    * clock runs, so it is never ambiguous whether what is on screen is real pace
    * or a scrub. */
-  const jumpTo = useCallback((index: number) => {
-    const clock = clockRef.current;
-    if (!clock) return;
-    clock.jumpTo(index);
-    setLapIndex(clock.lapIndex);
-  }, []);
+  const jumpTo = useCallback(
+    (index: number) => {
+      const clock = clockRef.current;
+      if (!clock) return;
+      clock.jumpTo(index);
+      setLapIndex(clock.lapIndex);
+      // Drift correction is the interaction this mode exists for, so it is the
+      // one that most needs to reach the other screen.
+      publishParty();
+    },
+    [publishParty]
+  );
 
   const restart = useCallback(() => {
     const clock = clockRef.current;
@@ -610,7 +720,8 @@ export default function WatchView({
     clock.jumpTo(0);
     setLapIndex(0);
     setPlaying(false);
-  }, []);
+    publishParty();
+  }, [publishParty]);
 
   /* ------------------------- fullscreen + keys ------------------------- */
 
@@ -642,6 +753,7 @@ export default function WatchView({
       if (target?.tagName === "BUTTON" && event.key === " ") return;
       if (event.key === "Escape") {
         setPinnerOpen(false);
+        setPartyOpen(false);
         return;
       }
       if (event.key === " ") {
@@ -1633,7 +1745,14 @@ export default function WatchView({
               <button
                 key={value}
                 type="button"
-                onClick={() => setTimingModePreference(value)}
+                onClick={() => {
+                  setTimingModePreference(value);
+                  // Passed explicitly: `timingMode` is read through
+                  // `useSyncExternalStore` and still holds the old value in this
+                  // tick, so publishing without the override would send the
+                  // previous mode and land the other screen one press behind.
+                  publishParty({ timing_mode: value });
+                }}
                 aria-pressed={timingMode === value}
                 aria-label={label}
                 title={
@@ -1688,6 +1807,235 @@ export default function WatchView({
               <Icon size={16} />
             </button>
           ))}
+        </div>
+
+        {/* ------------------------------ pairing ------------------------------ */}
+        {/* The second screen proper. Sits beside the other mode controls rather
+            than in the header because it is a control, not a status: the header
+            is where this view states what it is, and it must keep saying
+            "replay, not live" at every density. */}
+        <div className="relative flex-none">
+          <button
+            type="button"
+            onClick={() => setPartyOpen((open) => !open)}
+            aria-expanded={partyOpen}
+            aria-label={
+              party.paired
+                ? `Paired with ${party.devices} screens. Manage pairing`
+                : "Pair a second screen"
+            }
+            title={
+              party.paired
+                ? `${party.devices} screens are following this replay together`
+                : "Show a code so a phone or another screen can follow this replay in step"
+            }
+            className="flex items-center gap-1.5 h-11 [@media(max-height:520px)]:h-9 px-3 rounded-xl apex-glass-soft font-bold text-xs transition-[color,border-color,transform] duration-150 active:scale-[0.97]"
+            style={{ color: party.paired ? "#FFAE6A" : undefined }}
+          >
+            <Smartphone size={15} />
+            {party.paired && <span className="tabular-nums">{party.devices}</span>}
+          </button>
+
+          {partyOpen &&
+            createPortal(
+              <>
+                {/* Same portal-and-backdrop treatment as the pinner, and for the
+                    same measured reasons: the footer becomes `overflow-x-auto`
+                    on a short screen, which is a clipping context, and a
+                    popover living inside it is one layout change away from
+                    being cut off or scrolling away from its own button. */}
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setPartyOpen(false)}
+                  aria-hidden
+                />
+                <div
+                  className="z-50 apex-glass-strong rounded-2xl p-4 overflow-y-auto"
+                  style={{
+                    // Inline `position`, not the `fixed` utility — see the
+                    // layering note above the glass definitions in globals.css.
+                    // `.apex-glass-strong` is unlayered and declares
+                    // `position: relative`, so it beats a Tailwind utility
+                    // regardless of specificity.
+                    position: "fixed",
+                    right: "0.75rem",
+                    bottom: "max(4.25rem, env(safe-area-inset-bottom, 0px) + 4.25rem)",
+                    width: "min(calc(100vw - 1.5rem), 400px)",
+                    maxHeight: "min(70vh, calc(100dvh - 7rem))",
+                  }}
+                  role="group"
+                  aria-label="Second screen pairing"
+                >
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-[10px] tracking-[0.14em] uppercase text-warm-500">
+                      Second screen
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setPartyOpen(false)}
+                      aria-label="Close"
+                      className="ml-auto text-warm-400 hover:text-on-background transition-colors"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+
+                  {/* What this actually does, in one line. Without it the code
+                      is just a number on a screen — and the mode it enables is
+                      not one people have seen before. */}
+                  <p className="font-medium text-[11px] text-warm-400 mt-2 leading-relaxed">
+                    Put a phone and this screen on the same replay. Either one can
+                    play, pause or jump to a lap, and the other follows within a
+                    second or so. Nothing is streamed — both devices already have
+                    the race and run the same clock over it.
+                  </p>
+
+                  {party.error && (
+                    <p
+                      role="alert"
+                      className="font-semibold text-[11px] mt-3 rounded-lg px-3 py-2"
+                      style={{
+                        background: "rgba(255,68,68,0.12)",
+                        color: "#FF9B8F",
+                      }}
+                    >
+                      {party.error.message}
+                      {party.error.kind === "rate_limited" &&
+                        party.error.retryAfter > 0 &&
+                        ` Try again in ${party.error.retryAfter}s.`}
+                    </p>
+                  )}
+
+                  {!party.paired ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void party.host()}
+                        disabled={party.busy}
+                        className="w-full h-11 mt-3 rounded-xl font-bold text-sm text-[#1a1210] transition-transform duration-150 active:scale-[0.98] disabled:opacity-60"
+                        style={{ background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)" }}
+                      >
+                        {party.busy ? "Starting…" : "Show a pairing code"}
+                      </button>
+
+                      <div className="flex items-center gap-3 my-3">
+                        <span className="h-px flex-1 bg-white/10" />
+                        <span className="font-bold text-[9px] tracking-[0.14em] uppercase text-warm-600">
+                          or
+                        </span>
+                        <span className="h-px flex-1 bg-white/10" />
+                      </div>
+
+                      <form
+                        className="flex items-center gap-2"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          const entered = joinCode.trim();
+                          if (!entered) return;
+                          void party.join(entered).then((view) => {
+                            if (!view) return;
+                            setJoinCode("");
+                            // A code typed from the wrong race page is an
+                            // ordinary mistake, not an error: the party knows
+                            // which round it is watching, so follow it there
+                            // rather than refusing. The session id is already
+                            // stored against the party's race, so it survives
+                            // the navigation.
+                            if (view.race_id && view.race_id !== raceId) {
+                              router.push(`/watch/${view.race_id}`);
+                            }
+                          });
+                        }}
+                      >
+                        <label htmlFor="watch-join-code" className="sr-only">
+                          Pairing code from the other screen
+                        </label>
+                        <input
+                          id="watch-join-code"
+                          value={joinCode}
+                          onChange={(event) => setJoinCode(event.target.value)}
+                          placeholder="ABCD 2345"
+                          maxLength={12}
+                          autoComplete="off"
+                          autoCapitalize="characters"
+                          spellCheck={false}
+                          /* `outline`, not Tailwind's `ring` — `ring-*` compiles
+                             to `box-shadow`, which `.apex-glass-soft` also
+                             declares while sitting unlayered, so a ring here
+                             would be silently swallowed and this input would
+                             have no focus indicator at all. Same trap as the
+                             jump-to-lap field. */
+                          className="flex-1 min-w-0 h-11 rounded-xl apex-glass-soft px-3 font-bold text-sm tracking-[0.16em] uppercase text-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FF7A3D]"
+                        />
+                        <button
+                          type="submit"
+                          disabled={party.busy || joinCode.trim().length === 0}
+                          className="h-11 px-4 rounded-xl apex-glass-soft font-bold text-xs hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95 disabled:opacity-50"
+                        >
+                          Join
+                        </button>
+                      </form>
+                    </>
+                  ) : (
+                    <>
+                      {party.code ? (
+                        <div className="mt-3 rounded-2xl px-4 py-4 text-center bg-[rgba(255,138,61,0.10)]">
+                          <p className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-400">
+                            Type this on the other screen
+                          </p>
+                          <p className="font-[family-name:var(--font-headline)] font-extrabold text-3xl tracking-[0.12em] mt-1.5 text-[#FFAE6A] tabular-nums">
+                            {groupCode(party.code)}
+                          </p>
+                          <p className="font-medium text-[10px] text-warm-500 mt-1.5">
+                            {/* Both facts, because both surprise people: it dies
+                                on first use, and it dies on a timer. */}
+                            Works once
+                            {codeSecondsLeft !== null &&
+                              `, and for another ${Math.floor(codeSecondsLeft / 60)}:${String(
+                                codeSecondsLeft % 60
+                              ).padStart(2, "0")}`}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="mt-3 rounded-2xl px-4 py-4 bg-[rgba(255,255,255,0.04)]">
+                          <p className="font-extrabold text-sm text-[#FFAE6A]">
+                            {party.devices} screens in step
+                          </p>
+                          <p className="font-medium text-[11px] text-warm-400 mt-1 leading-relaxed">
+                            The code has been used and no longer works. Add
+                            another screen — or recover one that reloaded — with a
+                            fresh one.
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-2 mt-3">
+                        <button
+                          type="button"
+                          onClick={() => void party.refreshCode()}
+                          disabled={party.busy}
+                          className="flex-1 flex items-center justify-center gap-1.5 h-11 rounded-xl apex-glass-soft font-bold text-xs hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95 disabled:opacity-50"
+                        >
+                          <RefreshCw size={14} />
+                          New code
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void party.leave();
+                            setPartyOpen(false);
+                          }}
+                          className="flex-1 h-11 rounded-xl apex-glass-soft font-bold text-xs text-warm-300 hover:text-[#FF9B8F] hover:border-[rgba(255,107,107,0.5)] transition-[color,border-color,transform] duration-150 active:scale-95"
+                        >
+                          Unpair
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </>,
+              document.body
+            )}
         </div>
 
         <button

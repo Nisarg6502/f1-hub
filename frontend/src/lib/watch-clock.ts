@@ -262,6 +262,40 @@ export class RealTimeLapClock {
     this.onFrame?.(this.index, 0);
   }
 
+  /**
+   * Land at an exact point inside a lap. The paired-screen counterpart to
+   * `jumpTo`, and separate from it on purpose.
+   *
+   * `jumpTo` throws sub-lap progress away because a human typing "30" means
+   * "show me lap 30", and honouring some fraction of a lap they never asked for
+   * would be surprising. A follower applying another screen's state is the
+   * opposite case: it is not expressing an intent, it is trying to be where the
+   * other screen already is, and rounding down to the lap boundary would put it
+   * up to a whole lap behind — a minute and a half of green running, more under
+   * a safety car. Two screens that far apart are showing different races, which
+   * is precisely what pairing exists to prevent.
+   *
+   * So both exist, and neither is a special case of the other. The offset is
+   * clamped into the target lap rather than allowed to overflow into the next
+   * one: rolling a surplus forward needs the whole duration array in context,
+   * and the caller doing that already has it.
+   */
+  setPosition(index: number, elapsedMs: number): void {
+    if (this.disposed) return;
+    const next = this.clamp(index);
+    const lapMs = this.durations[next] ?? 0;
+    this.elapsed = Math.min(Math.max(0, elapsedMs), lapMs);
+    // Zeroed for the same reason `jumpTo` zeroes it: the first frame after a
+    // seek must measure from itself, not charge the seek's wall-clock cost to
+    // the lap it landed on.
+    this.last = 0;
+    if (next !== this.index) {
+      this.index = next;
+      this.onLapChange(next);
+    }
+    this.onFrame?.(this.index, this.elapsed);
+  }
+
   /** True once the final lap's own duration has run out. */
   private atEnd(): boolean {
     const lastIndex = this.durations.length - 1;
