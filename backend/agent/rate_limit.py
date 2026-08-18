@@ -406,6 +406,22 @@ same protection the service would have without session tokens at all, which
 makes an unset secret a *reduction* in precision rather than a hole. Generated
 per process rather than left as a constant so an unset secret can never mean a
 publicly-known signing key.
+
+**In production the secret IS set** — `AGENT_SESSION_SECRET` is a Secret Manager
+secret wired through `cloudbuild-agent.yaml`'s `--set-secrets`, so this fallback
+is a local-development and test path. It shipped unset for one deploy, which is
+worth knowing about rather than quietly fixing: nothing failed, no test caught
+it, and `/health` looked identical, because the fallback is *designed* to be
+invisible. The only symptom was that layer 2's best property — a per-person
+allowance that is not shared with everyone behind the same CGNAT address — was
+silently degraded to per-IP after every cold start. A degrade that cannot be
+observed from outside needs its configuration asserted, not inspected.
+
+Note that access is granted **per secret** in this project, not project-wide, so
+adding a new one means a `secretmanager.secretAccessor` binding on it for the
+runtime service account as well as the `--set-secrets` entry. Missing the
+binding fails the deploy rather than degrading quietly, which is the better of
+the two failure modes and the reason it is called out here.
 """
 
 
