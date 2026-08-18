@@ -219,7 +219,22 @@ class ModelVisibleArgumentAuditTests(unittest.TestCase):
     #   max_results  — `web_search`'s Tavily budget cap; nothing about an F1
     #                  question bears on it, and `web_extract`'s equivalent was
     #                  already a module constant. Stripped, this checkpoint.
+    #   focus        — `get_circuit_dossier`'s facet selector. VERDICT: KEPT,
+    #                  model-visible. It passes the same test `topic` passes
+    #                  and `max_results` fails: it is question-shaped, not a
+    #                  budget knob. "Is it hard to overtake here", "does it
+    #                  break cars" and "how many stops" read three different
+    #                  collections and only the asker knows which was meant,
+    #                  and both `tools/circuit_scope.py` and
+    #                  `subagents.STATS_SCOUT_PROMPT` tell the model how to
+    #                  choose it. The alternative — returning all three facets
+    #                  every call — triples the bundle for a question that
+    #                  wanted one third of it, against §5's context-budget
+    #                  rule. Its default (`"overtaking"`) is the facet the
+    #                  feature was built for, so a model that omits it still
+    #                  gets the useful answer rather than an error.
     EXPECTED_PUBLIC_ARGS = {
+        "get_circuit_dossier": ("circuit_id", "focus"),
         "get_circuit_history": ("circuit_id",),
         "get_circuit_profile": ("circuit_id",),
         "get_constructor_seasons": ("constructor_id",),

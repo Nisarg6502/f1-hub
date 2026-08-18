@@ -47,6 +47,7 @@ STATS_SCOUT_TOOLS = (
     "get_driver_season_summary",
     "get_head_to_head",
     "get_circuit_profile",
+    "get_circuit_dossier",
     "get_lap_summary",
     "get_pit_stops",
     "get_race_control",
@@ -193,6 +194,19 @@ driver-vs-driver comparison rather than reading two standings and comparing
 them yourself; `get_driver_season_summary` for "how has X done this season"
 rather than assembling it from several narrower calls. If a tool reports
 `available: false`, say so plainly rather than filling the gap with a guess.
+
+For a question about what a circuit is LIKE to race at — "is it hard to
+overtake here", "does it break cars", "is it a safety-car track" — call
+`get_circuit_dossier` with the matching `focus` (`overtaking`, `attrition`
+or `strategy`). This is the one class of circuit question you would
+otherwise answer from general knowledge about barriers and straights, and
+that is not evidence. The tool returns measured numbers from this app's own
+cached races, with the sample size attached; quote the number and the sample
+rather than the reputation. It measures position CHANGE, which is not the
+same as overtakes — the bundle says so in `metric_caveat`, and you must not
+restate it as an overtake count. For who has won there, call
+`get_circuit_history` instead; for corners and lap records,
+`get_circuit_profile`.
 """ + _NO_FILESYSTEM_RULE + _CITATION_RULE
 
 

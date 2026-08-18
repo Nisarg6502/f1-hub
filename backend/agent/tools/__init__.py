@@ -28,6 +28,7 @@ not answer to.
 
 from __future__ import annotations
 
+from .circuit_scope import get_circuit_dossier
 from .circuits import get_circuit_history, get_circuit_profile
 from .context import get_season_state, resolve_context
 from .drivers import get_driver_profile, get_driver_season_summary, get_head_to_head
@@ -44,7 +45,9 @@ from .season import get_season_calendar, get_session_result, get_standings, get_
 # §5.1's sixteen, plus the two utility tools from §5.3 that had to exist for
 # them to be callable at all: `resolve_context` (which turns "the last race"
 # into a round number) and `get_season_state` (which is the clock a model
-# does not have).
+# does not have) — and `get_circuit_dossier`, §13's "Ask about this circuit"
+# stretch item, built as a seventeenth data tool rather than as the separate
+# RAG system the roadmap first imagined (that module's docstring records why).
 ALL_TOOLS = (
     get_season_calendar,
     get_session_result,
@@ -60,6 +63,7 @@ ALL_TOOLS = (
     get_weather,
     get_circuit_profile,
     get_circuit_history,
+    get_circuit_dossier,
     get_historical_race_index,
     get_constructor_seasons,
     resolve_context,
