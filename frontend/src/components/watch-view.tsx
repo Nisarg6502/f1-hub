@@ -41,6 +41,7 @@ import {
   orderAt,
   sampleAt,
 } from "@/lib/watch-timing";
+import { buildPitWindows, pitSetAt, samePitSet } from "@/lib/watch-pit";
 import {
   densityServerSnapshot,
   densitySnapshot,
@@ -276,6 +277,26 @@ export default function WatchView({
   const cumulative = useMemo(() => cumulativeMs(durations.ms), [durations]);
   const totalMs = cumulative[cumulative.length - 1] ?? 0;
 
+  /**
+   * When each car is stationary, on the same race-elapsed clock the tower runs.
+   *
+   * **`runner.pit` is not usable directly and that is the whole point of this.**
+   * It is recorded on the driver's own lap N, while `current` is the *leader's*
+   * lap N, so the flag appears and disappears on a clock that has nothing to do
+   * with the car — on round 1 the leader's lap 13 is over 53.6 seconds before
+   * car 14's samples even stop, so his 972-second garage stop never rendered
+   * `PIT` for a single millisecond of itself. See `watch-pit.ts` for the
+   * measurements and for what the window is anchored to.
+   *
+   * Built from the same `cumulative` the frame loop adds its elapsed time to,
+   * deliberately: two of this view's shipped defects were one part of it running
+   * on a timeline another part was not.
+   */
+  const pitWindows = useMemo(
+    () => buildPitWindows(laps, cumulative),
+    [laps, cumulative]
+  );
+
   const [lapIndex, setLapIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [jumpValue, setJumpValue] = useState("");
@@ -385,6 +406,23 @@ export default function WatchView({
   const [liveDeltas, setLiveDeltas] = useState<Record<string, number>>({});
   const orderRef = useRef<string[] | null>(liveOrder);
 
+  /**
+   * Which cars are in the pits right now.
+   *
+   * React state, not a per-frame DOM write, and the distinction is the same one
+   * `liveOrder` is held to: membership changes twice per stop (~64 times in a
+   * whole race), so this is one of the genuinely discrete things in this view.
+   * It also has to change what React *renders* — a stationary car's row shows
+   * `PIT` instead of a timing cell, so the cell is not in the tree at all — and
+   * that is not something the frame loop can express by writing text into a
+   * node.
+   *
+   * Seeded at t=0 so the server-rendered markup is already right, for the same
+   * reason `liveOrder` and `initialCells` are.
+   */
+  const [inPit, setInPit] = useState<Set<string>>(() => pitSetAt(pitWindows, 0));
+  const pitRef = useRef(inPit);
+
   /** The live order as a `{car number -> rank}` map, cached against the order's
    * identity so the frame loop does a map hit instead of a linear scan per row. */
   const ranksRef = useRef<{ order: string[] | null; ranks: Map<string, number> }>({
@@ -416,6 +454,15 @@ export default function WatchView({
       const raceMs = (cumulative[index] ?? 0) + elapsedMs;
       if (raceClockRef.current) {
         raceClockRef.current.textContent = formatRaceClock(raceMs);
+      }
+
+      // Above the `perSecond` gate on purpose: pit windows come from the replay
+      // and the lap clock, both of which exist on every round. A round OpenF1
+      // does not cover has no per-second track and still has pit stops.
+      const pits = pitSetAt(pitWindows, raceMs);
+      if (!samePitSet(pits, pitRef.current)) {
+        pitRef.current = pits;
+        setInPit(pits);
       }
 
       if (!perSecond) return;
@@ -499,7 +546,7 @@ export default function WatchView({
         }
       }
     },
-    [cumulative, durations, perSecond, timingIndex, timingMode]
+    [cumulative, durations, perSecond, pitWindows, timingIndex, timingMode]
   );
 
   /**
@@ -792,7 +839,12 @@ export default function WatchView({
     const clock = clockRef.current;
     if (!clock) return;
     paintRef.current(clock.lapIndex, clock.elapsedInLapMs);
-  }, [timingMode, slots, density, perSecond]);
+    // `inPit` is in the list because a car leaving the pits re-mounts its timing
+    // cell, and a freshly mounted cell holds React's initial (t=0) text until
+    // something writes to it. Without this it would read the grid's gap until
+    // the next frame — invisible while playing, permanent while paused.
+    // Re-entering this effect cannot loop: `samePitSet` gates the state write.
+  }, [timingMode, slots, density, perSecond, inPit]);
 
   /** The pinner lists the field in *running* order, not pin order: someone
    * reaching for it mid-race is looking for a driver they can see on the TV. */
@@ -999,6 +1051,10 @@ export default function WatchView({
               ? COMPOUND_COLORS[runner.compound] ?? "#8f867a"
               : "#8f867a";
             const delta = deltas[runner.number] ?? 0;
+            // Read from the time-driven set, never from `runner.pit` — that
+            // flag is on the driver's own lap while this row is drawn from the
+            // leader's. See `pitWindows` above.
+            const inPitNow = inPit.has(runner.number);
             const column = Math.floor(slot / layout.rowsPerColumn);
             const rowInColumn = slot % layout.rowsPerColumn;
             const columnWidth = layout.columns > 1 ? towerBox.width / layout.columns : 0;
@@ -1040,7 +1096,7 @@ export default function WatchView({
                   // re-rendering the row to do it. A custom property is used
                   // rather than a class because the frame loop already holds the
                   // node and toggling a class would fight Tailwind's own.
-                  background: runner.pit
+                  background: inPitNow
                     ? "rgba(255,90,31,0.16)"
                     : isPinned
                     ? "rgba(255,138,61,0.13)"
@@ -1158,10 +1214,15 @@ export default function WatchView({
                     the grid rather than the end of lap 1, and falls back to the
                     lap row otherwise, which keeps a round without a per-second
                     track at exactly its old behaviour. */}
-                {runner.retired || runner.pit ? (
+                {runner.retired || inPitNow ? (
                   <span
                     className="font-bold tabular-nums text-right flex-none w-[4.6em]"
                     style={{ color: runner.retired ? "#c98a8a" : "#c9c0b4" }}
+                    title={
+                      runner.retired
+                        ? undefined
+                        : "Stationary in the pits. No gap is shown because there isn't a true one to show."
+                    }
                   >
                     {runner.retired ? "OUT" : "PIT"}
                   </span>
