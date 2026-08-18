@@ -66,7 +66,7 @@ converged. The check can fail, which is the only reason to trust it passing.
 
 Suite at merge: 1145 passed / 3 skipped, `tsc` and `next build` clean.
 
-## In flight — three concurrent agents on UI debt
+## In flight — agents on UI debt (ALL interrupted twice by session limits)
 
 The user reported a batch of UX defects and asked for them in parallel. **The
 first dispatch of all three was killed by a session limit mid-edit** and left
@@ -102,6 +102,61 @@ rendered facts are computed and which come from a hand-authored table. Both are
 acceptable; presenting the second as if it were the first is not, and a wrong
 lineage claim in confident type is exactly the class of defect this project has
 had to correct before.
+
+## Shipped: the layout and navigation half of the audit
+
+PR #122, `2e5c7e8`. A read-only production UX audit drove the deployed site at
+three viewports; these are the findings that were layout or navigation, each
+measured out of the live DOM before and after.
+
+* **The desktop nav turned on at 768px but needs ~900px.** At 768x1024 the page
+  scrollWidth was 880 against a clientWidth of 768 — "History" rendered as
+  "Histor", the season badge was off-screen, and at 844x390 the Pitwall launcher
+  was drawn *on top of* a nav link. Every tablet and every landscape phone lands
+  in that band. Moved to `lg`, where GlobalSearch already hid itself. 758 vs 758
+  after. **The bottom bar moved with it in the same commit** — those two
+  breakpoints are one decision, and splitting them would leave 768-1023 with no
+  navigation at all.
+* **The bottom bar reached 5 of 9 sections and Watch was not one of them** — the
+  second-screen feature, designed for a phone, unreachable from a phone. Now
+  six; at 390px each column measures 118px and a seventh would put them under 48.
+* **Two watch controls sat past the right edge at 844x390**, the size that view
+  designs for: footer scrollWidth 931 in an 844px viewport, the largest item
+  being a 220px four-line paragraph. Hidden below 520px height at every density
+  now, but its two honesty caveats deliberately are not — "the pacing is not
+  real" is carried nowhere else, and hiding it would trade a layout problem for
+  a truthfulness one.
+
+Also: `color-scheme` was `normal` on a dark-only app (native selects opened
+white); Material Symbols ligatures read aloud as "homeHome"/"eventRaces" (7 -> 0);
+no skip link despite ten focusable items before content; no `aria-current`
+site-wide; the mobile bar was a `div`; `/history` (2.6s TTFB, 697 KB) had no
+`loading.tsx`, so a click held the old page on screen fully interactive with no
+skeleton for ten consecutive 250ms samples.
+
+## Open audit findings, not yet assigned
+
+Ranked as the audit ranked them:
+
+* **Modal focus containment** — Tab ten times with the driver card open and all
+  ten landings are on cards *behind* the overlay. `pitwall-assistant-panel.tsx`
+  already does this correctly and is the in-repo template.
+* **Global search is mouse-only** — results appear that a keyboard user cannot
+  reach; ArrowDown does nothing and Tab skips the open listbox. Invalid ARIA
+  too (a listbox with no owning combobox).
+* **Five routes have no `h1` at all** — `/`, `/standings`, `/drivers`, `/teams`,
+  `/schedule`. The 80px "Dutch Grand Prix" is two divs.
+* **`/history` ships a curation error to users** — `no data for "williams"` and
+  two more, in red, for current constructors. The loud version belongs behind a
+  dev flag.
+* **"77 Seasons" and "75-Season Barcode" on one screen** — only the h1 is
+  computed; five hardcoded "75"s survive. Exactly the stale-copy class this
+  project has corrected before.
+* **React #418 hydration mismatch** on `/`, `/drivers`, `/watch` — most likely
+  `local-datetime.tsx` rendering in the server's timezone.
+* Driver rows on `/standings` are not clickable though identical cards
+  elsewhere are; `/telemetry` is ~85% empty in its most common state; three
+  routes carry sub-40px touch targets.
 
 ## Still held, unchanged from Batch 23
 
