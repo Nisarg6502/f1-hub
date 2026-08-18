@@ -167,6 +167,67 @@ only its own line.
 1148 tests, 3 failures — all three in `test_watch_session`. Everything else
 passes. `npx tsc --noEmit` and `npm run build` are clean.
 
+## STATE AS OF 2026-08-18 ~18:50 IST — after the scheduled resume
+
+### Shipped
+
+**CP86 task 1, the pit-duration fix** — PR #119, deployed. See the earlier
+section; verified 0% -> 90.1% coverage of car 14's real stationary window.
+
+**CP87, the circuit dossier tool** — PR #120, `9deaaad`, deployed. Grounding is
+proven at both ends:
+
+* *Offline*, by calling the tool against production Mongo: Monaco ranks **1 of
+  24** for least position change (0.846 gains/lap) and Monza **22** (3.123).
+  That ordering reproduces a well-known fact about the sport from nothing but
+  cached lap rows — an external check, not the data agreeing with itself.
+* *Live*, with one call to the deployed agent ("Why is it so hard to overtake at
+  Monaco?"). The model called `get_circuit_dossier`, cited `[ev_1]` on every
+  claim, resolved to `mongo:circuit_character_cache/monaco-overtaking`, and
+  quoted `rank_least_position_change: 1` and `0.846` — the exact values the tool
+  returns. It framed them as "in the sample" and "the races analysed", i.e. it
+  respected the bundle's own confidence caveat rather than generalising.
+
+**Three test bugs in `test_watch_session` were fixed** (they are part of the
+held CP86 work and remain uncommitted with it). All three were the *tests* being
+wrong, not the limiter — and two of them could not have caught a broken limiter
+at all:
+
+* `normalise_code("<script>")` expected `"CRP"`; the alphabet keeps S and T.
+* The subnet test looped 39 times against a limit of 40 and asserted 40. It
+  never made a 41st attempt, so it would have passed with no cap at all.
+* The sustained test spread attempts over two hours and asserted 60. 3600s is
+  one window, so two hours is two fresh allowances and 120 was correct. Fixing
+  it also required **aligning to a window start** — `1_700_000_000` sits 2800s
+  into a window, so an unaligned hour-long loop straddles the boundary and
+  measures rollover rather than the cap.
+
+A negative control confirms the corrected tests bite: stubbing the limiter's
+refusal branch fails 6 of them.
+
+### Still held, and why
+
+**CP86 pairing** — `backend/app/watch_session.py` (6 endpoints, 43 passing
+tests) has **no frontend whatsoever**. Nothing under `frontend/src` references
+it. Shipping six unauthenticated public endpoints with no consumer is attack
+surface for zero user value, so it waits for the UI. Note `backend/app/main.py`
+must regain its `watch_session` router line when it ships — that file was
+reverted to keep #120 clean.
+
+**CP88 what-if** — `backend/app/strategy_whatif.py` is 1229 lines with **no test
+file and no frontend**. The gate set in its brief, the no-op reproduction check
+(move a real stop to the lap it actually happened on and confirm the model
+reproduces reality), was never run or reported. Its last words were about a
+caution period over-extending on an unmatched deployment, i.e. the model was
+still wrong when it died. Do not ship this on the strength of it existing.
+
+### Suite state
+
+**1105 tests pass** on `main`. With the two held features' files present in the
+working tree the count is 1148 and 19 fail — all of them `watch_session` tests
+that need the router line reverted out of `main.py`. That is expected, not a
+regression.
+
 ## Still not started, and why
 
 - **Golden set from real LangSmith traces** — blocked on a `LANGSMITH_API_KEY`
