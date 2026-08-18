@@ -29,6 +29,7 @@ import asyncio
 import json
 import sys
 import time
+import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -923,6 +924,97 @@ class FeedbackDedupeTests(LimiterTestCase):
 
         expected = str(main.uuid.uuid5(main._FEEDBACK_NAMESPACE, "run-6:user-score"))
         self.assertIn(expected, self.db[main.FEEDBACK_COLLECTION].docs)
+
+
+
+class SessionCookieSchemeTests(unittest.TestCase):
+    """The cookie must be usable by the browser that is actually sent it.
+
+    These exist because the whole suite passed a cookie that no browser would
+    ever return. `attach_session_cookie` read `request.url.scheme`, which is
+    `"http"` on every real Cloud Run request — TLS terminates at the front end
+    and `Dockerfile.agent` starts uvicorn without `--proxy-headers` — so the
+    deployed service issued `SameSite=Lax` with no `Secure`. `*.run.app` is on
+    the Public Suffix List, so the frontend and the agent are different sites,
+    and a `Lax` cookie is not sent on a cross-site `fetch`. The cookie was set
+    once and never came back, quietly demoting every browser user to their IP
+    identity.
+
+    Nothing caught it because every existing test drove `attach_session_cookie`
+    with a stub whose scheme was whatever the test chose, which is a check that
+    the code does what it does. The missing assertion is about the *deployment*:
+    given the headers Cloud Run really sends, is the cookie one a browser keeps?
+    """
+
+    class _Response:
+        def __init__(self):
+            self.cookie = None
+
+        def set_cookie(self, name, value, **kwargs):
+            self.cookie = {"name": name, "value": value, **kwargs}
+
+    @staticmethod
+    def _request(headers=None, scheme="http"):
+        return types.SimpleNamespace(
+            headers=headers or {},
+            cookies={},
+            client=types.SimpleNamespace(host="10.0.0.1"),
+            url=types.SimpleNamespace(scheme=scheme),
+        )
+
+    def _attach(self, request):
+        identity = rate_limit.Identity(minted_session="tok")
+        response = self._Response()
+        rate_limit.attach_session_cookie(response, identity, request)
+        return response.cookie
+
+    def test_behind_cloud_run_the_cookie_is_secure_and_samesite_none(self):
+        """The production case: plain HTTP to the container, `X-Forwarded-Proto:
+        https` from the front end. Anything less than `Secure; SameSite=None`
+        here is a cookie the frontend's cross-site fetch will never return."""
+        cookie = self._attach(
+            self._request(headers={"x-forwarded-proto": "https"}, scheme="http")
+        )
+        self.assertTrue(cookie["secure"])
+        self.assertEqual(cookie["samesite"], "none")
+
+    def test_a_proto_list_takes_the_first_hop(self):
+        """Multiple proxies append, so the header can be a list. The client's
+        own scheme is the leftmost entry."""
+        cookie = self._attach(
+            self._request(headers={"x-forwarded-proto": "https, http"}, scheme="http")
+        )
+        self.assertTrue(cookie["secure"])
+
+    def test_local_http_stays_lax_and_insecure_so_a_session_is_testable(self):
+        """A `Secure` cookie is dropped over plain HTTP, so forcing it always
+        would make the session layer untestable locally — which is how it would
+        go untested."""
+        cookie = self._attach(self._request(scheme="http"))
+        self.assertFalse(cookie["secure"])
+        self.assertEqual(cookie["samesite"], "lax")
+
+    def test_secure_and_samesite_none_are_always_chosen_together(self):
+        """`SameSite=None` without `Secure` is rejected outright by browsers, so
+        the pair must never be split however the scheme was decided."""
+        for headers, scheme in (
+            ({"x-forwarded-proto": "https"}, "http"),
+            ({}, "https"),
+            ({}, "http"),
+            ({"x-forwarded-proto": "http"}, "https"),
+        ):
+            cookie = self._attach(self._request(headers=headers, scheme=scheme))
+            self.assertEqual(
+                cookie["samesite"] == "none",
+                cookie["secure"],
+                f"split pair for {headers!r}/{scheme}",
+            )
+
+    def test_the_cookie_is_httponly_whatever_the_scheme(self):
+        """It grants no authority, but a script that can read it can pin itself
+        to someone else's bucket."""
+        for headers, scheme in (({"x-forwarded-proto": "https"}, "http"), ({}, "http")):
+            self.assertTrue(self._attach(self._request(headers=headers, scheme=scheme))["httponly"])
 
 
 if __name__ == "__main__":  # pragma: no cover
