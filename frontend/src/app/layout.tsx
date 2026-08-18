@@ -106,7 +106,7 @@ export default function RootLayout({
         </div>
           }
           nav={
-        <nav className="sticky top-0 z-50 bg-[rgba(18,15,12,0.55)] backdrop-blur-[16px] backdrop-saturate-150 border-b border-white/[0.08] shadow-[0_1px_0_rgba(255,255,255,0.06)_inset,0_10px_40px_rgba(0,0,0,0.4)]">
+        <nav aria-label="Main" className="sticky top-0 z-50 bg-[rgba(18,15,12,0.55)] backdrop-blur-[16px] backdrop-saturate-150 border-b border-white/[0.08] shadow-[0_1px_0_rgba(255,255,255,0.06)_inset,0_10px_40px_rgba(0,0,0,0.4)]">
           <div className="max-w-[1440px] mx-auto flex items-center justify-between px-6 md:px-10 py-[15px]">
             <div className="flex items-center gap-8 md:gap-12">
               <Link href="/" className="flex items-center gap-[11px]">
@@ -115,7 +115,17 @@ export default function RootLayout({
                   APEX
                 </span>
               </Link>
-              <div className="hidden md:flex items-center gap-[30px] font-[family-name:var(--font-body)] font-semibold text-[13px]">
+              {/* `lg`, not `md`, and the difference is two unreachable
+                  destinations. Nine links plus the logo, search, launcher and
+                  season badge need about 900px; turning them on at 768 made the
+                  bar overflow its own container — measured at 768x1024 the page
+                  scrollWidth was 880 against a clientWidth of 768, "History"
+                  rendered as "Histor" and the season badge was off-screen
+                  entirely. At 844x390 the Pitwall launcher was drawn *on top of*
+                  a nav link. Every tablet and every landscape phone lands in
+                  that 768-900 band. `lg` is also where GlobalSearch already
+                  hides itself, so the two now agree. */}
+              <div className="hidden lg:flex items-center gap-[30px] font-[family-name:var(--font-body)] font-semibold text-[13px]">
                 <NavLinks />
               </div>
             </div>
@@ -158,9 +168,17 @@ export default function RootLayout({
         </footer>
           }
           mobileNav={
-        <div className="md:hidden fixed bottom-0 left-0 w-full z-50 bg-[rgba(18,15,12,0.85)] backdrop-blur-xl border-t border-white/[0.08] px-6 py-3 flex justify-between items-center">
+        /* Matches the nav's new `lg` breakpoint. These two must move together:
+           leaving this at `md` would have left 768-1023px with no navigation
+           at all once the desktop bar moved up. It is a real `nav` element
+           rather than a `div` so a screen reader can find it, and it carries
+           its own label since a page now has two navigations. */
+        <nav
+          aria-label="Sections"
+          className="lg:hidden fixed bottom-0 left-0 w-full z-50 bg-[rgba(18,15,12,0.85)] backdrop-blur-xl border-t border-white/[0.08] px-3 sm:px-6 py-3 flex justify-between items-center"
+        >
           <MobileNav />
-        </div>
+        </nav>
           }
         >
           {children}

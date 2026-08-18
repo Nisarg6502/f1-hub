@@ -46,9 +46,24 @@ export default function AppShell({
 
   return (
     <>
+      {/* Ten focusable things — logo, nine links, search, launcher — sit
+          before any content on every page, and a keyboard user had to walk all
+          of them on every navigation. Visible only when focused, which is the
+          point: it is for the people who need it and invisible to everyone
+          else. */}
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[100] focus:px-4 focus:py-2 focus:rounded-xl focus:bg-[#FF5A1F] focus:text-[#1a1210] focus:font-bold focus:text-sm"
+      >
+        Skip to content
+      </a>
       {ambient}
       {nav}
-      <main className="relative z-10 min-h-screen max-w-[1440px] mx-auto pb-24 md:pb-12">
+      <main
+        id="main"
+        tabIndex={-1}
+        className="relative z-10 min-h-screen max-w-[1440px] mx-auto pb-24 lg:pb-12"
+      >
         {children}
       </main>
       {footer}

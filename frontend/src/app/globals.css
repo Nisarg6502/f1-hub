@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+/* The app is dark-only (`<html class="dark">` in layout.tsx) but never told
+   the *browser* that, so `color-scheme` computed to `normal` and every native
+   control kept its light rendering: <select> dropdowns opened as white lists
+   over the dark UI, scrollbars stayed light, and the jump-to-lap number
+   spinner did too. This is the one line that fixes all of them, and it has no
+   effect on anything the app paints itself. */
+:root {
+  color-scheme: dark;
+}
+
 /* === Fonts loaded in layout.tsx via next/font (Bricolage Grotesque + Hanken Grotesk) === */
 
 @theme inline {

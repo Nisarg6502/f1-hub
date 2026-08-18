@@ -1573,14 +1573,28 @@ export default function WatchView({
             it is ~40px of footer, which is a whole tower row per column. The
             claims it carries are not lost: the header still says "replay, not
             live" and the current lap still wears its own "estimated" badge. */}
-        <p
-          className={`font-medium text-[10px] md:text-[11px] text-warm-500 leading-snug flex-1 min-w-[220px] ${
-            density === "compact" ? "[@media(max-height:520px)]:hidden" : ""
-          }`}
-        >
+        {/* Split in two, because only half of it is disposable.
+            The descriptive sentence goes at every density on a short screen,
+            not just compact. Measured at 844x390 with the default (expanded)
+            density: this paragraph occupied 220px and four wrapped lines of a
+            931px control strip in an 844px viewport, which pushed the
+            keep-awake and fullscreen buttons off the right edge entirely.
+            Without it the strip comes to ~711px and fits. What it says is
+            still said elsewhere — the header states "replay, not live" at
+            every density, and the running lap wears its own "estimated" badge.
+
+            The caveats below are NOT dropped with it. "This round has no
+            recorded lap times at all, so the pacing is not real" is a claim
+            about the honesty of what is on screen and is carried nowhere else;
+            hiding it to save space would be trading a layout problem for a
+            truthfulness one. They are also conditional, so on the ordinary
+            round they cost nothing. */}
+        <p className="font-medium text-[10px] md:text-[11px] text-warm-500 leading-snug flex-1 min-w-[220px] [@media(max-height:520px)]:hidden">
           Every lap runs for as long as it really did — safety-car laps take
           longer than green ones. Catching up jumps straight to the lap; nothing
           fast-forwards.
+        </p>
+        <p className="font-medium text-[10px] md:text-[11px] text-warm-500 leading-snug min-w-0 empty:hidden">
           {durations.estimatedCount > 0 && (
             <>
               {" "}
@@ -1760,7 +1774,7 @@ export default function WatchView({
                     ? "Gap to the car ahead — the number that moves when someone is closing"
                     : "Gap to the race leader"
                 }
-                className="flex items-center justify-center h-9 [@media(max-height:520px)]:h-7 px-2.5 rounded-[9px] font-bold text-[11px] tracking-[0.08em] transition-colors duration-150"
+                className="flex items-center justify-center h-9 [@media(max-height:520px)]:h-9 px-2.5 rounded-[9px] font-bold text-[11px] tracking-[0.08em] transition-colors duration-150"
                 style={{
                   background:
                     timingMode === value ? "rgba(255,90,31,0.20)" : "transparent",
@@ -1798,7 +1812,7 @@ export default function WatchView({
                   ? "Whole field as large as it will go: no names, race control on one line, two columns when there is width for them"
                   : "Names, and race control in full"
               }
-              className="flex items-center justify-center w-9 h-9 [@media(max-height:520px)]:w-7 [@media(max-height:520px)]:h-7 rounded-[9px] transition-colors duration-150"
+              className="flex items-center justify-center w-9 h-9 rounded-[9px] transition-colors duration-150"
               style={{
                 background: density === value ? "rgba(255,90,31,0.20)" : "transparent",
                 color: density === value ? "#FFAE6A" : "#8f867a",

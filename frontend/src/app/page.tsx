@@ -277,9 +277,24 @@ export default async function Home() {
                         <button
                           type="button"
                           aria-label={`What does ${ring.label} mean?`}
-                          className="w-5 h-5 rounded-full bg-[rgba(245,235,222,0.06)] flex items-center justify-center text-warm-500 hover:text-warm-200 hover:bg-[rgba(245,235,222,0.12)] transition-colors"
+                          /* Stays 20px to the eye and is ~36px to a finger.
+                             The visual size is right — it sits in the corner of
+                             a progress ring and a larger disc would compete
+                             with the number it explains — but 20px is far under
+                             a usable touch target, and this is the control that
+                             exists *for* the person who does not already know
+                             what the ring means. `before:` expands the hit area
+                             without moving a pixel; `-inset-2` is 8px on every
+                             side. */
+                          className="relative w-5 h-5 rounded-full bg-[rgba(245,235,222,0.06)] flex items-center justify-center text-warm-500 hover:text-warm-200 hover:bg-[rgba(245,235,222,0.12)] transition-colors before:absolute before:-inset-2 before:content-['']"
                         >
-                          <span className="material-symbols-outlined text-[13px] leading-none">
+                          {/* The ligature text IS the glyph, so without this
+                              the button announced itself as "info What does
+                              Season progress mean?". */}
+                          <span
+                            className="material-symbols-outlined text-[13px] leading-none"
+                            aria-hidden="true"
+                          >
                             info
                           </span>
                         </button>
