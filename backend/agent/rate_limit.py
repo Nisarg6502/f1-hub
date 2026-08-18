@@ -589,14 +589,41 @@ def attach_session_cookie(response: Any, identity: Identity, request: Any) -> No
     is therefore a cross-site request; the pairing with `Secure` is mandatory
     per the cookie spec, which is why the two are chosen together.
 
+    **The scheme comes from `X-Forwarded-Proto`, not from `request.url.scheme`,
+    and reading the wrong one shipped a broken cookie to production.** Cloud Run
+    terminates TLS at its front end and speaks plain HTTP to the container, so
+    `request.url.scheme` is `"http"` on every real request unless uvicorn is
+    started with `--proxy-headers` (`Dockerfile.agent` does not). The deployed
+    service therefore issued `SameSite=Lax` with no `Secure`, and because
+    `*.run.app` is on the Public Suffix List the frontend and the agent are
+    *different sites* — so a `Lax` cookie is never sent on the cross-site
+    `fetch` the frontend makes. The cookie was set once and then never returned,
+    which silently reduced every browser user to their IP identity: exactly the
+    CGNAT-sharing problem the session layer exists to solve, with a cookie
+    visible in devtools implying it was solved.
+
+    Trusting a client-supplied header is the same question `resolve_client_ip`
+    answers, and the answer is different here because the *consequences* are
+    reversed. There, believing the client picks their bucket, so the header must
+    be read from a hop they cannot author. Here the header only decides two
+    cookie attributes: a forged `https` yields `Secure; SameSite=None`, which a
+    browser on plain HTTP then refuses to store — the forger loses their own
+    session and gains nothing, since the cookie is a rate-limit bucket key that
+    only makes limits *tighter*. Getting it wrong in the other direction is what
+    actually cost something, so this reads the header and falls back to the URL
+    scheme when it is absent (local development, and the tests).
+
     The cookie carries no personal data and grants no authority — it identifies
     a bucket, nothing else. It is `HttpOnly` regardless, so a script on the page
     (ours or injected) cannot read or replay it.
     """
     if not identity.minted_session:
         return
+    headers = getattr(request, "headers", {}) or {}
     url = getattr(request, "url", None)
-    secure = getattr(url, "scheme", "http") == "https"
+    forwarded_proto = (headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    scheme = forwarded_proto or getattr(url, "scheme", "http")
+    secure = scheme == "https"
     response.set_cookie(
         SESSION_COOKIE,
         identity.minted_session,
