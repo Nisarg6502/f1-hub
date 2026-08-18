@@ -46,6 +46,7 @@ reached for one, the docstring says which function was bypassed and why.
 from __future__ import annotations
 
 import functools
+import inspect
 from typing import Any, Callable, Iterable
 
 from app.db import get_db
@@ -145,12 +146,28 @@ def bundle(
     }
 
 
-def fact_tool(name: str) -> Callable:
+def fact_tool(name: str, *, hidden_args: Iterable[str] = ()) -> Callable:
     """Mark an async function as a tool and make it incapable of raising.
 
     The name is attached as `tool_name` so `tools/__init__.py`'s registry and
     CP61's binding both read it off the function rather than repeating it in a
     table that can fall out of step.
+
+    `hidden_args` names parameters this tool keeps for its own callers — tests,
+    other Python code — but that must never reach the model's JSON schema.
+    `graph._public_signature` reads it off the function and strips those names
+    before building the schema, exactly as it already strips `ledger`/`db`/
+    `today`; the parameter itself survives, so the function's own default
+    applies on every model-driven call.
+
+    **Why the declaration lives here and not in `graph.py`'s global name set.**
+    `today` earned a global entry because it means the same thing on both tools
+    that take one: the clock. A knob like `web_search`'s `max_results` does
+    not — it is a budget cap on one tool, and a global ban by name would also
+    silence a future tool for which `max_results` is a genuine, model-shaped
+    choice. Declaring it beside the parameter also keeps the two from drifting:
+    a name here that the function does not actually take raises at import,
+    rather than quietly hiding nothing.
 
     The blanket `except Exception` is deliberate and is the whole point: a tool
     is a leaf call inside an agent run, and there is no useful place further up
@@ -158,8 +175,21 @@ def fact_tool(name: str) -> Callable:
     its type so a genuine bug is still visible in Cloud Logging rather than
     disappearing into a polite "unavailable".
     """
+    declared_hidden = frozenset(hidden_args)
 
     def decorate(fn: Callable) -> Callable:
+        unknown = declared_hidden - set(inspect.signature(fn).parameters)
+        if unknown:
+            # Loud at import, not silent at schema-build time: a `hidden_args`
+            # entry that matches nothing hides nothing, and the failure it
+            # allows (an internal knob back in the model's schema) is invisible
+            # until a live trace catches the model setting it — which is
+            # precisely how `today` survived from CP60 to CP73.
+            raise ValueError(
+                f"fact_tool({name!r}) hides parameters it does not have: "
+                f"{sorted(unknown)}"
+            )
+
         @functools.wraps(fn)
         async def wrapper(*args: Any, **kwargs: Any) -> dict:
             try:
@@ -171,6 +201,7 @@ def fact_tool(name: str) -> Callable:
                 )
 
         wrapper.tool_name = name  # type: ignore[attr-defined]
+        wrapper.hidden_args = declared_hidden  # type: ignore[attr-defined]
         return wrapper
 
     return decorate

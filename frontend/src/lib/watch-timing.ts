@@ -315,6 +315,16 @@ const ABSENT: TimingSnapshot = { interval: null, gapToLeader: null, position: nu
  * In every non-numeric case the answer is **carry the most recent value
  * forward** — the reading stands until a new one replaces it, which is exactly
  * how a broadcast tower behaves.
+ *
+ * **Since `TIMING_VERSION` 7 the backend is a second producer of those
+ * strings**, not just a passthrough for OpenF1's: it stamps the exact gap at
+ * every line crossing from the official lap archive, and serves `"+N LAP(S)"`
+ * there for a car the archive says is laps down — deliberately, so this
+ * function never sees one source claim `"+11 LAPS"` and the other `1030.86`
+ * across the same bracket. Nothing here changed for it, which was the point.
+ * Measured across the eleven synced 2026 rounds: numeric brackets swinging
+ * more than 5s went from 1,787 of 492,420 (0.36%) to 1,926 of 514,977 (0.37%),
+ * so the added samples introduce no new sweeping.
  */
 function blend(from: TimingValue, to: TimingValue, ratio: number): TimingValue {
   if (typeof from !== "number" || typeof to !== "number") return from;

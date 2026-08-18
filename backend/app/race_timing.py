@@ -20,9 +20,14 @@ OpenF1's data.
 
 So the shape of the derivation is now:
 
-* **Lap boundaries are exact.** Each driver gets a position sample at their own
-  official crossing time for every lap. Those samples cannot drift, because
-  they are not derived from anything — they are the classification.
+* **Lap boundaries are exact — position, gap and interval alike.** Each driver
+  gets a position sample *and* a timing sample at their own official crossing
+  time for every lap. Those samples cannot drift, because they are not derived
+  from anything — they are the classification. The archive states every
+  driver's cumulative elapsed time at every lap, so the gap to the leader is
+  that number minus the lap leader's, and the interval is the difference to the
+  adjacent car in the same lap's crossing order. Both are arithmetic on the
+  official record, and neither passes through OpenF1.
 * **OpenF1 fills the gaps between them**, and is *corrected at every crossing*.
   A wrong intra-lap sample can now cost at most the remainder of one lap
   instead of propagating for the rest of the race.
@@ -41,18 +46,23 @@ instant of lights out. It is measured, not assumed — see `race_start_offset`.
 **`interval` and `gap_to_leader` are `number | string | null` and strings are
 load-bearing.** About 20% of `gap_to_leader` values in a real race are strings
 like `"+1 LAP"` — that is broadcast semantics for a lapped car, not corrupt
-data. Coercing them to numbers, or dropping rows that carry them, would silently
-delete the entire back half of the field's gap readout for most of a race. They
-are passed through verbatim; only genuine floats are rounded.
+data. Measured on round 1: 4,471 of the 22,070 non-null `gap_to_leader`
+readings OpenF1 serves.
+Coercing them to numbers, or dropping rows that carry them, would silently
+delete the entire back half of the field's gap readout for most of a race.
+OpenF1's are passed through verbatim, and the official samples *produce* them
+too — see `official_timing_samples` for why a lapped car's exact numeric gap is
+deliberately not served.
 
 Cached in `race_timing` for the same reason `race_replay` caches: a finished
-race's timing is immutable, and the payload is ~450 KB raw, which is far too
+race's timing is immutable, and the payload is ~490 KB raw, which is far too
 much to rebuild from four fetches on every view. `TIMING_VERSION` is part of
 the cache key so a change to the payload shape retires existing documents
 instead of serving them to a frontend expecting the new one.
 """
 
 import asyncio
+import bisect
 import datetime
 import statistics
 
@@ -88,7 +98,17 @@ router = APIRouter(prefix="/api")
 # after it belongs to a lap later than the position beside it. The other ten
 # rounds rebuild to a byte-identical payload, so the cost of the bump is one
 # round's worth of refetching.
-TIMING_VERSION = 6
+#
+# 7 retires every payload whose gap and interval columns came from OpenF1 alone.
+# The shape is byte-for-byte the same — three-element timing samples, same
+# union of types — so nothing about a v6 document *looks* stale, which is again
+# the harder half of this constant's rule. What changed is that the columns are
+# now stamped from the official record at every crossing instead of being an
+# OpenF1 sample carried forward. On round 1 a v6 document shows Alonso's gap
+# frozen at `+63.90` for the seventeen minutes he spent in the garage on lap 13,
+# where the archive states `+1030.86`; that document would otherwise be served
+# forever, because its structure is perfect.
+TIMING_VERSION = 7
 
 # How far an individual lap's implied lights-out instant may sit from the
 # median before it is discarded as a bad boundary. Measured across rounds 3 and
@@ -123,6 +143,12 @@ def _round_value(value):
     the client verbatim. Anything that tried to be clever here (parsing the
     leading `+1`, or discarding the value as unparseable) would blank the gap
     column for most of the field for most of the race.
+
+    It is no longer only a passthrough for OpenF1's strings: `official_timing_samples`
+    hands this the same `"+N LAP(S)"` form for a car the archive says is laps
+    down, deliberately and for the reasons set out there. Both sources therefore
+    arrive in the same branch, which is the point — the column must not change
+    convention depending on which source last spoke.
     """
     if isinstance(value, str):
         return value
@@ -203,6 +229,146 @@ def official_samples(
             previous = current
 
     return samples, lap_ms, leader_cumulative
+
+
+def _laps_down_label(laps_down: int) -> str:
+    """`1 -> "+1 LAP"`, `11 -> "+11 LAPS"`. OpenF1's exact spelling.
+
+    Not a formatting preference: these strings land in the same column as
+    OpenF1's own, and the two must be indistinguishable or the readout changes
+    wording every time the source alternates. All 59,242 string readings OpenF1
+    served across the eleven synced 2026 rounds match `+N LAP` / `+N LAPS`
+    exactly, with no other form and no other casing.
+    """
+    return f"+{laps_down} LAP" if laps_down == 1 else f"+{laps_down} LAPS"
+
+
+def official_timing_samples(
+    official_rows: list[dict],
+    driver_numbers: dict[str, str],
+    leader_cumulative: dict[int, int],
+) -> dict[str, list[list]]:
+    """The exact gap and interval at every line crossing.
+
+    `{car number: [[elapsed_ms, interval, gap_to_leader], ...]}` — the timing
+    counterpart of `official_samples`, stamped at the same instants and for the
+    same reason. Positions have been exact at every crossing since CP80; these
+    two columns came from OpenF1 alone until now and were never corrected
+    against anything, which is the asymmetry this closes.
+
+    The arithmetic is the archive's and nothing else's:
+
+    * **gap to leader** = this driver's cumulative elapsed time at lap `k` minus
+      the *lap leader's* cumulative at lap `k`.
+    * **interval** = the difference to the adjacent car when lap `k`'s crossings
+      are sorted by cumulative time. Sorted rather than read off the archive's
+      stated `position` so the number and the ordering can never disagree;
+      `verify_race_timing`'s `archive` check scores those two against each other
+      at 100% across the season, so the choice is free.
+    * The leader of a lap reads `0.0` on both, which is what OpenF1 emits for
+      that car too (66 of 66 leader readings on round 1). The tower renders the
+      leading row as `LEADER` regardless and `isClosing` skips it, so the value
+      is never seen — but emitting `None` would blank a column that OpenF1 had
+      just filled, and that *would* be seen.
+
+    **A car a lap or more down is served `"+1 LAP"`, not its numeric gap, and
+    this is the one genuinely contestable decision here.** The numeric value is
+    real — Alonso's archive gap at his lap-13 crossing on round 1 is `+1030.86`,
+    a true measurement of how much longer he took to complete thirteen laps —
+    but three things decide against serving it:
+
+    1. **It is not what the column means.** `+1030.86` reads as "the leader is
+       seventeen minutes up the road". The leader is in fact a few hundred
+       metres up the road, eleven laps ahead. The broadcast convention exists
+       because the numeric answer actively misinforms once cars are on different
+       laps.
+    2. **The fill either side of it uses the other convention.** OpenF1 reports
+       `"+N LAPS"` for exactly these cars — 4,471 of the 22,070 non-null
+       `gap_to_leader` readings it served for round 1. A sample stating `+1030.86` between
+       two OpenF1 samples stating `"+11 LAPS"` would make the column alternate
+       between two conventions several times a lap, and correction-at-every-
+       crossing would render as a flicker rather than a correction.
+    3. **The frontend refuses to interpolate toward a string** (`blend` in
+       `watch-timing.ts`), carrying the last reading forward instead. That is
+       the right behaviour and it only holds if both sources agree on when a
+       reading is a string. A numeric official sample followed by an OpenF1
+       string would blend from a real number toward nothing and freeze on a
+       number the viewer cannot interpret.
+
+    **`interval` is served numerically in every case, including for lapped
+    cars**, and that is not an inconsistency with the above. The two rows being
+    compared completed the *same* lap, so the difference is a like-for-like
+    reading at the same point on track, and it is the number that answers the
+    column's question — how much the car ahead is worth. It is also OpenF1's own
+    convention: 21,978 of the 21,984 non-null `interval` readings it served for
+    round 1 are floats, including `912.59` for a car eleven laps down. Six are
+    strings. Serving `"+1 LAP"` here would introduce the alternation that
+    argument 2 above exists to avoid, in the column that does not need it.
+
+    Cost, measured on the eleven synced 2026 rounds: 5,888 KB of raw payload
+    becomes 6,152 KB, +4.5%. Round 1 gains exactly 1,003 timing samples, which
+    is exactly its number of official crossings — no OpenF1 sample was displaced
+    by a tie on that round.
+
+    **How many laps down is measured against the lead lap, not guessed from the
+    gap.** `laps_down` is the number of laps the leader had completed by the
+    instant this driver crossed, minus the number this driver had. Dividing the
+    gap by a nominal lap time was the obvious alternative and is wrong under a
+    safety car, where a 90s gap is not a lap. Cross-checked against OpenF1's own
+    strings over all eleven rounds: 2,794 of 2,809 readings agree on N, 14 of
+    the 15 disagreements are off by one, and every one inspected is an OpenF1
+    sample gone stale — the same defect this function exists to correct. Two
+    sources that share no inputs agreeing to 99.5% is the evidence for the rule.
+
+    Both counts are taken as *positions in the archive's own lap list* rather
+    than as lap numbers, so a lap the archive omits for the whole field cannot
+    silently shift a driver a lap down.
+    """
+    lap_numbers = sorted(leader_cumulative)
+    lead_times = [leader_cumulative[lap] for lap in lap_numbers]
+    samples: dict[str, list[list]] = {}
+
+    for row in official_rows or []:
+        lap = _as_int(row.get("lap"))
+        leader = leader_cumulative.get(lap) if lap is not None else None
+        if leader is None:
+            continue
+
+        # Drivers with no car number are dropped *before* the interval is
+        # measured, so the interval is to the car ahead **that the payload
+        # actually serves** — which is the row above in the tower, and therefore
+        # the row the number is describing. `verify_race_timing` computes the
+        # same quantity over every crossing in the archive, mapped or not, and
+        # the two score 100% across the season; that agreement is what says no
+        # 2026 driver is unmapped, rather than an assumption that none is.
+        crossings: list[tuple[int, str]] = []
+        for timing in row.get("timings") or []:
+            number = driver_numbers.get(str(timing.get("driverId")))
+            elapsed = _as_int(timing.get("cumulative_ms"))
+            if number is None or elapsed is None:
+                continue
+            crossings.append((elapsed, number))
+        crossings.sort(key=lambda crossing: crossing[0])
+
+        # How many laps this driver has completed, counted the same way the
+        # leader's are, so the subtraction below compares like with like.
+        completed = bisect.bisect_right(lap_numbers, lap)
+
+        previous: int | None = None
+        for elapsed, number in crossings:
+            interval = 0.0 if previous is None else (elapsed - previous) / 1000
+            previous = elapsed
+            laps_down = bisect.bisect_right(lead_times, elapsed) - completed
+            gap = (
+                _laps_down_label(laps_down)
+                if laps_down >= 1
+                else (elapsed - leader) / 1000
+            )
+            samples.setdefault(number, []).append(
+                [elapsed, _round_value(interval), _round_value(gap)]
+            )
+
+    return samples
 
 
 def stated_race_start(lap_rows: list[dict]) -> datetime.datetime | None:
@@ -350,10 +516,15 @@ def build_timing(
     """The `{drivers, lap_ms}` payload, from the official record plus OpenF1.
 
     Pure: no Mongo, no network, no clock. Every behaviour worth testing —
-    the official skeleton, the measured start, the drop-don't-clamp rule, string
-    and null gap passthrough, ordering, arity — is reachable from here with
-    plain dicts, which is why the endpoint below is kept to nothing but fetching
-    and caching.
+    the official skeletons (positions *and* timing), the measured start, the
+    drop-don't-clamp rule, string and null gap passthrough, ordering, arity — is
+    reachable from here with plain dicts, which is why the endpoint below is
+    kept to nothing but fetching and caching.
+
+    **A round with no usable OpenF1 feed still gets both columns.** The official
+    timing skeleton does not depend on `race_start`, so a round that degrades to
+    the lap-stepped fill now carries exact gaps and intervals at its crossings
+    where it previously carried an empty `timing` array.
 
     **Without the official record this returns `{}`**, even when OpenF1 has
     plenty to say. That is deliberate and it is a change in policy: a timeline
@@ -368,7 +539,17 @@ def build_timing(
     race_end = max(leader_cumulative.values())
     race_start = race_start_offset(lap_rows or [], leader_cumulative)
 
-    timing: dict[str, list] = {}
+    # Both skeletons are seeded before the OpenF1 fill, and that ordering is
+    # load-bearing rather than tidy: `_collapse_positions` and `_collapse_timing`
+    # both resolve a timestamp tie in favour of whichever sample was inserted
+    # first, so inserting the official ones here is what makes them win over an
+    # OpenF1 event that happens to land on the exact millisecond of a crossing.
+    timing: dict[str, list] = {
+        number: list(samples)
+        for number, samples in official_timing_samples(
+            official_rows, driver_numbers, leader_cumulative
+        ).items()
+    }
     positions: dict[str, list[list[int]]] = {
         number: list(samples) for number, samples in boundary.items()
     }
@@ -479,7 +660,7 @@ def build_timing(
     # The official archive is the definition of who is in the race, which is the
     # same principle the rest of this module runs on.
     for number in (set(timing) | set(positions)) & set(boundary):
-        driver_timing = sorted(timing.get(number, []), key=lambda sample: sample[0])
+        driver_timing = _collapse_timing(timing.get(number, []))
         driver_positions = _collapse_positions(positions.get(number, []))
         # Present-with-one-feed is a real and useful state (the design's
         # "timing only" degradation row), so a driver is kept as long as at
@@ -493,6 +674,35 @@ def build_timing(
         drivers[number] = entry
 
     return {"drivers": drivers, "lap_ms": lap_ms}
+
+
+def _collapse_timing(samples: list[list]) -> list[list]:
+    """Sort timing samples by time and let the official one win a tie.
+
+    The same rule as `_collapse_positions`, and deliberately the same mechanism
+    rather than a second one: sorting is stable, official samples are inserted
+    first in `build_timing`, so ordering by time alone leaves the official
+    sample ahead of any OpenF1 sample sharing its millisecond, and the first at
+    each instant is kept. Without this the array carried both, and the
+    frontend's "last sample at or before now" lookup would take whichever sorted
+    last — which is OpenF1's, i.e. exactly the reading the crossing exists to
+    correct.
+
+    **`_collapse_positions`' second rule is not repeated here.** A repeated
+    position is a non-event and is dropped; a repeated gap is not, because these
+    values are continuous and the frontend interpolates *between adjacent
+    samples*. Dropping a sample that restates the current reading would widen
+    the bracket `blend` interpolates across and invent motion where the feed
+    reported none.
+    """
+    ordered = sorted(samples, key=lambda sample: sample[0])
+
+    collapsed: list[list] = []
+    for sample in ordered:
+        if collapsed and collapsed[-1][0] == sample[0]:
+            continue
+        collapsed.append(sample)
+    return collapsed
 
 
 def _collapse_positions(samples: list[list[int]], _unused=None) -> list[list[int]]:

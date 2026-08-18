@@ -63,9 +63,13 @@ dev-only `/pitwall-chat` route) and a backend answer cache. **Batch 18 is closed
 **Batch 19 (CP67-70) is complete, merged, and closed.** See `BATCH-19-PLAN.md` for the batch design
 and `docs/superpowers/plans/` for each checkpoint's bite-sized implementation plan; `HANDOFF.md`
 carries the measured/decided specifics. CP67 shipped input guards (scope, injection, PII — run before
-an agent run is admitted, so a refusal costs no inference budget) and output guards, including
-`grounding_guard`, which closes the CP61-recorded "answered from parametric memory with zero tool
-calls" gap on **every tier including tier 1**, not just tiers 2-3. CP68 replaced raw `mongo:`/`web:`
+an agent run is admitted, so a refusal costs no inference budget) and output guards that close the
+CP61-recorded "answered from parametric memory with zero tool calls" gap on **every tier including
+tier 1**, not just tiers 2-3. **There is no `grounding_guard` module, and earlier revisions of this
+line naming one sent readers hunting for code that does not exist** — CP67's own plan records that
+the design doc's higher-level `grounding_guard` concept "resolved to *stop skipping `verifier.check`
+for tier 1*" once the actual `_run_turn`/`astream_answer` buffering had been read, which needed no
+separate module. The mechanism is in `graph.py` (see the comment at `graph.py:516`). CP68 replaced raw `mongo:`/`web:`
 citation strings and dead `[ev_N]` text with human-titled, kind-tagged citations rendered as
 clickable numbered pills linking to real source cards, and gave the activity timeline tool/agent/
 system distinction plus per-step detail (e.g. the actual search query) and local-timezone
@@ -123,7 +127,7 @@ Three findings from this batch that cost real time to discover and should not be
   lesson generalises past this batch: **a guard delegated to another component's flag needs a test
   that exercises the flag, not just the delegation.**
 
-**Batch 21 (CP76-78) — Watch-party mode, variant 1. In progress.** Design in
+**Batch 21 (CP76-78) — Watch-party mode, variant 1. Complete, merged and deployed.** Design in
 [`docs/superpowers/specs/2026-08-08-batch21-cp76-78-watch-party-design.md`](docs/superpowers/specs/2026-08-08-batch21-cp76-78-watch-party-design.md).
 
 The batch exists because of one measurement: the race replay is **not** a slow-motion anything —
@@ -140,8 +144,8 @@ than one that is merely approximate.
 | CP | Scope | Status |
 |---|---|---|
 | CP76 | `race_laps` persists `lap_time_seconds` (both FastF1 and OpenF1 paths); `REPLAY_VERSION` 3→4; local backfill | merged |
-| CP77 | `/watch/[raceId]` — the real-time clock, timing tower, wake lock, jump-to-lap, unsynced fallback | in progress |
-| CP78 | Driver favourites, density modes, polish from real use | not started |
+| CP77 | `/watch/[raceId]` — the real-time clock, timing tower, wake lock, jump-to-lap, unsynced fallback | merged |
+| CP78 | Driver favourites, density modes, polish from real use | merged |
 
 Two notes from CP76 worth keeping:
 

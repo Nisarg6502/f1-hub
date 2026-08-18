@@ -115,6 +115,98 @@ QUEUE_TIMEOUT_SECONDS = float(os.getenv("AGENT_QUEUE_TIMEOUT_SECONDS") or "45")
 REQUEST_TIMEOUT_SECONDS = float(os.getenv("AGENT_REQUEST_TIMEOUT_SECONDS") or "180")
 
 
+# --- Abuse prevention (agent/rate_limit.py) --------------------------------
+
+# The kill switch. Everything in `rate_limit.py` is bypassed when this is off,
+# which is the point: an abuse control that cannot be turned off without a
+# rebuild is one you cannot turn off during the incident where it is the thing
+# misfiring. Defaults ON — a public, unauthenticated endpoint spending a shared
+# quota must be limited by default, and a limiter that only protects the
+# deployments someone remembered to configure protects nothing.
+RATE_LIMIT_ENABLED = _flag("AGENT_RATE_LIMIT_ENABLED", True)
+
+# Layer 1: cost units of inference this service will spend in one UTC day, over
+# all callers. One unit is ~one tier-1 answer / ~60s of metered GPU time (see
+# `rate_limit.TIER_COST`), so 240 is ~4 hours of model time a day: roughly 240
+# tier-1 answers, or 48 tier-3 research turns.
+#
+# Chosen against the two numbers that actually bound it, since the free tier
+# publishes no figure this can be derived from (§4.2 gives call counts and
+# "session limits reset every 5 hours", not a quota size):
+#   - organic demand on a portfolio site is single-digit to low-double-digit
+#     questions a day, so this is more than an order of magnitude of headroom
+#     for every real visitor;
+#   - a scripted loop, serialized by `concurrency.py` to one run at a time at
+#     roughly a minute a run, reaches 240 in about four hours — so the cap
+#     converts "one afternoon burns the week" into "one afternoon burns one
+#     day", and the day resets on its own.
+# Tune it down, not up, the first time real traffic is measured.
+DAILY_COST_BUDGET = float(os.getenv("AGENT_DAILY_COST_BUDGET") or "240")
+
+# Layer 2: per-identity allowances, in cost units per window. Two windows per
+# identity — a 60s burst limit and a 3600s sustained limit — because either one
+# alone is wrong: a pure hourly limit lets the whole hour be spent in ten
+# seconds, and a pure per-minute limit permits 60× that allowance across a day.
+#
+# The three scopes widen deliberately, and the ordering IS the answer to "why
+# not just limit by IP":
+#   - `session` is the tight, per-person allowance. 12 units/hour is ~12 tier-1
+#     questions, comfortably past any real conversation (the panel's own
+#     suggested-question strip is 4 chips) and nowhere near a loop.
+#   - `ip` is deliberately looser, because an IP is NOT a person: behind CGNAT
+#     it can be an entire mobile carrier, and limiting it to one person's share
+#     would ban a whole network for the behaviour of one phone on it.
+#   - `net` (/24 or /64) is looser still and exists only to stop address
+#     rotation inside a cheap proxy range from multiplying the allowance.
+CALLER_LIMITS: dict[str, dict[str, float]] = {
+    "session": {
+        "burst": float(os.getenv("AGENT_LIMIT_SESSION_BURST") or "4"),
+        "sustained": float(os.getenv("AGENT_LIMIT_SESSION_HOUR") or "12"),
+    },
+    "ip": {
+        "burst": float(os.getenv("AGENT_LIMIT_IP_BURST") or "8"),
+        "sustained": float(os.getenv("AGENT_LIMIT_IP_HOUR") or "40"),
+    },
+    "net": {
+        "burst": float(os.getenv("AGENT_LIMIT_SUBNET_BURST") or "20"),
+        "sustained": float(os.getenv("AGENT_LIMIT_SUBNET_HOUR") or "120"),
+    },
+}
+
+# Layer 3: how many proxies sit between this process and the internet, counted
+# from the right of `X-Forwarded-For`. **0 is correct for a Cloud Run service
+# addressed directly on its `*.run.app` URL, which is what
+# `cloudbuild-agent.yaml` deploys.** Raise it to 1 the day anything is put in
+# front (a Google external HTTPS load balancer appends its own address after
+# the client's); leaving it at 0 then makes the IP layer read client-authored
+# text. `rate_limit.resolve_client_ip`'s docstring is the full argument.
+TRUSTED_PROXY_HOPS = _int("AGENT_TRUSTED_PROXY_HOPS", 0)
+
+# Layer 4: how long a guardrail trip keeps costing the caller, and how far the
+# multiplier can climb. One hour matches the sustained window, so a strike is
+# felt for exactly as long as the allowance it is inflating.
+ABUSE_WINDOW_SECONDS = float(os.getenv("AGENT_ABUSE_WINDOW_SECONDS") or "3600")
+ABUSE_MULTIPLIER_CAP = float(os.getenv("AGENT_ABUSE_MULTIPLIER_CAP") or "8")
+
+
+def session_secret() -> str | None:
+    """HMAC key for the session cookie, read at call time.
+
+    Same reasoning as `api_key()` — Cloud Run injects secrets before start, but
+    tests patch this and local `.env` edits happen between runs. Absent is not
+    an error: `rate_limit` falls back to a per-process random key, which costs
+    session continuity across a restart and nothing else.
+    """
+    return os.getenv("AGENT_SESSION_SECRET") or None
+
+
+# How long a session cookie identifies the same bucket. Long enough that a
+# returning visitor keeps their own allowance rather than inheriting whatever
+# their CGNAT neighbours have spent; short enough that a leaked cookie is not
+# a permanent identity.
+SESSION_TTL_SECONDS = _int("AGENT_SESSION_TTL_SECONDS", 7 * 24 * 3600)
+
+
 # --- Observability ---------------------------------------------------------
 
 # LangSmith reads these from the environment directly; the service only needs

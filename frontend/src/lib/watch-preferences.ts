@@ -134,13 +134,85 @@ let pinnedCache: string[] | null = null;
  * fresh `[]` each call is an infinite render loop. */
 const SERVER_PINNED: string[] = [];
 
-export function subscribePreferences(listener: Listener): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-}
-
 function emit(): void {
   for (const listener of listeners) listener();
+}
+
+/* ------------------------------ cross-tab sync ---------------------------- */
+
+/**
+ * Watch-party mode is explicitly second-screen, so a second `/watch` tab is
+ * not an edge case — but every cache above (`densityCache`, `pinnedCache`,
+ * `timingModeCache`) is a module-level variable, and each tab gets its own
+ * copy of this module. Nothing propagates a write in one tab to the other
+ * except `localStorage` itself, which both tabs share. Without this, tab B
+ * keeps rendering the value it loaded at hydration, silently diverges from
+ * whatever tab A writes next, and then overwrites tab A's change the next
+ * time *it* writes — the divergence this file's caches otherwise fixed
+ * within a single tab reappears one level up, across tabs.
+ *
+ * The browser's `storage` event is the built-in fix, and it has exactly the
+ * shape this needs, not the shape of the "obvious" fix rejected above:
+ *
+ * - It fires only in *other* same-origin tabs — never in the tab that called
+ *   `localStorage.setItem`. `setDensityPreference` et al. already call
+ *   `emit()` directly after writing, so there is no self-echo to guard
+ *   against and no risk of a write in this tab looping back through its own
+ *   listener.
+ * - It fires once per `setItem`/`removeItem`/`clear()` on the *origin*, for
+ *   every key — including keys this module has never heard of. `event.key`
+ *   is how the handler tells "one of ours changed" from "something else on
+ *   the origin changed"; a `clear()` reports `event.key === null` and is
+ *   treated as "reload everything this module owns" rather than ignored.
+ *
+ * The handler does not read `event.newValue` itself. It drops the relevant
+ * cache(s) and calls `emit()`, so the next `*Snapshot()` call goes through
+ * the same `load*` functions the initial render uses — which already parse
+ * defensively (a hand-edited or half-written value falls back to the
+ * default rather than throwing). One code path for "read a preference from
+ * storage," used whether it's the first read or a cross-tab update.
+ */
+function handleStorageEvent(event: StorageEvent): void {
+  const { key } = event;
+  let changed = false;
+  if (key === null || key === PINNED_KEY) {
+    pinnedCache = null;
+    changed = true;
+  }
+  if (key === null || key === DENSITY_KEY) {
+    densityCache = null;
+    changed = true;
+  }
+  if (key === null || key === TIMING_MODE_KEY) {
+    timingModeCache = null;
+    changed = true;
+  }
+  if (changed) emit();
+}
+
+/** Attached lazily from `subscribePreferences`, not as a module-level side
+ * effect at import time — this module is imported by a component that
+ * renders on the server first, where `window` (and therefore
+ * `addEventListener`) does not exist yet. Guarded so it attaches at most
+ * once no matter how many `useSyncExternalStore` calls subscribe: density,
+ * pinned drivers and timing mode already share one `listeners` set, and a
+ * second `storage` listener would just invalidate the same caches and
+ * `emit()` twice per event rather than catch anything the first missed.
+ * Never detached — tearing it down when the last subscriber unmounts would
+ * need reference counting for a listener that costs nothing to leave alive
+ * for the tab's lifetime. */
+let storageListenerAttached = false;
+
+function ensureStorageListener(): void {
+  if (storageListenerAttached || typeof window === "undefined") return;
+  storageListenerAttached = true;
+  window.addEventListener("storage", handleStorageEvent);
+}
+
+export function subscribePreferences(listener: Listener): () => void {
+  ensureStorageListener();
+  listeners.add(listener);
+  return () => listeners.delete(listener);
 }
 
 export function densitySnapshot(): TowerDensity {

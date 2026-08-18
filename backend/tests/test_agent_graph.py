@@ -188,6 +188,483 @@ class ClassifyOllamaErrorTests(unittest.TestCase):
         self.assertNotIsInstance(classified, model.ModelAtCapacity)
 
 
+class ModelVisibleArgumentAuditTests(unittest.TestCase):
+    """The audit `ROADMAP.md`'s Batch 20 findings asked for and nobody ran.
+
+    CP73 stripped `get_season_state`'s `today` after a live trace caught the
+    model asserting a wrong date with it, and closed the bullet with "worth
+    auditing other tools for optional arguments the model can see." Only that
+    one tool was fixed. This class is the audit, expressed as an assertion
+    instead of a paragraph: the exact set of arguments every tool offers the
+    model is written down here, so adding an optional parameter to any tool
+    fails this test until someone states, in the map below, that a model is
+    the right thing to be choosing it.
+
+    The map is the deliverable, not the mechanism. `today` reached production
+    because a parameter added for tests was *automatically* a parameter for
+    the model, and nothing anywhere had to agree that it should be.
+    """
+
+    # tool name -> the arguments the model is allowed to see, in schema order.
+    # Everything optional in here was checked one at a time; the verdict for
+    # each is in the corresponding tool's docstring.
+    #
+    #   session / kind / after_round / season / drivers / topic
+    #   and get_historical_race_index's five filters
+    #       — question-shaped choices. The model is the only thing that knows
+    #         whether it wants qualifying or the race, the constructors' table
+    #         or the drivers', a season slice or the whole archive. Kept.
+    #   ledger / db  — this package's plumbing (CP61).
+    #   today        — the clock, on both tools that take one (CP73).
+    #   max_results  — `web_search`'s Tavily budget cap; nothing about an F1
+    #                  question bears on it, and `web_extract`'s equivalent was
+    #                  already a module constant. Stripped, this checkpoint.
+    EXPECTED_PUBLIC_ARGS = {
+        "get_circuit_history": ("circuit_id",),
+        "get_circuit_profile": ("circuit_id",),
+        "get_constructor_seasons": ("constructor_id",),
+        "get_driver_profile": ("driver_id",),
+        "get_driver_season_summary": ("driver_id", "year"),
+        "get_head_to_head": ("driver_a", "driver_b", "season"),
+        "get_historical_race_index": (
+            "season_from",
+            "season_to",
+            "circuit_id",
+            "driver",
+            "constructor_key",
+        ),
+        "get_lap_summary": ("year", "round_number", "drivers"),
+        "get_pit_stops": ("year", "round_number"),
+        "get_race_control": ("year", "round_number"),
+        "get_race_narrative_facts": ("year", "round_number"),
+        "get_race_strategy": ("year", "round_number"),
+        "get_season_calendar": ("year",),
+        "get_season_state": (),
+        "get_session_result": ("year", "round_number", "session"),
+        "get_standings": ("year", "kind", "after_round"),
+        "get_weather": ("year", "round_number"),
+        "resolve_context": ("hint",),
+        "web_extract": ("urls",),
+        "web_search": ("query", "topic"),
+        "wikipedia_summary": ("title",),
+    }
+
+    @staticmethod
+    def _every_bindable_tool():
+        """`TOOLS` plus the three web tools, which `subagents.py` binds through
+        the same `_bind_tool` but which deliberately live outside the internal
+        registry (see `tools/web.py`'s docstring). An audit that read `TOOLS`
+        alone would have missed `web_search` — the one tool this audit found.
+        """
+        from agent.tools import TOOLS, web as web_tools
+
+        bindable = dict(TOOLS)
+        for fn in (
+            web_tools.web_search,
+            web_tools.web_extract,
+            web_tools.wikipedia_summary,
+        ):
+            bindable[fn.tool_name] = fn
+        return bindable
+
+    def test_the_map_covers_every_bindable_tool(self):
+        """Otherwise a tool added later is audited by omission."""
+        self.assertEqual(
+            set(self._every_bindable_tool()), set(self.EXPECTED_PUBLIC_ARGS)
+        )
+
+    def test_no_tool_offers_the_model_an_argument_outside_the_map(self):
+        bindable = self._every_bindable_tool()
+        for name, expected in sorted(self.EXPECTED_PUBLIC_ARGS.items()):
+            with self.subTest(tool=name):
+                tool = graph._bind_tool(name, bindable[name], _SENTINEL_LEDGER)
+                schema = tool.args_schema.model_json_schema()
+                self.assertEqual(
+                    tuple(schema.get("properties", {})), tuple(expected)
+                )
+
+    def test_no_tool_leaks_ledger_db_or_today(self):
+        """The three global hidden names, asserted across the whole registry
+        rather than on the two tools that happened to prompt the rule."""
+        bindable = self._every_bindable_tool()
+        for name, fn in sorted(bindable.items()):
+            with self.subTest(tool=name):
+                properties = (
+                    graph._bind_tool(name, fn, _SENTINEL_LEDGER)
+                    .args_schema.model_json_schema()
+                    .get("properties", {})
+                )
+                for hidden in ("ledger", "db", "today"):
+                    self.assertNotIn(hidden, properties)
+
+
+class WebSearchBudgetArgumentTests(unittest.TestCase):
+    """`web_search.max_results` — the one thing the audit above found.
+
+    Same failure shape as `today`: a knob added for the tool's own callers,
+    visible in the model's JSON schema purely because it was a real parameter,
+    with nothing in any prompt telling the model when to change it. It caps
+    Tavily spend against a 1,000-credit/month free tier and caps how much
+    retrieved prose this bundle costs in context — neither of which an F1
+    question can inform. `web_extract`'s equivalent cap was already a module
+    constant, which is what makes this an inconsistency rather than a design.
+    """
+
+    def test_max_results_is_not_in_the_model_visible_schema(self):
+        from agent.tools import web as web_tools
+
+        tool = graph._bind_tool("web_search", web_tools.web_search, _SENTINEL_LEDGER)
+        properties = tool.args_schema.model_json_schema().get("properties", {})
+
+        self.assertNotIn("max_results", properties)
+        # Non-vacuous: the schema is really being built, and the arguments
+        # that *are* the model's business survived.
+        self.assertIn("query", properties)
+        self.assertIn("topic", properties)
+
+    def test_topic_is_deliberately_still_offered(self):
+        """The audit's verdicts are not "hide every optional argument".
+        `topic="news"` is what makes a time-sensitive question search like
+        one, and both `web.py` and `subagents.WEB_RESEARCHER_PROMPT` tell the
+        model to choose it. Asserted so a later over-correction that hides it
+        is a test failure rather than a silent capability loss.
+        """
+        from agent.tools import web as web_tools
+
+        self.assertNotIn("topic", web_tools.web_search.hidden_args)
+        self.assertIn("max_results", web_tools.web_search.hidden_args)
+
+    def test_the_function_still_takes_max_results_for_its_own_callers(self):
+        """Stripped from the schema, not from the function — the same shape
+        `today` was left in, so `tests/test_agent_web_tools.py`'s clamping
+        test and any future caller keep working."""
+        import inspect as _inspect
+        from agent.tools import web as web_tools
+
+        self.assertIn(
+            "max_results", _inspect.signature(web_tools.web_search).parameters
+        )
+
+    def test_hiding_an_argument_the_tool_does_not_have_fails_loudly(self):
+        """A `hidden_args` entry that matches nothing hides nothing, and the
+        leak it permits is invisible until a live trace catches it. Import
+        time is the only place that mistake is cheap to find."""
+        from agent.tools.base import fact_tool
+
+        with self.assertRaises(ValueError):
+
+            @fact_tool("typo_tool", hidden_args=("max_reslts",))
+            async def _typo_tool(query: str, max_results: int = 5) -> dict:
+                return {}
+
+
+class GeneralPurposeSubagentTests(unittest.TestCase):
+    """The `general-purpose` subagent is gone from the built graph.
+
+    CP63's trace recorded the flat orchestrator delegating to a subagent it
+    was never given — `"Delegating to general-purpose"` at 80.3s — which then
+    re-ran tool calls the orchestrator already had bound directly.
+    `graph._register_harness_profile` turns off deepagents' auto-added default;
+    these tests assert the *result* on the compiled graph rather than that the
+    registration ran.
+
+    That distinction is `ROADMAP.md`'s Batch 20 lesson, stated there after
+    CP75's opinion-drop guard was found merged, documented and inert: "a guard
+    delegated to another component's flag needs a test that exercises the
+    flag, not just the delegation." Everything below inspects the real graph
+    `build_agent` returns.
+
+    No model call is made: `create_deep_agent` only assembles a graph, and
+    `_ScriptedAgent` elsewhere in this file covers the parts that would need
+    one.
+    """
+
+    @staticmethod
+    def _tools_by_name(agent):
+        """The compiled graph's actual tool registry.
+
+        Reached through the `tools` node's `ToolNode`, unwrapping `bound`
+        because LangGraph wraps the node — asserted on rather than the
+        `task` tool's presence in some config dict, because this is the
+        collection the model's tool calls are dispatched against.
+        """
+        node = agent.nodes["tools"]
+        for _ in range(10):
+            if hasattr(node, "tools_by_name"):
+                return node.tools_by_name
+            node = getattr(node, "bound", None)
+            if node is None:
+                break
+        raise AssertionError("no ToolNode with tools_by_name on the built graph")
+
+    def test_the_deepagents_api_this_fix_depends_on_actually_exists(self):
+        """`HANDOFF.md` names `GeneralPurposeSubagentProfile(enabled=False)`.
+        This repo has shipped a plausible-but-nonexistent name before (the
+        `qwen3.5:35b` model), so the name is checked against the installed
+        package, not taken on trust — and checked here so an upgrade that
+        renames it fails as a clear import error rather than as a silently
+        re-enabled subagent.
+        """
+        from deepagents import GeneralPurposeSubagentProfile, HarnessProfile
+
+        profile = HarnessProfile(
+            general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False)
+        )
+        self.assertFalse(profile.general_purpose_subagent.enabled)
+
+    def test_the_flat_graph_has_no_task_tool_at_all(self):
+        """Tiers 1-2. With the default subagent disabled and no subagents
+        passed, deepagents drops `task` entirely — so the flat orchestrator
+        cannot delegate to anything, which is what it was always documented
+        to be."""
+        agent = graph.build_agent(EvidenceLedger())
+        tools = self._tools_by_name(agent)
+
+        self.assertNotIn("task", tools)
+        # Non-vacuous: the node is populated and the absence above is a real
+        # absence, not an empty registry. `ls` is deepagents' always-on
+        # filesystem default (see this module's prompt rules), so its presence
+        # proves the built-in tool set is there to be searched.
+        self.assertIn("ls", tools)
+
+    def test_the_flat_graphs_own_f1_tools_are_still_bound(self):
+        """The other half of "not vacuous": disabling the default subagent
+        must not have cost the graph the tools the answer is made of."""
+        from agent.tools import TOOLS
+
+        tools = self._tools_by_name(graph.build_agent(EvidenceLedger()))
+        self.assertTrue(set(TOOLS).issubset(set(tools)))
+
+    def test_the_subagent_graph_keeps_task_but_not_general_purpose(self):
+        """Tier 3. `task` is that path's entire point, so it stays; what goes
+        is `general-purpose` as a delegation target. The `task` tool's
+        description is where deepagents lists the agent types the model may
+        name, so it is the model-visible surface to assert on.
+
+        Matched as `"- general-purpose:"`, the shape of one entry in that
+        list, rather than as the bare name: deepagents ends every `task`
+        description with a fixed block of usage notes that mentions
+        general-purpose unconditionally ("When only general-purpose is
+        available, use it for..."), whether or not the subagent exists. That
+        sentence is boilerplate the harness always emits and is not a
+        delegation target; the enumerated list above it is. Asserted this way
+        so the test proves the subagent is unavailable rather than proving a
+        string is missing from prose we do not own.
+        """
+        agent = graph.build_agent(EvidenceLedger(), use_subagents=True)
+        tools = self._tools_by_name(agent)
+
+        self.assertIn("task", tools)
+        description = tools["task"].description
+        self.assertNotIn("- general-purpose:", description)
+        # Non-vacuous: the four real subagents are offered in exactly that
+        # shape, so the missing entry above is the default being off — not a
+        # description whose format changed underneath this assertion.
+        for name in ("stats-scout", "historian", "web-researcher", "race-analyst"):
+            self.assertIn(f"- {name}:", description)
+
+
+# --------------------------------------------------------------------------
+# The tools actually offered to the model, without calling one
+# --------------------------------------------------------------------------
+# `excluded_tools` does NOT remove a tool from the graph — the handlers stay
+# registered and `_ToolExclusionMiddleware` filters them out of each model
+# request instead (`wrap_model_call`). So the `tools_by_name` inspection the
+# `task` tests above use cannot see it, and reading `_excluded` off the
+# middleware would only prove the flag was passed — the precise thing
+# `ROADMAP.md`'s Batch 20 lesson says is not enough.
+#
+# What is asserted instead is the tool list the middleware stack actually hands
+# the model, captured by a chat model that records `bind_tools` and answers
+# from a script. Real graph, real middleware, zero network — the same "stub the
+# model seam" rule this file's module docstring states, applied to the tool
+# surface rather than to the prose.
+
+_RECORDED_TOOL_LISTS: list = []
+_MODEL_SCRIPT: list = []
+
+
+def _recording_model():
+    """A `ChatOllama` that records what it is bound and never leaves the process.
+
+    Subclasses the real thing rather than a generic fake so the model the graph
+    sees is byte-for-byte the class `build_model` returns; only `bind_tools` and
+    the two generate hooks are overridden. State lives at module level because
+    `ChatOllama` is a pydantic model and will not take stray instance attributes.
+    """
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, ChatResult
+    from langchain_ollama import ChatOllama
+
+    class _Recorder(ChatOllama):
+        def bind_tools(self, tools, **kwargs):
+            _RECORDED_TOOL_LISTS.append(
+                sorted(
+                    name
+                    for name in (
+                        getattr(t, "name", None)
+                        or (t.get("name") if isinstance(t, dict) else None)
+                        for t in tools
+                    )
+                    if name
+                )
+            )
+            return self
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            message = _MODEL_SCRIPT.pop(0) if _MODEL_SCRIPT else AIMessage(content="ok")
+            return ChatResult(generations=[ChatGeneration(message=message)])
+
+        async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
+            return self._generate(messages)
+
+    return _Recorder(
+        model=graph.config.DEFAULT_MODEL,
+        base_url=graph.config.OLLAMA_BASE_URL,
+        temperature=graph.config.TEMPERATURE,
+    )
+
+
+def _tool_lists_offered(*, use_subagents=False, script=()):
+    """Run one turn of the real graph and return every tool list bound.
+
+    With `use_subagents=True` and a scripted `task` call, the subagent's own
+    `bind_tools` is recorded too — which is the only way to prove the exclusion
+    reached the four subagents rather than just the orchestrator.
+    """
+    from unittest.mock import patch
+
+    _RECORDED_TOOL_LISTS.clear()
+    _MODEL_SCRIPT[:] = list(script)
+    with patch.object(graph, "build_model", _recording_model):
+        agent = graph.build_agent(EvidenceLedger(), use_subagents=use_subagents)
+        asyncio.run(agent.ainvoke({"messages": [("user", "hi")]}))
+    return [set(names) for names in _RECORDED_TOOL_LISTS]
+
+
+def _delegate_to(subagent_type):
+    """A scripted first turn that calls `task` — forces a real subagent run."""
+    from langchain_core.messages import AIMessage
+
+    return [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "task",
+                    "id": "call_1",
+                    "args": {"description": "go", "subagent_type": subagent_type},
+                }
+            ],
+        )
+    ]
+
+
+class FilesystemToolExclusionTests(unittest.TestCase):
+    """The no-filesystem rule is structural now, not a sentence in a prompt.
+
+    `HANDOFF.md` records the prompt version of this rule being written twice
+    and failing twice: CP61's baseline wandered into `ls`/`grep` and burned its
+    step budget, and CP63's first live `web-researcher` test called
+    `web_search`, got an empty result, then tried `ls` and `glob` before giving
+    up. Both were patched by adding prose — the "ask the model nicely" shape
+    CP38/CP41 rejected for *output*, applied here to tool availability.
+
+    The prompt rules are deliberately still there (`SYSTEM_PROMPT`,
+    `ORCHESTRATOR_SYSTEM_PROMPT`, `subagents._NO_FILESYSTEM_RULE`) — they cost
+    nothing and they document intent — but they are no longer what enforces
+    this, and `_register_harness_profile`'s docstring says so.
+    """
+
+    FORBIDDEN = ("ls", "glob", "grep", "write_file", "edit_file", "delete")
+
+    def test_the_flat_graph_offers_the_model_no_way_to_explore_a_filesystem(self):
+        from agent.tools import TOOLS
+
+        offered = _tool_lists_offered()[-1]
+        for name in self.FORBIDDEN:
+            with self.subTest(tool=name):
+                self.assertNotIn(name, offered)
+        # Non-vacuous: this is a real, populated tool list — every F1 tool the
+        # answer is made of survived the exclusion.
+        self.assertTrue(set(TOOLS).issubset(offered))
+
+    def test_read_file_is_deliberately_kept(self):
+        """Not an oversight — the one built-in that stays, for two reasons
+        checked in the installed deepagents source.
+
+        `SummarizationMiddleware` (unconditional in both the main and every
+        subagent stack) offloads evicted history to
+        `/conversation_history/{thread_id}.md` and embeds that path in the
+        summary "so the agent can re-open it via `read_file`"; and
+        `FilesystemMiddleware` refuses a tool allowlist that omits `read_file`
+        at all ("required by FilesystemMiddleware"). Excluding it would trade a
+        real recovery path for nothing, because *reading* is not what went
+        wrong in either incident — discovery was. With `ls`, `glob` and `grep`
+        gone the model can only read a path it was handed.
+        """
+        self.assertNotIn("read_file", graph.EXCLUDED_BUILTIN_TOOLS)
+        self.assertIn("read_file", _tool_lists_offered()[-1])
+
+    def test_every_excluded_name_is_a_tool_the_harness_really_binds(self):
+        """deepagents does not validate `excluded_tools` names — a typo is a
+        silent no-op, and the leak it permits looks exactly like a working
+        exclusion. Checked against the graph's own tool registry, which is
+        where the handlers live whether or not the model is offered them.
+        """
+        registry = set(
+            GeneralPurposeSubagentTests._tools_by_name(graph.build_agent(EvidenceLedger()))
+        )
+        self.assertTrue(graph.EXCLUDED_BUILTIN_TOOLS)
+        self.assertTrue(graph.EXCLUDED_BUILTIN_TOOLS.issubset(registry))
+
+    def test_task_is_not_among_the_exclusions(self):
+        """Tier 3 is built on `task`; excluding it here would break that path
+        while the tier-1 tests above stayed green. The general-purpose subagent
+        is switched off one level up instead."""
+        self.assertNotIn("task", graph.EXCLUDED_BUILTIN_TOOLS)
+
+    def test_the_subagents_lose_the_filesystem_tools_too(self):
+        """CP63's actual incident, made impossible.
+
+        A subagent's `system_prompt` inherits nothing, which is how
+        `web-researcher` shipped without the rule the orchestrator had. It does
+        inherit the *model*, though — and therefore this harness profile — so
+        the exclusion reaches all four with no change to `subagents.py`. Driven
+        by scripting a real `task` call so the subagent genuinely runs and
+        binds its own tools.
+        """
+        lists = _tool_lists_offered(
+            use_subagents=True, script=_delegate_to("web-researcher")
+        )
+        subagent = next(
+            (names for names in lists if "web_search" in names), None
+        )
+        self.assertIsNotNone(subagent, "the web-researcher subagent never ran")
+
+        for name in self.FORBIDDEN:
+            with self.subTest(tool=name):
+                self.assertNotIn(name, subagent)
+        # Non-vacuous: it is the real web-researcher, with all three CP62 tools.
+        self.assertTrue(
+            {"web_search", "web_extract", "wikipedia_summary"}.issubset(subagent)
+        )
+
+    def test_the_orchestrator_keeps_task_and_its_own_two_tools(self):
+        """The other half of non-vacuity for tier 3: the exclusion must not
+        have cost the orchestrator the ability to delegate at all."""
+        orchestrator = _tool_lists_offered(
+            use_subagents=True, script=_delegate_to("stats-scout")
+        )[0]
+
+        self.assertIn("task", orchestrator)
+        self.assertIn("resolve_context", orchestrator)
+        self.assertIn("get_season_state", orchestrator)
+        for name in self.FORBIDDEN:
+            with self.subTest(tool=name):
+                self.assertNotIn(name, orchestrator)
+
+
 class AstreamAnswerGuardTests(unittest.TestCase):
     def test_missing_api_key_raises_before_touching_the_network(self):
         from unittest.mock import patch
