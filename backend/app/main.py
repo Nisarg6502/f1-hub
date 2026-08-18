@@ -18,6 +18,7 @@ from . import strategy_commentary
 from . import driver_comparison_recap
 from . import historical_index
 from . import track_geometry
+from . import watch_session
 
 app = FastAPI(title="F1 API")
 
@@ -47,6 +48,7 @@ app.include_router(strategy_commentary.router)
 app.include_router(driver_comparison_recap.router)
 app.include_router(historical_index.router)
 app.include_router(track_geometry.router)
+app.include_router(watch_session.router)
 
 
 @app.get("/health")
