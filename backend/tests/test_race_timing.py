@@ -136,6 +136,186 @@ class OfficialSkeletonTests(unittest.TestCase):
         self.assertIn([120_000, 1], drivers["drivers"]["44"]["positions"])
 
 
+class OfficialTimingTests(unittest.TestCase):
+    """Gaps and intervals at line crossings come from the official record too.
+
+    Positions have been exact at every crossing since CP80; these two columns
+    came from OpenF1 alone and were never corrected against anything, so a
+    carried-forward sample could sit stale for as long as OpenF1 stayed quiet.
+    Round 1's worst case: Alonso's lap 13 genuinely took 1069.5s (in the
+    garage), and the tower held his gap at `+63.90` throughout while the archive
+    states `+1030.86`.
+    """
+
+    def timing_for(self, official_rows=OFFICIAL_ROWS, numbers=DRIVER_NUMBERS):
+        _, _, leader = race_timing.official_samples(official_rows, numbers)
+        return race_timing.official_timing_samples(official_rows, numbers, leader)
+
+    def test_the_gap_to_the_leader_is_the_archives_arithmetic(self):
+        # Car 44 crosses lap 1 at 92.0s, the leader at 90.0s. Exactly 2.0s.
+        samples = self.timing_for()
+        self.assertEqual(samples["44"][0], [92_000, 2.0, 2.0])
+
+    def test_the_leader_reads_zero_on_both_columns(self):
+        # What OpenF1 emits for that car as well, so the column does not blank
+        # at a crossing. The tower renders the leading row as `LEADER` anyway.
+        samples = self.timing_for()
+        self.assertEqual(samples["1"][0], [90_000, 0.0, 0.0])
+
+    def test_the_interval_is_measured_to_the_car_ahead_not_the_leader(self):
+        """Three cars strung out 1s apart: the middle one's two columns differ.
+
+        A gap-shaped interval is the easy bug here and it is invisible at the
+        front of the field, where the car ahead *is* the leader.
+        """
+        rows = [{"lap": 1, "timings": [
+            {"driverId": "verstappen", "position": 1, "cumulative_ms": 90_000},
+            {"driverId": "hamilton", "position": 2, "cumulative_ms": 91_000},
+            {"driverId": "norris", "position": 3, "cumulative_ms": 92_500},
+        ]}]
+        numbers = {"verstappen": "1", "hamilton": "44", "norris": "4"}
+        samples = self.timing_for(rows, numbers)
+        self.assertEqual(samples["4"][0], [92_500, 1.5, 2.5])
+
+    def test_a_lapped_car_reads_the_broadcast_string_not_its_numeric_gap(self):
+        """The decision recorded in `official_timing_samples`, asserted.
+
+        Car 44 completes lap 1 after the leader has completed lap 2, so it is a
+        lap down. Its numeric gap there is a real 95s and states the wrong
+        thing: the leader is not 95 seconds up the road, the leader is one lap
+        up the road and physically alongside.
+        """
+        rows = [
+            {"lap": 1, "timings": [
+                {"driverId": "verstappen", "position": 1, "cumulative_ms": 90_000},
+                {"driverId": "hamilton", "position": 2, "cumulative_ms": 185_000},
+            ]},
+            {"lap": 2, "timings": [
+                {"driverId": "verstappen", "position": 1, "cumulative_ms": 180_000},
+            ]},
+        ]
+        samples = self.timing_for(rows)
+        self.assertEqual(samples["44"][0][2], "+1 LAP")
+
+    def test_two_or_more_laps_down_is_plural(self):
+        # OpenF1's own spelling, and it has to match exactly: both sources land
+        # in the same column and the wording must not change with the source.
+        rows = [
+            {"lap": 1, "timings": [
+                {"driverId": "verstappen", "position": 1, "cumulative_ms": 90_000},
+                {"driverId": "hamilton", "position": 2, "cumulative_ms": 275_000},
+            ]},
+            {"lap": 2, "timings": [
+                {"driverId": "verstappen", "position": 1, "cumulative_ms": 180_000},
+            ]},
+            {"lap": 3, "timings": [
+                {"driverId": "verstappen", "position": 1, "cumulative_ms": 270_000},
+            ]},
+        ]
+        samples = self.timing_for(rows)
+        self.assertEqual(samples["44"][0][2], "+2 LAPS")
+
+    def test_a_lapped_cars_interval_stays_numeric(self):
+        """Both rows completed the *same* lap, so their difference is real.
+
+        And it is OpenF1's own convention: 21,978 of round 1's 21,984 non-null
+        `interval` readings are floats, including 912.59 for a car eleven laps
+        down. Serving `"+1 LAP"` here would make the column alternate between
+        two conventions between a crossing and the fill either side of it.
+        """
+        rows = [
+            {"lap": 1, "timings": [
+                {"driverId": "verstappen", "position": 1, "cumulative_ms": 90_000},
+                {"driverId": "hamilton", "position": 2, "cumulative_ms": 185_000},
+                {"driverId": "norris", "position": 3, "cumulative_ms": 190_000},
+            ]},
+            {"lap": 2, "timings": [
+                {"driverId": "verstappen", "position": 1, "cumulative_ms": 180_000},
+            ]},
+        ]
+        numbers = {"verstappen": "1", "hamilton": "44", "norris": "4"}
+        samples = self.timing_for(rows, numbers)
+        self.assertEqual(samples["4"][0][1], 5.0)
+        self.assertEqual(samples["4"][0][2], "+1 LAP")
+
+    def test_laps_down_is_counted_not_divided_by_a_nominal_lap_time(self):
+        """A safety-car lap is not a lap length, and this is where that shows.
+
+        The leader's lap 2 takes 300s here. Car 44 finishes lap 1 at 200s —
+        200s behind the leader's lap-1 time, which is more than a *normal* lap
+        but less than this one, and the leader has not started lap 3. Still on
+        the lead lap, so a numeric gap.
+        """
+        rows = [
+            {"lap": 1, "timings": [
+                {"driverId": "verstappen", "position": 1, "cumulative_ms": 90_000},
+                {"driverId": "hamilton", "position": 2, "cumulative_ms": 290_000},
+            ]},
+            {"lap": 2, "timings": [
+                {"driverId": "verstappen", "position": 1, "cumulative_ms": 390_000},
+            ]},
+        ]
+        samples = self.timing_for(rows)
+        self.assertEqual(samples["44"][0][2], 200.0)
+
+    def test_the_official_reading_beats_an_openf1_sample_on_the_same_instant(self):
+        # The tie rule `_collapse_timing` exists for. Without it the array
+        # carries both and the frontend's "last at or before now" lookup takes
+        # OpenF1's — the very reading the crossing exists to correct.
+        payload = build(interval_rows=[
+            interval_row(at(92), interval=9.9, gap_to_leader=63.9),
+        ])
+        first = payload["drivers"]["44"]["timing"][0]
+        self.assertEqual(first, [92_000, 2.0, 2.0])
+
+    def test_openf1_still_fills_between_crossings(self):
+        # Correction at every crossing, not replacement of the fill: the whole
+        # point of the module is that the number moves between line crossings.
+        payload = build(interval_rows=[interval_row(at(120), interval=1.4, gap_to_leader=1.9)])
+        samples = payload["drivers"]["44"]["timing"]
+        self.assertIn([120_000, 1.4, 1.9], samples)
+        self.assertIn([92_000, 2.0, 2.0], samples)
+
+    def test_a_round_with_no_openf1_feed_still_has_exact_gaps(self):
+        # Previously the `timing` array was empty for such a round, so the gap
+        # column read `—` for the whole race.
+        payload = race_timing.build_timing(OFFICIAL_ROWS, DRIVER_NUMBERS, [], [], [], None)
+        self.assertEqual(
+            payload["drivers"]["44"]["timing"],
+            [[92_000, 2.0, 2.0], [182_000, 2.0, 2.0], [272_000, 2.0, 2.0]],
+        )
+
+    def test_timing_samples_stay_time_ordered_triples_after_the_merge(self):
+        payload = build(interval_rows=[interval_row(at(200)), interval_row(at(100))])
+        samples = payload["drivers"]["44"]["timing"]
+        self.assertEqual([s[0] for s in samples], sorted(s[0] for s in samples))
+        self.assertTrue(all(len(s) == 3 for s in samples))
+
+
+class CollapseTimingTests(unittest.TestCase):
+    def test_a_tie_keeps_the_first_inserted(self):
+        # Same rule as `_collapse_positions`, same mechanism: stable sort plus
+        # official-first insertion in `build_timing`.
+        self.assertEqual(
+            race_timing._collapse_timing([[5, 1.0, 2.0], [5, 9.0, 9.0]]),
+            [[5, 1.0, 2.0]],
+        )
+
+    def test_a_repeated_reading_is_kept(self):
+        """Unlike positions. These values are continuous and the frontend
+        interpolates *between adjacent samples*, so dropping a sample that
+        restates the current reading widens the bracket `blend` works across and
+        invents motion where the feed reported none."""
+        self.assertEqual(
+            race_timing._collapse_timing([[0, 1.0, 2.0], [1000, 1.0, 2.0]]),
+            [[0, 1.0, 2.0], [1000, 1.0, 2.0]],
+        )
+
+    def test_samples_are_sorted_by_time(self):
+        collapsed = race_timing._collapse_timing([[900, 1.0, 1.0], [100, 3.0, 3.0]])
+        self.assertEqual([s[0] for s in collapsed], [100, 900])
+
+
 class RaceStartTests(unittest.TestCase):
     """Lights out is measured against the official record, robustly."""
 
@@ -334,22 +514,40 @@ class ShapeTests(unittest.TestCase):
             interval_row(at(200)), interval_row(at(100)), interval_row(at(150)),
         ])
         samples = drivers["drivers"]["44"]["timing"]
-        self.assertEqual([s[0] for s in samples], [100_000, 150_000, 200_000])
+        # The three OpenF1 rows, interleaved with the official crossings at 92s,
+        # 182s and 272s — sorted as one array, not concatenated.
+        self.assertEqual(
+            [s[0] for s in samples],
+            [92_000, 100_000, 150_000, 182_000, 200_000, 272_000],
+        )
         self.assertTrue(all(len(s) == 3 for s in samples))
 
 
 class ValuePassthroughTests(unittest.TestCase):
+    """OpenF1's own values, read back by timestamp.
+
+    Indexed by `at` rather than by position in the array: the official crossings
+    now occupy the first slot, and an index-based assertion would silently start
+    testing the skeleton instead of the passthrough it was written for.
+    """
+
+    def sample_at(self, payload, t_ms, number="44"):
+        for sample in payload["drivers"][number]["timing"]:
+            if sample[0] == t_ms:
+                return sample
+        raise AssertionError(f"no timing sample at {t_ms}")
+
     def test_a_lapped_cars_gap_string_reaches_the_client_verbatim(self):
-        drivers = build(interval_rows=[interval_row(at(100), gap_to_leader="+1 LAP")])
-        self.assertEqual(drivers["drivers"]["44"]["timing"][0][2], "+1 LAP")
+        payload = build(interval_rows=[interval_row(at(100), gap_to_leader="+1 LAP")])
+        self.assertEqual(self.sample_at(payload, 100_000)[2], "+1 LAP")
 
     def test_floats_are_rounded_to_two_places(self):
-        drivers = build(interval_rows=[interval_row(at(100), interval=1.2340000000000002)])
-        self.assertEqual(drivers["drivers"]["44"]["timing"][0][1], 1.23)
+        payload = build(interval_rows=[interval_row(at(100), interval=1.2340000000000002)])
+        self.assertEqual(self.sample_at(payload, 100_000)[1], 1.23)
 
     def test_none_stays_none(self):
-        drivers = build(interval_rows=[interval_row(at(100), interval=None)])
-        self.assertIsNone(drivers["drivers"]["44"]["timing"][0][1])
+        payload = build(interval_rows=[interval_row(at(100), interval=None)])
+        self.assertIsNone(self.sample_at(payload, 100_000)[1])
 
     def test_a_boolean_is_not_emitted_as_one(self):
         self.assertIsNone(race_timing._round_value(True))

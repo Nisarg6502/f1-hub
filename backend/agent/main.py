@@ -23,11 +23,11 @@ import datetime
 import time
 import uuid
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from . import (
@@ -39,6 +39,7 @@ from . import (
     graph,
     guardrails,
     model,
+    rate_limit,
     sse,
     tracing,
     verifier,
@@ -112,11 +113,24 @@ app = FastAPI(title="F1 Agent", version="0.1.0", lifespan=_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.ALLOWED_ORIGINS,
-    # No cookies, no auth header, nothing credentialed — so allowing
-    # credentials would widen the surface for nothing. It also forbids a
-    # genuine `*` should we ever want one, since the two are mutually
-    # exclusive per the CORS spec.
-    allow_credentials=False,
+    # Flipped to True by the rate limiter, which is the first thing here that
+    # is credentialed at all. Before it this read "no cookies, no auth header,
+    # nothing credentialed — so allowing credentials would widen the surface
+    # for nothing"; `rate_limit.SESSION_COOKIE` is now a cookie, the frontend
+    # and the agent are separate Cloud Run origins, and a cross-site request
+    # without this flag simply never sends it — which would silently downgrade
+    # every browser caller to their shared IP identity while looking like it
+    # worked.
+    #
+    # The reason that comment gave for keeping it False still stands and is now
+    # a constraint rather than a preference: `allow_credentials=True` and a
+    # literal `*` origin are mutually exclusive per the CORS spec, so this ties
+    # the service permanently to the explicit origin list `config.ALLOWED_ORIGINS`
+    # already defaults to. That is the direction we wanted anyway (see that
+    # constant's own note on why `*` is wrong for a service rationing a shared
+    # quota) — but it means a future `AGENT_ALLOWED_ORIGINS=*` would now fail
+    # loudly at startup instead of quietly being permissive.
+    allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
@@ -149,6 +163,13 @@ async def health() -> dict:
         "thread_memory": checkpointer.current() is not None,
         "prompt_version": config.PROMPT_VERSION,
         "runs": concurrency.snapshot(),
+        # Whether the limiter is on, and how much of today's budget this
+        # process has watched go out. Process-local by construction (see
+        # `rate_limit.budget_snapshot`) — with `--max-instances=1` that is the
+        # service, and if that pin is ever lifted this number becomes a lower
+        # bound rather than a total, which is worth knowing from the endpoint
+        # rather than inferring from a dashboard.
+        "rate_limit": rate_limit.budget_snapshot(),
     }
 
 
@@ -186,14 +207,33 @@ async def _answer(
         yield event
 
 
-async def _stream(request: ChatRequest) -> AsyncIterator[str]:
+async def _stream(
+    request: ChatRequest,
+    *,
+    identity: "rate_limit.Identity | None" = None,
+    decision: "rate_limit.Decision | None" = None,
+) -> AsyncIterator[str]:
+    """Stream one turn, reconciling the rate limiter's up-front charge as it goes.
+
+    `decision` is the receipt from `chat`'s admission check, which already
+    charged this caller the *estimated* cost of the question before the response
+    was committed. Every path out of this function that costs materially less
+    than that estimate settles the difference — a cache hit, a guardrail
+    refusal, a malformed message, a queue timeout that never reached the model.
+    The paths that do NOT settle are the ones where real inference happened and
+    then failed (upstream error, model timeout): quota was genuinely spent
+    there, and the estimate is the closest honest figure available for it.
+    """
     started = time.monotonic()
     text = (request.message or "").strip()
+    refund_only = rate_limit.measured_cost(tier=None, refused=True)
 
     if not text:
+        await rate_limit.settle(decision, actual_cost=refund_only)
         yield sse.error("bad_request", "message must not be empty")
         return
     if len(text) > 4000:
+        await rate_limit.settle(decision, actual_cost=refund_only)
         yield sse.error("bad_request", "message is too long (4000 character limit)")
         return
 
@@ -209,6 +249,17 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
         # user's text) keeps this measurable without risking a PII leak
         # through the very guard whose whole purpose is catching PII.
         print(f"agent guard refused: {verdict.code}")
+        # CP82 layer 4: the verdict this line already computed is the abuse
+        # signal, reused rather than re-detected. One strike costs the caller
+        # nothing they will notice; a caller producing them steadily pays a
+        # rising multiplier on every subsequent question until they stop for an
+        # hour (`rate_limit.record_abuse`). The request itself is refunded down
+        # to `REFUSED_COST` — refusing cost us microseconds of regex, and
+        # charging a full tier estimate for it would penalise the false
+        # positives the scope guard is deliberately generous enough to produce.
+        if identity is not None:
+            rate_limit.record_abuse(identity, code=verdict.code)
+        await rate_limit.settle(decision, actual_cost=refund_only)
         yield sse.error("refused", verdict.reason or "That message could not be processed.")
         return
 
@@ -238,6 +289,14 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
     # hitting at all.
     cached = await answer_cache.get_cached(text, config.PROMPT_VERSION) if config.mongodb_uri() else None
     if cached:
+        # Settled first, before a single token goes out: a cache hit is the
+        # cheapest path in the service (one Mongo read, no model call) and the
+        # limiter must charge it that way, or the caching layer that exists to
+        # protect the quota would count against the allowance as if it had spent
+        # it. Charging by request count is precisely the mistake this avoids.
+        await rate_limit.settle(
+            decision, actual_cost=rate_limit.measured_cost(tier=cached.get("tier"), cached=True)
+        )
         yield sse.activity(
             "Answered from cache", "start", kind="system", at=_now_iso()
         )
@@ -288,6 +347,11 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
         # which yields a "verification" event.
         verification_status: str | None = None
         verification_violations: int | None = None
+        # The rate limiter's reconciliation, set by whichever path this turn
+        # takes and applied once in the `finally` below. `None` means "leave
+        # the up-front estimate standing" — see this function's docstring.
+        settle_cost: float | None = None
+        queued_ms = 0
 
         # CP75: the run slot is entered here rather than with a plain
         # `async with`, because it now has to stay held *past* the `done`
@@ -325,6 +389,11 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                 admission = await run_gate.enter_async_context(
                     concurrency.run_slot()
                 )
+                # Time spent queued behind somebody else's question is not
+                # this caller's model time, and `rate_limit.measured_cost`
+                # refuses to bill it as such — so it is captured here, at the
+                # only point that knows it, and subtracted below.
+                queued_ms = int(admission.waited * 1000)
                 # Only worth reporting if the wait was long enough to have
                 # been felt. Below that it rounds to "Waited 0s", which
                 # reads as a bug rather than as reassurance.
@@ -455,6 +524,17 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                 for anchor in verifier.anchors("".join(answer_parts), ledger)
             ]
             answer_sources = ledger.anchored_citations(answer_anchors)
+            elapsed_ms = int((time.monotonic() - started) * 1000)
+            # The turn's real price, replacing the tier estimate charged before
+            # the stream opened. `mode == "echo"` means no key was configured
+            # and nothing was inferred at all, so it settles like a refusal.
+            settle_cost = (
+                refund_only
+                if mode == "echo"
+                else rate_limit.measured_cost(
+                    tier=tier, model_ms=max(0, elapsed_ms - queued_ms)
+                )
+            )
             yield sse.sources(answer_sources, anchors=answer_anchors)
             yield sse.done(
                 run_id=rid,
@@ -463,7 +543,7 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
                 prompt_version=config.PROMPT_VERSION,
                 tier=tier,
                 verification=verification_status,
-                elapsed_ms=int((time.monotonic() - started) * 1000),
+                elapsed_ms=elapsed_ms,
             )
             tracing.end(
                 run,
@@ -557,6 +637,9 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
         # frontend already branches on these three. Only the human-readable
         # message differs, which is where the ambiguity actually lived.
         except concurrency.AtCapacity as error:
+            # Waited out the queue and never reached a model — zero inference,
+            # so the estimate charged up front is refunded down to nothing.
+            settle_cost = refund_only
             yield sse.error(
                 "at_capacity",
                 "Another question is being answered right now — this plan runs "
@@ -614,10 +697,23 @@ async def _stream(request: ChatRequest) -> AsyncIterator[str]:
             # (the `AtCapacity` path) is also a no-op.
             await run_gate.aclose()
 
+            # One reconciliation per turn, here rather than at each `yield
+            # sse.done`/`sse.error` site, so no future path can forget it.
+            # `settle` is itself total, but this is also the one place a
+            # cancelled client can land, and a bookkeeping error must never be
+            # what a reader sees — `CancelledError` is deliberately NOT caught
+            # (it is `BaseException`, not `Exception`), so a disconnect still
+            # propagates to release the gate as CP75 intends.
+            if settle_cost is not None:
+                try:
+                    await rate_limit.settle(decision, actual_cost=settle_cost)
+                except Exception as error:  # noqa: BLE001 - bookkeeping only
+                    print(f"rate_limit settle skipped: {type(error).__name__}: {error}")
+
 
 @app.post("/api/chat")
-async def chat(request: ChatRequest) -> StreamingResponse:
-    """Stream an answer as Server-Sent Events.
+async def chat(request: ChatRequest, http: Request):
+    """Stream an answer as Server-Sent Events, or refuse with a 429.
 
     POST rather than GET, so `EventSource` cannot be used on the client — the
     frontend reads the body with `fetch` + a stream reader instead. That is a
@@ -625,12 +721,45 @@ async def chat(request: ChatRequest) -> StreamingResponse:
     body, and EventSource's only real advantage (automatic reconnect) is wrong
     here anyway, since silently re-running an agent turn would double-charge a
     quota we are already rationing.
+
+    **The rate-limit check runs here, not in `_stream`, and that placement is
+    the whole reason this endpoint can return a status code at all.**
+    `sse.py`'s contract — every failure is an SSE `error` event, never a 4xx —
+    is a consequence of *when* its failures occur: by then the response is
+    committed with 200 and a status code has nowhere to go. A refusal decided
+    before `StreamingResponse` is constructed has no such problem, so it gets
+    the standard, intermediary-legible answer: **429 with `Retry-After`**, which
+    a proxy, a CDN, a monitoring probe and a `fetch` retry helper all understand
+    and none of which parse `text/event-stream` looking for an event. It also
+    keeps abuse visible in Cloud Run's own request metrics instead of hiding it
+    behind a wall of 200s. See `rate_limit.py`'s module docstring for the full
+    argument and for why `sse.ERROR_CODES` was left alone rather than widened.
+
+    The cookie is attached to the *streaming* response as well as to the
+    refusal, because headers are sent before the body: a caller refused on their
+    first request still leaves with an identity, so their next attempt is
+    measured against their own allowance rather than the whole CGNAT range's.
     """
-    return StreamingResponse(
-        _stream(request),
+    identity = rate_limit.identify(http)
+    decision = await rate_limit.check_and_charge(
+        identity, cost=rate_limit.estimate_cost(request.message or "")
+    )
+    if not decision.allowed:
+        refusal = JSONResponse(
+            decision.http_body(),
+            status_code=429,
+            headers={"Retry-After": str(decision.retry_after)},
+        )
+        rate_limit.attach_session_cookie(refusal, identity, http)
+        return refusal
+
+    response = StreamingResponse(
+        _stream(request, identity=identity, decision=decision),
         media_type=sse.MEDIA_TYPE,
         headers=sse.SSE_HEADERS,
     )
+    rate_limit.attach_session_cookie(response, identity, http)
+    return response
 
 
 # Fixed, arbitrary namespace for deriving feedback ids below — any stable
@@ -660,8 +789,64 @@ class FeedbackRequest(BaseModel):
         return v
 
 
+FEEDBACK_COLLECTION = "agent_feedback"
+"""Our own record of which `feedback_id`s have already been forwarded.
+
+This is CP69's accepted-but-unproven risk closed on our side. See `feedback`'s
+docstring for what it replaces and why the previous mitigation could not be
+confirmed.
+"""
+
+
+async def _claim_feedback(feedback_id: str, request: "FeedbackRequest") -> bool:
+    """True if this vote is new and should be forwarded; False if already sent.
+
+    A single `update_one(..., $setOnInsert, upsert=True)`: the upsert is atomic,
+    so two simultaneous double-click POSTs cannot both see "not present" and
+    both forward. `upserted_id` is non-None only for the call that actually
+    created the document, which makes "did I win the claim" a property of the
+    write itself rather than of a read that raced it. `$setOnInsert` rather than
+    `$set` so a replay cannot overwrite the original vote's timestamp or score
+    — the first vote for a run is the one on file.
+
+    **Fails open**: no Mongo URI (every local run and every test), an
+    unreachable database, or any driver error means the vote is forwarded
+    unconditionally. This is telemetry on an already fail-soft endpoint, and the
+    failure this dedupe prevents — a duplicate row in a LangSmith feedback
+    table — is smaller than the failure of silently dropping real votes because
+    a database was briefly unavailable.
+    """
+    if not config.mongodb_uri():
+        return True
+    try:
+        from app.db import get_db
+
+        result = await asyncio.wait_for(
+            get_db()[FEEDBACK_COLLECTION].update_one(
+                {"_id": feedback_id},
+                {
+                    "$setOnInsert": {
+                        "run_id": request.run_id,
+                        "score": request.score,
+                        "comment": request.comment,
+                        "at": datetime.datetime.now(datetime.timezone.utc),
+                    }
+                },
+                upsert=True,
+            ),
+            # A vote is fire-and-forget on the client; it must not be able to
+            # hold a connection open through Motor's 30s server-selection
+            # timeout. Same ceiling the rate limiter's own counters use.
+            timeout=rate_limit.DB_TIMEOUT_SECONDS,
+        )
+        return result.upserted_id is not None
+    except Exception as error:  # noqa: BLE001 - see docstring: fail open
+        print(f"feedback dedupe unavailable: {type(error).__name__}: {error}")
+        return True
+
+
 @app.post("/api/feedback")
-async def feedback(request: FeedbackRequest) -> dict:
+async def feedback(request: FeedbackRequest, http: Request) -> Any:
     """Forward a thumbs up/down to LangSmith, fail-soft.
 
     Telemetry, not the answer itself — a broken LangSmith install, an
@@ -674,22 +859,48 @@ async def feedback(request: FeedbackRequest) -> dict:
     random id, so a repeated POST for the same `run_id` — a double-click
     landing before React commits the `disabled` state on the thumbs-up
     button (`feedback-controls.tsx`), or a devtools/curl replay — always
-    produces the same id instead of a fresh one each time. Whether the
-    installed `langsmith` SDK's backend treats a repeated `feedback_id` as an
-    upsert could not be confirmed: `Client.create_feedback`'s docstring does
-    not document that behavior, and the SDK ships a *separate*
-    `Client.update_feedback(feedback_id, ...)` method, which suggests
-    create and update are genuinely distinct server-side operations rather
-    than the same POST upserting on id collision. See `HANDOFF.md`'s CP69
-    paragraph: this is applied as defense-in-depth (real dedupe if the
-    backend does upsert on id collision; otherwise a harmless no-op), not
-    relied on as a proven fix — server-side dedupe remains an accepted risk
-    either way, appropriate for a telemetry-only, fail-soft, already
-    unauthenticated endpoint.
+    produces the same id instead of a fresh one each time.
+
+    **CP82 stops relying on that id alone.** Whether the installed `langsmith`
+    SDK's backend treats a repeated `feedback_id` as an upsert was never
+    confirmed — `Client.create_feedback`'s docstring does not document it, and
+    the SDK ships a *separate* `Client.update_feedback(feedback_id, ...)`,
+    which suggests create and update are genuinely distinct server-side
+    operations rather than one POST upserting on id collision (`HANDOFF.md`,
+    CP69: an accepted-but-unproven risk). The dedupe is now ours: the same
+    derived id is claimed in our own Mongo collection *before* the forward, so
+    a second POST is dropped here regardless of what the vendor does with a
+    repeated id. The derivation is unchanged and still worth keeping — it is
+    what gives us a stable key to claim.
+
+    A duplicate returns `{"recorded": True}`, not `False`. The field answers
+    "is this reader's vote on file", and for a replay it is — it was recorded
+    the first time. Returning `False` would tell the client its vote was lost
+    and invite a retry loop against the exact endpoint being deduped.
+
+    Rate-limited on the same composite identity as `/api/chat`, at a token
+    charge and with no draw against the daily inference budget: a vote costs no
+    GPU time, so it must not consume the quota, but an unauthenticated write
+    endpoint with no per-caller ceiling is still a way to flood a collection.
     """
+    if config.RATE_LIMIT_ENABLED:
+        vote_identity = rate_limit.identify(http)
+        vote_decision = await rate_limit.check_and_charge(
+            vote_identity, cost=rate_limit.FEEDBACK_COST, charge_global=False
+        )
+        if not vote_decision.allowed:
+            return JSONResponse(
+                vote_decision.http_body(),
+                status_code=429,
+                headers={"Retry-After": str(vote_decision.retry_after)},
+            )
+
     if not _TRACING_LIVE or not request.run_id:
         return {"recorded": False}
     feedback_id = str(uuid.uuid5(_FEEDBACK_NAMESPACE, f"{request.run_id}:user-score"))
+    if not await _claim_feedback(feedback_id, request):
+        print(f"feedback duplicate suppressed for run {request.run_id}")
+        return {"recorded": True}
     try:
         import langsmith
 

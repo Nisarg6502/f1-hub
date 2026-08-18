@@ -65,9 +65,16 @@ from .tools import TOOLS
 # --- Tool binding ------------------------------------------------------------
 
 _HIDDEN_ARGS = frozenset({"ledger", "db", "today"})
-"""Tool parameters the model never sees. See `_public_signature`'s docstring —
-each of the three is hidden for a different reason, and `today` is the one
-added on the strength of a measurement rather than of a principle."""
+"""Tool parameters the model never sees, whichever tool declares them.
+
+Each of the three is hidden for a different reason (see `_public_signature`),
+and `today` is the one added on the strength of a measurement rather than of a
+principle. Membership here is by *name*, across every tool, which is only
+right for a name that means the same thing everywhere: `ledger` and `db` are
+this package's own plumbing, and `today` is the clock on both tools that take
+one. A knob that is internal to one tool but would be a legitimate argument on
+another belongs in that tool's own `fact_tool(hidden_args=...)` instead — see
+`web_search`'s `max_results`."""
 
 
 def _public_signature(fn: Any) -> inspect.Signature:
@@ -95,9 +102,22 @@ def _public_signature(fn: Any) -> inspect.Signature:
     built to supply. Removing the parameter from the schema makes that
     impossible rather than forbidden — the CP38/CP41/CP44 rule again, applied
     to an argument instead of to an output.
+
+    **CP73 fixed `today` and stopped there; the audit it asked for is what
+    added `hidden_args`.** `ROADMAP.md`'s Batch 20 findings close that bullet
+    with "worth auditing other tools for optional arguments the model can see",
+    and the audit found one more: `web_search`'s `max_results`. Every other
+    optional argument in this package turned out to be a real question-shaped
+    choice (`session`, `kind`, `after_round`, `season`, `drivers`, the five
+    `get_historical_race_index` filters, `topic`) — the model *should* pick
+    those, and the prompts and tool descriptions tell it how. A per-tool set
+    beaten into the global name list above would have been the wrong shape:
+    `max_results` is internal to `web_search` alone and would be a perfectly
+    legitimate argument on a tool that grows one later.
     """
     sig = inspect.signature(fn)
-    kept = [p for name, p in sig.parameters.items() if name not in _HIDDEN_ARGS]
+    hidden = _HIDDEN_ARGS | frozenset(getattr(fn, "hidden_args", ()))
+    kept = [p for name, p in sig.parameters.items() if name not in hidden]
     return sig.replace(parameters=kept)
 
 
@@ -305,6 +325,152 @@ def build_model():
     )
 
 
+HARNESS_PROFILE_KEY = "ollama"
+"""The registry key `_register_harness_profile` writes under. See its docstring
+for why this is the provider and not `config.DEFAULT_MODEL`."""
+
+EXCLUDED_BUILTIN_TOOLS = frozenset(
+    {"ls", "glob", "grep", "write_file", "edit_file", "delete", "execute"}
+)
+"""deepagents' filesystem built-ins, withheld from every model request.
+
+**`read_file` is deliberately absent from this set — it is the one built-in
+kept.** Two independent reasons, both checked in the installed 0.7.4 source
+rather than assumed:
+
+1. `SummarizationMiddleware` (added unconditionally to the main stack *and* to
+   every subagent stack, `deepagents/graph.py`'s "Build main agent middleware
+   stack" and the subagent loop above it) offloads evicted conversation history
+   to `/conversation_history/{thread_id}.md` and embeds that path in the summary
+   "so the agent can re-open it via `read_file`". Excluding it would delete the
+   only recovery path for a long turn's evicted context.
+2. `FilesystemMiddleware` rejects a tool allowlist that omits `read_file`
+   outright — "read_file must be included in tools; it is required by
+   `FilesystemMiddleware`". deepagents treats it as scaffolding, not as a
+   convenience.
+
+**Keeping it costs nothing, because reading is not what went wrong.** Both
+recorded incidents were *discovery* — CP61's baseline probing with `ls`/`grep`,
+and CP63's `web-researcher` reaching for `ls` then `glob` after an empty search.
+`read_file` alone cannot enumerate anything: with `ls`, `glob` and `grep` gone
+the model can only read a path it was explicitly handed, which in this
+configuration is the summarization path and nothing else. The default backend
+is `StateBackend` — an in-state virtual filesystem — and `build_agent`
+constructs a fresh graph per request, so at the start of every turn there is
+genuinely nothing there.
+
+`execute` is listed and is currently redundant: it is gated on the backend
+implementing `SandboxBackendProtocol`, which `StateBackend` does not, so
+deepagents already withholds it (confirmed by inspecting the tools actually
+bound to the model — `execute` is registered as a handler but never offered).
+It is named anyway so that swapping the backend later cannot silently hand this
+agent a shell. `task` is *not* listed: tier 3 is built on it, and it is already
+handled correctly one level up by disabling the general-purpose subagent."""
+
+_harness_profile_registered = False
+
+
+def _register_harness_profile() -> None:
+    """Turn off deepagents' auto-added `general-purpose` subagent and its
+    filesystem built-ins, once.
+
+    **The defect.** `create_deep_agent` inserts a default `general-purpose`
+    subagent — and therefore the `task` tool — whenever the caller has not
+    supplied one (`deepagents/graph.py`'s "Auto-add the default general-purpose
+    subagent" branch). Neither CP61 nor CP63 disabled it, so the *flat* graph,
+    which is given no subagents at all and whose prompt never mentions
+    delegation, still shipped a `task` tool pointed at a clone of itself.
+    CP63's trace of "Compare Norris and Verstappen this season" caught it being
+    used: `"Delegating to general-purpose"` at 80.3s, after which the clone
+    re-ran `resolve_context` and `get_driver_season_summary` — calls the
+    orchestrator already had bound directly. That run took 125.7s against
+    CP61's 50.9s baseline for the same question. (Both numbers are CP63's, in
+    `HANDOFF.md`; nothing here re-measures latency.)
+
+    **The API is real, but it is not a `create_deep_agent` argument.** The
+    setting `HANDOFF.md` names —
+    `general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False)` —
+    exists verbatim in the installed deepagents (0.7.4) and is exported from
+    the package root. What does not exist is a `profile=` parameter to pass it
+    through: `create_deep_agent` resolves its profile from a process-global
+    registry keyed by model (`_harness_profile_for_model`), so the only way to
+    set it is `register_harness_profile`. This is checked against the installed
+    source rather than assumed, per the `qwen3.5:35b` lesson.
+
+    **Why the key is `"ollama"` and not the model name.** For a pre-built model
+    instance (which `build_model` returns), deepagents derives the lookup key
+    itself, and it deliberately *skips* the composite `provider:identifier`
+    probe when the identifier already contains a colon — to avoid building a
+    double-colon key. Our identifier is `nemotron-3-nano:30b`, which contains
+    one, so deepagents instead reads that string as a `provider:model` pair and
+    looks for a provider called `nemotron-3-nano` before falling through to the
+    real provider, `ollama`. A registration under `config.DEFAULT_MODEL` would
+    also match today, but the provider key is the one that survives `AGENT_MODEL`
+    being repointed, and a model-specific profile registered later merges *over*
+    a provider-level one field-wise rather than replacing it, so this stays in
+    force unless something explicitly sets `enabled=True`.
+
+    **What this does and does not remove.** On the flat path (no subagents) the
+    `task` tool disappears entirely — deepagents drops it when no synchronous
+    subagent remains. On the tier-3 path the four subagents in `subagents.py`
+    keep `task` alive, which is the point of that path; what goes is
+    `general-purpose` as a delegation target, so the orchestrator can no longer
+    hand a question to an unnamed clone of itself. `test_agent_graph.py` asserts
+    both by inspecting the built graph, not by checking that this ran.
+
+    **The no-filesystem rule is now structural, and the prompts keep saying it
+    anyway.** `SYSTEM_PROMPT`, `ORCHESTRATOR_SYSTEM_PROMPT` and
+    `subagents._NO_FILESYSTEM_RULE` all still tell the model to ignore `ls`,
+    `glob` and the rest. **Those sentences are no longer the mechanism** — this
+    registration is, and `EXCLUDED_BUILTIN_TOOLS` is where the list lives.
+    They are kept because they cost nothing and they document the intent for a
+    reader, but nobody should read them as the enforcement: `HANDOFF.md`
+    records the prompt rule being written twice and failing twice (CP61's
+    baseline wandered into `ls`/`grep` and burned its step budget; CP63's first
+    live `web-researcher` test called `web_search`, got an empty result, then
+    tried `ls` and `glob`), which is the CP38/CP41 "don't ask the model nicely"
+    lesson landing on tool *availability* rather than on output.
+
+    **The exclusion reaches the subagents for free, which is the half CP63
+    needed.** A subagent spec that does not set its own `"model"` inherits the
+    orchestrator's (`spec.get("model", model)`), and its profile is then
+    resolved from that same model — so all four of `subagents.py`'s specs
+    resolve to this registration and each gets its own
+    `_ToolExclusionMiddleware`. Nothing in `subagents.py` had to change.
+
+    Registration is global process state, hence the once-only flag: it is
+    additive/merging rather than idempotent-by-assignment, and there is no
+    reason to redo the merge on every request.
+
+    **One mechanical difference between the two settings, worth knowing before
+    writing an assertion about either.** Disabling the general-purpose subagent
+    removes `task` from the graph *entirely* — it is absent from the `tools`
+    node's registry. `excluded_tools` works later and differently: the tool
+    handlers stay registered, and `_ToolExclusionMiddleware` filters them out
+    of every model request (`wrap_model_call`). So the filesystem exclusions are
+    invisible to a `tools_by_name` check and only show up in the tool list
+    actually bound to the model, which is what `test_agent_graph.py` inspects.
+    """
+    global _harness_profile_registered
+    if _harness_profile_registered:
+        return
+
+    from deepagents import (
+        GeneralPurposeSubagentProfile,
+        HarnessProfile,
+        register_harness_profile,
+    )
+
+    register_harness_profile(
+        HARNESS_PROFILE_KEY,
+        HarnessProfile(
+            general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False),
+            excluded_tools=EXCLUDED_BUILTIN_TOOLS,
+        ),
+    )
+    _harness_profile_registered = True
+
+
 def build_agent(ledger: EvidenceLedger, *, use_subagents: bool = False, checkpointer: Any | None = None):
     """One `create_deep_agent` graph.
 
@@ -315,8 +481,17 @@ def build_agent(ledger: EvidenceLedger, *, use_subagents: bool = False, checkpoi
     four subagents in `subagents.py`. `astream_answer` decides which shape to
     build per turn from `router.classify` — this function itself stays
     agnostic to *why*, so it is testable without importing the router.
+
+    `_register_harness_profile` runs first on both paths — it is what removes
+    the default `general-purpose` subagent and withholds the filesystem
+    built-ins from every model request, on the orchestrator and on all four
+    subagents alike (see its docstring). Registering here rather than at module
+    import keeps `deepagents` a lazy import: `tools/` and this module's
+    tool-binding half stay testable without a LangGraph import at all.
     """
     from deepagents import create_deep_agent
+
+    _register_harness_profile()
 
     if not use_subagents:
         return create_deep_agent(

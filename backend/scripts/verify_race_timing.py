@@ -30,22 +30,38 @@ property that makes a check worth running:
                 cache, serve) rather than the data. Run with `--deployed` it is
                 the check that would have caught the inverted opening.
 - `gaps`        the payload's `gap_to_leader` at each driver's own crossing vs
-                the gap the official cumulative times state there. **Fully
-                independent, and the only check here that reads the timing
-                column at all** — every other one scores positions. The archive
-                states each driver's elapsed time at every crossing, so the true
-                gap is arithmetic on numbers OpenF1 never sees.
-- `fill`        what fraction of OpenF1's intra-lap samples agree with the
-                official position current at the moment they land. Purely
-                informational: this is a measurement of OpenF1's quality, and a
-                low number is a fact about the feed, not a regression.
+                the gap the official cumulative times state there.
+- `intervals`   the same for `interval`, against the difference to the adjacent
+                car in that lap's crossing order.
+- `fill-gap`    **the independent one.** The last *OpenF1* reading before each
+                crossing, scored against the archive's gap at that crossing —
+                i.e. what the tower shows on the approach to the line, which is
+                still OpenF1's alone. Informational, with no threshold: it
+                measures the feed's cadence and staleness, not this code.
+- `fill`        how many intra-lap position samples exist at all. Purely
+                informational: a payload with none of them is the lap-stepped
+                tower this module exists to replace, and it would pass every
+                other check here.
 
-`gaps` exists because everything above it passed a round-1 payload whose whole
-timeline sat 84 seconds late. Positions survived the shift — they are stamped
-from the official record at every crossing, so `boundaries` and `grid` scored
-100% while the interval and gap columns beside them showed a lap later's race
-and the opening lap had no readings at all. A check that only scores the spine
-cannot see a fault in the flesh.
+**`gaps` was independent and is not any more, and pretending otherwise would be
+the exact mistake this file exists to prevent.** It was written when the gap
+column came from OpenF1 alone, so scoring it against the archive compared two
+sources that share no inputs — and it read 47% on the deployed payload whose
+timeline sat 84 seconds late. As of `TIMING_VERSION` 7 the payload *is* that
+arithmetic at every crossing, so `gaps` and `intervals` are plumbing checks in
+the same category as `boundaries`: they prove parse, merge, tie-break, collapse,
+cache and serve, and they would still catch a timeline shift, a lost tie or a
+dropped column. They are not evidence that the numbers are right, because the
+numbers and the check now come from the same place. `fill-gap` is what is left
+that is genuinely independent, and it is deliberately not asserted on — the
+residual there is OpenF1's sampling cadence, which no change to this repo fixes.
+
+The history is worth keeping: everything above `gaps` passed a round-1 payload
+whose whole timeline sat 84 seconds late. Positions survived the shift — they
+are stamped from the official record at every crossing, so `boundaries` and
+`grid` scored 100% while the interval and gap columns beside them showed a lap
+later's race and the opening lap had no readings at all. A check that only
+scores the spine cannot see a fault in the flesh.
 
 Run it after any change to `race_timing.py`:
 
@@ -87,7 +103,24 @@ DEPLOYED = "https://f1-backend-1076575666662.asia-south1.run.app"
 MIN_ARCHIVE = 0.99      # the official record must be self-consistent
 MIN_BOUNDARY = 0.99     # the pipeline must reproduce what it was built from
 MIN_GRID = 1.00         # the grid is copied, so anything less is a bug
-MIN_GAPS = 0.90         # set once the season was measured; see below
+# The gap and interval columns are stamped from the archive at every crossing as
+# of v7, so these are copies too and the threshold moved from 0.90 to match
+# `boundaries`. Under v6 they came from OpenF1's fill and measured 94-99%; the
+# equivalent measurement now lives in `fill-gap`, unasserted.
+MIN_GAPS = 0.99
+MIN_INTERVALS = 0.99
+
+# What counts as agreement at a crossing, in seconds. Tight, because the payload
+# should *be* this number: `_round_value` costs at most 0.005s and the archive's
+# cumulative times are whole milliseconds. Anything larger than this is a real
+# fault — a lost tie-break, a sample dropped, a column from the wrong lap.
+CROSSING_TOLERANCE = 0.05
+
+# What counts as agreement for the OpenF1 fill on the approach to a crossing.
+# Loose on purpose: that reading is a sample carried forward, it can be several
+# seconds old, and a real gap genuinely moves in that time. The fault this
+# tolerance was originally sized for is a whole lap — ~85s.
+FILL_TOLERANCE = 1.0
 
 
 def _mongo():
@@ -162,61 +195,110 @@ def check_boundaries(drivers, official_rows, numbers) -> tuple[int, int, list[st
     return hit, total, notes
 
 
-def check_gaps(drivers, official_rows, numbers) -> tuple[int, int, float, list[str]]:
-    """`gap_to_leader` at each crossing vs the gap the archive states there.
+def _truth_at_crossings(official_rows, numbers):
+    """`[(lap, number, at_ms, true gap, true interval), ...]` from the archive alone.
+
+    The true gap is the driver's cumulative minus the lap leader's; the true
+    interval is the difference to the adjacent car when that lap's crossings are
+    sorted by cumulative time. Both in seconds.
+
+    Recomputed here rather than imported from `race_timing`, for the same reason
+    `order_at` reimplements the frontend's lookup: sharing the derivation with
+    the thing under test turns a check into a tautology, and this file exists
+    because that class of mistake shipped seven defects.
+    """
+    out = []
+    for row in official_rows:
+        crossings = sorted(
+            (
+                (timing["cumulative_ms"], numbers.get(timing["driverId"]))
+                for timing in row.get("timings") or []
+            ),
+            key=lambda crossing: crossing[0],
+        )
+        if not crossings:
+            continue
+        leader = crossings[0][0]
+        previous = None
+        for at, number in crossings:
+            interval = 0.0 if previous is None else (at - previous) / 1000
+            previous = at
+            if number is not None:
+                out.append((row["lap"], number, at, (at - leader) / 1000, interval))
+    return out
+
+
+def _shown(entry, at: int, column: int, before: bool = False, skip: set | None = None):
+    """The payload's reading in `column` (1 interval, 2 gap) as of `at`.
+
+    Reimplements the frontend's "last sample at or before now" lookup. `before`
+    plus `skip` narrows it to the last sample that is *not* one of this driver's
+    line crossings, which is how the OpenF1 fill is scored on its own.
+    """
+    value = None
+    for sample in entry.get("timing") or []:
+        if sample[0] > at or (before and sample[0] == at):
+            break
+        if skip is not None and sample[0] in skip:
+            continue
+        value = sample[column]
+    return value
+
+
+def check_timing_column(
+    drivers, official_rows, numbers, column: int, tolerance: float, fill: bool = False
+) -> tuple[int, int, float, list[str]]:
+    """One timing column at every crossing vs what the archive states there.
 
     Returns `(within tolerance, numeric readings, median error, notes)`.
 
+    `column` is 1 for `interval` and 2 for `gap_to_leader`. With `fill=True` the
+    reading is taken strictly before the crossing and ignores this driver's own
+    crossing samples, which scores what OpenF1 carried into the line rather than
+    what the archive stamped on it.
+
     **Scored over numeric readings only, and the string branch is not a
-    loophole.** A fifth of a real race's gaps are `"+1 LAP"`, which states a fact
-    this comparison cannot express as a float; counting them as misses would put
-    a floor of ~20% failure under a healthy round and make the threshold
-    meaningless. They are already covered by `boundaries`, which scores every
-    car on every lap regardless of what its gap column says.
-
-    A tolerance of 1s rather than something tighter: the payload's reading is
-    OpenF1's most recent sample carried forward, and that sample can be a few
-    seconds old at the instant of a crossing, during which a real gap genuinely
-    moves. The fault this exists to catch is a whole lap — ~85s — so a loose
-    tolerance costs nothing and avoids scoring the feed's cadence.
+    loophole.** A fifth of a real race's gaps are `"+1 LAP"` — from both sources
+    now — which states a fact this comparison cannot express as a float;
+    counting them as misses would put a floor of ~20% failure under a healthy
+    round and make the threshold meaningless. They are already covered by
+    `boundaries`, which scores every car on every lap regardless of what its gap
+    column says, and the `+N` itself was cross-checked against OpenF1's own
+    strings when it was written (2,794 of 2,809 agree, all eleven rounds).
     """
-    leader_at: dict[int, int] = {}
-    for row in official_rows:
-        for timing in row.get("timings") or []:
-            lap = row["lap"]
-            if lap not in leader_at or timing["cumulative_ms"] < leader_at[lap]:
-                leader_at[lap] = timing["cumulative_ms"]
-
+    label = "gap" if column == 2 else "int"
     hit = 0
     errors: list[float] = []
     notes: list[str] = []
-    for row in official_rows:
-        leader = leader_at.get(row["lap"])
-        if leader is None:
+
+    truth_rows = _truth_at_crossings(official_rows, numbers)
+
+    # Per driver, not one shared set: an OpenF1 sample that happens to land on
+    # *another* car's crossing millisecond is still fill and must still be
+    # scored.
+    crossing_times: dict[str, set[int]] = {}
+    if fill:
+        for _, number, at, _, _ in truth_rows:
+            crossing_times.setdefault(number, set()).add(at)
+
+    for lap, number, at, true_gap, true_interval in truth_rows:
+        entry = drivers.get(number)
+        if not entry:
             continue
-        for timing in row.get("timings") or []:
-            number = numbers.get(timing["driverId"])
-            entry = drivers.get(number) if number else None
-            if not entry:
-                continue
-            at = timing["cumulative_ms"]
-            shown = None
-            for sample in entry.get("timing") or []:
-                if sample[0] <= at:
-                    shown = sample[2]
-                else:
-                    break
-            if not isinstance(shown, (int, float)) or isinstance(shown, bool):
-                continue
-            truth = (at - leader) / 1000
-            error = abs(shown - truth)
-            errors.append(error)
-            if error <= 1.0:
-                hit += 1
-            elif len(notes) < 3:
-                notes.append(
-                    f"L{row['lap']} #{number} gap {shown:+.2f}, archive says {truth:+.2f}"
-                )
+        shown = _shown(
+            entry, at, column, before=fill, skip=crossing_times.get(number) if fill else None
+        )
+        if not isinstance(shown, (int, float)) or isinstance(shown, bool):
+            continue
+        truth = true_gap if column == 2 else true_interval
+        error = abs(shown - truth)
+        errors.append(error)
+        if error <= tolerance:
+            hit += 1
+        elif len(notes) < 3:
+            notes.append(
+                f"L{lap} #{number} {label} {shown:+.2f}, archive says {truth:+.2f}"
+            )
 
     errors.sort()
     median = errors[len(errors) // 2] if errors else 0.0
@@ -367,12 +449,32 @@ def verify_round(db, year: int, round_number: int, deployed: bool) -> bool:
     penalised = len(classified) - f_hit
     line.append(f"flag-order {f_hit}/{len(classified)}" + (f" (+{penalised} penalised)" if penalised else ""))
 
-    g_hit2, g_tot2, g_med, g_notes = check_gaps(drivers, official_rows, numbers)
+    g_hit2, g_tot2, g_med, g_notes = check_timing_column(
+        drivers, official_rows, numbers, 2, CROSSING_TOLERANCE
+    )
     ratio = g_hit2 / g_tot2 if g_tot2 else 0
     line.append(f"gaps {ratio:.0%} (med {g_med:.2f}s)")
     if ratio < MIN_GAPS:
         ok = False
         line.append("FAIL")
+
+    i_hit, i_tot, i_med, i_notes = check_timing_column(
+        drivers, official_rows, numbers, 1, CROSSING_TOLERANCE
+    )
+    ratio = i_hit / i_tot if i_tot else 0
+    line.append(f"intervals {ratio:.0%} (med {i_med:.2f}s)")
+    if ratio < MIN_INTERVALS:
+        ok = False
+        line.append("FAIL")
+
+    # The one number here that OpenF1 and the archive both contribute to, and
+    # therefore the only remaining independent reading of the timing column.
+    # No threshold: it measures the feed's cadence, which this repo cannot fix.
+    f_hit2, f_tot2, f_med, _ = check_timing_column(
+        drivers, official_rows, numbers, 2, FILL_TOLERANCE, fill=True
+    )
+    ratio = f_hit2 / f_tot2 if f_tot2 else 0
+    line.append(f"fill-gap {ratio:.0%} (med {f_med:.2f}s)")
 
     intra, opening = check_fill(drivers, official_rows, numbers)
     line.append(f"intra-lap {intra} (opening 2min {opening})")
@@ -382,7 +484,7 @@ def verify_round(db, year: int, round_number: int, deployed: bool) -> bool:
         line.append("FAIL no intra-lap movement")
 
     print(" ".join(line))
-    for note in (a_notes + b_notes + g_notes)[:6]:
+    for note in (a_notes + b_notes + g_notes + i_notes)[:6]:
         print(f"       - {note}")
     return ok
 

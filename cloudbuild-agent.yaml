@@ -74,7 +74,7 @@ steps:
       # comma-separated origin list, which a `,`-delimited --set-env-vars
       # parses as extra bare (non-KEY=VALUE) tokens and rejects outright.
       - '--set-env-vars'
-      - '^;^AGENT_MODEL=${_AGENT_MODEL};LANGSMITH_TRACING=${_LANGSMITH_TRACING};LANGSMITH_PROJECT=${_LANGSMITH_PROJECT};AGENT_ALLOWED_ORIGINS=${_AGENT_ALLOWED_ORIGINS}'
+      - '^;^AGENT_MODEL=${_AGENT_MODEL};LANGSMITH_TRACING=${_LANGSMITH_TRACING};LANGSMITH_PROJECT=${_LANGSMITH_PROJECT};AGENT_ALLOWED_ORIGINS=${_AGENT_ALLOWED_ORIGINS};AGENT_RATE_LIMIT_ENABLED=${_AGENT_RATE_LIMIT_ENABLED};AGENT_DAILY_COST_BUDGET=${_AGENT_DAILY_COST_BUDGET};AGENT_TRUSTED_PROXY_HOPS=${_AGENT_TRUSTED_PROXY_HOPS}'
       - '--allow-unauthenticated'
       - '--quiet'
 
@@ -97,6 +97,31 @@ substitutions:
   # browser request from it failed CORS while curl kept working (the same
   # symptom Batch 16's #102 had, different root cause). Both must be listed.
   _AGENT_ALLOWED_ORIGINS: 'https://f1-frontend-1076575666662.asia-south1.run.app,https://f1-frontend-2w5wydk2ca-el.a.run.app'
+  # The kill switch, and the reason it is a substitution rather than only a
+  # code default. `config.RATE_LIMIT_ENABLED` already defaults to true, so the
+  # limiter is on whether or not this line exists — what this buys is the
+  # ability to turn it **off**, or retune the budget, by editing one
+  # substitution and re-running the trigger, instead of shipping a code change
+  # to a service that is currently refusing real users. A limiter with no
+  # reachable off switch is the one failure mode here that is worse than the
+  # abuse it prevents.
+  _AGENT_RATE_LIMIT_ENABLED: 'true'
+  # Daily ceiling in the cost units `rate_limit.measured_cost` charges, not in
+  # requests — an LLM turn's cost varies by tier and by whether the answer
+  # cache hit, so a request count would bound the wrong quantity. See
+  # `rate_limit.py` for how a unit is defined and for the reasoning behind this
+  # default.
+  _AGENT_DAILY_COST_BUDGET: '240'
+  # How many proxies sit between this service and the internet, counted from
+  # the right of `X-Forwarded-For`. **This is a property of the deployment, not
+  # of the code**, which is why it lives here rather than only as a default in
+  # `config.py`: 0 is correct for a Cloud Run service addressed directly on its
+  # `*.run.app` URL (what the deploy step above creates), and it must be RAISED
+  # the moment anything is put in front — an external HTTPS load balancer makes
+  # it 1, Cloudflare in front of that 2. Leaving it at 0 behind a load balancer
+  # silently makes the IP layer spoofable, because the entry it reads becomes
+  # one the client authored. See `rate_limit.resolve_client_ip`.
+  _AGENT_TRUSTED_PROXY_HOPS: '0'
 
 options:
   logging: CLOUD_LOGGING_ONLY

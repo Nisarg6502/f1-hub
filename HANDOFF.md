@@ -1,5 +1,122 @@
 # F1 Hub — Handoff (2026-08-18)
 
+## CP82-85 — the chat agent had no rate limiting at all (2026-08-18)
+
+The user asked whether anything protected the assistant from misuse. **Nothing
+did.** `/api/chat` and `/api/feedback` were unauthenticated with no per-caller
+limit of any kind, and three things that look like protection are not:
+`concurrency.py` is a *serialization* gate for Ollama's one-concurrent-model
+tier (it makes one caller wait, it does not stop them returning);
+`--max-instances=1` bounds requests per second, not per day; CORS is a browser
+rule and `curl` does not read it. One shell loop could hold the run slot
+indefinitely and burn the whole free-tier allowance.
+
+The user's own framing set the design constraint and was right: **plain IP
+limiting is not good enough.** IPs are shared behind CGNAT — blocking one can
+block a carrier's worth of users — and are trivially rotated. `rate_limit.py`
+is therefore five layers, all of which must pass, and the identity is assumed
+weak throughout.
+
+**Cost is charged in cost units, not request counts.** This is the part most
+worth carrying forward: an LLM turn's cost varies by more than an order of
+magnitude (a cache hit costs a Mongo read and no model call; tier 3 reaches four
+or five), so "20 requests/hour" bounds nothing that matters. A unit is roughly
+one tier-1 answer or 60s of metered GPU time, and `measured_cost` takes the
+larger of the tier estimate and the turn's real model seconds.
+
+**`resolve_client_ip` is the piece most often got wrong, and it is wrong in two
+opposite directions.** Reading `request.client.host` on Cloud Run yields
+Google's front end, so every user in the world shares one bucket and the service
+bans everybody — a self-inflicted outage. Reading the *first* `X-Forwarded-For`
+entry reads a value the client wrote, so an attacker mints a fresh identity per
+request by incrementing a number. The correct read is a fixed number of hops
+**from the right**. `AGENT_TRUSTED_PROXY_HOPS=0` is right for a Cloud Run
+service addressed directly on its `*.run.app` URL; **it must be raised the
+moment anything is put in front of the service**, or the IP layer silently
+becomes spoofable.
+
+All three deployment properties — the kill switch, the daily budget and the hop
+count — are `cloudbuild-agent.yaml` substitutions rather than code-only
+defaults. The limiter was first written without them, and that was the gap worth
+catching before deploy: a limiter whose off switch needs a code change is the one
+failure mode here that is worse than the abuse it prevents.
+
+Alongside it, three pieces of verified-open debt:
+
+- **The auto-added `general-purpose` subagent is gone.** deepagents inserts one
+  (and therefore `task`) unless told not to, so the *flat* graph — given no
+  subagents, with a prompt that never mentions delegation — shipped a `task`
+  tool pointed at a clone of itself. This file named the right setting but the
+  wrong way to pass it: `create_deep_agent` has **no `profile=` parameter**, so
+  the only route in is `register_harness_profile`. And the key is a trap —
+  deepagents skips its composite `provider:identifier` probe when the identifier
+  already contains a colon, and ours is `nemotron-3-nano:30b`, so it hunts for a
+  provider literally called `nemotron-3-nano`. Register under `"ollama"`.
+- **The no-filesystem rule is now structural.** `ls`, `glob`, `grep`,
+  `edit_file`, `write_file`, `delete` and `execute` are excluded on the profile;
+  `read_file` and `task` are deliberately kept. The prompt rules stay as
+  documentation but **are no longer the mechanism** — they were written twice
+  and failed twice (CP61's baseline burned its step budget in `ls`/`grep`;
+  CP63's first live `web-researcher` tried `ls` and `glob`). Note the mechanical
+  difference before writing an assertion: disabling the subagent removes `task`
+  from the graph entirely, while `excluded_tools` filters at model-request time,
+  so exclusions are invisible to a `tools_by_name` check.
+- **The tool-argument audit CP73 asked for is done.** One more leak beyond
+  `today`: `web_search`'s `max_results`, a Tavily budget knob with nothing
+  question-shaped about it. It is now a per-tool `fact_tool(hidden_args=...)`
+  rather than a global name ban, and the audit is expressed as a **tool ->
+  model-visible-argument map asserted against the real bound schemas**, so a new
+  optional parameter fails the suite until someone records a verdict. That is
+  the actual fix for how `today` reached production: a test-only parameter was
+  automatically a model parameter and nothing had to agree it should be.
+
+**CP84 — the gap and interval columns are now exact at every crossing**, which
+positions already were and they were not. `TIMING_VERSION` is **7**; `gaps` and
+`intervals` read 100% at a 0.05s tolerance across all 11 rounds.
+
+Two things about it are worth more than the number:
+
+- **Adding it destroyed the independence of the `gaps` check CP81 had just
+  added.** Once the payload *is* that arithmetic, scoring it proves plumbing,
+  not data. The still-independent measurement was split out as **`fill-gap`** —
+  the last *OpenF1* reading before each crossing, crossings excluded — and is
+  reported without a threshold. It is byte-identical before and after, which is
+  the control confirming the fill itself was untouched.
+- **A lapped car's gap reads `"+N LAPS"`, not the numeric truth.** The number is
+  real but misinforms (`+1030.86` reads as "17 minutes up the road"; he is a few
+  hundred metres up the road, 11 laps down), and OpenF1's fill either side uses
+  the string convention — a numeric official sample between two `"+11 LAPS"`
+  fill samples would make the column alternate conventions at every crossing.
+  Laps-down is *counted* from the archive, not derived by dividing by a lap
+  time, which breaks under a safety car; it agrees with OpenF1's independently
+  produced strings on 2,794 of 2,809 cases.
+
+**What CP84 did NOT fix, stated plainly because the motivating example implied
+otherwise:** a car whose OpenF1 samples stop entirely still shows a stale gap
+between crossings. Alonso's round-1 garage stop spans 977 seconds with *zero*
+fill samples, so the tower still carries `+63.9` across almost all of it and only
+snaps to the true `+11 LAPS` at his crossing. The replay's `pit` flag would have
+rendered "PIT" instead, but it is recorded on his *own* lap 13 while the tower
+indexes the *leader's* laps, so it does not cover the window. The clean candidate
+is extending the pit state across a stop's real `duration_seconds`, which the
+replay already carries.
+
+**CP85** gives `/watch` preferences a `storage` listener, so two tabs no longer
+diverge and then overwrite each other — watch mode is explicitly a second-screen
+feature, so two tabs is a normal thing to do.
+
+`backend/scripts/reap_stale_caches.py` is new and **dry-run by default**. Version
+bumps retire cache documents without deleting them, and nothing had ever swept
+them: `race_timing` was 71 MB of an 88 MB database with 59 of 70 documents dead.
+It refuses to reap a collection whose current version has no documents — sync
+first, then reap.
+
+**An operational gotcha found while syncing v7:** rounds 8-11 first came back
+"official only" because OpenF1's `/laps` silently returned nothing. `--force`
+recovered them. A silent OpenF1 failure produces a structurally valid payload
+with no intra-lap fill, and **only the `intra-lap` count reveals it** — every
+other check passes.
+
 ## CP81 — the Australian GP replay was 84 seconds late (2026-08-18)
 
 **Supersedes CP80 on the race start.** The user reported the watch replay still

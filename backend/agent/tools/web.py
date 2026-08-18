@@ -92,7 +92,7 @@ def _headers(key: str) -> dict:
     return {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
 
 
-@fact_tool("web_search")
+@fact_tool("web_search", hidden_args=("max_results",))
 async def web_search(
     query: str,
     topic: str = "general",
@@ -110,6 +110,22 @@ async def web_search(
     a tuning knob left for whoever wires this into the deep agent to raise
     per-query if the basic tier's relevance turns out to be insufficient,
     not a default this tool should spend on every call.
+
+    **`max_results` is hidden from the model** (`hidden_args`), while `topic`
+    is not — the split is what the audit of model-visible arguments turned on
+    (`ROADMAP.md`, Batch 20, the bullet after `today`). `topic` is a
+    question-shaped choice the model is the right one to make and is told how
+    to make: the paragraph above says when `"news"` is correct, and
+    `subagents.WEB_RESEARCHER_PROMPT` tells the researcher to reach for this
+    tool on anything time-sensitive. `max_results` is a budget cap — it trades
+    free-tier quota and the context this bundle costs against coverage, and
+    nothing the model knows about an F1 question bears on that trade. The tell
+    was already in this file: `web_extract` caps its own fan-out with the
+    `_MAX_EXTRACT_URLS` *constant*, and its docstring names that "the same
+    budget reason `web_search` caps `max_results`" — two caps with one
+    rationale, one of which the model could set and the other it could not.
+    They are now the same kind of thing; the parameter survives for this
+    module's own callers, which is exactly the shape `today` was left in.
 
     Each result's `content` snippet — the only field here that is retrieved
     prose rather than metadata — is passed through `quarantine()` before it
