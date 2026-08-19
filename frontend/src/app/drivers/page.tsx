@@ -45,9 +45,11 @@ export default async function DriversPage({ searchParams }: PageProps) {
           <span className="font-bold text-xs tracking-[0.18em] uppercase text-[#FF7A3D]">
             {year} World Championship lineup
           </span>
-          <div className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[52px] tracking-[-1.5px] mt-2">
+          {/* An `h1`, not a styled div — see the note on the home page hero.
+              Classes unchanged, so nothing moves. */}
+          <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[52px] tracking-[-1.5px] mt-2">
             The Grid
-          </div>
+          </h1>
         </div>
         <SeasonSelector currentYear={year} maxYear={getActiveSeasonYear()} />
       </div>
