@@ -134,6 +134,41 @@ site-wide; the mobile bar was a `div`; `/history` (2.6s TTFB, 697 KB) had no
 `loading.tsx`, so a click held the old page on screen fully interactive with no
 skeleton for ten consecutive 250ms samples.
 
+## Shipped: the hydration bug, and it was three bugs
+
+PR #123, `cbe5259`. React #418 was logged on `/`, `/drivers` and `/watch` on
+every load in production — not a warning, since React discards the mismatched
+subtree and re-renders it.
+
+**The audit inferred one cause and there were three**, which is the lesson worth
+keeping from this one:
+
+1. `local-datetime.tsx` formatted in the renderer's zone — UTC on Cloud Run, the
+   viewer's in the browser.
+2. `countdown-timer.tsx` seeded `useState(() => new Date())` on both the server
+   and the hydration pass, seconds apart. Measured as 38 against 39.
+3. **The first fix was incomplete and only re-measuring caught it.** With the
+   timezone pinned and the locale still `undefined`, the same instant rendered
+   `Sun, Aug 23, 13:00` against `Sun, 23 Aug, 13:00` — month-first against
+   day-first. The error cleared on two routes and *stood on the one it was
+   reported against*. Stopping at "tsc passes and two routes are clean" would
+   have shipped a fix that did not fix the page in the report.
+
+None of it reproduces locally: **in UTC the server and the client agree by
+accident.** It was found by overriding the browser timezone to Asia/Kolkata,
+which is the condition every non-UTC reader is already in. Any future work on
+SSR'd time or locale should be checked the same way.
+
+The two components take deliberately opposite treatments. The countdown uses
+`suppressHydrationWarning` — it keeps the server's text, and the interval
+replaces it within 1000ms. The datetime must not: suppressing there leaves a
+reader in Melbourne on a UTC time that never corrects itself.
+
+Also shipped in #123: `/history` said "77 Seasons" and "The 75-Season Barcode"
+on one screen (now derived; the static metadata drops the count entirely,
+because an export evaluated before any fetch cannot honestly claim a number that
+grows), and three of the five heading-less routes gained a real `h1`.
+
 ## Open audit findings, not yet assigned
 
 Ranked as the audit ranked them:
@@ -144,16 +179,12 @@ Ranked as the audit ranked them:
 * **Global search is mouse-only** — results appear that a keyboard user cannot
   reach; ArrowDown does nothing and Tab skips the open listbox. Invalid ARIA
   too (a listbox with no owning combobox).
-* **Five routes have no `h1` at all** — `/`, `/standings`, `/drivers`, `/teams`,
-  `/schedule`. The 80px "Dutch Grand Prix" is two divs.
+* **Two routes still have no `h1`** — `/standings` and `/teams`, both mid-rework
+  by held agent work, which is why they were left. `/`, `/drivers` and
+  `/schedule` are done (#123).
 * **`/history` ships a curation error to users** — `no data for "williams"` and
   two more, in red, for current constructors. The loud version belongs behind a
   dev flag.
-* **"77 Seasons" and "75-Season Barcode" on one screen** — only the h1 is
-  computed; five hardcoded "75"s survive. Exactly the stale-copy class this
-  project has corrected before.
-* **React #418 hydration mismatch** on `/`, `/drivers`, `/watch` — most likely
-  `local-datetime.tsx` rendering in the server's timezone.
 * Driver rows on `/standings` are not clickable though identical cards
   elsewhere are; `/telemetry` is ~85% empty in its most common state; three
   routes carry sub-40px touch targets.
