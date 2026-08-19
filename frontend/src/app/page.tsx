@@ -169,19 +169,25 @@ export default async function Home() {
               )}
             </div>
 
-            <div className="leading-[0.94] mb-3">
-              <div className="font-[family-name:var(--font-headline)] font-bold text-5xl sm:text-6xl md:text-[80px] tracking-[-2px] anim-fade">
+            {/* An `h1`, not two styled divs. The 80px race name is the most
+                obvious title on the site and carried no heading semantics at
+                all — `querySelectorAll('h1,h2,h3')` returned empty on this
+                page. The inner elements become spans because a `div` inside an
+                `h1` is invalid; `block` keeps them on their own lines, so
+                nothing moves visually. */}
+            <h1 className="leading-[0.94] mb-3">
+              <span className="block font-[family-name:var(--font-headline)] font-bold text-5xl sm:text-6xl md:text-[80px] tracking-[-2px] anim-fade">
                 {heroBase}
-              </div>
+              </span>
               {heroHasGP && (
-                <div
-                  className="font-[family-name:var(--font-headline)] font-extrabold text-5xl sm:text-6xl md:text-[80px] tracking-[-2px] apex-flame-text anim-fade"
+                <span
+                  className="block font-[family-name:var(--font-headline)] font-extrabold text-5xl sm:text-6xl md:text-[80px] tracking-[-2px] apex-flame-text anim-fade"
                   style={{ animationDelay: "0.12s" }}
                 >
                   Grand Prix
-                </div>
+                </span>
               )}
-            </div>
+            </h1>
 
             <div
               className="h-[2px] w-[130px] bg-[linear-gradient(90deg,#FF5A1F,transparent)] anim-line mb-8"

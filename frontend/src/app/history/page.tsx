@@ -51,9 +51,9 @@ async function mapWithConcurrency<T, R>(
 }
 
 export const metadata: Metadata = {
-  title: "APEX | F1 Heritage — 75 Seasons",
+  title: "APEX | F1 Heritage",
   description:
-    "Every Formula 1 championship race since 1950, and the constructor lineages that ran them — the 75-Season Barcode and Constructor Genealogy.",
+    "Every Formula 1 championship race since 1950, and the constructor lineages that ran them — the Season Barcode and Constructor Genealogy.",
 };
 
 export default async function HistoryPage() {
@@ -168,11 +168,17 @@ export default async function HistoryPage() {
         </p>
       </section>
 
-      {/* The 75-Season Barcode — built in CP48 (season-barcode.tsx). */}
+      {/* The Season Barcode — built in CP48 (season-barcode.tsx).
+          The span is computed, not written down. It used to read "The
+          75-Season Barcode" directly beneath an h1 that computed "77 Seasons",
+          so the page contradicted itself on one screen — and it would have
+          drifted by another year every December. */}
       <section className="apex-glass apex-sheen rounded-[22px] p-[26px] mb-8">
-        <div className="font-[family-name:var(--font-headline)] font-bold text-[19px] mb-1">
-          The 75-Season Barcode
-        </div>
+        <h2 className="font-[family-name:var(--font-headline)] font-bold text-[19px] mb-1">
+          {firstSeason && lastSeason
+            ? `The ${lastSeason - firstSeason + 1}-Season Barcode`
+            : "The Season Barcode"}
+        </h2>
         <div className="font-medium text-[13px] text-warm-400 mb-[18px]">
           Every race, one stripe, coloured by winning constructor.
         </div>

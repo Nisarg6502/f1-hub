@@ -62,6 +62,21 @@ export default function CountdownTimer({ targetRace }: CountdownTimerProps) {
               }`}
             >
               <div
+                /* A countdown cannot agree with itself across a network hop.
+                   `useState(() => new Date())` runs once on the server and
+                   again on the client's hydration pass, seconds apart, so the
+                   seconds digit differed on essentially every load — measured
+                   as 38 against 39 — and React threw the whole hero away and
+                   re-rendered it.
+
+                   `suppressHydrationWarning` is the right tool *here* and the
+                   wrong one in `local-datetime.tsx`, for one reason: it tells
+                   React to keep the server's text, and this text is replaced by
+                   the interval within 1000ms anyway. A stale-by-one-second
+                   countdown for a single tick is invisible. A timezone that
+                   never corrects itself, which is what suppressing would have
+                   bought there, is a wrong number shown forever. */
+                suppressHydrationWarning
                 className={`font-extrabold text-4xl sm:text-5xl md:text-[54px] leading-none tabular-nums ${
                   seg.hot ? "text-[#FF7A3D]" : "text-on-background"
                 }`}
