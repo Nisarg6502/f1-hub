@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Search } from "lucide-react";
@@ -60,9 +60,29 @@ export default function GlobalSearch() {
   const reduce = useReducedMotion();
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listboxRef = useRef<HTMLDivElement>(null);
+  // Stable across server/client render, which `aria-controls` and
+  // `aria-activedescendant` both need — they are attribute values pointing at
+  // real ids, so a mismatched pair hydrates into a broken reference.
+  const listboxId = useId();
+  const optionId = (index: number) => `${listboxId}-option-${index}`;
 
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  // The active option in the ARIA sense: highlighted and the target of Enter,
+  // but *not* holding DOM focus. Focus stays in the input for the whole
+  // interaction (that is the point of `aria-activedescendant`) so the user can
+  // keep typing to refine the query while an option is active. `null` means no
+  // option is active, which is the state a freshly-typed query starts in —
+  // auto-activating the first result would make Enter select something the
+  // user never chose.
+  //
+  // Stored as the result's key rather than its index, which is what keeps the
+  // highlight honest across a re-query: an index survives a keystroke and comes
+  // to mean a different row, so Enter would open something the user never
+  // highlighted. A key that is no longer in the list resolves to -1 on its own,
+  // and one that merely moved follows its row.
+  const [activeKey, setActiveKey] = useState<string | null>(null);
   const [drivers, setDrivers] = useState<DriverStanding[]>([]);
   const [constructors, setConstructors] = useState<ConstructorStanding[]>([]);
   const [races, setRaces] = useState<Race[]>([]);
@@ -107,7 +127,11 @@ export default function GlobalSearch() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setOpen(false);
-        inputRef.current?.blur();
+        setActiveKey(null);
+        // Deliberately no longer blurs. Escape on an open combobox dismisses
+        // the popup and *keeps* focus on the input — blurring dumps a keyboard
+        // user back at the top of the tab order, which is the same
+        // "focus goes nowhere" failure the modals had.
       }
     };
     document.addEventListener("pointerdown", handlePointerDown);
@@ -175,10 +199,80 @@ export default function GlobalSearch() {
     return [...driverResults, ...teamResults, ...circuitResults].slice(0, 8);
   }, [query, drivers, constructors, races, circuitDetails]);
 
+  const popupOpen = open && query.trim().length >= 2;
+  const activeIndex =
+    activeKey === null ? -1 : results.findIndex((r) => r.key === activeKey);
+
+  // The popup scrolls at `max-h-80`, so an option walked past its edge has to
+  // be brought back. Indexed through `children` rather than by id: `useId`
+  // produces colons, which are not valid in a bare CSS id selector.
+  useEffect(() => {
+    if (activeIndex < 0) return;
+    const el = listboxRef.current?.children[activeIndex] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex]);
+
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      // Reopens a popup dismissed with Escape without needing another keystroke
+      // in the field, which is the APG combobox behaviour.
+      if (!popupOpen) {
+        if (query.trim().length >= 2) {
+          e.preventDefault();
+          setOpen(true);
+        }
+        return;
+      }
+      if (results.length === 0) return;
+      e.preventDefault();
+      // Wraps at both ends. From "no active option" (-1) one expression covers
+      // both directions: down lands on the first, up on the last.
+      const next =
+        e.key === "ArrowDown"
+          ? activeIndex >= results.length - 1
+            ? 0
+            : activeIndex + 1
+          : activeIndex <= 0
+            ? results.length - 1
+            : activeIndex - 1;
+      setActiveKey(results[next].key);
+      return;
+    }
+
+    if (e.key === "Home" || e.key === "End") {
+      if (!popupOpen || results.length === 0) return;
+      e.preventDefault();
+      setActiveKey(results[e.key === "Home" ? 0 : results.length - 1].key);
+      return;
+    }
+
+    if (e.key === "Enter") {
+      // Only when an option was actually chosen. Enter on a typed query with
+      // nothing active does nothing rather than guessing at the first result.
+      if (popupOpen && activeIndex >= 0 && activeIndex < results.length) {
+        e.preventDefault();
+        handleSelect(results[activeIndex]);
+      }
+      return;
+    }
+
+    if (e.key === "Tab" && popupOpen) {
+      // Tab leaves the combobox, so the popup must not be left hanging open
+      // over the page with focus somewhere else entirely.
+      setOpen(false);
+      setActiveKey(null);
+    }
+  };
+
   const handleSelect = (result: SearchResult) => {
     setOpen(false);
     setQuery("");
-    inputRef.current?.blur();
+    setActiveKey(null);
+    // Deliberately does NOT blur. Driver and circuit results open a modal, and
+    // `useModalDialog` restores focus to whatever was focused when it mounted --
+    // blurring first makes that `document.body`, so closing the modal would
+    // strand a keyboard user at the top of the page rather than back in the
+    // field they searched from.
 
     if (result.kind === "driver") {
       setSelectedDriver(result);
@@ -211,6 +305,18 @@ export default function GlobalSearch() {
           placeholder="Search drivers, tracks…"
           aria-label="Search"
           type="text"
+          /* The listbox had `role="listbox"` and no owning combobox, which is
+             invalid on its own: nothing told a screen reader this field
+             controlled it, and nothing announced the highlighted row.
+             `aria-activedescendant` is what lets the highlight move while DOM
+             focus stays in the input, so typing keeps working throughout. */
+          role="combobox"
+          aria-expanded={popupOpen}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            popupOpen && activeIndex >= 0 ? optionId(activeIndex) : undefined
+          }
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -219,32 +325,45 @@ export default function GlobalSearch() {
           onFocus={() => {
             if (query.trim().length >= 2) setOpen(true);
           }}
+          onKeyDown={handleInputKeyDown}
         />
       </div>
 
       <AnimatePresence>
-        {open && query.trim().length >= 2 && (
+        {popupOpen && (
           <motion.div
             initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.96, y: -4 }}
             animate={reduce ? { opacity: 1 } : { opacity: 1, scale: 1, y: 0 }}
             exit={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.96, y: -4 }}
             transition={{ duration: reduce ? 0.1 : 0.16, ease: EASE_OUT }}
             style={{ transformOrigin: "top" }}
-            role="listbox"
             className="absolute top-full right-0 mt-1.5 w-[280px] rounded-xl bg-[rgba(26,22,19,0.98)] border border-white/10 shadow-2xl z-50 max-h-80 overflow-y-auto p-1"
           >
-            {results.length === 0 ? (
-              <div className="px-3 py-4 text-center font-medium text-xs text-warm-500">
-                No results for &ldquo;{query.trim()}&rdquo;
-              </div>
-            ) : (
-              results.map((result) => (
+            {/* The listbox is rendered even when empty and the "no results"
+                line sits outside it. An empty listbox is valid; a listbox whose
+                only child is a bare div is not, and an `aria-controls` pointing
+                at an element that comes and goes is worse than one pointing at
+                an empty one. */}
+            <div
+              ref={listboxRef}
+              id={listboxId}
+              role="listbox"
+              aria-label="Search results"
+            >
+              {results.map((result, index) => (
                 <div
                   key={result.key}
+                  id={optionId(index)}
                   role="option"
-                  aria-selected={false}
+                  aria-selected={index === activeIndex}
                   onClick={() => handleSelect(result)}
-                  className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg cursor-pointer hover:bg-white/[0.05] transition-colors"
+                  /* Pointer and keyboard drive the same highlight, so moving
+                     the mouse never leaves a second row looking active
+                     somewhere else in the list. */
+                  onPointerMove={() => setActiveKey(result.key)}
+                  className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
+                    index === activeIndex ? "bg-white/[0.07]" : ""
+                  }`}
                 >
                   <div className="min-w-0">
                     <div className="font-semibold text-xs truncate">{result.label}</div>
@@ -256,7 +375,16 @@ export default function GlobalSearch() {
                     {result.kind}
                   </span>
                 </div>
-              ))
+              ))}
+            </div>
+
+            {results.length === 0 && (
+              <div
+                role="status"
+                className="px-3 py-4 text-center font-medium text-xs text-warm-500"
+              >
+                No results for &ldquo;{query.trim()}&rdquo;
+              </div>
             )}
           </motion.div>
         )}

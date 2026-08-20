@@ -6,6 +6,8 @@ import Image from "next/image";
 import { motion, useReducedMotion } from "motion/react";
 import type { DriverStanding, DriverBio } from "@/lib/api";
 import { getDriverBio } from "@/lib/api";
+import { driverPortraitFrameStyle, driverPortraitSizes } from "@/lib/driver-portrait";
+import { useModalDialog } from "@/lib/use-modal-dialog";
 import FlagImg from "./flag-img";
 
 interface DriverModalProps {
@@ -63,17 +65,11 @@ export default function DriverModal({
     };
   }, [driverId]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.body.style.overflow = "auto";
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onClose]);
+  // Escape, the scroll lock, dialog focus and the Tab trap — all of it now
+  // lives in one place shared with the other three modals. This used to be a
+  // bare Escape listener plus `body.overflow`, which is why Tab from an open
+  // driver card walked the cards behind the overlay instead of entering it.
+  const dialogRef = useModalDialog<HTMLDivElement>({ onClose });
 
   const age = ageFromDob(bio?.dateOfBirth);
 
@@ -94,6 +90,11 @@ export default function DriverModal({
       className="fixed inset-0 z-[80] flex items-center justify-center p-5 md:p-10 bg-[rgba(6,5,4,0.65)] backdrop-blur-[8px]"
     >
       <motion.div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${given} ${family}`.trim() || "Driver profile"}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.92, y: 24 }}
         animate={reduce ? { opacity: 1 } : { opacity: 1, scale: 1, y: 0 }}
@@ -119,16 +120,23 @@ export default function DriverModal({
             background: `linear-gradient(180deg, ${color.hex}26, transparent)`,
           }}
         >
+          {/* `object-contain` used to fit the whole 440x1265 cutout into this
+              300px-tall band, which rendered the driver 104px wide in a 640px
+              panel -- a head floating in a lot of empty gradient. Framed to the
+              same head-and-shoulders band the grid card uses, so the shared
+              layout transition between them barely has to move. */}
           {imgPath && (
             <motion.div layoutId={photoLayoutId} className="absolute inset-0">
-              <Image
-                src={imgPath}
-                alt={`${given} ${family}`}
-                fill
-                sizes="640px"
-                className="object-contain object-bottom drop-shadow-[0_20px_40px_rgba(0,0,0,0.7)]"
-                priority
-              />
+              <div style={driverPortraitFrameStyle("bust")}>
+                <Image
+                  src={imgPath}
+                  alt={`${given} ${family}`}
+                  fill
+                  sizes={driverPortraitSizes(300, "bust")}
+                  className="object-cover drop-shadow-[0_20px_40px_rgba(0,0,0,0.7)]"
+                  priority
+                />
+              </div>
             </motion.div>
           )}
           <div
