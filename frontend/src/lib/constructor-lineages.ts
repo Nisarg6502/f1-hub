@@ -495,6 +495,19 @@ export interface ResolvedNode extends LineageNode {
    * span cannot be capped correctly without the underlying list when the
    * span has gaps. */
   seasons: number[];
+  /** The node's ids' seasons BEFORE `yearRange` sliced them, ascending.
+   *
+   * `yearRange` exists because Ergast reuses a handful of raw ids across
+   * unrelated eras decades apart, and slicing them out is correct: the 1954-55
+   * Mercedes works team is not a stage of the Tyrrell lineage, and counting
+   * its seasons into this era's record would be a false claim.
+   *
+   * But the seasons it discards are still real, and a card titled *Mercedes*
+   * that never mentions 1954 is hiding something a reader would want. Keeping
+   * the unsliced list lets a consumer say "this name also raced then" without
+   * mixing those seasons into any total. Identical to `seasons` for the
+   * majority of nodes, which have no `yearRange` at all. */
+  allSeasons: number[];
   /** How many seasons this era actually raced. Not `endYear - startYear + 1`
    * — a few eras have gaps in Ergast's own season list, so this is the real
    * count and can be smaller than the span the band covers. */
@@ -513,18 +526,51 @@ export interface ResolvedLineage extends Omit<Lineage, "nodes"> {
  * ergastId -> seasons (as returned by /api/constructor_seasons for each id
  * collected by getAllErgastIds). Purely a data transform — no fetching
  * here, so it can run in a server component. */
+/**
+ * Collapse an ascending year list into contiguous [from, to] runs.
+ *
+ * Gaps are the point. Ergast's own season lists have them and they are
+ * meaningful: McLaren has no 1969 or 1970, Williams has no 1977, Sauber has
+ * three separate stints. Rendering `first–last` over a list with holes states
+ * that a team raced in seasons it did not.
+ */
+export function seasonStints(years: number[]): Array<[number, number]> {
+  if (years.length === 0) return [];
+  const sorted = Array.from(new Set(years)).sort((a, b) => a - b);
+  const runs: Array<[number, number]> = [];
+  let start = sorted[0];
+  let prev = sorted[0];
+  for (const year of sorted.slice(1)) {
+    if (year !== prev + 1) {
+      runs.push([start, prev]);
+      start = year;
+    }
+    prev = year;
+  }
+  runs.push([start, prev]);
+  return runs;
+}
+
+/** "1954–1955", or "1968" for a single season. */
+export function formatStint([from, to]: [number, number]): string {
+  return from === to ? String(from) : `${from}–${to}`;
+}
+
 export function resolveLineages(
   seasonsById: Record<string, number[]>
 ): ResolvedLineage[] {
   return CONSTRUCTOR_LINEAGES.map((lineage) => ({
     ...lineage,
     nodes: lineage.nodes.map((node) => {
-      let years = node.ergastIds.flatMap((id) => seasonsById[id] ?? []);
+      const allYears = Array.from(
+        new Set(node.ergastIds.flatMap((id) => seasonsById[id] ?? []))
+      ).sort((a, b) => a - b);
+
+      let years = allYears;
       if (node.yearRange) {
         const [from, to] = node.yearRange;
         years = years.filter((y) => y >= from && y <= to);
       }
-      years = Array.from(new Set(years)).sort((a, b) => a - b);
 
       if (years.length === 0) {
         return {
@@ -532,6 +578,7 @@ export function resolveLineages(
           startYear: null,
           endYear: null,
           seasons: [],
+          allSeasons: allYears,
           seasonCount: 0,
           invalid: true,
         };
@@ -542,6 +589,7 @@ export function resolveLineages(
         startYear: years[0],
         endYear: years[years.length - 1],
         seasons: years,
+        allSeasons: allYears,
         seasonCount: years.length,
         invalid: false,
       };

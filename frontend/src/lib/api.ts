@@ -868,13 +868,33 @@ export interface ConstructorSeasonsResponse {
   seasons: number[];
 }
 
+/**
+ * @param fresh Bypass Next's fetch cache for this call.
+ *
+ * The 24-hour revalidate is right for the answer and catastrophic for the
+ * non-answer. `/constructor_seasons` is not cached server-side for teams that
+ * are still racing, so those ids are re-fetched from Jolpica on every call —
+ * and when Jolpica throttles, the backend fails soft to `200 OK` with an empty
+ * `seasons` array. Next then caches that empty for a day.
+ *
+ * Measured, because the symptom hides the cause completely: at the HTTP level
+ * the burst of ~40 ids succeeds every time (0 empty at concurrency 4), yet
+ * `/teams` rendered "Red Bull — on the grid since 2000, 5 seasons as Jaguar
+ * Racing" on every single load. One cold render had poisoned the cache, and
+ * the retry loop could not help because the retry hit the same cached empty.
+ *
+ * So the retry asks for a fresh copy. A genuinely empty id costs a few
+ * uncached calls per render; a poisoned entry heals on the next request
+ * instead of lasting until tomorrow.
+ */
 export async function getConstructorSeasons(
-  constructorId: string
+  constructorId: string,
+  fresh = false
 ): Promise<ConstructorSeasonsResponse> {
   return fetchJson<ConstructorSeasonsResponse>(
     "/api/constructor_seasons",
     { constructor_id: constructorId },
-    { next: { revalidate: 86400 } }
+    fresh ? { cache: "no-store" } : { next: { revalidate: 86400 } }
   );
 }
 

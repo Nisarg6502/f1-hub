@@ -47,7 +47,11 @@
 // Fangio's 1954 and 1955 drivers' titles, which belong to a different team
 // that merely shares an id.
 
-import type { ResolvedLineage, ResolvedNode } from "./constructor-lineages";
+import {
+  seasonStints,
+  type ResolvedLineage,
+  type ResolvedNode,
+} from "./constructor-lineages";
 
 /** The fields of `/api/historical_race_index`'s race record this module
  * reads. Declared structurally rather than importing `HistoricalRace` from
@@ -215,8 +219,45 @@ export interface TeamDossier {
   eras: EraStats[];
   /** The era the team is racing as now — the last resolved node. */
   current: EraStats | null;
-  /** First season anything in this lineage entered a championship round. */
+  /** First season anything in this lineage entered a championship round.
+   *
+   * This is the LINEAGE's debut, so for Mercedes it is 1970 — Tyrrell. It
+   * belongs beside the lineage totals and nowhere else: a card headed
+   * *Mercedes* that says "on the grid since 1970" is answering a question
+   * nobody asked, about a team called something else. Use `currentSince` for
+   * "when is this team from". */
   debutSeason: number | null;
+  /** First season of the era the team is racing as NOW — 2010 for Mercedes,
+   * 2021 for Aston Martin, 1975 for Williams (which has raced under its own
+   * name throughout). */
+  currentSince: number | null;
+  /** Seasons that current era has raced, up to `asOfSeason`. */
+  currentSeasons: number;
+  /** True when the lineage's FINAL node resolved to no seasons at all, so
+   * which era the team is racing as now is unknown.
+   *
+   * Measured on the live page: with the current-grid ids throttled,
+   * `eras[eras.length - 1]` silently became the previous era and the Red Bull
+   * card read "on the grid since 2000 — 5 seasons as Jaguar Racing". Every
+   * word of that is wrong and none of it looks wrong. Callers must render the
+   * absence rather than the fallback. */
+  currentEraUnresolved: boolean;
+  /** Contiguous runs the CURRENT era's constructor id raced OUTSIDE this
+   * LINEAGE, oldest first — the separate earlier life of a reused name.
+   *
+   * Mercedes raced in 1954-1955 and returned in 2010; Aston Martin in
+   * 1959-1960 and returned in 2021. Those seasons are deliberately not
+   * counted into any total here (they were a different team by every measure
+   * except the name), but a card that never mentions them reads as if the
+   * team began at its most recent debut.
+   *
+   * Seasons claimed by ANY era of this lineage are excluded, which is the
+   * difference between "a separate entry" and "an earlier chapter of this
+   * same team". Kick Sauber's id also covers 1993-2005 and 2010-2018 — but
+   * those are the Sauber and BMW Sauber eras listed in this very chain, so
+   * calling them a separate entry "not counted above" was false twice over.
+   * Only seasons no era of the lineage claims survive. */
+  priorStints: Array<[number, number]>;
   /** Real seasons raced across every era, not `now - debut` — a few lineages
    * have gaps (Honda withdrew, Sauber's stints), and `seasonCount` on each
    * node is Ergast's own season list length. */
@@ -288,12 +329,43 @@ export function buildDossier(
     .map((era) => era.node.startYear)
     .filter((year): year is number => year !== null);
 
+  // Every season any era of this lineage accounts for. Used to tell a
+  // genuinely separate earlier entry apart from an earlier chapter of this
+  // same chain.
+  const claimed = new Set<number>();
+  for (const era of eras) {
+    for (const year of era.node.seasons) claimed.add(year);
+  }
+
+  // If the lineage's last node resolved to nothing, the era the team races as
+  // now is unknown — and the previous era must NOT stand in for it.
+  const finalNode = lineage.nodes[lineage.nodes.length - 1];
+  const currentEraUnresolved = Boolean(finalNode?.invalid);
+  const current = currentEraUnresolved
+    ? null
+    : eras.length > 0
+      ? eras[eras.length - 1]
+      : null;
+
   return {
     lineage,
     profile: TEAM_PROFILES[lineage.id] ?? null,
     eras,
-    current: eras.length > 0 ? eras[eras.length - 1] : null,
+    current,
     debutSeason: starts.length > 0 ? Math.min(...starts) : null,
+    currentEraUnresolved,
+    currentSince: current?.node.startYear ?? null,
+    currentSeasons: current?.seasonCount ?? 0,
+    // Everything the era's own ids raced that NO era of this lineage claims,
+    // capped at the season being viewed so a past-season view cannot show a
+    // stint from its own future.
+    priorStints: current
+      ? seasonStints(
+          current.node.allSeasons.filter(
+            (year) => year <= asOfSeason && !claimed.has(year)
+          )
+        )
+      : [],
     seasonsEntered: eras.reduce((sum, era) => sum + era.seasonCount, 0),
     lineageWins: eras.reduce((sum, era) => sum + era.wins, 0),
     lineageConstructorTitles: eras.reduce(
