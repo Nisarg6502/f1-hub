@@ -75,36 +75,70 @@ export default function TitleDeciderPanel({
     driverResult.remainingRaces === 0 &&
     driverResult.remainingSprints === 0;
 
-  return (
-    <div className="apex-glass apex-sheen rounded-[20px] p-6 overflow-hidden">
-      <span className="font-bold text-xs tracking-[0.12em] uppercase text-[#FF7A3D]">
-        Title decider
-      </span>
+  /* Both championships state the same rounds-remaining, so it is hoisted into
+     the band's own header rather than repeated in each column. */
+  const roundsSummary = driverResult ? roundsLabel(driverResult) : null;
 
-      {loading ? (
-        <div className="mt-5 flex flex-col gap-[18px] animate-pulse">
-          {Array.from({ length: 2 }).map((_, i) => (
-            <div key={i} className="h-[64px] rounded-xl bg-[rgba(245,235,222,0.05)]" />
-          ))}
-        </div>
-      ) : failed || !races || !driverResult ? (
-        <p className="mt-4 text-xs text-warm-400 font-medium">
-          Title-decider math unavailable right now.
-        </p>
-      ) : seasonOver ? (
-        <p className="mt-4 text-xs text-warm-400 font-medium">
-          Season complete — no rounds remain to decide the title.
-        </p>
-      ) : (
-        <div className="mt-5 flex flex-col gap-5">
-          <TitleDeciderRow label="Drivers" result={driverResult} />
-          {constructorResult && (
-            <TitleDeciderRow label="Constructors" result={constructorResult} />
+  return (
+    // A full-width band above the table rather than the third card down a
+    // sidebar. It reports on both championships and it answers the question
+    // most readers open this page with -- "is this still a contest?" -- so it
+    // sits where that answer is read first, and stays visible on the
+    // Constructors tab, which previously could not see it at all.
+    <section
+      className="apex-glass apex-sheen rounded-[20px] p-5 md:p-6 mb-7 overflow-hidden"
+      aria-label="Title decider"
+    >
+      <div className="relative flex flex-col lg:flex-row lg:items-start gap-5 lg:gap-9">
+        <div className="lg:w-[196px] flex-none">
+          <span className="font-bold text-xs tracking-[0.12em] uppercase text-[#FF7A3D]">
+            Title decider
+          </span>
+          {roundsSummary && !seasonOver && (
+            <p className="font-medium text-[11px] text-warm-400 mt-1.5 leading-relaxed">
+              {roundsSummary} left to run
+            </p>
           )}
         </div>
-      )}
-    </div>
+
+        {loading ? (
+          <div className="flex-1 grid md:grid-cols-2 gap-5 lg:gap-9 animate-pulse">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <div key={i} className="h-[64px] rounded-xl bg-[rgba(245,235,222,0.05)]" />
+            ))}
+          </div>
+        ) : failed || !races || !driverResult ? (
+          <p className="flex-1 text-xs text-warm-400 font-medium">
+            Title-decider math unavailable right now.
+          </p>
+        ) : seasonOver ? (
+          <p className="flex-1 text-xs text-warm-400 font-medium">
+            Season complete — no rounds remain to decide the title.
+          </p>
+        ) : (
+          <div className="flex-1 min-w-0 grid md:grid-cols-2 gap-5 lg:gap-9">
+            <TitleDeciderRow label="Drivers" result={driverResult} />
+            {constructorResult && (
+              <TitleDeciderRow label="Constructors" result={constructorResult} />
+            )}
+          </div>
+        )}
+      </div>
+    </section>
   );
+}
+
+/** `3 races + 1 sprint`. Empty when nothing is left. */
+function roundsLabel(result: TitleDeciderResult): string {
+  const { remainingRaces, remainingSprints } = result;
+  return [
+    remainingRaces > 0 ? `${remainingRaces} race${remainingRaces === 1 ? "" : "s"}` : null,
+    remainingSprints > 0
+      ? `${remainingSprints} sprint${remainingSprints === 1 ? "" : "s"}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" + ");
 }
 
 function TitleDeciderRow({
@@ -114,24 +148,16 @@ function TitleDeciderRow({
   label: string;
   result: TitleDeciderResult;
 }) {
-  const { leader, runnerUp, gap, maxRemainingPoints, remainingRaces, remainingSprints } =
-    result;
-  const roundsLabel = [
-    remainingRaces > 0 ? `${remainingRaces} race${remainingRaces === 1 ? "" : "s"}` : null,
-    remainingSprints > 0
-      ? `${remainingSprints} sprint${remainingSprints === 1 ? "" : "s"}`
-      : null,
-  ]
-    .filter(Boolean)
-    .join(" + ");
+  const { leader, runnerUp, gap, maxRemainingPoints } = result;
+  const rounds = roundsLabel(result);
 
   return (
-    <div>
-      <div className="flex justify-between mb-[7px]">
+    <div className="min-w-0">
+      <div className="flex justify-between gap-3 mb-[7px]">
         <span className="font-semibold text-[11px] tracking-[0.04em] uppercase text-warm-400 truncate">
           {label}
         </span>
-        <span className="font-bold text-[11px] tabular-nums text-warm-300">
+        <span className="font-bold text-[11px] tabular-nums text-warm-300 whitespace-nowrap">
           {gap} pt{gap === 1 ? "" : "s"} clear
         </span>
       </div>
@@ -140,12 +166,12 @@ function TitleDeciderRow({
         <p className="mt-1 text-xs font-medium text-[#FFAE6A]">
           Title mathematically clinched — {runnerUp.name} cannot close a {gap}-point
           gap over the {maxRemainingPoints} points left in play
-          {roundsLabel ? ` across ${roundsLabel}` : ""}.
+          {rounds ? ` across ${rounds}` : ""}.
         </p>
       ) : (
         <p className="mt-1 text-xs font-medium text-warm-400">
           Still open — {maxRemainingPoints} points still available
-          {roundsLabel ? ` across ${roundsLabel}` : ""}; {leader.name} needs{" "}
+          {rounds ? ` across ${rounds}` : ""}; {leader.name} needs{" "}
           {result.pointsToClinch} more (or a {runnerUp.name} slip) to clinch.
         </p>
       )}

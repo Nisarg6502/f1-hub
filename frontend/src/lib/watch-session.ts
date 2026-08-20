@@ -327,12 +327,41 @@ export interface WatchPartyOptions {
   applyState: (position: WatchPosition) => void;
 }
 
+/**
+ * A pairing that just succeeded, from *this* device's point of view.
+ *
+ * Two devices experience the same event completely differently and both need
+ * telling. The phone that scanned the QR knows the instant `join` resolves —
+ * it asked. The laptop holding the code is never told anything: the join
+ * happens on a server it is only polling, and until now the sole evidence was
+ * a digit quietly changing from 1 to 2 inside a popover that is usually shut.
+ * Someone scanning a code across the room got no confirmation on either screen
+ * that the thing had worked, which is the one moment the feature has to be
+ * legible.
+ *
+ * `id` is a monotonic counter rather than a timestamp because it exists to
+ * re-key a toast: two joins in a row must retrigger the animation, and
+ * `devices` alone would not change if a device left and another arrived
+ * between polls.
+ */
+export interface WatchPairEvent {
+  /** `joined` — this device joined someone else. `device-joined` — someone
+   * joined this device's party. */
+  kind: "joined" | "device-joined";
+  devices: number;
+  id: number;
+}
+
 export interface WatchParty {
   paired: boolean;
   /** Live pairing code, or null once it has been burned or has expired. */
   code: string | null;
   codeExpiresAt: string | null;
   devices: number;
+  /** Set for a moment after a successful pairing; the caller clears it once it
+   * has shown whatever it shows. Null the rest of the time. */
+  pairEvent: WatchPairEvent | null;
+  clearPairEvent: () => void;
   /** The race the party is watching, which is not necessarily the one this
    * device is on — a code typed from the wrong page is an ordinary mistake. */
   partyRaceId: string | null;
@@ -371,6 +400,13 @@ export function useWatchParty({
   const [partyRaceId, setPartyRaceId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<WatchSessionError | null>(null);
+  const [pairEvent, setPairEvent] = useState<WatchPairEvent | null>(null);
+
+  /** Last device count this hook has *observed*, which is not the same as the
+   * rendered `devices` — the comparison has to happen inside `adopt`, before
+   * the state update it is deciding whether to accompany. */
+  const seenDevicesRef = useRef(1);
+  const pairEventIdRef = useRef(0);
 
   const deviceRef = useRef<string>("");
   if (!deviceRef.current) deviceRef.current = newDeviceLabel();
@@ -394,6 +430,23 @@ export function useWatchParty({
 
   const adopt = useCallback(
     (view: WatchSessionView, { apply }: { apply: boolean }) => {
+      // Read *before* the assignment below: a device count that grew while we
+      // were already in this session is somebody arriving, whereas the same
+      // number arriving with a session we have not seen before is a host
+      // creating a party or a tab resuming one after a reload. Only the first
+      // is news, and announcing the other two would greet you with "a screen
+      // joined" every time you reloaded the page.
+      const continuing = sessionRef.current === view.session_id;
+      if (continuing && view.devices > seenDevicesRef.current) {
+        pairEventIdRef.current += 1;
+        setPairEvent({
+          kind: "device-joined",
+          devices: view.devices,
+          id: pairEventIdRef.current,
+        });
+      }
+      seenDevicesRef.current = view.devices;
+
       sessionRef.current = view.session_id;
       setSessionId(view.session_id);
       setPartyRaceId(view.race_id);
@@ -446,6 +499,11 @@ export function useWatchParty({
         // point of joining, and `seenRevRef` is still 0 here so the guard in
         // `adopt` cannot swallow it.
         adopt(view, { apply: true });
+        // Announced here rather than in `adopt`: from this device's side a join
+        // is not a device count going up (it was never in the party to watch it
+        // change), it is a request that returned successfully.
+        pairEventIdRef.current += 1;
+        setPairEvent({ kind: "joined", devices: view.devices, id: pairEventIdRef.current });
         // Stored against the *party's* race, not this device's: when the two
         // differ the caller navigates, and the resume has to survive that.
         writeResume(view.session_id, view.race_id ?? raceId);
@@ -468,11 +526,13 @@ export function useWatchParty({
   const forget = useCallback(() => {
     sessionRef.current = null;
     seenRevRef.current = 0;
+    seenDevicesRef.current = 1;
     setSessionId(null);
     setCode(null);
     setCodeExpiresAt(null);
     setDevices(1);
     setPartyRaceId(null);
+    setPairEvent(null);
     writeResume(null, raceId);
   }, [raceId]);
 
@@ -589,12 +649,15 @@ export function useWatchParty({
   }, [adopt, forget, sessionId]);
 
   const clearError = useCallback(() => setError(null), []);
+  const clearPairEvent = useCallback(() => setPairEvent(null), []);
 
   return {
     paired: Boolean(sessionId),
     code,
     codeExpiresAt,
     devices,
+    pairEvent,
+    clearPairEvent,
     partyRaceId,
     busy,
     error,

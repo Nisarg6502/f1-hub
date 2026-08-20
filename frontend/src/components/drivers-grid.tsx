@@ -7,7 +7,8 @@ import type { DriverStanding } from "@/lib/api";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { driverPortraitFrameStyle, driverPortraitSizes } from "@/lib/driver-portrait";
 import { getFlagPath } from "@/lib/flags";
-import { getTeamColor } from "@/lib/team-colors";
+import { getTeamColor, type TeamColor } from "@/lib/team-colors";
+import { getTeamAbbreviation, getTeamLogoPath } from "@/lib/team-images";
 import TiltCard from "@/components/tilt-card";
 import FlagImg from "@/components/flag-img";
 import { EASE_OUT, Stagger, StaggerItem } from "@/components/motion-primitives";
@@ -39,6 +40,59 @@ const photoReveal: Variants = {
     transition: { duration: 0.55, delay: 0.06, ease: EASE_OUT },
   },
 };
+
+/**
+ * The team's own mark, or its colour and abbreviation when it has none.
+ *
+ * **Landscape, not square.** These are wordmarks: McLaren is 3.3:1, Alpine and
+ * Cadillac are near 2:1, while Mercedes, Williams, Haas and Audi are all
+ * roughly square. Fitted into a 32x32 box the wide ones `object-contain` down
+ * to a 6px-tall smear that reads as an empty white chip — which is exactly what
+ * the first pass shipped. A 58x30 plate holds the widest wordmark legibly and
+ * still centres a square mark with sensible margins.
+ *
+ * On a light plate, matching `/teams`. These marks are drawn for white
+ * backgrounds — Mercedes and Haas are near-black SVGs — and dropped straight
+ * onto a dark card several of them disappear entirely.
+ *
+ * Only eight of the eleven current constructors have a freely-licensed logo
+ * (see `team-images.ts`), so the lettered fallback is a normal case rather than
+ * an edge case. It keeps the plate's silhouette and swaps cream for the livery
+ * colour, so a grid of 22 cards stays regular instead of alternating between
+ * two differently-shaped badges.
+ */
+function TeamMark({
+  team,
+  color,
+  logoPath,
+}: {
+  team: string;
+  color: TeamColor;
+  logoPath: string | null;
+}) {
+  if (logoPath) {
+    return (
+      <span className="relative w-[58px] h-[30px] rounded-[9px] flex-none bg-[rgba(245,235,222,0.94)] shadow-[0_2px_10px_rgba(0,0,0,0.35)]">
+        <Image
+          src={logoPath}
+          alt={`${team} logo`}
+          fill
+          sizes="58px"
+          className="object-contain p-1"
+        />
+      </span>
+    );
+  }
+  return (
+    <span
+      className="w-[58px] h-[30px] rounded-[9px] flex-none flex items-center justify-center font-[family-name:var(--font-headline)] font-extrabold text-[13px] tracking-[0.06em] shadow-[0_2px_10px_rgba(0,0,0,0.35)]"
+      style={{ background: color.hex, color: "#0a0908" }}
+      aria-label={`${team} logo`}
+    >
+      {getTeamAbbreviation(team)}
+    </span>
+  );
+}
 
 export default function DriversGrid({ drivers }: DriversGridProps) {
   const [selected, setSelected] = useState<DriverStanding | null>(null);
@@ -166,20 +220,34 @@ export default function DriversGrid({ drivers }: DriversGridProps) {
                   {num}
                 </div>
 
-                {/* header */}
-                <div className="relative z-20 flex items-center gap-2">
-                  <span className="w-[26px] h-[18px] rounded flex items-center justify-center overflow-hidden bg-[rgba(245,235,222,0.08)]">
-                    <FlagImg
-                      src={flagSrc}
-                      alt={driver.Driver.nationality ?? ""}
-                      width={26}
-                      height={18}
-                      className="object-cover w-full h-full"
-                    />
+                {/* Header: who they race *for* on the right, where they are
+                    *from* on the left.
+
+                    These two used to sit side by side — flag, then team name —
+                    which read as one caption, so a Dutch flag next to "Red Bull"
+                    looked like a claim about the team's nationality. Splitting
+                    them to opposite corners and labelling the flag with the
+                    nationality itself makes each half self-describing: the left
+                    is a country and says so, the right is a brand mark. The
+                    team's *name* is spelled out in the footer, where the scrim
+                    guarantees contrast and there is room for "Aston Martin
+                    Aramco" without truncating it to nonsense. */}
+                <div className="relative z-20 flex items-start justify-between gap-2">
+                  <span className="flex items-center gap-[7px] min-w-0">
+                    <span className="w-[26px] h-[18px] rounded flex items-center justify-center overflow-hidden bg-[rgba(245,235,222,0.08)] flex-none">
+                      <FlagImg
+                        src={flagSrc}
+                        alt=""
+                        width={26}
+                        height={18}
+                        className="object-cover w-full h-full"
+                      />
+                    </span>
+                    <span className="font-semibold text-[10px] tracking-[0.08em] uppercase text-warm-400 truncate">
+                      {driver.Driver.nationality ?? "—"}
+                    </span>
                   </span>
-                  <span className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-400 truncate">
-                    {team}
-                  </span>
+                  <TeamMark team={team} color={color} logoPath={getTeamLogoPath(team)} />
                 </div>
                 <div className="relative z-20 mt-2">
                   <div className="font-medium text-xs text-warm-300">{given}</div>
@@ -190,6 +258,23 @@ export default function DriversGrid({ drivers }: DriversGridProps) {
 
                 {/* stats footer */}
                 <div className="absolute left-5 right-5 bottom-5 z-20">
+                  {/* The team, named. Sits on the scrim rather than up in the
+                      header because this is the one place on the card with
+                      guaranteed contrast and the full card width — the longest
+                      constructor names run past twenty characters and there is
+                      nowhere else they fit unabbreviated. The swatch is the same
+                      colour as the accent stripe at the card's top edge and the
+                      progress bar directly below, so the three read as one
+                      livery rather than three decorations. */}
+                  <div className="flex items-center gap-[7px] mb-2 min-w-0">
+                    <span
+                      className="w-[3px] h-[11px] rounded-full flex-none"
+                      style={{ background: color.hex }}
+                    />
+                    <span className="font-bold text-[10px] tracking-[0.09em] uppercase text-warm-200 truncate">
+                      {team}
+                    </span>
+                  </div>
                   <div className="flex justify-between mb-2">
                     {[
                       { v: driver.wins, l: "Wins", accent: false },

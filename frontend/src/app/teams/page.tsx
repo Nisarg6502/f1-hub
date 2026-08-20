@@ -20,7 +20,7 @@ import {
 } from "@/lib/constructor-profiles";
 import { getEngineForTeam } from "@/lib/engines";
 import { getTeamColor } from "@/lib/team-colors";
-import { getTeamLogoPath } from "@/lib/team-images";
+import { getTeamAbbreviation, getTeamLogoPath } from "@/lib/team-images";
 import TiltCard from "@/components/tilt-card";
 import { Stagger, StaggerItem } from "@/components/motion-primitives";
 import SeasonSelector from "@/components/season-selector";
@@ -235,7 +235,9 @@ export default async function TeamsPage({ searchParams }: PageProps) {
           const name = team.Constructor.name ?? "—";
           const color = getTeamColor(name);
           const engine = getEngineForTeam(name, year);
-          const mono = name.slice(0, 2).toUpperCase();
+          // Shared with the driver cards, so one team never shows two
+          // different marks. `slice(0, 2)` used to render Ferrari as "FE".
+          const mono = getTeamAbbreviation(name);
           const logoPath = getTeamLogoPath(name);
 
           // Matched on the raw Ergast constructorId, not the display name:
