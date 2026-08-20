@@ -83,7 +83,7 @@ All three: no git commands, strict file ownership, ignore failures in files they
 do not own, do not deploy. The teams agent must **not** edit `backend/app/main.py`
 — it reports the router lines and they get added here.
 
-### What the first, killed dispatch left (known broken)
+### What the first, killed dispatch left (known broken — ALL FIXED, see "Ready to ship" below)
 
 * `standings/page.tsx` + `standings-view.tsx` + `teammate-battle-panel.tsx` — it
   was threading a `teammateBattles` prop from the page through the view into the
@@ -169,25 +169,93 @@ on one screen (now derived; the static metadata drops the count entirely,
 because an export evaluated before any fetch cannot honestly claim a number that
 grows), and three of the five heading-less routes gained a real `h1`.
 
-## Open audit findings, not yet assigned
+## Ready to ship, verified, NOT yet committed
 
-Ranked as the audit ranked them:
+The three held agents' work was finished and the keyboard half of the audit
+went with it. Everything below is in the working tree; nothing is committed,
+because the deploy step is the user's call.
 
-* **Modal focus containment** — Tab ten times with the driver card open and all
-  ten landings are on cards *behind* the overlay. `pitwall-assistant-panel.tsx`
-  already does this correctly and is the in-repo template.
-* **Global search is mouse-only** — results appear that a keyboard user cannot
-  reach; ArrowDown does nothing and Tab skips the open listbox. Invalid ARIA
-  too (a listbox with no owning combobox).
-* **Two routes still have no `h1`** — `/standings` and `/teams`, both mid-rework
-  by held agent work, which is why they were left. `/`, `/drivers` and
-  `/schedule` are done (#123).
-* **`/history` ships a curation error to users** — `no data for "williams"` and
-  two more, in red, for current constructors. The loud version belongs behind a
-  dev flag.
-* Driver rows on `/standings` are not clickable though identical cards
-  elsewhere are; `/telemetry` is ~85% empty in its most common state; three
-  routes carry sub-40px touch targets.
+**The one blocker nobody had spotted: `constructor_titles.router` was never
+registered.** The teams agent was correctly told not to touch `main.py` and to
+report the router lines instead — and the report was never acted on. So the
+whole heritage feature (three agents' worth of work, a 1229-line-adjacent
+backend module and its 14 tests) was shipping against a 404. Two lines in
+`main.py`; `/api/constructor_titles` is now in the OpenAPI paths.
+
+What was finished from the held work:
+
+* **`profileIsCurrent` was never passed** — the heritage card declared the prop
+  and `teams/page.tsx` did not supply it, the last type error in the tree. Now
+  `year === activeSeason`, which is what the prop's own docstring describes.
+* **Global search's keyboard support was half-written**: `activeIndex`,
+  `listboxId`, `optionId` and `listboxRef` were all declared and *none* of them
+  reached the markup — no arrow keys, no `aria-activedescendant`, no owning
+  combobox. Finished, and rewritten to track the active option **by result key
+  rather than by index**: an index survives a keystroke and comes to mean a
+  different row, so Enter would open something the user never highlighted. A
+  key that has left the list resolves to -1 on its own.
+* Two pre-existing lint errors in that held work: `Math.random()` called inside
+  a component body (the jittered backoff, now hoisted to module scope) and a
+  dead `maxDriverPts`.
+
+And the audit findings that were open:
+
+* **Modal focus containment** — the four portal modals now share
+  `use-modal-dialog.ts`. Measured, not assumed (below).
+* **`/standings` and `/teams` have an `h1`** — the last two routes without one.
+* **`/history` no longer ships its curation error to readers.** The finding was
+  right about the symptom and the fix needed one more turn than "hide it":
+  `invalid` is set both by a genuine curation error *and* by a soft-failed
+  fetch, and `⚠ no data for "williams"` was the second kind presented as the
+  first. Gated on `NODE_ENV`, so it still fires loudly in `next dev` where it
+  was useful. A second edit went with it: `filterToCurrentGrid` deliberately
+  keeps an all-invalid lineage so the warning has something to hang off, and
+  with the warning hidden that degraded to a team name against an empty band —
+  "Williams has no history" instead of "this load got no data". Those rows are
+  dropped in production only.
+* **Driver rows on `/standings` open the driver card**, as identical rows do
+  everywhere else. `role="button"` + Enter/Space, matching `tilt-card.tsx`.
+
+### How it was verified
+
+Headless Chrome over CDP against the local stack (dev server + backend with
+`MONGODB_URI` exported), driving real `Input.dispatchKeyEvent` keystrokes and
+reading `document.activeElement` back out. Scripts in this session's scratchpad
+(`cdp/a11y.mjs`, `cdp/circuits.mjs`). **18/18 checks**, including:
+
+| check | measured |
+|---|---|
+| 10 Tabs with the driver dialog open | 10/10 landed inside it |
+| Shift+Tab past the first control | wraps to the last, stays inside |
+| Escape | dialog closes, focus returns to the exact row that opened it, `body.overflow` released |
+| circuit modal's 8 Tabs | all inside; none entered the closed lightbox (`inert` holds) |
+| type "ver", ArrowDown ×2, ArrowUp | `aria-activedescendant` = option-0, exactly one `aria-selected`, focus never left the input |
+| Enter | opened the Max Verstappen dialog; Escape put focus back in the search field |
+
+**The harness can fail, which is the only reason the passes mean anything.** It
+did, twice: the search checks failed 3/3 on the first run (typed before the
+client-side fetch landed — 0 options), and a deliberate negative control
+confirms that with no modal open, 6 Tabs walk 6 *different* controls, so the
+containment check is measuring containment rather than a stuck focus.
+
+Both `complete` branches of `/api/constructor_titles` were exercised on purpose.
+Cold, it resolved 34/76 seasons and the card printed *"Championship totals
+unavailable — a partial count would understate it"*. Warmed to 76/76, the same
+card printed Constructors' 10 (8 as Mercedes) and Drivers' 10 (7 as Mercedes) —
+Tyrrell 1971 + Brawn 2009 + Mercedes 2014-21, and Stewart ×2 + Button + Hamilton
+×6 + Rosberg. The guard is not theoretical; it fires on a cold Cloud Run build.
+
+Suite: **1159 passed / 3 skipped** (was 1145 — the 14 new
+`test_constructor_titles` cases), `tsc` clean, `next build` clean, ESLint clean
+on every changed file. Ten ESLint errors remain repo-wide in files this work did
+not touch (`watch-view.tsx`, `openf1.ts`, `session-tabs.tsx`,
+`local-datetime.tsx`); they are on `main` already and `next build` does not gate
+on them.
+
+## Open audit findings, still unassigned
+
+* `/telemetry` is ~85% empty in its most common state.
+* Three routes carry sub-40px touch targets.
 
 ## Still held, unchanged from Batch 23
 
