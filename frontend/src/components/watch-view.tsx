@@ -9,6 +9,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { createPortal } from "react-dom";
+import PairQr from "./pair-qr";
 import Link from "next/link";
 import { useReducedMotion } from "motion/react";
 import {
@@ -27,7 +28,7 @@ import {
   Smartphone,
   RefreshCw,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { RaceReplay, RaceTiming, ReplayLap, ReplayRunner } from "@/lib/api";
 import { getTeamColor } from "@/lib/team-colors";
 import {
@@ -227,6 +228,11 @@ function useWakeLock(enabled: boolean): boolean {
 
   return enabled && held;
 }
+
+/** `location.origin` cannot change without a navigation, so this store has
+ * nothing to subscribe to. Hoisted to module scope so the identity is
+ * stable — an inline arrow would resubscribe on every render. */
+const NEVER_CHANGES = () => () => {};
 
 export default function WatchView({
   replay,
@@ -594,11 +600,33 @@ export default function WatchView({
     };
   }, [durations]);
 
+
   /* ------------------------- the paired second screen ------------------------- */
 
   const router = useRouter();
+  const searchParams = useSearchParams();
   const raceId = toRaceId(replay.year, replay.round);
   const [partyOpen, setPartyOpen] = useState(false);
+  /**
+   * The deep link the QR encodes, resolved in the browser.
+   *
+   * `window.location.origin` rather than a configured base URL on purpose: the
+   * phone has to reach the exact host the laptop is already on, and that
+   * differs per environment (a LAN address in development, the Cloud Run
+   * hostname in production, a preview URL in between). A build-time constant
+   * would be right in exactly one of those.
+   *
+   * Null on the server so the two renders agree — reading `location` during
+   * render is the same hydration-mismatch class `local-datetime` and the
+   * countdown had to be fixed for. `useSyncExternalStore` is the SSR-safe way
+   * to read a browser value: it takes an explicit server snapshot, and it
+   * needs no state to set and therefore no effect to set it in.
+   */
+  const origin = useSyncExternalStore(
+    NEVER_CHANGES,
+    () => window.location.origin,
+    () => null
+  );
   const [joinCode, setJoinCode] = useState("");
 
   /**
@@ -660,6 +688,51 @@ export default function WatchView({
   });
 
   const { publish: publishParty } = party;
+
+  /**
+   * The URL the QR encodes: this race, plus the code, so the phone arrives
+   * already on the right replay and joins itself.
+   *
+   * Prefers the party's own race id over this page's. They are the same on the
+   * host, but the party is the authority on what is being watched together —
+   * and a code shown on a page that later navigates would otherwise encode a
+   * race nobody is in.
+   */
+  const pairUrl =
+    origin && party.code
+      ? `${origin}/watch/${party.partyRaceId ?? raceId}?pair=${encodeURIComponent(party.code)}`
+      : null;
+
+  /**
+   * `?pair=CODE` — the deep link behind the QR code.
+   *
+   * The phone lands here already on the right race, so joining is the only
+   * step left. Guarded by a ref rather than by `party.paired`, because `join`
+   * is not instant and React can run this effect again before the paired state
+   * lands — which would spend the code twice, and the second spend fails since
+   * a code works exactly once.
+   *
+   * The parameter is stripped either way. It is single-use, so a bookmark, a
+   * reload or a forwarded link containing it can only ever produce a confusing
+   * "code not found" long after the pairing it describes has succeeded.
+   */
+  const autoJoinAttempted = useRef(false);
+  const pairParam = searchParams.get("pair");
+  useEffect(() => {
+    if (!pairParam || autoJoinAttempted.current) return;
+    autoJoinAttempted.current = true;
+    void party.join(pairParam).then((view) => {
+      // Opened from the callback, not the effect body: this is a response to
+      // the join resolving, and a synchronous setState here would be a
+      // cascading render.
+      setPartyOpen(true);
+      if (view?.race_id && view.race_id !== raceId) {
+        router.replace(`/watch/${view.race_id}`);
+        return;
+      }
+      router.replace(`/watch/${raceId}`, { scroll: false });
+    });
+  }, [pairParam, party, raceId, router]);
 
   /**
    * How long the displayed code has left.
@@ -1994,8 +2067,16 @@ export default function WatchView({
                     <>
                       {party.code ? (
                         <div className="mt-3 rounded-2xl px-4 py-4 text-center bg-[rgba(255,138,61,0.10)]">
+                          {pairUrl && (
+                            <div className="flex flex-col items-center gap-2 mb-3.5">
+                              <PairQr value={pairUrl} />
+                              <p className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-400">
+                                Scan with a phone camera
+                              </p>
+                            </div>
+                          )}
                           <p className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-400">
-                            Type this on the other screen
+                            {pairUrl ? "or type this" : "Type this on the other screen"}
                           </p>
                           <p className="font-[family-name:var(--font-headline)] font-extrabold text-3xl tracking-[0.12em] mt-1.5 text-[#FFAE6A] tabular-nums">
                             {groupCode(party.code)}
