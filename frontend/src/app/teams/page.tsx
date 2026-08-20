@@ -9,7 +9,6 @@ import {
   resolveSeasonYear,
 } from "@/lib/api";
 import {
-  filterToCurrentGrid,
   getAllErgastIds,
   resolveLineages,
 } from "@/lib/constructor-lineages";
@@ -26,7 +25,6 @@ import TiltCard from "@/components/tilt-card";
 import { Stagger, StaggerItem } from "@/components/motion-primitives";
 import SeasonSelector from "@/components/season-selector";
 import TeamHeritageCard from "@/components/team-heritage-card";
-import ConstructorGenealogy from "@/components/constructor-genealogy";
 
 // Constructor standings change after every race; render per request.
 export const dynamic = "force-dynamic";
@@ -88,7 +86,11 @@ async function fetchSeasonsWithRetry(id: string) {
   const maxAttempts = 4;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      const { seasons } = await getConstructorSeasons(id);
+      // Only the first attempt may be served from Next's fetch cache. If it
+      // came back empty the cache is the prime suspect, not the network — see
+      // getConstructorSeasons' note on how a cached empty outlived every
+      // retry and rendered a wrong era on every load for a day.
+      const { seasons } = await getConstructorSeasons(id, attempt > 0);
       if (seasons.length > 0 || attempt === maxAttempts - 1) {
         return [id, seasons] as const;
       }
@@ -195,12 +197,6 @@ export default async function TeamsPage({ searchParams }: PageProps) {
     arr.push(name);
     engineGroups.set(engine.name, arr);
   }
-
-  // The genealogy chart below always shows the CURRENT grid, matching
-  // `/history`, and says so in its own subtitle — a lineage chart is about
-  // where today's teams came from, and re-filtering it to a past season
-  // would quietly change what the section means.
-  const gridLineages = filterToCurrentGrid(lineages, activeSeason);
 
   return (
     <div className="px-6 md:px-10 pt-11 pb-16">
@@ -383,23 +379,6 @@ export default async function TeamsPage({ searchParams }: PageProps) {
         </a>
         .
       </p>
-
-      {/* The whole grid's family tree on one timeline — the same component
-          `/history` renders, given the same data, rather than a second
-          genealogy built for this page. */}
-      {gridLineages.length > 0 && (
-        <section className="apex-glass apex-sheen rounded-[22px] p-[26px] mb-10">
-          <div className="font-[family-name:var(--font-headline)] font-bold text-[19px] mb-1">
-            The whole grid, on one timeline
-          </div>
-          <div className="font-medium text-[13px] text-warm-400 mb-[18px]">
-            Every constructor on the {activeSeason} grid traced back to the team
-            it started life as. Band lengths are each era&apos;s real active
-            seasons; the rename notes are curated.
-          </div>
-          <ConstructorGenealogy lineages={gridLineages} races={fullRaces} />
-        </section>
-      )}
 
       {/* Power units */}
       {engineGroups.size > 0 && (

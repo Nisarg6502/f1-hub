@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { getConstructorIdentity } from "@/lib/constructor-identity";
-import type { ResolvedNode } from "@/lib/constructor-lineages";
+import { formatStint, type ResolvedNode } from "@/lib/constructor-lineages";
 import type { EraStats, TeamDossier } from "@/lib/constructor-profiles";
 import { EASE_OUT } from "./motion-primitives";
 
@@ -53,6 +53,12 @@ export interface TeamHeritageCardProps {
    * across rebrands (Silverstone, Faenza, Enstone, Hinwil were all the same
    * address decades before the current names). */
   profileIsCurrent: boolean;
+}
+
+/** "An Aston Martin", "A Mercedes". Spelling-based rather than a phonetic
+ * dictionary, which is enough for a closed set of constructor names. */
+function indefiniteArticle(word: string): string {
+  return /^[aeiou]/i.test(word.trim()) ? "An" : "A";
 }
 
 function eraColor(node: ResolvedNode): string {
@@ -114,20 +120,30 @@ export default function TeamHeritageCard({
   const selected: EraStats | undefined = eras[selectedIndex];
 
   const isChain = eras.length > 1;
+  // Every "N as Mercedes" hint names `current`. With the current era
+  // unresolved there is no era to name, and naming the previous one attributes
+  // this team's record to a team it is not — so the hints fall back to the
+  // unattributed form rather than guessing.
+  const attribute = isChain && current && !dossier.currentEraUnresolved;
   const titleWindow = titlesThroughSeason ? ` (to ${titlesThroughSeason})` : "";
 
   return (
     <div className="relative mt-6 pt-5 border-t border-white/[0.07]">
       {/* --- Computed: the team record ------------------------------------ */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-4">
+        {/* Reads the CURRENT era, not `dossier.debutSeason`. This said
+            "since 1970" on a card headed Mercedes — the debut of Tyrrell,
+            a team of a different name, nationality and owner. The lineage
+            figure is still shown, but under the lineage footnote below where
+            it is labelled as one. */}
         <Stat
           label="On the grid"
-          value={dossier.debutSeason ? `since ${dossier.debutSeason}` : "—"}
+          value={dossier.currentSince ? `since ${dossier.currentSince}` : "—"}
           hint={
-            dossier.seasonsEntered > 0
-              ? `${dossier.seasonsEntered} ${
-                  dossier.seasonsEntered === 1 ? "season" : "seasons"
-                } entered`
+            dossier.currentSeasons > 0
+              ? `${dossier.currentSeasons} ${
+                  dossier.currentSeasons === 1 ? "season" : "seasons"
+                }${attribute ? ` as ${current!.node.label}` : " entered"}`
               : undefined
           }
         />
@@ -135,8 +151,8 @@ export default function TeamHeritageCard({
           label="Grand Prix wins"
           value={String(dossier.lineageWins)}
           hint={
-            isChain && current
-              ? `${current.wins} as ${current.node.label}`
+            attribute
+              ? `${current!.wins} as ${current!.node.label}`
               : "all-time"
           }
         />
@@ -146,8 +162,8 @@ export default function TeamHeritageCard({
               label="Constructors'"
               value={String(dossier.lineageConstructorTitles)}
               hint={
-                isChain && current
-                  ? `${current.constructorTitles.length} as ${current.node.label}`
+                attribute
+                  ? `${current!.constructorTitles.length} as ${current!.node.label}`
                   : `titles${titleWindow}`
               }
             />
@@ -155,8 +171,8 @@ export default function TeamHeritageCard({
               label="Drivers'"
               value={String(dossier.lineageDriverTitles)}
               hint={
-                isChain && current
-                  ? `${current.driverTitles.length} as ${current.node.label}`
+                attribute
+                  ? `${current!.driverTitles.length} as ${current!.node.label}`
                   : `titles won here${titleWindow}`
               }
             />
@@ -172,10 +188,33 @@ export default function TeamHeritageCard({
         )}
       </div>
 
+      {dossier.currentEraUnresolved && (
+        <div className="font-medium text-[10px] text-warm-500 mt-2.5 leading-snug">
+          This team&apos;s own season history did not load, so the figures above
+          cover its earlier eras only.
+        </div>
+      )}
+
+      {/* The separate earlier life of a reused name. Mercedes raced in
+          1954-1955 and came back in 2010; Aston Martin in 1959-1960 and came
+          back in 2021. Those seasons are NOT counted into anything above —
+          they were a different team by every measure except the name — but
+          leaving them out entirely reads as if the team began at its most
+          recent debut. */}
+      {current && dossier.priorStints.length > 0 && (
+        <div className="font-medium text-[10.5px] text-warm-400 mt-2.5 leading-snug">
+          {indefiniteArticle(current.node.label)} {current.node.label} team also
+          raced in {dossier.priorStints.map(formatStint).join(", ")} — a
+          separate entry, not counted above.
+        </div>
+      )}
+
       {isChain && (
         <div className="font-medium text-[10px] text-warm-500 mt-2.5 leading-snug">
-          Wins and titles are totalled across every era of this lineage, from{" "}
-          {eras[0].node.label} onwards.
+          Wins and titles are totalled across every era of this lineage — {
+            dossier.seasonsEntered
+          }{" "}
+          seasons from {eras[0].node.label} in {dossier.debutSeason} onwards.
         </div>
       )}
 
