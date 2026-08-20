@@ -131,7 +131,7 @@ export const CONSTRUCTOR_LINEAGES: Lineage[] = [
         ergastIds: ["jordan"],
         label: "Jordan",
         colorKey: "jordan",
-        note: "Eddie Jordan's team, a grid fixture from 1991, scored its sole win in 1999 (Belgian GP).",
+        note: "Eddie Jordan's team, a grid fixture from 1991, won four Grands Prix: Spa in 1998, Magny-Cours and Monza in 1999, and Interlagos in 2003.",
       },
       {
         ergastIds: ["mf1"],
@@ -355,7 +355,7 @@ export const CONSTRUCTOR_LINEAGES: Lineage[] = [
         ergastIds: ["williams"],
         label: "Williams",
         colorKey: "williams",
-        note: "Sir Frank Williams' team has raced under its own name continuously since 1975.",
+        note: "Sir Frank Williams' team has been on the grid since 1975. The single gap in Ergast's own season list is 1977, when the newly-formed Williams Grand Prix Engineering ran a March chassis and so was not the constructor of record — which is why the count reads 51 seasons across a 52-year span.",
       },
     ],
   },
@@ -368,7 +368,7 @@ export const CONSTRUCTOR_LINEAGES: Lineage[] = [
         ergastIds: ["haas"],
         label: "Haas",
         colorKey: "haas",
-        note: "Gene Haas' team entered in 2016 as F1's first American constructor since 1986, and is the only current entry that was built from scratch rather than bought from a predecessor.",
+        note: "Gene Haas' team entered in 2016 as F1's first American constructor since 1986, and was built from scratch rather than bought from a predecessor — which, until Cadillac arrived in 2026, no other team on the grid could say.",
       },
     ],
   },
@@ -487,6 +487,14 @@ export function getAllErgastIds(): string[] {
 export interface ResolvedNode extends LineageNode {
   startYear: number | null;
   endYear: number | null;
+  /** Every season this era actually raced, ascending — Ergast's own season
+   * list for the node's ids, sliced by `yearRange`. `startYear`/`endYear`/
+   * `seasonCount` are all derived from it; it is exposed as well because a
+   * consumer viewing a PAST season has to re-derive them capped to that year
+   * (`/teams` renders a lineage as it stood in the selected season), and a
+   * span cannot be capped correctly without the underlying list when the
+   * span has gaps. */
+  seasons: number[];
   /** How many seasons this era actually raced. Not `endYear - startYear + 1`
    * — a few eras have gaps in Ergast's own season list, so this is the real
    * count and can be smaller than the span the band covers. */
@@ -523,6 +531,7 @@ export function resolveLineages(
           ...node,
           startYear: null,
           endYear: null,
+          seasons: [],
           seasonCount: 0,
           invalid: true,
         };
@@ -532,6 +541,7 @@ export function resolveLineages(
         ...node,
         startYear: years[0],
         endYear: years[years.length - 1],
+        seasons: years,
         seasonCount: years.length,
         invalid: false,
       };
