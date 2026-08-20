@@ -7,8 +7,11 @@ import {
 } from "@/lib/api";
 import StandingsView from "@/components/standings-view";
 import {
+  buildDriverSeasonLogs,
   buildTeammateBattles,
   fetchSeasonResults,
+  fetchSeasonSprints,
+  type DriverSeasonLog,
   type TeammateBattle,
 } from "@/lib/season-results";
 
@@ -56,10 +59,21 @@ export default async function StandingsPage({ searchParams }: PageProps) {
   // fetch once (and Next's fetch cache holds for 300s), so it ships with the
   // markup instead -- the panel now has no loading state to show.
   let teammateBattles: TeammateBattle[] = [];
+  // The per-driver season logs behind each row's disclosure. Derived from the
+  // same rounds the teammate battle already needed, so the extra surface costs
+  // one additional fan-out (sprints only, on sprint weekends only) rather than
+  // a second full season load — and nothing at all at expand time.
+  let seasonLogs: Record<string, DriverSeasonLog> = {};
   if ((drivers ?? []).length > 0) {
     try {
-      const rounds = await fetchSeasonResults(year, { includeQualifying: false });
+      const [rounds, sprints] = await Promise.all([
+        fetchSeasonResults(year, { includeQualifying: false }),
+        // Settled separately: a sprint fetch that fails should cost the sprint
+        // points, not the whole season log.
+        fetchSeasonSprints(year).catch(() => []),
+      ]);
       teammateBattles = buildTeammateBattles(drivers ?? [], rounds);
+      seasonLogs = buildDriverSeasonLogs(drivers ?? [], rounds, sprints);
     } catch {
       // Leave the panel empty rather than failing the page.
     }
@@ -70,6 +84,7 @@ export default async function StandingsPage({ searchParams }: PageProps) {
       drivers={drivers ?? []}
       constructors={constructors ?? []}
       teammateBattles={teammateBattles}
+      seasonLogs={seasonLogs}
       year={year}
       maxYear={getActiveSeasonYear()}
     />

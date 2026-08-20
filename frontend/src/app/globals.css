@@ -314,6 +314,19 @@ input::placeholder {
     opacity: 1;
   }
 }
+/* The watch-mode pairing confirmation. Carries its own -50% because the toast
+   is centred with a transform and an element has only one; see the note at the
+   call site in watch-view.tsx. */
+@keyframes apex-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
 
 .anim-rise {
   animation: riseIn 0.7s var(--ease-out-apex) both;

@@ -2,8 +2,10 @@ import {
   getQualifyingResults,
   getRaceResults,
   getSeasonRaces,
+  getSprintResults,
   type DriverStanding,
   type Race,
+  type RaceResult,
   type SeasonRoundResults,
 } from "./api";
 import { buildHeadToHead } from "./driver-compare";
@@ -112,6 +114,226 @@ export function loadSeasonResults(
   });
   inFlight.set(key, promise);
   return promise;
+}
+
+/* -------------------------------------------------------------------------- */
+/* per-driver season logs                                                      */
+/* -------------------------------------------------------------------------- */
+
+/** One round's sprint classification. Only sprint weekends appear. */
+export interface SeasonSprintResults {
+  round: string;
+  results: RaceResult[];
+}
+
+/**
+ * Sprint classifications for every sprint weekend that has already run.
+ *
+ * Separate from `fetchSeasonResults` rather than folded into it because the
+ * two have very different costs: a sprint exists on maybe six rounds of a
+ * twenty-four-round season, so asking every round for one would triple the
+ * request count of the caller that needs it and add nothing for the eighteen
+ * rounds that never had a sprint. The schedule already says which weekends
+ * have a `Sprint` session, so this only asks those.
+ *
+ * A season's points do not add up without these. A sprint is worth up to 8
+ * points and they are not in the Grand Prix results, so a race-only log would
+ * quietly disagree with the championship table it sits underneath — the exact
+ * kind of near-miss that makes a reader distrust the whole page.
+ */
+export async function fetchSeasonSprints(
+  year: number
+): Promise<SeasonSprintResults[]> {
+  const { races } = await getSeasonRaces(year);
+  const sprintRounds = (races ?? []).filter(
+    (race) => Boolean(race.Sprint) && hasRoundBeenRun(race)
+  );
+
+  const settled = await Promise.allSettled(
+    sprintRounds.map(async (race): Promise<SeasonSprintResults> => {
+      const res = await getSprintResults(year, Number(race.round));
+      return { round: race.round, results: res.results ?? [] };
+    })
+  );
+
+  return settled
+    .filter(
+      (r): r is PromiseFulfilledResult<SeasonSprintResults> => r.status === "fulfilled"
+    )
+    .map((r) => r.value);
+}
+
+/** One round from one driver's point of view. */
+export interface DriverRoundEntry {
+  round: number;
+  raceName: string;
+  /** `Bahrain Grand Prix` -> `Bahrain`, for a tile 76px wide. */
+  shortName: string;
+  /** Classified finishing position, or null when they were not classified. */
+  position: number | null;
+  /** Ergast's `positionText`: a number, or `R`/`D`/`W`/`N` for the rest. */
+  positionText: string;
+  grid: number | null;
+  /** Grand Prix points only. */
+  racePoints: number;
+  sprintPosition: number | null;
+  sprintPoints: number;
+  /** Race + sprint, i.e. everything this round contributed. */
+  points: number;
+  status: string | null;
+  /** Reached the flag, lapped or not. */
+  finished: boolean;
+}
+
+export interface DriverSeasonLog {
+  driverId: string;
+  /** Ascending by round; only rounds this driver actually appeared in. */
+  entries: DriverRoundEntry[];
+  wins: number;
+  podiums: number;
+  /** Rounds that returned at least one point, sprint included. */
+  pointsFinishes: number;
+  dnfs: number;
+  bestFinish: number | null;
+  /** Summed from `entries`, so it is race + sprint over the rounds we could
+   * load — not necessarily the championship total. See the note on the panel. */
+  totalPoints: number;
+  /** The single round that contributed the most. Null if nothing scored. */
+  bestRound: DriverRoundEntry | null;
+}
+
+/** Trims the boilerplate off a race name so it fits a tile. */
+export function shortRaceName(raceName: string): string {
+  return (
+    raceName
+      .replace(/\s*Grand Prix\s*/i, " ")
+      .replace(/\s*\bGP\b\s*/i, " ")
+      .trim() || raceName
+  );
+}
+
+function toNumber(value: string | undefined): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Did this driver see the flag?
+ *
+ * `positionText` is the primary signal — Ergast gives a bare number for anyone
+ * classified and a letter (`R` retired, `D` disqualified, `W` withdrawn, `N`
+ * not classified) for everyone else. `status` is the tiebreak, because a car
+ * can be *classified* having stopped near the end, in which case the position
+ * is a number but the status says why it stopped. `Finished` and `+n Lap(s)`
+ * are the only two statuses that mean the car was running at the end.
+ */
+function didFinish(result: RaceResult): boolean {
+  const text = (result.positionText ?? result.position ?? "").trim();
+  if (!/^\d+$/.test(text)) return false;
+  const status = (result.status ?? "").trim();
+  if (!status) return true;
+  return /^finished$/i.test(status) || /^\+\d+\s+laps?$/i.test(status);
+}
+
+/**
+ * Where every driver's points actually came from, round by round.
+ *
+ * Built on the server alongside the teammate battles, from the same already-
+ * fetched rounds, so opening a driver's season log costs no request at all —
+ * the alternative (fetch on expand) would put a spinner behind a disclosure
+ * that is meant to feel like it was already there.
+ */
+export function buildDriverSeasonLogs(
+  drivers: DriverStanding[],
+  rounds: SeasonRoundResults[],
+  sprints: SeasonSprintResults[] = []
+): Record<string, DriverSeasonLog> {
+  const sprintByRound = new Map<string, RaceResult[]>();
+  for (const sprint of sprints) sprintByRound.set(String(sprint.round), sprint.results);
+
+  // Ascending, because the API's round order is not guaranteed and a season
+  // log read out of order is worse than no log.
+  const ordered = [...rounds].sort((a, b) => Number(a.round) - Number(b.round));
+
+  const logs: Record<string, DriverSeasonLog> = {};
+
+  for (const driver of drivers) {
+    const driverId = driver.Driver.driverId;
+    if (!driverId) continue;
+
+    const entries: DriverRoundEntry[] = [];
+    for (const round of ordered) {
+      const result = round.results.find((r) => r.Driver?.driverId === driverId);
+      const sprintResult = sprintByRound
+        .get(String(round.round))
+        ?.find((r) => r.Driver?.driverId === driverId);
+
+      // A round where the driver appears in neither classification is a round
+      // they were not at (a mid-season replacement, an injury). Skipped rather
+      // than shown as a zero, which would read as a bad weekend.
+      if (!result && !sprintResult) continue;
+
+      const racePoints = toNumber(result?.points) ?? 0;
+      const sprintPoints = toNumber(sprintResult?.points) ?? 0;
+      const positionText = (
+        result?.positionText ??
+        result?.position ??
+        "—"
+      ).trim();
+
+      entries.push({
+        round: Number(round.round),
+        raceName: round.raceName,
+        shortName: shortRaceName(round.raceName),
+        position: /^\d+$/.test(positionText) ? Number(positionText) : null,
+        positionText,
+        grid: toNumber(result?.grid),
+        racePoints,
+        sprintPosition: toNumber(sprintResult?.position),
+        sprintPoints,
+        points: racePoints + sprintPoints,
+        status: result?.status ?? null,
+        finished: result ? didFinish(result) : false,
+      });
+    }
+
+    let wins = 0;
+    let podiums = 0;
+    let pointsFinishes = 0;
+    let dnfs = 0;
+    let bestFinish: number | null = null;
+    let totalPoints = 0;
+    let bestRound: DriverRoundEntry | null = null;
+
+    for (const entry of entries) {
+      if (entry.position === 1) wins += 1;
+      if (entry.position !== null && entry.position <= 3) podiums += 1;
+      if (entry.points > 0) pointsFinishes += 1;
+      if (!entry.finished) dnfs += 1;
+      if (entry.position !== null && (bestFinish === null || entry.position < bestFinish)) {
+        bestFinish = entry.position;
+      }
+      totalPoints += entry.points;
+      if (entry.points > 0 && (!bestRound || entry.points > bestRound.points)) {
+        bestRound = entry;
+      }
+    }
+
+    logs[driverId] = {
+      driverId,
+      entries,
+      wins,
+      podiums,
+      pointsFinishes,
+      dnfs,
+      bestFinish,
+      totalPoints,
+      bestRound,
+    };
+  }
+
+  return logs;
 }
 
 export interface TeammateBattle {

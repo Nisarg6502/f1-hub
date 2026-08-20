@@ -27,6 +27,7 @@ import {
   Rows2,
   Smartphone,
   RefreshCw,
+  Check,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { RaceReplay, RaceTiming, ReplayLap, ReplayRunner } from "@/lib/api";
@@ -50,6 +51,7 @@ import { toRaceId } from "@/lib/watch-races";
 import {
   groupCode,
   useWatchParty,
+  type WatchPairEvent,
   type WatchPosition,
 } from "@/lib/watch-session";
 import {
@@ -233,6 +235,100 @@ function useWakeLock(enabled: boolean): boolean {
  * nothing to subscribe to. Hoisted to module scope so the identity is
  * stable — an inline arrow would resubscribe on every render. */
 const NEVER_CHANGES = () => () => {};
+
+/** How long the pairing confirmation stays up. Long enough to be read after
+ * looking up from a phone camera, short enough not to sit over the tower. */
+const PAIRED_TOAST_MS = 4200;
+
+/**
+ * "It worked" — on whichever screen just did the working.
+ *
+ * Deliberately not inside the pairing popover. On the host the popover is
+ * frequently closed by the time the phone gets scanned (you open it, show the
+ * code, put the laptop down), and on the phone the popover has only just been
+ * opened by the auto-join and competes with the QR panel behind it. A screen
+ * that has to be *open* to report success reports nothing in the common case.
+ *
+ * Portalled to `document.body` for the same reason every other overlay in this
+ * file is: the header and footer are both flex-none clipping contexts, and the
+ * body is `overflow-hidden`, so anything fixed-positioned inside the tree is
+ * one layout change from being cut off. `role="status"` rather than `alert` —
+ * this is a confirmation of something the user just did, not an interruption,
+ * and `alert` would preempt whatever a screen reader was mid-sentence on.
+ */
+function PairedToast({
+  event,
+  onDone,
+}: {
+  event: WatchPairEvent | null;
+  onDone: () => void;
+}) {
+  const reduce = useReducedMotion();
+
+  // Keyed on `event.id`, not on the object: a second pairing while the first
+  // toast is still up has to restart the timer rather than inherit the
+  // remainder of the old one.
+  const eventId = event?.id ?? null;
+  useEffect(() => {
+    if (eventId === null) return;
+    const handle = setTimeout(onDone, PAIRED_TOAST_MS);
+    return () => clearTimeout(handle);
+  }, [eventId, onDone]);
+
+  // No `mounted` guard: `event` is null on the server and null on the client's
+  // first render (it can only be set by a fetch resolving), so both renders
+  // agree on nothing and `document.body` is never touched during SSR. Same
+  // shape as the pairing popover's portal below.
+  if (!event) return null;
+
+  const joined = event.kind === "joined";
+  const others = Math.max(1, event.devices - 1);
+
+  return createPortal(
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed z-[60] flex items-center gap-3 pl-3 pr-4 py-3 rounded-2xl pointer-events-none"
+      style={{
+        top: "max(0.75rem, env(safe-area-inset-top, 0px) + 0.75rem)",
+        left: "50%",
+        // Centring lives in the transform, and so does the entrance, so the two
+        // cannot be split across a Tailwind utility and a keyframe — the
+        // animation would win and the toast would jump to the left edge for its
+        // whole duration. `apex-toast-in` carries the -50% itself.
+        transform: "translateX(-50%)",
+        width: "min(calc(100vw - 1.5rem), 340px)",
+        // Opaque, not glass. This lands on top of a moving timing tower, and a
+        // translucent panel over twenty rows of shifting numbers is the one
+        // place where the house style actively costs legibility.
+        background: "linear-gradient(180deg,#241a13,#191210)",
+        border: "1px solid rgba(255,138,61,0.45)",
+        boxShadow: "0 20px 50px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.10)",
+        animation: reduce ? undefined : "apex-toast-in 320ms var(--ease-out-apex) both",
+      }}
+    >
+      <span
+        className="flex items-center justify-center w-8 h-8 rounded-full flex-none"
+        style={{ background: "linear-gradient(140deg,#FFAE6A,#FF5A1F)", color: "#1a1210" }}
+      >
+        <Check size={17} strokeWidth={3} />
+      </span>
+      <div className="min-w-0">
+        <p className="font-extrabold text-[13px] text-[#FFAE6A] leading-tight">
+          {joined ? "Paired with the other screen" : "Second screen paired"}
+        </p>
+        <p className="font-medium text-[11px] text-warm-400 leading-snug mt-0.5">
+          {joined
+            ? "This device now follows the same replay. Play, pause or jump here and the other screen follows too."
+            : `${event.devices} screens in step — ${others} other ${
+                others === 1 ? "device is" : "devices are"
+              } following this replay.`}
+        </p>
+      </div>
+    </div>,
+    document.body
+  );
+}
 
 export default function WatchView({
   replay,
@@ -1063,6 +1159,10 @@ export default function WatchView({
 
   return (
     <div className="flex flex-col h-[100dvh] overflow-hidden bg-[#070605] text-on-background select-none">
+      {/* Both halves of a successful pairing, announced on the screen that
+          experienced it. See `WatchPairEvent`. */}
+      <PairedToast event={party.pairEvent} onDone={party.clearPairEvent} />
+
       {/* ------------------------------ header ------------------------------ */}
       <header
         className={`flex items-center gap-4 px-4 md:px-6 py-2.5 [@media(max-height:520px)]:py-1 border-b border-white/[0.07] flex-none ${
@@ -1907,20 +2007,34 @@ export default function WatchView({
             onClick={() => setPartyOpen((open) => !open)}
             aria-expanded={partyOpen}
             aria-label={
-              party.paired
-                ? `Paired with ${party.devices} screens. Manage pairing`
-                : "Pair a second screen"
+              // Three states, not two. A host that has minted a code but has
+              // nobody with it yet is `paired` (a session exists) while
+              // `devices` is still 1, and the old two-branch label announced
+              // that as "Paired with 1 screens" — wrong on the fact and wrong
+              // on the grammar. Waiting is its own state and says so.
+              !party.paired
+                ? "Pair a second screen"
+                : party.devices > 1
+                  ? `Paired with ${party.devices} screens. Manage pairing`
+                  : "Waiting for a second screen to pair. Manage pairing"
             }
             title={
-              party.paired
-                ? `${party.devices} screens are following this replay together`
-                : "Show a code so a phone or another screen can follow this replay in step"
+              !party.paired
+                ? "Show a code so a phone or another screen can follow this replay in step"
+                : party.devices > 1
+                  ? `${party.devices} screens are following this replay together`
+                  : "Waiting for another screen to scan the code"
             }
             className="flex items-center gap-1.5 h-11 [@media(max-height:520px)]:h-9 px-3 rounded-xl apex-glass-soft font-bold text-xs transition-[color,border-color,transform] duration-150 active:scale-[0.97]"
             style={{ color: party.paired ? "#FFAE6A" : undefined }}
           >
             <Smartphone size={15} />
-            {party.paired && <span className="tabular-nums">{party.devices}</span>}
+            {/* The count, only once it counts something. A lone "1" beside a
+                phone icon reads as "one phone is paired" when in fact nobody
+                has joined yet; the orange tint already says a session is live. */}
+            {party.devices > 1 && (
+              <span className="tabular-nums">{party.devices}</span>
+            )}
           </button>
 
           {partyOpen &&
@@ -1949,6 +2063,15 @@ export default function WatchView({
                     bottom: "max(4.25rem, env(safe-area-inset-bottom, 0px) + 4.25rem)",
                     width: "min(calc(100vw - 1.5rem), 400px)",
                     maxHeight: "min(70vh, calc(100dvh - 7rem))",
+                    // Near-opaque, overriding `.apex-glass-strong`'s 0.62. The
+                    // popover sits directly over the timing tower, and at 0.62
+                    // twenty rows of moving numbers show through the panel that
+                    // is meant to be read carefully — a pairing code is
+                    // transcribed digit by digit, and a QR is a contrast target
+                    // a camera has to lock onto. Inline because the glass
+                    // classes are unlayered and beat any utility; see the note
+                    // above the glass definitions in globals.css.
+                    background: "linear-gradient(180deg,#241a13 0%,#191210 100%)",
                   }}
                   role="group"
                   aria-label="Second screen pairing"
@@ -2065,8 +2188,50 @@ export default function WatchView({
                     </>
                   ) : (
                     <>
+                      {party.devices > 1 && (
+                        // The persistent half of the confirmation. The toast
+                        // above is transient by design; this is what the panel
+                        // says when you open it ten minutes later to check.
+                        <div
+                          className="mt-3 flex items-center gap-2.5 rounded-xl px-3 py-2.5"
+                          style={{
+                            background: "rgba(255,138,61,0.14)",
+                            border: "1px solid rgba(255,138,61,0.34)",
+                          }}
+                        >
+                          <span
+                            className="flex items-center justify-center w-6 h-6 rounded-full flex-none"
+                            style={{
+                              background: "linear-gradient(140deg,#FFAE6A,#FF5A1F)",
+                              color: "#1a1210",
+                            }}
+                          >
+                            <Check size={14} strokeWidth={3} />
+                          </span>
+                          <p className="font-bold text-[12px] text-[#FFAE6A]">
+                            Paired ·{" "}
+                            <span className="tabular-nums">{party.devices}</span> screens
+                            in step
+                          </p>
+                        </div>
+                      )}
+
                       {party.code ? (
-                        <div className="mt-3 rounded-2xl px-4 py-4 text-center bg-[rgba(255,138,61,0.10)]">
+                        <div
+                          className="mt-3 rounded-2xl px-4 py-4 text-center"
+                          style={{
+                            // Solid, not glass. The QR is the one element on
+                            // this page a camera has to resolve, and a
+                            // translucent surround puts a moving timing tower
+                            // inside the frame the scanner is metering against.
+                            // The plate is also the visual cue that the code is
+                            // an object to point something at rather than
+                            // another panel to read.
+                            background: "#120d0a",
+                            border: "1px solid rgba(255,138,61,0.28)",
+                            boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)",
+                          }}
+                        >
                           {pairUrl && (
                             <div className="flex flex-col items-center gap-2 mb-3.5">
                               <PairQr value={pairUrl} />
@@ -2092,14 +2257,27 @@ export default function WatchView({
                           </p>
                         </div>
                       ) : (
-                        <div className="mt-3 rounded-2xl px-4 py-4 bg-[rgba(255,255,255,0.04)]">
-                          <p className="font-extrabold text-sm text-[#FFAE6A]">
-                            {party.devices} screens in step
-                          </p>
-                          <p className="font-medium text-[11px] text-warm-400 mt-1 leading-relaxed">
-                            The code has been used and no longer works. Add
-                            another screen — or recover one that reloaded — with a
-                            fresh one.
+                        <div
+                          className="mt-3 rounded-2xl px-4 py-4"
+                          style={{
+                            background: "#120d0a",
+                            border: "1px solid rgba(255,255,255,0.08)",
+                          }}
+                        >
+                          <p className="font-medium text-[11px] text-warm-400 leading-relaxed">
+                            {/* The device count is stated by the success block
+                                above; repeating it here read as two different
+                                facts. This box has one job now: say why there
+                                is no code to look at.
+
+                                Worded for both sides of a pairing. A device
+                                that *joined* is never told the code it burned,
+                                so it lands here too — and telling it "the code
+                                has been used" describes something it never
+                                saw. Either device can mint a new one. */}
+                            No code is showing — a code works exactly once. Mint a
+                            fresh one to add another screen, or to recover one
+                            that reloaded.
                           </p>
                         </div>
                       )}
