@@ -41,10 +41,14 @@ export const DRIVER_PORTRAIT_SOURCE_WIDTH = 440;
 export const DRIVER_PORTRAIT_SOURCE_HEIGHT = 1265;
 
 /**
- * `face` — head, neck and a sliver of shoulder; for small square avatars.
- * `bust` — head to upper chest; for cards and hero panels.
+ * `face`   — head, neck and a sliver of shoulder; for small square avatars.
+ * `bust`   — head to upper chest; for cards and hero panels.
+ * `figure` — head down to mid-torso, meant to be CLIPPED at the container's
+ *            bottom edge so the driver reads as standing in the card rather
+ *            than as a photo that happens to end. Its band runs past the
+ *            bottom of the container on purpose (see FRAME_BANDS).
  */
-export type DriverPortraitFrame = "face" | "bust";
+export type DriverPortraitFrame = "face" | "bust" | "figure";
 
 /**
  * Source-row band that each frame maps onto the container's height. The top of
@@ -54,6 +58,11 @@ export type DriverPortraitFrame = "face" | "bust";
 const FRAME_BANDS: Record<DriverPortraitFrame, readonly [number, number]> = {
   face: [-16, 250],
   bust: [-24, 440],
+  // Row 520 of 1265 is upper-mid torso. Mapping it to the container's bottom
+  // edge means the figure is cut off there by the container's own
+  // `overflow: hidden` rather than fading out or floating — which is what
+  // makes a cutout sit in a card instead of on it.
+  figure: [-20, 520],
 };
 
 function round2(n: number): number {
