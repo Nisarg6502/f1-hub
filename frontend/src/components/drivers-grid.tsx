@@ -5,6 +5,7 @@ import Image from "next/image";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import type { DriverStanding } from "@/lib/api";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
+import { driverPortraitFrameStyle, driverPortraitSizes } from "@/lib/driver-portrait";
 import { getFlagPath } from "@/lib/flags";
 import { getTeamColor } from "@/lib/team-colors";
 import TiltCard from "@/components/tilt-card";
@@ -58,7 +59,7 @@ export default function DriversGrid({ drivers }: DriversGridProps) {
           return (
             <StaggerItem key={`${given} ${family}` || idx}>
               <TiltCard
-                className="apex-glass rounded-[18px] overflow-hidden p-5 min-h-[280px] block h-full cursor-pointer"
+                className="apex-glass rounded-[18px] overflow-hidden p-5 min-h-[340px] block h-full cursor-pointer"
                 strength={6}
                 onClick={() => setSelected(driver)}
                 ariaLabel={`View ${given} ${family}'s profile`}
@@ -73,18 +74,24 @@ export default function DriversGrid({ drivers }: DriversGridProps) {
                   {num}
                 </div>
 
-                {/* cutout / placeholder */}
-                <div className="absolute left-5 right-5 top-16 bottom-24 rounded-xl overflow-hidden flex items-end justify-center">
+                {/* Cutout / placeholder.
+                    The band clears the name block above (ends at ~84px) and the
+                    stats footer below (~68px tall), so the portrait is never
+                    behind text. It used to start at top-16, which put the
+                    driver's face under his own name. */}
+                <div className="absolute left-5 right-5 top-[92px] bottom-[76px] rounded-xl overflow-hidden">
                   {imgPath ? (
                     <motion.div layoutId={photoLayoutId} className="absolute inset-0">
-                      <Image
-                        src={imgPath}
-                        alt={`${given} ${family}`}
-                        fill
-                        sizes="(max-width: 640px) 90vw, 320px"
-                        className="object-cover object-[50%_0%] drop-shadow-[0_10px_28px_rgba(0,0,0,0.7)]"
-                        priority={idx < 4}
-                      />
+                      <div style={driverPortraitFrameStyle("bust")}>
+                        <Image
+                          src={imgPath}
+                          alt={`${given} ${family}`}
+                          fill
+                          sizes={driverPortraitSizes(172, "bust")}
+                          className="object-cover drop-shadow-[0_10px_28px_rgba(0,0,0,0.7)]"
+                          priority={idx < 4}
+                        />
+                      </div>
                     </motion.div>
                   ) : (
                     <div className="absolute inset-0 apex-hatch flex items-end justify-center pb-2">
