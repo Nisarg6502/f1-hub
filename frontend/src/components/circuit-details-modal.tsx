@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { type CircuitDetail, type CircuitHistory, getCircuitHistory } from "@/lib/api";
@@ -10,6 +10,7 @@ import {
   resolveTrackGeometry,
   type TrackGeometryState,
 } from "@/lib/track-geometry-api";
+import { useModalDialog } from "@/lib/use-modal-dialog";
 import TrackMap from "./track-map";
 import FlagImg from "./flag-img";
 
@@ -90,24 +91,41 @@ export default function CircuitDetailsModal({
     };
   }, [isOpen, circuit.circuit_name]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      // Escape closes the lightbox first, then the modal on a second press.
+  // Escape and the scroll lock behave exactly as before — Escape still closes
+  // the lightbox first and the modal on a second press. What is new is the
+  // `role="dialog"`/`aria-modal` pair below, initial focus, and a Tab cycle
+  // that cannot walk the page behind the overlay.
+  //
+  // `getScope` is the reason the hook has that option at all: the lightbox is a
+  // *sibling* of the panel, not a descendant, so while it is open the cycle has
+  // to be its subtree rather than the panel's. Resolved per keystroke, so it
+  // follows `lightboxOpen` without re-subscribing anything.
+  const lightboxRef = useRef<HTMLDivElement>(null);
+  const expandButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useModalDialog<HTMLDivElement>({
+    onClose,
+    enabled: isOpen,
+    onEscape: () => {
       if (lightboxOpen) setLightboxOpen(false);
       else onClose();
-    };
-    if (isOpen) {
-      document.body.style.overflow = "hidden";
-      window.addEventListener("keydown", handleKeyDown);
-    } else {
-      document.body.style.overflow = "auto";
+    },
+    getScope: () => (lightboxOpen ? lightboxRef.current : null),
+  });
+
+  // The lightbox is its own focus hand-off: opening moves focus into it,
+  // closing puts focus back on the control that opened it. Without this, the
+  // panel's trap is correct but focus is still parked on a button underneath a
+  // full-screen overlay. Skips the very first render (`hasOpenedLightbox`) so
+  // mounting the modal does not steal focus from the panel itself.
+  const hasOpenedLightbox = useRef(false);
+  useEffect(() => {
+    if (lightboxOpen) {
+      hasOpenedLightbox.current = true;
+      lightboxRef.current?.focus();
+    } else if (hasOpenedLightbox.current) {
+      expandButtonRef.current?.focus();
     }
-    return () => {
-      document.body.style.overflow = "auto";
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isOpen, onClose, lightboxOpen]);
+  }, [lightboxOpen]);
 
   const info = circuit.track_information;
   const visible = isOpen && entered;
@@ -146,6 +164,11 @@ export default function CircuitDetailsModal({
       }`}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={circuit.circuit_name}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         className={`relative w-[560px] max-w-full max-h-full overflow-y-auto rounded-[24px] apex-glass-strong apex-sheen transition-all duration-300 ease-[cubic-bezier(0.2,0.9,0.2,1)] ${
           visible
@@ -203,6 +226,7 @@ export default function CircuitDetailsModal({
             />
             {circuitImagePath && (
               <button
+                ref={expandButtonRef}
                 onClick={() => setLightboxOpen(true)}
                 aria-label="View full-size circuit layout"
                 className="absolute top-2.5 right-2.5 w-8 h-8 rounded-[9px] bg-[rgba(6,5,4,0.55)] backdrop-blur-sm border border-white/10 flex items-center justify-center text-warm-100 hover:bg-[rgba(6,5,4,0.8)] hover:border-[rgba(255,138,61,0.5)] transition-[background-color,border-color,transform] duration-150 active:scale-90"
@@ -295,6 +319,17 @@ export default function CircuitDetailsModal({
 
     {circuitImagePath && (
       <div
+        ref={lightboxRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${circuit.circuit_name} layout, full size`}
+        tabIndex={-1}
+        // This overlay stays mounted while closed (it only fades out), so its
+        // close button was in the Tab order the whole time — a keyboard user
+        // could focus a control on an invisible layer. `inert` takes the whole
+        // subtree out of both the tab order and the accessibility tree until
+        // the lightbox is actually open.
+        inert={!lightboxOpen}
         onClick={() => setLightboxOpen(false)}
         className={`fixed inset-0 z-[90] flex items-center justify-center p-6 bg-[rgba(4,3,3,0.85)] backdrop-blur-md transition-opacity duration-200 ${
           lightboxOpen ? "opacity-100" : "opacity-0 pointer-events-none"

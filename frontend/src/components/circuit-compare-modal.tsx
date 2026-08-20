@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, useReducedMotion } from "motion/react";
 import { getCircuitHistory, type CircuitHistory } from "@/lib/api";
+import { useModalDialog } from "@/lib/use-modal-dialog";
 import type { CircuitOption } from "./circuit-dna-compare";
 import TrackMap from "./track-map";
 import FlagImg from "./flag-img";
@@ -162,17 +163,9 @@ export default function CircuitCompareModal({
     };
   }, [circuitA.detail.circuit_name, circuitB.detail.circuit_name]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.body.style.overflow = "auto";
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onClose]);
+  // See `use-modal-dialog.ts`: Escape + scroll lock as before, plus the dialog
+  // semantics, initial focus and Tab containment this modal never had.
+  const dialogRef = useModalDialog<HTMLDivElement>({ onClose });
 
   const rows = buildRows(circuitA, circuitB, historyA, historyB);
 
@@ -186,6 +179,11 @@ export default function CircuitCompareModal({
       className="fixed inset-0 z-[80] flex items-center justify-center p-5 md:p-10 bg-[rgba(6,5,4,0.65)] backdrop-blur-[8px]"
     >
       <motion.div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${circuitA.label} compared with ${circuitB.label}`}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.92, y: 24 }}
         animate={reduce ? { opacity: 1 } : { opacity: 1, scale: 1, y: 0 }}

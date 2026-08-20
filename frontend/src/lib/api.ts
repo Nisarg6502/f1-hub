@@ -1,3 +1,5 @@
+import type { ConstructorTitlesResponse } from "./constructor-profiles";
+
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
@@ -873,5 +875,27 @@ export async function getConstructorSeasons(
     "/api/constructor_seasons",
     { constructor_id: constructorId },
     { next: { revalidate: 86400 } }
+  );
+}
+
+// --- Constructor championships (backend/app/constructor_titles.py) ---------
+//
+// Every Constructors' Championship, and every Drivers' Championship credited
+// to the constructor it was won with, keyed by the same canonical
+// constructor key `/api/historical_race_index` uses. Covers 1950 through the
+// last COMPLETED season — the season being raced is excluded, because
+// mid-season standings name a leader, not a champion.
+//
+// The response's `complete` flag is not decorative: the backend makes ~144
+// Jolpica calls on a cold build, and a partial resolve produces an
+// undercount that looks exactly like a real number. Callers must hide the
+// counts when it is false. See `ConstructorTitlesResponse` in
+// constructor-profiles.ts and that module's provenance header.
+
+export async function getConstructorTitles(): Promise<ConstructorTitlesResponse> {
+  return fetchJson<ConstructorTitlesResponse>(
+    "/api/constructor_titles",
+    undefined,
+    { next: { revalidate: 86400 } } // titles only change once a year
   );
 }

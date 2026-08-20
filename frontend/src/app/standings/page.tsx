@@ -6,6 +6,11 @@ import {
   resolveSeasonYear,
 } from "@/lib/api";
 import StandingsView from "@/components/standings-view";
+import {
+  buildTeammateBattles,
+  fetchSeasonResults,
+  type TeammateBattle,
+} from "@/lib/season-results";
 
 // Standings change after every race; render per request rather than serving a
 // prerender captured at build time.
@@ -45,10 +50,26 @@ export default async function StandingsPage({ searchParams }: PageProps) {
     // Backend offline
   }
 
+  // The teammate battle used to fetch a whole season of results from the
+  // browser on every mount, which is why it showed a loading state every single
+  // time the page was opened. It is derived data over results this server can
+  // fetch once (and Next's fetch cache holds for 300s), so it ships with the
+  // markup instead -- the panel now has no loading state to show.
+  let teammateBattles: TeammateBattle[] = [];
+  if ((drivers ?? []).length > 0) {
+    try {
+      const rounds = await fetchSeasonResults(year, { includeQualifying: false });
+      teammateBattles = buildTeammateBattles(drivers ?? [], rounds);
+    } catch {
+      // Leave the panel empty rather than failing the page.
+    }
+  }
+
   return (
     <StandingsView
       drivers={drivers ?? []}
       constructors={constructors ?? []}
+      teammateBattles={teammateBattles}
       year={year}
       maxYear={getActiveSeasonYear()}
     />

@@ -17,6 +17,7 @@ from . import race_timing
 from . import strategy_commentary
 from . import driver_comparison_recap
 from . import historical_index
+from . import constructor_titles
 from . import track_geometry
 from . import watch_session
 
@@ -47,6 +48,7 @@ app.include_router(race_timing.router)
 app.include_router(strategy_commentary.router)
 app.include_router(driver_comparison_recap.router)
 app.include_router(historical_index.router)
+app.include_router(constructor_titles.router)
 app.include_router(track_geometry.router)
 app.include_router(watch_session.router)
 

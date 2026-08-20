@@ -5,7 +5,36 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { getConstructorIdentity } from "@/lib/constructor-identity";
 import type { HistoricalRace } from "@/lib/api";
 import type { ResolvedLineage, ResolvedNode } from "@/lib/constructor-lineages";
+import { buildWinIndex, winsForNode } from "@/lib/constructor-profiles";
 import { EASE_OUT } from "./motion-primitives";
+
+/**
+ * Whether an era that resolved to no seasons is called out on the chart in red.
+ *
+ * The lineages module asks for curation errors to be *visible* rather than
+ * silently dropped, and that requirement stands — but it was being honoured on
+ * the wrong screen. `invalid` is set whenever a node's season list comes back
+ * empty, and there are two ways for that to happen:
+ *
+ *  - a genuine curation error: a typo'd Ergast id, or a `yearRange` that
+ *    excludes every season the id actually raced;
+ *  - a fetch that failed soft. `/constructor_seasons` is not cached for teams
+ *    still racing, so those ids are re-fetched from Jolpica on every call and a
+ *    throttled response returns `200 OK` with an empty `seasons` array.
+ *
+ * Production showed the second kind to readers as the first: `⚠ no data for
+ * "williams"` in red, on a chart whose whole subject is that Williams has been
+ * on the grid since 1975. The id is correct, the curation is correct, and the
+ * only true statement available is "this load did not get the data" — which is
+ * a message for whoever is editing the table, not for someone reading the
+ * history of the sport. Unresolved eras are simply absent from the chart for
+ * readers; the era's band is what is missing, which is itself the signal.
+ *
+ * Gated on `NODE_ENV`, inlined at build time, so a curation mistake still shows
+ * up loudly the moment it is introduced in `next dev` — the point in time the
+ * warning was written for.
+ */
+const SHOW_UNRESOLVED_WARNING = process.env.NODE_ENV !== "production";
 
 interface ConstructorGenealogyProps {
   /** Already narrowed to the current grid by the page — see
@@ -180,31 +209,18 @@ export default function ConstructorGenealogy({
   }, [pinned]);
 
   // Race wins per era, from the race index the page already has in memory.
-  // Scoped by the node's own resolved year range, which is what makes it
-  // safe to match on `colorKey` as well as the raw Ergast ids: `colorKey` is
-  // sometimes the backend's canonical key for an era Ergast files under a
-  // reused raw id (`alfa` -> `alfa_sauber`), and sometimes a deliberate reuse
-  // of a *different* era's key for colour only (Kick Sauber -> `bmw_sauber`)
-  // — the year filter makes the second case contribute nothing.
+  // The era-key matching and year scoping live in constructor-profiles.ts
+  // (`buildWinIndex` / `winsForNode`) so this chart and `/teams`' dossiers
+  // can never disagree about how many races an era won — they run the same
+  // function over the same payload. See that module's comment on why the
+  // year filter is load-bearing rather than cosmetic.
   const winsByNode = useMemo(() => {
-    const perKeySeason = new Map<string, number>();
-    for (const race of races) {
-      const key = `${race.constructor_key}|${race.season}`;
-      perKeySeason.set(key, (perKeySeason.get(key) ?? 0) + 1);
-    }
+    const index = buildWinIndex(races);
     const out = new Map<string, number>();
     for (const lineage of lineages) {
-      lineage.nodes.forEach((node, index) => {
+      lineage.nodes.forEach((node, nodeIndex) => {
         if (node.invalid) return;
-        const keys = new Set(node.ergastIds);
-        if (node.colorKey) keys.add(node.colorKey);
-        let wins = 0;
-        const from = node.startYear as number;
-        const to = node.endYear as number;
-        for (let year = from; year <= to; year++) {
-          for (const key of keys) wins += perKeySeason.get(`${key}|${year}`) ?? 0;
-        }
-        out.set(`${lineage.id}|${index}`, wins);
+        out.set(`${lineage.id}|${nodeIndex}`, winsForNode(node, index));
       });
     }
     return out;
@@ -215,6 +231,19 @@ export default function ConstructorGenealogy({
     let cursor = TOP_AXIS_HEIGHT;
 
     for (const lineage of lineages) {
+      // A lineage whose every era failed to resolve has nothing to draw. It is
+      // kept upstream (`filterToCurrentGrid`) precisely so the warning above
+      // has something to hang off, but with that warning hidden in production
+      // the row degrades to a team name against an empty band — which reads as
+      // "Williams has no history" rather than "this load got no data". Dropped
+      // in production, kept in dev where the warning is what makes it useful.
+      if (
+        !SHOW_UNRESOLVED_WARNING &&
+        lineage.nodes.every((node) => node.invalid)
+      ) {
+        continue;
+      }
+
       const placements: Placement[] = [];
       const pending: { placement: Placement; width: number }[] = [];
 
@@ -396,10 +425,7 @@ export default function ConstructorGenealogy({
                   {lineage.shortTitle}
                 </text>
 
-                {invalidNodes.length > 0 && (
-                  // Curation error (typo'd id / bad yearRange) made visible
-                  // rather than silently dropped — see the lineages module's
-                  // "make curation errors visible" requirement.
+                {invalidNodes.length > 0 && SHOW_UNRESOLVED_WARNING && (
                   <text
                     x={PLOT_LEFT + 4}
                     y={bandY + BAND_HEIGHT / 2 + 4}

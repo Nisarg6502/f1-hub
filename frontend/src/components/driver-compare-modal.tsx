@@ -8,8 +8,10 @@ import type { DriverStanding } from "@/lib/api";
 import { getSeasonResultsByRound, type SeasonRoundResults } from "@/lib/api";
 import { buildHeadToHead } from "@/lib/driver-compare";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
+import { driverPortraitFrameStyle, driverPortraitSizes } from "@/lib/driver-portrait";
 import { getFlagPath } from "@/lib/flags";
 import { getTeamColor } from "@/lib/team-colors";
+import { useModalDialog } from "@/lib/use-modal-dialog";
 import DriverComparisonRecap from "./driver-comparison-recap";
 import FlagImg from "./flag-img";
 
@@ -71,17 +73,9 @@ export default function DriverCompareModal({
     };
   }, [seasonYear]);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.body.style.overflow = "auto";
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onClose]);
+  // See `use-modal-dialog.ts`: Escape + scroll lock as before, plus the dialog
+  // semantics, initial focus and Tab containment this modal never had.
+  const dialogRef = useModalDialog<HTMLDivElement>({ onClose });
 
   const summary = useMemo(() => {
     if (!rounds || !driverAId || !driverBId) return null;
@@ -98,6 +92,11 @@ export default function DriverCompareModal({
       className="fixed inset-0 z-[80] flex items-center justify-center p-5 md:p-10 bg-[rgba(6,5,4,0.65)] backdrop-blur-[8px]"
     >
       <motion.div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${a.given} ${a.family} compared with ${b.given} ${b.family}`}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.92, y: 24 }}
         animate={reduce ? { opacity: 1 } : { opacity: 1, scale: 1, y: 0 }}
@@ -127,15 +126,20 @@ export default function DriverCompareModal({
                 }}
               >
                 {half.imgPath && (
-                  <Image
-                    src={half.imgPath}
-                    alt={`${half.given} ${half.family}`}
-                    fill
-                    sizes="380px"
-                    className="object-contain object-bottom drop-shadow-[0_20px_40px_rgba(0,0,0,0.7)]"
-                    priority
-                  />
+                  <div style={driverPortraitFrameStyle("bust")}>
+                    <Image
+                      src={half.imgPath}
+                      alt={`${half.given} ${half.family}`}
+                      fill
+                      sizes={driverPortraitSizes(180, "bust")}
+                      className="object-cover drop-shadow-[0_20px_40px_rgba(0,0,0,0.7)]"
+                      priority
+                    />
+                  </div>
                 )}
+                {/* The name sits over the driver's chest now that the portrait
+                    is framed rather than letterboxed; this keeps it legible. */}
+                <div className="absolute inset-x-0 bottom-0 h-[86px] bg-gradient-to-t from-[rgba(10,8,6,0.88)] via-[rgba(10,8,6,0.45)] to-transparent pointer-events-none" />
                 <div
                   className="absolute top-0 left-0 right-0 h-[4px]"
                   style={{ background: half.color.hex, boxShadow: `0 0 16px ${half.color.glow}` }}
