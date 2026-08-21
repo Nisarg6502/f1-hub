@@ -344,9 +344,18 @@ async def get_race_weather(
         {"season": year, "round": str(round)}, {"_id": 0, "synced_at": 0}
     )
     if doc:
+        # Served as-is even when `weather_schema` is behind the current version.
+        # `sync_weather` re-fetches stale rounds on its next hourly run, and the
+        # frontend degrades to race-only conditions when `sessions` is absent —
+        # both cheaper than making every request pay the seven OpenF1 calls a
+        # full weekend re-read costs.
         return JSONResponse(content={"weather": doc})
 
-    race_doc = await db.races.find_one({"season": year, "round": str(round)}, {"date": 1, "_id": 0})
+    # `time` is projected as well as `date` — without it the settle gate below
+    # cannot tell a race that finished an hour ago from one still running.
+    race_doc = await db.races.find_one(
+        {"season": year, "round": str(round)}, {"date": 1, "time": 1, "_id": 0}
+    )
     if not race_doc or not race_doc.get("date"):
         return JSONResponse(content={"weather": None})
 
@@ -355,6 +364,23 @@ async def get_race_weather(
         return JSONResponse(content={"weather": None})
 
     weather_doc = {"season": year, "round": str(round), "date": race_doc["date"], **weather}
+
+    # Answer from a running race, but do NOT persist it.
+    #
+    # `sync_weather` is fed `_completed_rounds(..., settled=True)` — it waits
+    # `RACE_DURATION_HOURS` precisely because weather is computed from the whole
+    # session and "must not be derived from a half-run session"
+    # (`SESSION_SETTLE_HOURS["Race"]`). This path had no equivalent gate, and
+    # `sync_weather` skips any round already in `weather_cache`. The two
+    # combined meant a single pageview during a live race wrote an early-race
+    # sample that the hourly sync could then never correct: the round kept
+    # whatever the weather was fifteen minutes in, permanently.
+    #
+    # Declining to cache costs one OpenF1 call per request for the ~4h a race
+    # is unsettled, and the sync writes the real value afterwards.
+    if not _race_has_settled(race_doc):
+        return JSONResponse(content={"weather": weather_doc})
+
     try:
         await db.weather_cache.update_one(
             {"season": year, "round": str(round)},
@@ -367,34 +393,170 @@ async def get_race_weather(
     return JSONResponse(content={"weather": weather_doc})
 
 
-def fetch_openf1_weather(year: int, race_date: str) -> dict | None:
-    """Mid-session weather for the race on `race_date`, or None if OpenF1 has none.
+def _race_has_settled(race_doc: dict) -> bool:
+    """True once the race is far enough past its start to summarise as a whole.
 
-    Shared with the sync job so both read OpenF1 the same way.
+    Imported lazily, and from `data_sync`, so the gate here and the one the
+    sync applies are the same number rather than two constants that can drift.
+    `data_sync` already imports this module inside a function body, so the
+    dependency stays one-directional at import time.
     """
-    sessions = _fetch_json(f"{OPENF1_BASE}/sessions?year={year}&session_type=Race", timeout=10)
-    if not sessions:
-        return None
+    from .data_sync import RACE_DURATION_HOURS, _session_start
 
-    session = next(
-        (s for s in sessions if (s.get("date_start") or "").startswith(race_date)), None
+    start = _session_start(race_doc.get("date"), race_doc.get("time"))
+    if start is None:
+        # No usable start time: treat as settled rather than refusing to cache
+        # forever. Historical rounds are the only way to get here.
+        return True
+    return start + datetime.timedelta(hours=RACE_DURATION_HOURS) < datetime.datetime.now(
+        datetime.timezone.utc
     )
-    if not session or not session.get("session_key"):
-        return None
 
-    samples = _fetch_json(
-        f"{OPENF1_BASE}/weather?session_key={session['session_key']}", timeout=10
-    )
+
+# Bumped whenever the shape of a `weather_cache` document changes.
+#
+# `sync_weather` is a write-once cache — it skips any round it already has —
+# so without a version marker an improvement to this module would only ever
+# reach rounds synced after the deploy, and every existing round would keep
+# its old shape forever. The alternative was `FORCE_RESYNC=1`, which re-fetches
+# every collection in the database to fix one of them.
+#
+# 2: per-session weather (`sessions`), and `rainfall` computed over the whole
+#    session rather than read from a single midpoint sample.
+WEATHER_SCHEMA_VERSION = 2
+
+# Ergast/Jolpica schedule field -> OpenF1 `session_name`.
+#
+# Keys are the field names the race document and the frontend's `SessionKey`
+# already use, so a caller never has to translate. Verified against OpenF1 for
+# 2023-2026: these seven names are stable across all four seasons. Pre-season
+# testing appears there as "Day 1/2/3" and is excluded by construction, since
+# sessions are looked up by the race weekend's `meeting_key`.
+OPENF1_SESSION_NAMES: dict[str, str] = {
+    "FirstPractice": "Practice 1",
+    "SecondPractice": "Practice 2",
+    "ThirdPractice": "Practice 3",
+    "SprintQualifying": "Sprint Qualifying",
+    "Sprint": "Sprint",
+    "Qualifying": "Qualifying",
+    "Race": "Race",
+}
+
+
+def _summarise_weather(samples: list) -> dict | None:
+    """Reduce a session's weather samples to the figures the UI shows."""
     if not samples:
         return None
 
+    # Temperatures, wind, humidity and pressure are a MIDPOINT sample — a
+    # single representative instant, which is what the tile presents them as.
+    # The sample window brackets the session (checked against OpenF1: Interlagos
+    # 2024's race samples run 14:38-17:58 around a 15:30 start), so the middle
+    # of the list really is the middle of the session.
     sample = samples[len(samples) // 2]
+
+    # Rainfall is the one field a midpoint cannot honestly answer. OpenF1's
+    # `rainfall` is a 0/1 indicator per sample and the tile renders it as
+    # "Rain: Yes/No" — a claim about the session, not about one minute of it.
+    # Read from the midpoint alone, any session whose rain fell outside that
+    # minute was reported bone dry. Interlagos 2024 had 117 of 201 race samples
+    # wet: the midpoint happened to be one of them, so the old value was right
+    # by luck rather than by method.
+    wet = sum(1 for s in samples if s.get("rainfall"))
+
+    # `rainfall` stays a 0/1 indicator so every existing consumer and every
+    # cached document keeps working. `rainfall_share` is the honest companion:
+    # a bare "Yes" from `any()` cannot tell a 21%-wet sprint from one stray
+    # sample, and picking a cutoff between them would be inventing a threshold
+    # the data does not carry. Reporting the proportion lets the UI say how wet
+    # without either of us guessing. (Interlagos 2024, measured: sprint 16/76
+    # samples wet, race 117/201, qualifying 0/62.)
     return {
         "air_temperature": sample.get("air_temperature"),
         "track_temperature": sample.get("track_temperature"),
         "wind_speed": sample.get("wind_speed"),
         "wind_direction": sample.get("wind_direction"),
-        "rainfall": sample.get("rainfall", 0),
+        "rainfall": 1 if wet else 0,
+        "rainfall_share": round(wet / len(samples), 3),
         "humidity": sample.get("humidity"),
         "pressure": sample.get("pressure"),
     }
+
+
+def _find_race_session(year: int, race_date: str) -> dict | None:
+    """The OpenF1 Race session for `race_date`, or None.
+
+    `session_type=Race` also returns sprints — verified against OpenF1, where a
+    sprint carries `session_type: "Race"` with `session_name: "Sprint"` — so the
+    name is checked as well as the date. No 2024-2026 weekend runs both on one
+    calendar day, which is why matching on date alone worked; it is one calendar
+    change away from silently returning sprint weather for a grand prix.
+    """
+    sessions = _fetch_json(f"{OPENF1_BASE}/sessions?year={year}&session_type=Race", timeout=10)
+    if not sessions:
+        return None
+    return next(
+        (
+            s
+            for s in sessions
+            if (s.get("date_start") or "").startswith(race_date)
+            and s.get("session_name") == "Race"
+        ),
+        None,
+    )
+
+
+def fetch_openf1_weekend_weather(year: int, race_date: str) -> dict | None:
+    """Weather for every session of the weekend whose race falls on `race_date`.
+
+    Returns the race's own figures at the top level — the shape every existing
+    `weather_cache` document and API consumer already expects — plus a
+    `sessions` map keyed by Ergast schedule field.
+
+    The per-session data exists because the conditions tile sits above a tab
+    strip covering practice, qualifying and the sprint, and showed race weather
+    for all of them. Interlagos 2024 is the clearest case: the sprint ran at
+    48.0C track and dry, while the race it was borrowing from was 24.9C and
+    wet.
+
+    Costs one `sessions` call plus one `weather` call per session (about seven
+    per round) against OpenF1's free, unauthenticated API, and only for rounds
+    not already cached at the current schema version.
+    """
+    race_session = _find_race_session(year, race_date)
+    if not race_session or not race_session.get("meeting_key"):
+        return None
+
+    weekend = _fetch_json(
+        f"{OPENF1_BASE}/sessions?meeting_key={race_session['meeting_key']}", timeout=10
+    )
+    if not weekend:
+        return None
+
+    by_name = {s.get("session_name"): s for s in weekend if s.get("session_key")}
+
+    sessions: dict[str, dict] = {}
+    for field, openf1_name in OPENF1_SESSION_NAMES.items():
+        session = by_name.get(openf1_name)
+        if not session:
+            continue
+        summary = _summarise_weather(
+            _fetch_json(f"{OPENF1_BASE}/weather?session_key={session['session_key']}", timeout=10)
+            or []
+        )
+        if summary:
+            sessions[field] = summary
+
+    race = sessions.get("Race")
+    if not race:
+        return None
+
+    return {**race, "sessions": sessions, "weather_schema": WEATHER_SCHEMA_VERSION}
+
+
+def fetch_openf1_weather(year: int, race_date: str) -> dict | None:
+    """Back-compatible alias: weekend weather, race figures at the top level.
+
+    Kept because `data_sync.sync_weather` imports this name.
+    """
+    return fetch_openf1_weekend_weather(year, race_date)

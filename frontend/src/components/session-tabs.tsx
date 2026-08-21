@@ -4,12 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import type { Race, RaceResult } from "@/lib/api";
+import type { Race, RaceResult, SessionWeather } from "@/lib/api";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { getTeamColor } from "@/lib/team-colors";
 import TeamCar from "@/components/team-car";
 import { buildRaceSessionTimeline, type RaceSessionField } from "@/lib/sessions";
 import SessionRecapCard from "@/components/session-recap-card";
+import ConditionsTile from "@/components/conditions-tile";
 
 interface SessionTabsProps {
   race: Race;
@@ -21,6 +22,17 @@ interface SessionTabsProps {
   fp2Results: RaceResult[];
   fp3Results: RaceResult[];
   isPast: boolean;
+  /**
+   * The whole `weather_cache` document for this round: the race's own figures
+   * at the top level plus, from schema 2 onward, a `sessions` map.
+   *
+   * Conditions are rendered HERE rather than above this component because the
+   * figures belong to one session and the active session is this component's
+   * state. Rendering them outside meant a race-only tile sat above a tab strip
+   * covering practice, qualifying and the sprint, describing whichever tab
+   * happened to be open.
+   */
+  weather?: (SessionWeather & { sessions?: Record<string, SessionWeather> }) | null;
 }
 
 type SessionKey =
@@ -61,6 +73,7 @@ export default function SessionTabs({
   fp2Results,
   fp3Results,
   isPast,
+  weather,
 }: SessionTabsProps) {
   const [nowMs] = useState<number>(() => Date.now());
   const params = useParams();
@@ -109,6 +122,22 @@ export default function SessionTabs({
           );
         })}
       </div>
+
+      {/* Conditions for the SELECTED session.
+          `sessions` is absent on rounds cached before weather schema 2. Falling
+          back to the top-level (race) figures for every tab is exactly the bug
+          this replaced, so the fallback covers the Race tab only and other tabs
+          simply show no tile until the hourly sync back-fills the round. */}
+      <ConditionsTile
+        weather={
+          weather?.sessions
+            ? weather.sessions[activeSession] ?? null
+            : activeSession === "Race"
+              ? weather ?? null
+              : null
+        }
+        sessionLabel={SESSION_LABELS[activeSession]}
+      />
 
       {/* Race Session Content */}
       {activeSession === "Race" && (

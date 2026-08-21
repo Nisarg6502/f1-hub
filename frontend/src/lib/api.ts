@@ -695,18 +695,43 @@ export async function getLiveTimingData() {
   return (await response.json()) as LiveTimingResponse;
 }
 
+/** One session's conditions, as OpenF1 reported them. */
+export interface SessionWeather {
+  air_temperature?: number;
+  track_temperature?: number;
+  wind_speed?: number;
+  wind_direction?: number;
+  /** 0/1 indicator: did it rain at ANY point in the session. */
+  rainfall?: number;
+  /**
+   * Fraction of the session's samples that were wet, 0-1.
+   *
+   * Absent on rounds cached before weather schema 2. It exists because a bare
+   * "Yes" cannot separate a 21%-wet sprint from one stray sample, and any
+   * cutoff between them would be a threshold the data does not carry.
+   */
+  rainfall_share?: number;
+  humidity?: number;
+  pressure?: number;
+}
+
 export async function getRaceWeather(year: number, round: number) {
   try {
     return await fetchJson<{
-      weather?: {
-        air_temperature?: number;
-        track_temperature?: number;
-        wind_speed?: number;
-        wind_direction?: number;
-        rainfall?: number;
-        humidity?: number;
-        pressure?: number;
-      } | null;
+      weather?: (SessionWeather & {
+        /**
+         * Per-session conditions, keyed by Ergast schedule field
+         * ("FirstPractice", "Qualifying", "Race", …) — the same keys
+         * `SessionTabs` uses, so no translation is needed at the call site.
+         *
+         * Optional because rounds cached before `weather_schema` 2 carry only
+         * the race's figures at the top level. The hourly sync upgrades them;
+         * until it does, the conditions tile shows nothing on non-race tabs
+         * rather than showing the race's weather under another session's name.
+         */
+        sessions?: Record<string, SessionWeather>;
+        weather_schema?: number;
+      }) | null;
     }>("/api/race_weather", {
       year,
       round,

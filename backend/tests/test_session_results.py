@@ -733,5 +733,220 @@ class SessionGatingTests(unittest.TestCase):
         self.assertFalse(data_sync._session_has_run(race, "Qualifying"))
 
 
+class WeatherCacheGateTests(unittest.TestCase):
+    """`/race_weather` must never persist a sample taken from a running race.
+
+    The scheduled sync already gets this right: `sync_weather` is fed
+    `_completed_rounds(..., settled=True)`, which subtracts
+    `RACE_DURATION_HOURS` precisely because weather is COMPUTED from the whole
+    session (see the `SESSION_SETTLE_HOURS["Race"]` comment). The API path had
+    no such gate, and because `sync_weather` skips any round already present in
+    `weather_cache`, one pageview during a live race wrote an early-race sample
+    that the sync could then never correct.
+    """
+
+    class _Coll:
+        def __init__(self, doc=None):
+            self.doc = doc
+            self.updates = []
+
+        async def find_one(self, *args, **kwargs):
+            return self.doc
+
+        async def update_one(self, query, update, upsert=False):
+            self.updates.append({"query": query, "update": update})
+
+    class _Db:
+        def __init__(self, race_doc):
+            self.weather_cache = WeatherCacheGateTests._Coll(None)
+            self.races = WeatherCacheGateTests._Coll(race_doc)
+
+    SAMPLE = {"air_temperature": 22.0, "track_temperature": 24.9, "rainfall": 1}
+
+    def _run(self, *, hours_ago):
+        start = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=hours_ago)
+        db = self._Db({"date": start.strftime("%Y-%m-%d"), "time": start.strftime("%H:%M:%SZ")})
+        with patch.object(session_results, "get_db", return_value=db),              patch.object(session_results, "fetch_openf1_weather", return_value=dict(self.SAMPLE)):
+            response = asyncio.run(session_results.get_race_weather(year=2026, round=1))
+        return db, json.loads(response.body)
+
+    def test_weather_is_not_cached_while_the_race_is_still_running(self):
+        db, body = self._run(hours_ago=0.5)
+        self.assertEqual(db.weather_cache.updates, [], "an in-progress race must not be cached")
+        # Still answered, so a live visitor sees something.
+        self.assertIsNotNone(body["weather"])
+
+    def test_weather_is_cached_once_the_race_has_settled(self):
+        db, _ = self._run(hours_ago=6)
+        self.assertEqual(len(db.weather_cache.updates), 1)
+
+
+class WeekendWeatherTests(unittest.TestCase):
+    """Weather is read per session, not once for the race and reused.
+
+    The conditions tile lives inside the session tab strip, so every tab needs
+    its own figures. Interlagos 2024 is the case that motivated this: the
+    sprint ran at 48.0C track and dry while the race was 24.9C and wet, and the
+    tile showed the race's numbers under the sprint's name.
+    """
+
+    RACE_SESSION = {
+        "session_key": 100,
+        "meeting_key": 55,
+        "session_name": "Race",
+        "date_start": "2026-03-08T15:00:00+00:00",
+    }
+
+    WEEKEND = [
+        {"session_key": 90, "session_name": "Practice 1"},
+        {"session_key": 95, "session_name": "Qualifying"},
+        RACE_SESSION,
+    ]
+
+    WEATHER = {
+        90: [{"air_temperature": 30.0, "track_temperature": 48.0, "rainfall": 0}] * 3,
+        95: [{"air_temperature": 25.0, "track_temperature": 35.0, "rainfall": 0}] * 3,
+        100: [
+            {"air_temperature": 22.0, "track_temperature": 24.9, "rainfall": 1},
+            {"air_temperature": 22.0, "track_temperature": 24.9, "rainfall": 0},
+            {"air_temperature": 22.0, "track_temperature": 24.9, "rainfall": 0},
+        ],
+    }
+
+    def _fetch(self, race_sessions=None, weekend=None):
+        def fake(url, timeout=15):
+            if "session_type=Race" in url:
+                return self.RACE_SESSION if race_sessions is None else race_sessions
+            if "sessions?meeting_key=" in url:
+                return self.WEEKEND if weekend is None else weekend
+            if "/weather?session_key=" in url:
+                return self.WEATHER.get(int(url.rsplit("=", 1)[1]), [])
+            raise AssertionError(f"unexpected url {url}")
+
+        # `session_type=Race` returns a list in reality; wrap the single doc.
+        def fake_json(url, timeout=15):
+            result = fake(url, timeout)
+            if "session_type=Race" in url and isinstance(result, dict):
+                return [result]
+            return result
+
+        with patch.object(session_results, "_fetch_json", side_effect=fake_json):
+            return session_results.fetch_openf1_weekend_weather(2026, "2026-03-08")
+
+    def test_every_session_gets_its_own_figures(self):
+        result = self._fetch()
+        self.assertEqual(result["sessions"]["FirstPractice"]["track_temperature"], 48.0)
+        self.assertEqual(result["sessions"]["Qualifying"]["track_temperature"], 35.0)
+        self.assertEqual(result["sessions"]["Race"]["track_temperature"], 24.9)
+
+    def test_the_sprint_is_not_given_the_races_weather(self):
+        # The exact Interlagos 2024 failure, in miniature: FP1 was dry and hot,
+        # the race was wet and cold. They must not agree.
+        result = self._fetch()
+        self.assertEqual(result["sessions"]["FirstPractice"]["rainfall"], 0)
+        self.assertEqual(result["sessions"]["Race"]["rainfall"], 1)
+
+    def test_race_figures_stay_at_the_top_level(self):
+        # Back-compatible with every existing `weather_cache` document.
+        result = self._fetch()
+        self.assertEqual(result["track_temperature"], 24.9)
+        self.assertEqual(result["air_temperature"], 22.0)
+
+    def test_the_document_is_stamped_with_the_schema_version(self):
+        self.assertEqual(
+            self._fetch()["weather_schema"], session_results.WEATHER_SCHEMA_VERSION
+        )
+
+    def test_a_sprint_is_never_mistaken_for_the_grand_prix(self):
+        # `session_type=Race` also returns sprints. If a sprint ever shared a
+        # calendar day with the race, matching on date alone would pick
+        # whichever came first in the list.
+        sprint = {
+            "session_key": 999,
+            "meeting_key": 55,
+            "session_name": "Sprint",
+            "date_start": "2026-03-08T11:00:00+00:00",
+        }
+        result = self._fetch(race_sessions=[sprint, self.RACE_SESSION])
+        self.assertEqual(result["track_temperature"], 24.9, "must select the Race session")
+
+    def test_a_weekend_openf1_has_no_race_weather_for_is_skipped(self):
+        self.assertIsNone(self._fetch(weekend=[{"session_key": 90, "session_name": "Practice 1"}]))
+
+
+class RainfallOverWholeSessionTests(unittest.TestCase):
+    """"Rain: Yes/No" describes the session, not one instant."""
+
+    def test_rain_outside_the_midpoint_sample_still_counts(self):
+        samples = [
+            {"air_temperature": 20.0, "rainfall": 1},
+            {"air_temperature": 21.0, "rainfall": 0},   # midpoint - dry
+            {"air_temperature": 22.0, "rainfall": 0},
+        ]
+        self.assertEqual(session_results._summarise_weather(samples)["rainfall"], 1)
+
+    def test_a_dry_session_is_still_reported_dry(self):
+        samples = [{"rainfall": 0}, {"rainfall": 0}, {"rainfall": 0}]
+        self.assertEqual(session_results._summarise_weather(samples)["rainfall"], 0)
+
+    def test_temperatures_still_come_from_the_midpoint(self):
+        samples = [
+            {"air_temperature": 10.0, "rainfall": 0},
+            {"air_temperature": 21.0, "rainfall": 0},
+            {"air_temperature": 30.0, "rainfall": 0},
+        ]
+        self.assertEqual(session_results._summarise_weather(samples)["air_temperature"], 21.0)
+
+    def test_a_session_with_no_samples_is_none(self):
+        self.assertIsNone(session_results._summarise_weather([]))
+
+
+class WeatherSchemaBackfillTests(unittest.TestCase):
+    """A weather-shape change must reach rounds already in the cache.
+
+    The old gate skipped any round that existed at all, so an improvement here
+    only ever applied to rounds synced after the deploy. `FORCE_RESYNC=1` was
+    the only escape and it re-fetches every collection in the database.
+    """
+
+    class _Coll:
+        def __init__(self, doc):
+            self.doc = doc
+            self.updates = []
+
+        def find_one(self, query, projection=None):
+            return self.doc
+
+        def update_one(self, query, update, upsert=False):
+            self.updates.append(update)
+
+    class _Db:
+        def __init__(self, doc):
+            self.weather_cache = WeatherSchemaBackfillTests._Coll(doc)
+
+    RACE = [{"round": "1", "date": "2026-03-08"}]
+    FRESH = {"air_temperature": 20.0, "sessions": {}, "weather_schema": 2}
+
+    def _sync(self, cached):
+        db = self._Db(cached)
+        with patch.object(session_results, "fetch_openf1_weekend_weather",
+                          return_value=dict(self.FRESH)),              patch.object(data_sync, "FORCE_RESYNC", False),              patch("time.sleep", lambda *_: None):
+            data_sync.sync_weather(db, 2026, self.RACE)
+        return db.weather_cache.updates
+
+    def test_a_round_stored_at_an_older_schema_is_refetched(self):
+        self.assertEqual(len(self._sync({"weather_schema": 1})), 1)
+
+    def test_a_round_predating_the_version_marker_is_refetched(self):
+        # Documents written before the field existed have no `weather_schema`.
+        self.assertEqual(len(self._sync({"air_temperature": 20.0})), 1)
+
+    def test_a_round_already_at_the_current_schema_is_left_alone(self):
+        self.assertEqual(self._sync({"weather_schema": 2}), [])
+
+    def test_an_uncached_round_is_fetched(self):
+        self.assertEqual(len(self._sync(None)), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
