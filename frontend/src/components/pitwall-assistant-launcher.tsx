@@ -52,7 +52,13 @@ export default function PitwallAssistantLauncher() {
         onClick={() => setOpen(true)}
         aria-label="Ask the Pitwall Assistant"
         title="Ask the Pitwall Assistant"
-        className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-[var(--color-surface-container-low)] text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[var(--color-surface-container)] active:scale-[0.95]"
+        /* 36px to the eye, 44px to a finger. The disc is the right visual
+           size — it sits in a dense nav bar beside the search field and a
+           larger one would compete with the wordmark — but 36px is under
+           the 40px floor, and this is the control that opens the app's
+           headline feature. `before:-inset-1` is 4px on every side and
+           moves nothing visually. */
+        className="relative flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-[var(--color-surface-container-low)] text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[var(--color-surface-container)] active:scale-[0.95] before:absolute before:-inset-1 before:content-['']"
       >
         <span className="material-symbols-outlined text-[19px]" aria-hidden="true">
           forum

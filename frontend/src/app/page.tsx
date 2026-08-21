@@ -280,9 +280,11 @@ export default async function Home() {
                              a usable touch target, and this is the control that
                              exists *for* the person who does not already know
                              what the ring means. `before:` expands the hit area
-                             without moving a pixel; `-inset-2` is 8px on every
-                             side. */
-                          className="relative w-5 h-5 rounded-full bg-[rgba(245,235,222,0.06)] flex items-center justify-center text-warm-500 hover:text-warm-200 hover:bg-[rgba(245,235,222,0.12)] transition-colors before:absolute before:-inset-2 before:content-['']"
+                             without moving a pixel. `-inset-2.5` is 10px a
+                             side, which is what takes a 20px disc to 40;
+                             `-inset-2` reached only 36 and still failed
+                             the floor it was added to clear. */
+                          className="relative w-5 h-5 rounded-full bg-[rgba(245,235,222,0.06)] flex items-center justify-center text-warm-500 hover:text-warm-200 hover:bg-[rgba(245,235,222,0.12)] transition-colors before:absolute before:-inset-2.5 before:content-['']"
                         >
                           {/* The ligature text IS the glyph, so without this
                               the button announced itself as "info What does

@@ -36,7 +36,15 @@ export default function NavLinks() {
             // tabs already do this correctly, so the pattern was known here
             // and simply not applied to the main nav.
             aria-current={isActive ? "page" : undefined}
-            className={`relative py-1 transition-colors duration-200 ${
+            /* `py-1` leaves these 28px tall. That clears WCAG 2.5.8's 24px
+               floor but not the 40px a finger needs, and 1280px is a landscape
+               tablet as often as it is a laptop. The hit area grows vertically
+               only — 6px top and bottom takes it to 40 — because the row is
+               laid out with a horizontal gap and widening these would let
+               adjacent links overlap. Written as two offsets rather than
+               `-inset-y-1.5`; see the footer link in layout.tsx for why a
+               negative compound inset is not trusted here without measuring. */
+            className={`relative py-1 transition-colors duration-200 before:absolute before:-top-1.5 before:-bottom-1.5 before:left-0 before:right-0 before:content-[''] ${
               isActive
                 ? "text-on-background"
                 : "text-warm-400 hover:text-on-background"

@@ -109,7 +109,11 @@ export default function RootLayout({
         <nav aria-label="Main" className="sticky top-0 z-50 bg-[rgba(18,15,12,0.55)] backdrop-blur-[16px] backdrop-saturate-150 border-b border-white/[0.08] shadow-[0_1px_0_rgba(255,255,255,0.06)_inset,0_10px_40px_rgba(0,0,0,0.4)]">
           <div className="max-w-[1440px] mx-auto flex items-center justify-between px-6 md:px-10 py-[15px]">
             <div className="flex items-center gap-8 md:gap-12">
-              <Link href="/" className="flex items-center gap-[11px]">
+              {/* 32px tall as drawn, 40px to a finger — the nav's own vertical
+                  padding is what constrains it, and growing the wordmark to
+                  suit would enlarge the one element setting the bar's
+                  height. */}
+              <Link href="/" className="relative flex items-center gap-[11px] before:absolute before:-inset-y-1 before:-inset-x-2 before:content-['']">
                 <span className="w-[9px] h-[9px] rounded-full bg-[#FF5A1F] shadow-[0_0_14px_rgba(255,90,31,0.9)]" />
                 <span className="font-[family-name:var(--font-headline)] font-extrabold text-[21px] tracking-[-0.5px]">
                   APEX
@@ -156,7 +160,20 @@ export default function RootLayout({
                 href="https://github.com/Nisarg6502/f1-hub"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-medium text-xs text-warm-500 underline hover:text-warm-300 transition-colors"
+                /* 16px of text is far under a usable target. Padding it would
+                   push the footer row apart, so the hit area grows instead:
+                   12px above and below takes it to 40.
+
+                   Written as four separate offsets rather than
+                   `before:-inset-y-3 before:-inset-x-1`, and that is not a
+                   style preference. The compound form SILENTLY GENERATED
+                   NOTHING here — checked in the browser, no rule matching
+                   `inset-y-3` existed in any stylesheet, while `inset-y-1`
+                   (used by the wordmark above) was present. The classes look
+                   right, the element keeps its 16px hit box, and nothing
+                   warns. If you reach for a negative compound inset, measure
+                   it before believing it. */
+                className="relative font-medium text-xs text-warm-500 underline hover:text-warm-300 transition-colors before:absolute before:-top-3 before:-bottom-3 before:-left-1 before:-right-1 before:content-['']"
               >
                 GitHub
               </a>
