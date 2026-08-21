@@ -24,7 +24,7 @@ import { getTeamAbbreviation, getTeamCarPath, getTeamLogoPath } from "@/lib/team
 import TiltCard from "@/components/tilt-card";
 import { Stagger, StaggerItem } from "@/components/motion-primitives";
 import SeasonSelector from "@/components/season-selector";
-import TeamHeritageCard from "@/components/team-heritage-card";
+import TeamHeritageDisclosure from "@/components/team-heritage-disclosure";
 
 // Constructor standings change after every race; render per request.
 export const dynamic = "force-dynamic";
@@ -228,7 +228,7 @@ export default async function TeamsPage({ searchParams }: PageProps) {
 
       {/* Team cards */}
       <Stagger
-        className="grid md:grid-cols-2 gap-4 mb-10 [perspective:1400px]"
+        className="grid md:grid-cols-2 items-start gap-4 mb-10 [perspective:1400px]"
         gap={0.07}
       >
         {list.map((team, idx) => {
@@ -371,15 +371,14 @@ export default async function TeamsPage({ searchParams }: PageProps) {
               </div>
 
               {dossier && hasRaceIndex && (
-                <div className="relative">
-                  <TeamHeritageCard
-                    dossier={dossier}
-                    accentHex={color.hex}
-                    titlesComplete={titles !== null}
-                    titlesThroughSeason={titlesThroughSeason}
-                    profileIsCurrent={year === activeSeason}
-                  />
-                </div>
+                <TeamHeritageDisclosure
+                  dossier={dossier}
+                  accentHex={color.hex}
+                  titlesComplete={titles !== null}
+                  titlesThroughSeason={titlesThroughSeason}
+                  profileIsCurrent={year === activeSeason}
+                  teamName={name}
+                />
               )}
             </TiltCard>
             </StaggerItem>

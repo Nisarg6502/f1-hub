@@ -53,6 +53,12 @@ export interface TeamHeritageCardProps {
    * across rebrands (Silverstone, Faenza, Enstone, Hinwil were all the same
    * address decades before the current names). */
   profileIsCurrent: boolean;
+  /** Drop the block's own top rule and spacing.
+   *
+   * Set when the card is rendered inside `<TeamHeritageDisclosure>`, which
+   * already draws a rule above its trigger — without this the panel opens with
+   * a second hairline sitting a few pixels under the first. */
+  bare?: boolean;
 }
 
 /** "An Aston Martin", "A Mercedes". Spelling-based rather than a phonetic
@@ -109,6 +115,7 @@ export default function TeamHeritageCard({
   titlesComplete,
   titlesThroughSeason,
   profileIsCurrent,
+  bare = false,
 }: TeamHeritageCardProps) {
   const reduce = useReducedMotion();
   const { eras, current, profile } = dossier;
@@ -128,7 +135,13 @@ export default function TeamHeritageCard({
   const titleWindow = titlesThroughSeason ? ` (to ${titlesThroughSeason})` : "";
 
   return (
-    <div className="relative mt-6 pt-5 border-t border-white/[0.07]">
+    <div
+      className={
+        bare
+          ? "relative pt-4"
+          : "relative mt-6 pt-5 border-t border-white/[0.07]"
+      }
+    >
       {/* --- Computed: the team record ------------------------------------ */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-4">
         {/* Reads the CURRENT era, not `dossier.debutSeason`. This said
