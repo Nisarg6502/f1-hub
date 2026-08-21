@@ -36,12 +36,146 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 13 | CP45-46 | GenAI: Pitwall "Strategy Commentary" module (undercut/overcut narrative, PR #75), driver comparison head-to-head narrative on the Drivers compare modal (PR #76) — built as two parallel worktree agents | merged |
 | 13 (ad hoc) | unnumbered | Fixed the Teams page's Power units panel showing wrong 2026 supplier data: Alpine mapped to Renault (switched to Mercedes for 2026 — the lookup is now season-aware since the constructor name didn't change), Sauber mapped to Audi (it ran Ferrari its whole modern history; Audi's works supply only starts once the constructor is renamed "Audi" for 2026), and two new 2026 entrants (Audi, Cadillac) were missing entirely. Found via user inspection, not backlog-planned. PR #77 | merged |
 | 14 | CP47-49 | F1 Heritage: historical race index + constructor identity foundation (PR #79), "The 75-Season Barcode" — every championship race 1950-2026 as one colour-coded stripe, plus a Home-page teaser (PR #80), Constructor Genealogy — 15 curated team lineages as a horizontal band timeline (PR #81). New top-level `/history` page, 8th nav item. CP48/CP49 built as two parallel worktree agents | merged |
-| 16 | CP55-58 | On-demand track geometry: 18 new `CircuitSpec` entries (PR #93), Cloud Run Job with GCS output + Mongo progress/quota (PR #91), trigger/status/available endpoints behind a global build lock (PR #92), and the public "Generate 3D view" button + phased loader (PR #95). CP55-57 built as three parallel worktree agents. Seven follow-ups from live production debugging: metadata token path (#96), Mongo `$set`/`$setOnInsert` conflict (#97), `_id` vs `circuit_id` document split (#98), job auto-deploy trigger (#99) and its missing Cloud Build logging option (#100), completion not revealing the viewer (#101), bucket CORS (#102) | merged |
 | 15 | CP50-54 | 3D Elevation Track: offline geometry/elevation pipeline baking four circuits to static JSON (PR #83, #88), WebGL viewer on a new `/circuits/[circuitId]` route (PR #84, #87), named corner markers + keyboard orbit (PR #85), Constructor Genealogy filtered to the current grid with labelled eras and hover (PR #86), and a polish pass on the viewer's tour, scrub and corner labels from user testing (PR #89). First 3D/WebGL work in the project | merged |
+| 16 | CP55-58 | On-demand track geometry: 18 new `CircuitSpec` entries (PR #93), Cloud Run Job with GCS output + Mongo progress/quota (PR #91), trigger/status/available endpoints behind a global build lock (PR #92), and the public "Generate 3D view" button + phased loader (PR #95). CP55-57 built as three parallel worktree agents. Seven follow-ups from live production debugging: metadata token path (#96), Mongo `$set`/`$setOnInsert` conflict (#97), `_id` vs `circuit_id` document split (#98), job auto-deploy trigger (#99) and its missing Cloud Build logging option (#100), completion not revealing the viewer (#101), bucket CORS (#102) | merged |
+| 17 | CP59-62 | Agentic chat assistant, foundation: `f1-agent` Cloud Run service with SSE + LangSmith tracing and the tool-calling model spike (PR #105), the internal tool layer and evidence ledger (PR #106), web research with untrusted-content quarantine (PR #107), and the single-agent baseline plus a dev-flagged chat UI (PR #108) | merged and deployed |
+| 18 | CP63-66 | Router tiering + subagents, with tier 2 downgraded to route flat after it measured dramatically worse than CP61's baseline (PR #110); the deterministic verifier; a 24-case authored golden set and CI gate; the production Pitwall Assistant panel and backend answer cache | merged and deployed |
+| 19 | CP67-70 | Input guards (scope/injection/PII) and output guards on every tier including tier 1; human-titled, kind-tagged citation pills and a per-step activity timeline; `POST /api/feedback` → LangSmith plus `scripts/curate_goldens.py`; chat resilience — SSE heartbeat, retry/regenerate/copy, contextual suggestions, focus-trap accessibility | merged |
+| 20 | CP71-75 | Evidence and answer quality: per-message citation namespacing and inspectable popovers (CP71), claim anchors via `Evidence.locate()` (CP72), comparative questions converging from 10 tool calls to 1-2 (CP73), the cited value in the prose becoming the citation itself (CP74), router-validated follow-up chips (CP75) | merged |
+| 21 | CP76-78 | Watch-party mode, variant 1: `race_laps` persists `lap_time_seconds` on both the FastF1 and OpenF1 paths (`REPLAY_VERSION` 3→4), the `/watch/[raceId]` real-pace clock with timing tower, wake lock and unsynced fallback, then driver favourites and density modes | merged and deployed |
+| 21 (ad hoc) | CP79-81 | Per-second watch timing, shipped and then corrected seven times against live user checks, rebuilt on the official lap record (CP80 supersedes CP79's derived race start), and finally CP81's fix for the Australian GP replay running 84 seconds late (PR #115). Full defect-by-defect record in `HANDOFF.md` — not restated here | merged and deployed |
+| 22 | CP82-85 | Layered abuse prevention for the chat service — global Mongo-backed daily budget cap, cost-weighted per-caller and per-subnet buckets on a composite identity, correct client-IP resolution, abuse signals feeding cost, kill switch — plus server-side feedback dedupe and three pieces of verified-open agent debt (PR #116). Two follow-ups after the limiter shipped inert: a durable session signing key (#117) and a cookie a browser would actually return (#118). CP84 made the watch tower's gap and interval columns exact at every crossing; CP85 gave `/watch` preferences a cross-tab `storage` listener | merged and deployed |
+| 23 | CP86-88 | Three designed features dispatched as concurrent agents, twice interrupted by session limits. Shipped: the watch tower's `PIT` state keyed on the driver's own lap rather than the leader's (PR #119) and CP87's grounded circuit-dossier agent tool, verified offline against production Mongo *and* by one live call (PR #120). Held at batch close: CP86's pairing backend (written and tested, no consumer) and CP88's strategy what-if | partly merged |
+| 24 | CP86 (completed) + unnumbered UI debt | Watch-party variant 2 — a phone and a laptop running one replay in step, syncing a command and an anchor rather than a playhead (PR #121). Then a read-only production UX audit and three parallel agents on its findings: nav/layout breakpoints and the mobile bar (#122), the hydration mismatch that turned out to be three bugs (#123), and team heritage, framed driver portraits and keyboard-operable modals/search (#124) | merged and deployed |
+| 24 (ad hoc) | unnumbered | Three further user-reported rounds merged 2026-08-21, recorded in no batch plan — `/teams` accuracy ("on the grid" named the lineage, not the team; a poisoned empty fetch-cache behind the wrong eras) plus portrait-as-card driver cards and scan-to-pair (#125); pairing confirmation on both screens, a single-scroll standings page with per-driver season expansion, and clearer driver cards (#126); the official car renders put to work across five surfaces (#127) | merged |
+| 24 (ad hoc, 2026-08-21) | unnumbered | Home page trades the "77 Seasons" barcode (and its ~1,200-race `historical_race_index` fetch) for a race-week session glimpse (#128); `/teams` heritage moves behind a per-card disclosure, ~9,000px → ~3,300px (#129); and the sync fix — session-scoped syncs were gated on the *race* having started, so every practice classification in the database had been ~2 days late for the life of the project (#130) | merged |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
 ## Current batch
+
+**No batch is currently open.** Batch 24 closed on 2026-08-19 and everything since has been
+user-reported work merged directly to `main` (PRs #124-#130, all 2026-08-21). The next batch has not
+been planned; the Backlog below is where it should be scoped from. Batches 22, 23 and 24 each have
+their own plan document — [`BATCH-22-PLAN.md`](BATCH-22-PLAN.md),
+[`BATCH-23-PLAN.md`](BATCH-23-PLAN.md), [`BATCH-24-PLAN.md`](BATCH-24-PLAN.md) — which double as
+resumption points; this section carries only the durable summary.
+
+**Batch 22 (CP82-85) is complete, merged and deployed** (PRs #116, #117, #118). It exists because
+the user asked whether the chat agent had any protection against misuse, and the answer was none:
+`POST /api/chat` and `POST /api/feedback` were unauthenticated with no per-caller limits at all.
+**Three things are routinely mistaken for protection here and none of them are** — `agent/
+concurrency.py` is a per-process semaphore of 1 (a serialization gate for Ollama's one-concurrent-
+model free tier, deciding ordering rather than how much any one caller may consume),
+`--max-instances=1` bounds throughput per second rather than per day, and CORS `allow_origins` is
+enforced by browsers while `curl` ignores it entirely. So a shell loop could hold the one
+concurrency slot and burn the whole free-tier GPU quota — the budget this entire architecture was
+shaped around. The user's own framing became the design constraint: **plain IP limiting is not good
+enough**, because IPs are shared behind CGNAT and trivially rotated, so the identity has to be
+assumed weak. Cost is charged in **run-cost units, not request counts** — a cached tier-1 lookup and
+a tier-3 web-research turn are not the same event, and counting requests is the classic mistake.
+
+Two findings from Batch 22 worth not re-deriving:
+
+- **The rate limiter shipped correct-looking and was, twice, quietly not doing its job.**
+  `AGENT_SESSION_SECRET` was never configured, so cookies were signed with a per-process ephemeral
+  key that did not survive a cold start; once fixed, the cookie itself turned out to be one **no
+  browser would ever return** — `Secure` was decided from `request.url.scheme`, which is `"http"`
+  inside a Cloud Run container, so it shipped `SameSite=Lax` with no `Secure`, and `*.run.app` is on
+  the Public Suffix List, making the frontend and the agent different sites. Neither was caught by
+  1065 passing tests, because **both were deployment configuration and no test asserted the deployed
+  shape**; `/health` looked identical in every case. The lesson, now recorded in `rate_limit.py`: *a
+  degrade that cannot be observed from outside needs its configuration asserted, not inspected.*
+- **CP84's scope correction.** The watch module's stated architecture is that the official record is
+  exact at each crossing and OpenF1's fill is corrected there — that was true for **positions only**.
+  Gap and interval came from OpenF1 alone and were never corrected, so a carried-forward sample went
+  stale during long stops and safety cars: on round 1, Alonso's lap 13 genuinely took 1069.5s and the
+  tower showed his gap frozen at `+63.90` against a true `+1030.86`.
+
+**Batch 23 (CP86-88) is partly merged.** Its three checkpoints were dispatched as concurrent agents
+into one shared tree with strict file ownership, and **all three were killed mid-work by a session
+limit**, twice. What that produced is the batch's real lesson: work was shipped only where it could
+be separated and independently verified, and held everywhere else.
+
+- **CP86's pit-duration fix shipped alone** (PR #119) because it was fully separable — the tower's
+  `PIT` state was keyed on the driver's *own* lap while the tower indexes the *leader's* laps, so a
+  long stop lost the flag after one leader-lap. Verified against the deployed payloads: car 14's
+  stationary window went from 0% covered to 90.1%.
+- **CP87 shipped as a tool in the existing agent, not a second system** (PR #120). Atlas Vector
+  Search may not have been creatable on this cluster, and the brief was explicit that a well-scoped
+  *structured* retrieval that ships beats a vector design that cannot be created. Grounding was
+  proven at both ends: offline, the tool ranks Monaco **1 of 24** for least position change (0.846
+  gains/lap) and Monza **22** (3.123) — a well-known fact about the sport reproduced from nothing but
+  cached lap rows, which is an external check rather than the data agreeing with itself; and live,
+  one call to the deployed agent cited `[ev_1]` on every claim and quoted the tool's exact values,
+  respecting the bundle's own confidence caveat rather than generalising.
+- **CP86's pairing backend was held** — six endpoints and 43 passing tests with **no frontend
+  whatsoever**. Shipping unauthenticated public endpoints with no consumer is attack surface for zero
+  user value, so it waited for the UI (which Batch 24 then built).
+- **CP88's strategy what-if was held and still is** — see the Backlog.
+
+One methodological note from CP86's held tests, worth keeping because it cuts both ways: three
+`test_watch_session` failures were investigated rather than patched, and **all three were the tests
+being wrong, not the limiter** — but two of them could not have caught a broken limiter at all (a
+subnet test that looped 39 times against a limit of 40 and never made a 41st attempt, and a sustained
+test that spread attempts across two window boundaries). A negative control — stubbing the limiter's
+refusal branch — was used to confirm the corrected tests actually bite.
+
+**Batch 24 is complete, merged and deployed.** It finished CP86 and then spent itself on UI debt.
+
+- **CP86 completed** (PR #121). The load-bearing decision is what does *not* cross the wire: both
+  devices hold the whole race and run the same deterministic clock, so what is published is a command
+  and an anchor — "playing, from lap 25 + 8.4s, as of this server instant". **Streaming a playhead at
+  a 1.5s poll interval would be worse than no sync**, because the follower would snap backwards every
+  poll. Two consequences worth keeping: `join` deliberately does *not* stamp `updated_at` (a join
+  changes the device count, not the state — stamping it would tell the joining device that a stale
+  position was current as of now, so the device most in need of the correction would be the one that
+  never got it), and `setPosition` was added to the clock rather than changing `jumpTo`, because the
+  manual control's snap-to-lap-start is right for a human and wrong for a follower.
+- **A read-only production UX audit drove the real deployed site at three viewports**, and its
+  layout/navigation findings shipped as PR #122: the desktop nav turned on at 768px but needs ~900px
+  (at 768×1024 the page `scrollWidth` was 880 against a `clientWidth` of 768 — "History" rendered as
+  "Histor"), and the mobile bottom bar reached 5 of 9 sections with **Watch not among them** — the
+  second-screen feature, designed for a phone, unreachable from a phone.
+- **The hydration bug was three bugs, not one** (PR #123). React #418 fired on `/`, `/drivers` and
+  `/watch` on every production load. The audit inferred one cause; there were three, and **the first
+  fix was incomplete and only re-measuring caught it** — with the timezone pinned and the locale still
+  `undefined`, the same instant rendered `Sun, Aug 23, 13:00` against `Sun, 23 Aug, 13:00`. The error
+  cleared on two routes and *stood on the one it was reported against*. **None of it reproduces
+  locally: in UTC the server and the client agree by accident**, so any future work on SSR'd time or
+  locale must be checked with the browser timezone overridden.
+- **The held agents' work shipped as PR #124**, and closing it out found the blocker nobody had
+  spotted: `constructor_titles.router` **was never registered in `main.py`**. The teams agent had been
+  correctly told not to touch that file and to report the router lines instead, and the report was
+  never acted on — so three agents' worth of heritage work was shipping against a 404. **A hand-off
+  that ends in "report it rather than edit it" needs someone to actually act on the report.**
+
+**2026-08-21 — three rounds merged after Batch 24 closed, in no batch plan.** PR #128 removed the
+home page's "77 Seasons" barcode strip along with the ~1,200-race `historical_race_index` fetch that
+fed it (all of it pulled on every home render for one decorative bar, with `/history` already in the
+nav), and put a race-week session glimpse in its place: the top three of the most recently classified
+session, degrading to a status line naming which sessions have run when timing has not been published
+yet. PR #129 put `/teams`' per-card heritage block behind a disclosure, collapsed by default with a
+summary line in the trigger, taking the page from ~9,000px to ~3,300px.
+
+**PR #130 is the consequential one.** `sync_session_results` and `sync_practice_results` were both
+handed `_completed_rounds()`, which returns rounds whose **race** start time has passed — so a Friday
+FP1 was not even asked for until Sunday afternoon, and qualifying run on Saturday was fetched on
+Sunday. **Every practice classification in the database had been roughly two days late for the life
+of the project**, and nobody noticed because the lateness is invisible once the weekend is over.
+Confirmed against production before changing anything: rounds 9, 10 and 11 each have a Friday FP1
+whose `synced_at` is later than its own round's race, and round 12 (the Dutch GP) had no document at
+all for a completed FP1 and sprint qualifying. **This is also why the Dutch GP showed no FP1 timing —
+the FastF1 datacenter-IP block is a real and separate problem, but it was never reached, because the
+round was not in the list.** The fix separates two questions that had been conflated: `_rounds_in_play`
+(has this weekend *begun*?) and `_session_has_run` (has *this* session finished and settled?).
+`_completed_rounds(settled=True)` is untouched and still gates circuit details, stints, pit stops,
+laps and weather, which summarise a finished race and must not be computed from one in progress. Two
+details worth not re-deriving: `SESSION_SETTLE_HOURS["Race"]` is deliberately shorter (2.0h) than
+`RACE_DURATION_HOURS` (4) because it only decides when to *ask* Ergast whether a results table exists
+yet; and a pre-2021 season has no per-session times, where an absent `Qualifying` means "unknown"
+rather than "never happened", so those seasons keep the old race-start gate — otherwise
+`SYNC_YEARS=2010` would silently sync no qualifying at all.
 
 **Batch 17 — Agentic chat assistant, foundation (CP59-62). Complete, merged and verified in
 production** (re-verified live 2026-08-05 — see `HANDOFF.md`; a prior session's docs were stale
@@ -877,17 +1011,96 @@ it retry indefinitely.
   verifier rather than by prompt wording
 
 ### Replay & media
-- Race replay / session playback shipped in Batch 12 (CP42-44) — a lap-indexed timing tower, not
-  cars on track (no GPS/coordinate data exists in this app). Track-position animation would need a
-  new coordinate data source before it could be built, not just more UI work on top of this.
-- Strategy "what-if" pit-stop replay (drag a stop to a different lap, estimate position impact)
+- Race replay / session playback shipped in Batch 12 (CP42-44) and was rebuilt on the official lap
+  record in Batch 21 — a lap-indexed timing tower, not cars on track. Track-position animation
+  would need a new coordinate data source before it could be built, not just more UI work on top.
+  **Blocked, not deferred.**
+- Watch-party second-screen mode shipped across Batch 21 (variant 1) and Batch 24 (CP86, pairing).
+
+### Known-broken, and named as such
+
+- **`/telemetry` — the route the nav labels "Live" — has never rendered a row of timing data in
+  production, and cannot without a rebuild.** Diagnosed 2026-08-21. It calls a paid RapidAPI feed
+  (`f1-live-pulse`) directly from the browser; `_NEXT_PUBLIC_RAPIDAPI_KEY` defaults to an empty
+  string in `cloudbuild-frontend.yaml` so builds do not fail. Because Next inlines `NEXT_PUBLIC_*`
+  at build time, the deployed bundle contains the **dead-code-eliminated stub** —
+  `isLiveTimingConfigured` compiles to `function f(){return!1}` and the fetch is not in the shipped
+  JavaScript at all, so setting the variable at runtime on Cloud Run would change nothing. Measured:
+  ~75% of the page is flat background, and 0 of 20 driver rows render in every state. Its idle copy
+  ("polling is paused") implies a feed that resumes; the honest string is only reachable *during* a
+  live session, i.e. a few hours a fortnight, which is exactly when nobody is looking. The route is
+  also excluded from the mobile nav, so it is unreachable on a phone. Three options, costed:
+  **(A)** ~1-2h — make the default state honest, point at `/watch` and `/schedule` which do work,
+  and rename the nav item, since "Live" has never been accurate. **(B)** ~1-2 days — re-source from
+  OpenF1, which is unauthenticated, already used elsewhere in this app, and was verified to hold
+  2026 laps/intervals/positions and real `date_start`; proxy it through the backend as
+  `race_timing.py` does rather than calling it from the browser, and label it "Timing" until
+  observed working during an actual live session. **(C)** subscribe to RapidAPI — recurring cost,
+  and the key is baked into a public client bundle, so scrapeable from day one. A-then-B is the sane
+  sequence; C only behind a backend proxy.
+- **Session windows are guessed, not sourced.** `frontend/src/lib/sessions.ts` hardcodes durations
+  and some are wrong — `Sprint: 30` against a real 60-minute window at Zandvoort, `SprintQualifying:
+  45` against 44 — so a live session can be treated as over halfway through, and any red-flagged
+  session overruns the assumption entirely. OpenF1's `/sessions` returns real `date_start`/`date_end`
+  and would fix this for free; it falls out of option B above. The label `"Sprint Shootout"` is also
+  F1's pre-2024 name.
+- **Sub-40px touch targets on at least three routes.** Audit started 2026-08-21 and was cut short by
+  a session limit before it reported; it needs re-running. The established fix in this repo is a
+  `before:-inset-N` pseudo-element that expands the hit area without moving a pixel — worked example
+  and rationale in `frontend/src/app/page.tsx`, on the ring info button.
+- **CP88 strategy what-if (`backend/app/strategy_whatif.py`) fails its own acceptance gate.**
+  Committed 2026-08-21 as explicitly experimental and deliberately **not** routed. The gate — move a
+  real stop to the lap it already happened on and check the model reproduces reality — was run for
+  the first time over 567 no-op queries: only **51.1% of clean finishers** land on their real
+  position. It moves the British GP winner from P1 to P13 and promotes three midfield finishers to
+  P1 with a zero-width confidence window. **The defect is structural**: with `new_lap ==
+  original_lap` the pace terms cancel and the delta collapses to `fitted_cost - measured_cost`, so a
+  slow stop's real-world delay (a triple-stack, an unsafe release) is erased and handed back as a
+  strategic gain. Its docstring previously asserted "76.1% exact, 96.9% inside the window" as
+  measured fact; those numbers do not reproduce, and the docstring has been corrected in place. The
+  differencing formulation, the per-race fitted pace model and the refusal taxonomy are sound and
+  worth keeping. ~3-5 days to make honest — refuse outlier-cost stops, calibrate the band
+  empirically instead of assuming a MAD is a Gaussian sigma, rank the finish at the race's final lap,
+  loosen `_driver_plan` for red-flag stint splits, and check the gate in as a regression test. The
+  honest end state refuses roughly two-thirds of queries. If nobody funds that within a release
+  cycle, delete it — a permanently experimental module is dead code with better PR.
+
+### Raised by the user, not yet decided
+
+- **A first-run tutorial**, with a button to replay it. The user asked explicitly for this to be
+  *noted for discussion* rather than built: "need to discuss if needed or not and how it will add
+  value". The case against building it as asked: a step-by-step overlay is the usual answer to a
+  navigation problem and a poor one — shown once, at the moment a new visitor has least context to
+  attach it to, delaying the thing they came for. The case for something: this app has features
+  nobody would guess exist (watch mode's real-pace clock, the second screen, the Pitwall assistant,
+  circuit DNA comparison), which is a *discovery* problem, not an onboarding one, and discovery is
+  better served in place — a short honest line where the feature lives, and a "what is this?"
+  affordance on the two or three genuinely non-obvious controls. **The UI audit this was waiting on
+  has since reported** (Batch 24), so this is unblocked and needs a decision.
 
 ### Other
-- Personal "watch party" second-screen mode
+- **AI guardrails — explicitly requested by the user for the batch after Batch 18 (2026-08-05), and
+  now six batches overdue.** Never scoped. Batches 19 and 22 shipped adjacent work — CP67-68's
+  input/output guards, CP64's verifier and framing contract, CP62's injection quarantine, CP82-85's
+  abuse prevention — but the user asked for this as its own explicit item and was explicit that it
+  should not be assumed already covered by those. Scope it or close it deliberately; do not let it
+  keep rolling.
 - Constructor budget cap tracker (manually updated, no live feed exists)
-- Fantasy / prediction game (bigger scope — needs auth + persistence; v2 milestone)
-- **AI guardrails — explicitly requested by the user for the batch after Batch 18 (2026-08-05).**
-  Not yet scoped in detail; raise this at Batch 18's close rather than letting it get lost. Likely
-  overlaps CP64's verifier/framing-contract work (predictive/subjective framing, citation
-  enforcement) and CP62's injection quarantine, but the user asked for it as its own explicit item,
-  not assumed to be already covered by those.
+- Fantasy / prediction game — **dropped at the user's explicit instruction.** Recorded so it stays
+  dropped rather than resurfacing as an idea.
+
+### Blocked, not deferred
+- **Track-position animation** — needs a coordinate data source this app does not have.
+- **Ferrari / Red Bull / Racing Bulls logos** — no freely-licensed source exists on Wikimedia
+  Commons (re-verified at CP35). A standing licensing constraint; those cards fall back to a
+  coloured monogram.
+- **Golden set mined from real LangSmith traces** — needs a `LANGSMITH_API_KEY` that is not in the
+  local `.env`. Tracing is live in production so the traces almost certainly exist; this needs the
+  credential, not effort.
+
+### Documentation currency
+`README.md`, `FEATURES.md` and this file were all refreshed on 2026-08-21, after the README was
+found to be 226 commits stale — it still called the product "F1 Hub", named the retired Ergast API
+as the data source, described four deployed units instead of six, and did not mention the chat
+agent, watch mode, or any route at all. `DESIGN-CONTEXT.md` remains **stale** and is not worth
+refreshing: it describes an obsolete cyan/magenta theme that the July 2026 APEX redesign replaced.
