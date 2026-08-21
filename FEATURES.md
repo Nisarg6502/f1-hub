@@ -1,6 +1,6 @@
 # APEX — Feature Inventory
 
-**What this app is.** APEX is a Formula 1 season hub: a dark, warm-orange "glassmorphism" web app that answers *when is the next race, who is winning, what happened last weekend, and who/what is on the grid*. It is built as a Next.js App Router frontend talking to a FastAPI backend, which in turn caches data from the Ergast API (via the Jolpica mirror), FastF1, and OpenF1 into MongoDB. There are ten user-facing routes covering the calendar, per-race results down to individual practice sessions, both championship tables, driver and team profiles, circuit maps, a WebGL 3D elevation model for circuits with baked geometry, a strategy "Pitwall" view, a live-timing board, and a 75-year cross-season heritage page. Everything is read-only — there are no accounts, no writes, and no user-generated content. It self-describes in the footer as a "Concept prototype · not affiliated with Formula 1".
+**What this app is.** APEX is a Formula 1 season hub: a dark, warm-orange "glassmorphism" web app that answers *when is the next race, who is winning, what happened last weekend, and who/what is on the grid*. It is built as a Next.js App Router frontend talking to a FastAPI backend, which in turn caches data from the Ergast API (via the Jolpica mirror), FastF1, and OpenF1 into MongoDB. There are thirteen navigable routes covering the calendar, per-race results down to individual practice sessions, both championship tables, driver and team profiles, circuit maps, a WebGL 3D elevation model for circuits with baked geometry, a strategy "Pitwall" view, a live-timing board, a 75-year cross-season heritage page, and a real-pace race replay with phone-as-second-screen pairing. A retrieval-grounded chat assistant runs alongside all of it as a panel rather than a route, served by a separate `f1-agent` Cloud Run service. Everything is read-only — there are no accounts, no writes, and no user-generated content. It self-describes in the footer as a "Concept prototype · not affiliated with Formula 1".
 
 This document describes what is on `main` today. Anything present in the UI but non-functional is collected in [Known gaps](#known-gaps--not-yet-functional) rather than mixed in below.
 
@@ -19,18 +19,22 @@ This document describes what is on `main` today. Anything present in the UI but 
 | `/teams` | Constructor cards plus a power-unit grouping |
 | `/circuits` | Featured track, cross-track "Circuit DNA" comparison, and a gallery of every circuit with detail modals |
 | `/circuits/[circuitId]` | 3D elevation model of one circuit, rendered in WebGL. Any curated circuit works: one without a payload yet offers a "Generate 3D view" button that runs the elevation build on demand. A `circuitId` with no curated spec 404s |
-| `/telemetry` | Live Timing board (polls a third-party feed while a session is running). Linked from the desktop nav as "Live"; not in the mobile bottom bar |
+| `/telemetry` | Live Timing board. Linked from the desktop nav as "Live"; not in the mobile bottom bar. **It has never rendered timing data in production** — see [Known gaps](#known-gaps--not-yet-functional) |
+| `/watch` | Race replay index — pick a completed round to replay |
+| `/watch/[raceId]` | Real-pace race replay: a lap-indexed timing tower that plays a finished race back at the speed it happened, plus phone-as-second-screen pairing |
 | `/history` | F1 Heritage — the 75-Season Barcode (every championship race since 1950, one stripe per race, coloured by winning constructor) and the Constructor Genealogy (curated team-lineage timeline, e.g. Tyrrell→BAR→Honda→Brawn→Mercedes). Linked from the desktop nav as "History" (last item); not in the mobile bottom bar |
+
+Two further routes exist and are deliberately **not** linked from anywhere: `/pitwall-chat` and `/agent-check`, both debugging surfaces for the chat agent. Each `page.tsx` carries a docblock explaining why it is kept. They are not features and are not documented below.
 
 ---
 
 ## Global chrome (present on every page)
 
-**Top navigation bar** — sticky, translucent, blurred. On the left: the APEX wordmark with a glowing dot (links home) and eight desktop links — Home, Schedule, Standings, Drivers, Teams, Circuits, Live, History. The active link is marked with an orange underline that animates between items as you navigate. On the right: a functional search input (desktop `lg` and up — see below) and a "Season 2026" label.
+**Top navigation bar** — sticky, translucent, blurred. On the left: the APEX wordmark with a glowing dot (links home) and nine desktop links — Home, Schedule, Watch, Standings, Drivers, Teams, Circuits, Live, History. The desktop bar turns on at ~900px rather than the `md` breakpoint, because at 768px the nine labels overflowed and "History" rendered as "Histor". The active link is marked with an orange underline that animates between items as you navigate. On the right: a functional search input (desktop `lg` and up — see below) and a "Season 2026" label.
 
 **Global search** — the nav search box filters the current season's drivers, constructors, and circuits client-side (reusing the same standings/races/circuit-details data other pages already fetch) as you type, in a liquid-glass dropdown matching the compare-drivers/tire-stints popover pattern. Requires 2+ characters; shows a "No results" state otherwise. Selecting a driver or circuit opens that entity's existing modal (`driver-modal.tsx` / `circuit-details-modal.tsx`); selecting a team navigates to `/teams`. Escape and click-outside close it; respects `prefers-reduced-motion`.
 
-**Mobile bottom bar** — replaces the desktop links below the `md` breakpoint. Five icon+label items: Home, Schedule, Standings, Drivers, Circuits. Teams is not in the mobile bar.
+**Mobile bottom bar** — replaces the desktop links below 1024px, and is the *only* navigation there, so anything missing from it is unreachable on a phone. Six icon+label items: Home, Schedule ("Races"), Watch, Standings ("Table"), Drivers, Circuits ("Tracks"). It stops at six because a seventh column puts a label under 48px at 390px; Teams, Live and History stay desktop-only and are reached from in-page links. Watch is present deliberately — it is the second-screen feature, designed for a phone propped against a television, and it previously had no way to be reached from one.
 
 **Footer** — the APEX mark, "· 2026 F1 season hub", "Concept prototype · not affiliated with Formula 1", and a link to the project's GitHub repo (opens in a new tab).
 
@@ -61,6 +65,10 @@ The hero background carries a drifting-ember canvas and a warm spotlight that fo
 - **Championship leader** — name, team, and points (points spring-count up on first view). The driver's cutout photo fills the right of the card.
 - **Last time out** — winner of the most recent completed round, their team, "<GP> · Win", and their finishing time on a chip dotted in the team colour.
 - **Next circuit** — the circuit outline image, circuit name and country. This card is a link to that round's detail page (or to `/circuits` if no next race is known).
+
+**Race-week glimpse** (between the hero and the bento row) — present *only* during a race weekend, from the first session's start until three days after the last. It shows the top three of the most recently classified session with team accents and the time that matters for that session type: best lap for practice, best segment for qualifying, race time and gaps for the race and sprint. A pulsing **LIVE** badge replaces the kicker while a session is actually running. If a session has run but its timing has not been published yet — routine on a Friday, since practice comes from FastF1 — it degrades to a line naming which sessions have run rather than reprinting the hero's session chips. Between weekends it renders nothing at all. The whole strip links to that round's detail page.
+
+This replaced a "77 Seasons" barcode teaser, which was removed along with the ~1,200-race `historical_race_index` fetch that fed it — pulled on every home render for one decorative bar, with `/history` already in the nav.
 
 **"Explore the season"** — four link tiles: Race calendar (with race count), Standings, Driver grid (with driver count), Teams.
 
@@ -165,6 +173,8 @@ Header: "Constructor standings <year> / Teams & Chassis" with a **season selecto
 
 **Team cards**, two across, each tilting on hover with a team-coloured corner wash and a blurred colour blob. Each card shows team name, nationality, a "Power · <engine>" chip, and Position / Wins / Season pts. The team's logo appears on a light rounded plate; teams without a freely-licensed logo (Ferrari, Red Bull, Racing Bulls) fall back to a two-letter monogram on a team-colour tile.
 
+**Heritage & lineage**, behind a per-card disclosure, collapsed by default. The trigger is not a bare chevron — it carries the three facts most likely to make someone open it ("Since 2010 · 162 all-time wins · 5 names"), so the collapsed state is an answer rather than a promise of one. Opening it reveals, in place: the team record (on the grid since, Grand Prix wins, Constructors' and Drivers' titles, each labelled as lineage-wide or current-era), the base location and a one-line profile, and the era chain as selectable chips — Tyrrell → BAR → Honda → Brawn → Mercedes — with a panel for the selected era showing its span, seasons, wins, titles and the rename story. Computed values and hand-authored ones are deliberately kept apart in the markup and labelled as such. Expanding one card does not stretch its row-mate.
+
 Below the cards: an attribution line linking to Wikimedia Commons and the CC BY 4.0 licence for the Aston Martin logo (opens in a new tab). The Circuits page carries an equivalent attribution for the Saudi Arabia (Jeddah) circuit outline, licensed CC BY-SA 3.0 (the Bahrain outline is public domain and needs none).
 
 **Power units** — a tile per engine supplier (Red Bull Ford, Mercedes-AMG, Ferrari, Honda, Renault, Audi) listing the teams that run it. Assignments reflect the 2026 rules-reset supplier changes: Alpine switched from Renault to Mercedes power units for 2026 (the lookup is season-aware so pre-2026 seasons still show Renault); Sauber ran Ferrari for its entire modern history through its rename to Audi for 2026, when it became a works Audi entry; Cadillac (new 2026 entrant) runs as a Ferrari customer.
@@ -225,15 +235,41 @@ A circuit with no curated `CircuitSpec` at all 404s rather than rendering an emp
 
 ## Live Timing (`/telemetry`)
 
-Linked from the desktop nav as "Live", after Circuits; deliberately excluded from the mobile bottom bar, which stays at its 5-item ceiling.
+**This page does not work, and never has in production.** It is documented here because it is in the navigation, not because it functions. See [Known gaps](#known-gaps--not-yet-functional) for the diagnosis.
 
-Header reads "APEX Live / Live Timing" with the current session name, a **Live** pill (pulsing red dot) or a **Standby** pill, and a link to the schedule.
+Linked from the desktop nav as "Live", after Circuits; excluded from the mobile bottom bar, so it is unreachable on a phone.
 
-The page derives whether a session is live from the season calendar plus assumed session durations (FP 60 min, Sprint Shootout 45, Sprint 30, Qualifying 60, Race 120). The race list refreshes every 60 seconds and the clock ticks every second.
+**What does work.** The header reads "APEX Live / Live Timing" with the current session name and a **Live** pill (pulsing red dot) or a **Standby** pill, plus a link to the schedule. Whether a session is live is derived from the season calendar plus *assumed* session durations (FP 60 min, "Sprint Shootout" 45, Sprint 30, Qualifying 60, Race 120) — several of which are wrong, so the page can drop to Standby part-way through a real session. The race list refreshes every 60 seconds and the clock ticks every second. When nothing is live it names the next session and its local time. That countdown is accurate and is the only part of the page carrying real information.
 
-**When no session is live**, it shows "Live timing polling is paused because no session is currently active." plus "Next session: <race> · <session> · <date/time>".
+**What does not.** The timing table — Pos, No, Driver, Gap, Interval, Last Lap, three sector bars, tyre compound and age, and a PIT/DRS/RUN status column — is coded and has never rendered a row in production. It was built against a paid RapidAPI feed whose key was never provisioned. Measured 2026-08-21: roughly three-quarters of the page is empty background in its normal state, and 0 of 20 driver rows render in every state, live or not.
 
-**When a session is live**, it polls a third-party RapidAPI feed every 10 seconds and renders a timing table: Pos, No, Driver (three-letter code in the team's colour), Gap, Interval, Last Lap, three **sector bars** (purple = overall fastest, green = personal best, orange otherwise), a **tyre** column (compound-coloured dot plus tyre age), and a Status column showing PIT / DRS / RUN. Rows are sorted by position. Loading, error, and "No timing rows available yet." states are all handled.
+The idle copy ("Live timing polling is paused because no session is currently active") implies a feed that resumes when a session starts. It does not. The honest string — "Live timing isn't available in this environment yet" — is only reachable *during* a live session.
+
+---
+
+## Race replay (`/watch`, `/watch/[raceId]`)
+
+`/watch` lists completed rounds to replay. `/watch/[raceId]` plays one back **at the pace it actually happened**: a clock advances in real time and a timing tower re-orders itself at each crossing, rather than animating cars on a track — this app has no position data, and the module says so rather than inventing it.
+
+Built on the official lap record. Positions, gaps and intervals are exact at every crossing and OpenF1's fill is corrected there; a carried-forward sample used to go stale during long stops and safety cars, which is why the correction exists. The `PIT` state is keyed on the driver's *own* lap rather than the leader's, so a long stop keeps its flag.
+
+Controls include play/pause, speed, a scrub, driver favourites and density modes. A screen wake lock keeps a phone or laptop awake through a replay. Preferences sync across tabs via a `storage` listener. A round with no replay data reports that rather than showing an empty tower.
+
+**Second-screen pairing.** A phone and a laptop can run one replay in step: the host shows a QR code, the phone scans it, and both confirm the pairing. What syncs is a command and an anchor, not a playhead — so the two clocks stay in step without either one dragging the other.
+
+---
+
+## The Pitwall Assistant (a panel, not a route)
+
+A retrieval-grounded chat assistant available across the app, served by the separate `f1-agent` Cloud Run service over SSE. It answers questions about this app's own data.
+
+- **Grounded, and shows its work.** Answers carry citation pills with human titles and kind tags; clicking one opens an inspectable popover, and the cited value in the prose *is* the citation anchor. A per-step activity timeline shows what the agent did.
+- **Verified before display.** A deterministic verifier checks claims against the evidence ledger before an answer is shown; predictive and subjective questions are held to a framing contract enforced by the verifier rather than by prompt wording.
+- **Guarded on both sides.** Scope, injection and PII checks on input; output guards on every tier. Untrusted web content fetched via Tavily is quarantined from instruction-following.
+- **Rate limited and budgeted.** A Mongo-backed daily cost cap plus cost-weighted per-caller and per-subnet buckets on a composite identity, charged in run-cost units rather than request counts, with a kill switch.
+- Retry, regenerate, copy, a "New chat" control, contextual suggestion chips validated by the router, an SSE heartbeat, and focus-trap accessibility.
+
+Its design is documented at length in `CHAT-AGENT-PLAN.md`.
 
 ---
 
@@ -309,10 +345,13 @@ Three data sources are called directly from the frontend rather than through the
 
 These exist in the shipped UI but do not work, or do not work as their label implies.
 
-- **`/telemetry` is gated by a RapidAPI key at runtime.** It is now linked from the desktop nav ("Live", last item) but deliberately still excluded from the mobile bottom bar (already at its 5-item ceiling). If `NEXT_PUBLIC_RAPIDAPI_KEY` isn't provisioned in an environment, the page shows a friendly "not available in this environment yet" message instead of a raw config-error string.
+- **`/telemetry` has never rendered a row of timing data in production, and cannot without a rebuild.** Diagnosed 2026-08-21. It calls a paid RapidAPI feed (`f1-live-pulse`) directly from the browser, and `_NEXT_PUBLIC_RAPIDAPI_KEY` defaults to an empty string in `cloudbuild-frontend.yaml` so builds do not fail. Next inlines `NEXT_PUBLIC_*` at **build** time, so the deployed bundle contains the dead-code-eliminated stub — `isLiveTimingConfigured` compiles to `function f(){return!1}` and the fetch is not in the shipped JavaScript at all. Setting the variable at runtime on Cloud Run would therefore change nothing. Calling the nav item "Live" is not accurate and never has been.
+- **Session live/standby windows are guessed, not sourced.** `frontend/src/lib/sessions.ts` hardcodes durations and some are wrong — `Sprint: 30` against a real 60-minute window at Zandvoort, `SprintQualifying: 45` against 44 — so a live session can be treated as over halfway through, and a red-flagged session overruns the assumption entirely. The label "Sprint Shootout" is also F1's pre-2024 name.
+- **Practice and sprint-qualifying classification can be missing for a round.** FastF1's upstream intermittently refuses Google Cloud Run IP ranges and fails *soft* — empty streams, no error — so the hourly sync cannot be relied on for any specific round. Running `python -m app.data_sync` from a local machine is the documented remedy. (Separately, a bug that made *every* practice classification roughly two days late was fixed on 2026-08-21: session-scoped syncs were gated on the race having started rather than on the session having finished.)
+- **`backend/app/strategy_whatif.py` is experimental, unrouted, and fails its own accuracy gate.** It is not reachable from the UI and is not a feature. Asked to move a pit stop to the lap it already happened on, it reproduces the real finishing position for only 51% of clean finishers. Details in `ROADMAP.md`.
 - **Season selectors offer 2018 onward, but data quality drops off sharply.** The range is fixed at `MIN_SUPPORTED_SEASON = 2018` regardless of what is actually cached; older seasons will show calendars and standings but largely empty session classifications, circuit details, and no Pitwall data.
 - **Pitwall Race Control's OpenF1 paywall has lifted.** This was previously documented as a hard gap — OpenF1 returned 401 for the entire current season, so the module always showed its empty state. As of 2026-07-29 `GET /v1/sessions?year=2026` and `/race_control` both return 200 with full data (verified against the Hungarian GP: 80 messages including penalties, VSC periods and stewards' decisions). The module should now populate for current-season rounds; if it looks empty, suspect a caching window rather than the paywall.
 
 ---
 
-*Written from the code on `main`. The repo's `DESIGN-CONTEXT.md` is stale — it describes an obsolete cyan/magenta theme that no longer exists — and was not used as a source here.*
+*Written from the code on `main`, refreshed 2026-08-21. The repo's `DESIGN-CONTEXT.md` is stale — it describes an obsolete cyan/magenta theme that no longer exists — and was not used as a source here.*
