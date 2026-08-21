@@ -6,10 +6,10 @@ Runs as a Cloud Run Job on an hourly schedule, or locally:
 
 The schedule and standings are refreshed on every run because they change
 between races. Everything keyed to a specific session — results, practice
-classifications, circuit details, weather — is only fetched for rounds that
-have already happened and aren't in Mongo yet. That keeps a routine run to a
-handful of requests and well inside the job timeout; the expensive FastF1 work
-only happens on the run after a race weekend.
+classifications, circuit details, weather — is only fetched once that session
+has been run and isn't in Mongo yet. That keeps a routine run to a handful of
+requests and well inside the job timeout, while still filling a Friday
+practice on Friday rather than after the race.
 
 Set SYNC_YEARS ("2025,2026") to sync specific seasons, or FORCE_RESYNC=1 to
 refetch sessions that are already stored.
@@ -154,6 +154,113 @@ def _round_key(race: dict) -> int:
 # gets computed from a partial session and then cached as if it were final.
 RACE_DURATION_HOURS = 4
 
+# Schedule field -> how long after its start that session's result should
+# exist. Only used to decide when it is worth ASKING an upstream for a result,
+# so it is deliberately generous rather than exact: asking an hour early costs
+# one request that returns nothing and is retried on the next run, whereas
+# asking too late leaves a finished session missing from the site for hours.
+SESSION_SETTLE_HOURS: dict[str, float] = {
+    "FirstPractice": 1.5,
+    "SecondPractice": 1.5,
+    "ThirdPractice": 1.5,
+    "SprintQualifying": 1.5,
+    "Sprint": 1.5,
+    "Qualifying": 1.5,
+    # Shorter than RACE_DURATION_HOURS on purpose. That constant guards things
+    # COMPUTED from the whole race (fastest lap, weather), which must not be
+    # derived from a half-run session. This one only decides when to ask Ergast
+    # for a results table it either has or does not — a race is over inside two
+    # hours barring a suspension, and an early ask returns nothing and retries.
+    "Race": 2.0,
+}
+
+# Every session a weekend can contain, in the order they are run. `Race` is the
+# race document's own `date`/`time`, not a sub-document, which is why
+# `_session_window` special-cases it.
+WEEKEND_SESSIONS = (
+    "FirstPractice",
+    "SecondPractice",
+    "ThirdPractice",
+    "SprintQualifying",
+    "Sprint",
+    "Qualifying",
+    "Race",
+)
+
+
+def _session_window(race: dict, field: str) -> datetime.datetime | None:
+    """Start time of one session of `race`, or None if the weekend has no such session."""
+    if field == "Race":
+        return _session_start(race.get("date"), race.get("time"))
+    session = race.get(field)
+    if not isinstance(session, dict):
+        return None
+    return _session_start(session.get("date"), session.get("time"))
+
+
+def _has_session_schedule(race: dict) -> bool:
+    """True if this race document carries any per-session times at all.
+
+    Ergast only began publishing them around 2021 — every season in this
+    database has them on every round (checked 2026-08-21: 2021, 2024, 2025 and
+    2026 all carry `FirstPractice` and `Qualifying` on 100% of rounds). But
+    `SYNC_YEARS` will happily accept 2010, and there an absent `Qualifying`
+    means "we don't know when it was", not "the weekend had no qualifying".
+    Without this distinction that season's qualifying would never sync, and it
+    would fail silently.
+    """
+    return any(
+        isinstance(race.get(field), dict)
+        for field in WEEKEND_SESSIONS
+        if field != "Race"
+    )
+
+
+def _session_has_run(race: dict, field: str) -> bool:
+    """True once `field`'s result should be published and is worth fetching."""
+    start = _session_window(race, field)
+    if start is None:
+        # An absent session on a weekend we DO have times for is a session that
+        # weekend genuinely never had — a sprint weekend has no FP3. With no
+        # times at all, fall back to the old race-start gate rather than
+        # skipping the season entirely.
+        if field == "Race" or _has_session_schedule(race):
+            return False
+        return _session_has_run(race, "Race")
+    settle = SESSION_SETTLE_HOURS.get(field, RACE_DURATION_HOURS)
+    return start + datetime.timedelta(hours=settle) < _utcnow()
+
+
+def _rounds_in_play(db, year: int) -> list[dict]:
+    """Rounds whose weekend has begun — the earliest session has started.
+
+    **This is the gate for anything session-scoped, and `_completed_rounds` is
+    not.** Practice, qualifying and sprint results used to be synced only for
+    rounds whose *race* had started, which meant a session run on Friday was
+    not even asked for until Sunday afternoon. Verified against production: on
+    2026-08-21, every practice document in the database had a `synced_at`
+    AFTER its round's race start — round 11's Friday practice was written on
+    the Monday, round 10's on the Tuesday — and the Dutch GP's completed FP1
+    and sprint qualifying had no document at all while the race was still two
+    days away. The site showed "timing not published yet" for sessions that had
+    finished hours earlier, and the cause was here, not upstream.
+
+    Callers still filter per session with `_session_has_run`; this only decides
+    which rounds are worth looking at.
+    """
+    races = list(db.races.find({"season": year}, {"_id": 0, "synced_at": 0}))
+    now = _utcnow()
+    in_play = []
+    for race in races:
+        starts = [
+            start
+            for field in WEEKEND_SESSIONS
+            if (start := _session_window(race, field)) is not None
+        ]
+        if starts and min(starts) < now:
+            in_play.append(race)
+    return sorted(in_play, key=_round_key)
+
 
 def _completed_rounds(db, year: int, *, settled: bool = False) -> list[dict]:
     """Races whose start time has passed, oldest first.
@@ -204,19 +311,26 @@ def _already_stored(
 
 
 def sync_session_results(db, year: int, races: list[dict]) -> None:
-    """Race, qualifying and sprint results from Ergast."""
+    """Race, qualifying and sprint results from Ergast.
+
+    Each job is gated on its OWN session having run, not on the race having
+    started — Saturday's qualifying is published on Saturday, and waiting for
+    Sunday to ask for it left the site a day stale for no reason.
+    """
     jobs = [
-        ("results", "Results", db.race_results, "race"),
-        ("qualifying", "QualifyingResults", db.qualifying_results, "qualifying"),
-        ("sprint", "SprintResults", db.sprint_results, "sprint"),
+        ("results", "Results", db.race_results, "race", "Race"),
+        ("qualifying", "QualifyingResults", db.qualifying_results, "qualifying", "Qualifying"),
+        ("sprint", "SprintResults", db.sprint_results, "sprint", "Sprint"),
     ]
 
-    for path, key, collection, label in jobs:
+    for path, key, collection, label, schedule_field in jobs:
         synced = 0
         for race in races:
             round_number = race.get("round")
-            # A sprint only exists on sprint weekends; don't ask for the rest.
-            if label == "sprint" and not race.get("Sprint"):
+            # A sprint only exists on sprint weekends, and a session that has
+            # not run yet has nothing to publish. `_session_has_run` covers
+            # both: an absent session never counts as run.
+            if not _session_has_run(race, schedule_field):
                 continue
             if _already_stored(
                 collection, {"season": year, "round": str(round_number)}, source="ergast"
@@ -255,13 +369,15 @@ def sync_practice_results(db, year: int, races: list[dict]) -> None:
     """Practice and sprint-qualifying classifications via FastF1.
 
     Which sessions to ask for comes from the schedule, so a sprint weekend
-    isn't asked for the FP2/FP3 it never had.
+    isn't asked for the FP2/FP3 it never had — and each is gated on having
+    actually been run, so Friday practice is fetched on Friday rather than
+    waiting for the race two days later.
     """
     synced = 0
     for race in races:
         round_number = int(race.get("round", 0))
         for schedule_field, session_code in PRACTICE_SESSIONS.items():
-            if not race.get(schedule_field):
+            if not _session_has_run(race, schedule_field):
                 continue
             if _already_stored(
                 db.practice_results,
@@ -653,14 +769,17 @@ def main() -> int:
         _sync_standings(db, year, "driverstandings", "DriverStandings", db.driver_standings, "driver standings")
         _sync_standings(db, year, "constructorstandings", "ConstructorStandings", db.constructor_standings, "constructor standings")
 
-        started = _completed_rounds(db, year)
-        # circuit_details and weather summarise the finished race and are cached
-        # without re-checking, so they must not be built from a race in progress.
+        # Session-scoped syncs take every round whose weekend has BEGUN, then
+        # filter per session — a Friday practice result exists on Friday and
+        # should not wait for Sunday. circuit_details and weather summarise the
+        # finished race and are cached without re-checking, so they keep the
+        # stricter gate: they must not be built from a race in progress.
+        in_play = _rounds_in_play(db, year)
         finished = _completed_rounds(db, year, settled=True)
-        print(f"  {len(started)} started round(s), {len(finished)} finished")
+        print(f"  {len(in_play)} round(s) in play, {len(finished)} finished")
 
-        sync_session_results(db, year, started)
-        sync_practice_results(db, year, started)
+        sync_session_results(db, year, in_play)
+        sync_practice_results(db, year, in_play)
         sync_circuit_details(db, year, finished)
         sync_race_stints(db, year, finished)
         sync_pit_stops(db, year, finished)
