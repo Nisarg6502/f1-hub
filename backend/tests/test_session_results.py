@@ -608,5 +608,130 @@ class CompletedRoundsTests(unittest.TestCase):
         self.assertEqual(len(data_sync._completed_rounds(db, 2026, settled=True)), 1)
 
 
+class SessionGatingTests(unittest.TestCase):
+    """The gate that decides when a session's result is worth fetching.
+
+    Regression cover for a bug that made every practice session on the site
+    two days late: session-scoped syncs were gated on the RACE having started,
+    so a Friday FP1 was not fetched until Sunday afternoon. Confirmed against
+    production on 2026-08-21 — every practice document in the database had a
+    `synced_at` later than its own round's race start, and the Dutch GP's
+    finished FP1 and sprint qualifying had no document at all.
+    """
+
+    class FakeDb:
+        def __init__(self, races):
+            self.races = SyncCollection(races)
+
+    @staticmethod
+    def _at(hours_from_now: float) -> dict:
+        when = data_sync._utcnow() + datetime.timedelta(hours=hours_from_now)
+        return {"date": when.strftime("%Y-%m-%d"), "time": when.strftime("%H:%M:%SZ")}
+
+    def _sprint_weekend(self):
+        """A Dutch-GP-shaped weekend: FP1 and SQ run, everything else ahead."""
+        race = self._at(48)
+        return {
+            "season": 2026,
+            "round": "12",
+            "date": race["date"],
+            "time": race["time"],
+            "FirstPractice": self._at(-6),
+            "SprintQualifying": self._at(-2),
+            "Sprint": self._at(20),
+            "Qualifying": self._at(24),
+        }
+
+    def test_a_finished_session_counts_as_run(self):
+        race = self._sprint_weekend()
+        self.assertTrue(data_sync._session_has_run(race, "FirstPractice"))
+        self.assertTrue(data_sync._session_has_run(race, "SprintQualifying"))
+
+    def test_a_session_still_ahead_does_not(self):
+        race = self._sprint_weekend()
+        self.assertFalse(data_sync._session_has_run(race, "Sprint"))
+        self.assertFalse(data_sync._session_has_run(race, "Qualifying"))
+        self.assertFalse(data_sync._session_has_run(race, "Race"))
+
+    def test_a_session_the_weekend_never_had_does_not(self):
+        # A sprint weekend has no FP2/FP3. An absent session must read as "not
+        # run" rather than raising or defaulting to true.
+        race = self._sprint_weekend()
+        self.assertFalse(data_sync._session_has_run(race, "SecondPractice"))
+        self.assertFalse(data_sync._session_has_run(race, "ThirdPractice"))
+
+    def test_a_session_just_finished_is_not_asked_for_instantly(self):
+        # Timing is published minutes after the flag, not at it; asking on the
+        # chequered flag would cache an empty result. One hour in is too early
+        # for a 60-minute session.
+        race = {"season": 2026, "round": "1", "FirstPractice": self._at(-1)}
+        self.assertFalse(data_sync._session_has_run(race, "FirstPractice"))
+
+    def test_race_settles_sooner_than_the_derived_data_gate(self):
+        # RACE_DURATION_HOURS guards values COMPUTED from the whole race. Asking
+        # Ergast whether a results table exists is a cheaper question and does
+        # not need to wait as long.
+        self.assertLess(
+            data_sync.SESSION_SETTLE_HOURS["Race"], data_sync.RACE_DURATION_HOURS
+        )
+        race = {"season": 2026, "round": "1", "date": None, "time": None}
+        race.update(self._at(-3))
+        self.assertTrue(data_sync._session_has_run(race, "Race"))
+
+    def test_a_weekend_in_progress_is_in_play_before_its_race(self):
+        # The whole point: the round must be visible to the session syncs on
+        # Friday, two days before the race it is gated on under the old rule.
+        db = self.FakeDb([self._sprint_weekend()])
+        self.assertEqual([r["round"] for r in data_sync._rounds_in_play(db, 2026)], ["12"])
+        # …and the old gate still, correctly, says the race has not started.
+        self.assertEqual(data_sync._completed_rounds(db, 2026), [])
+
+    def test_a_weekend_that_has_not_begun_is_not_in_play(self):
+        race = self._at(48)
+        db = self.FakeDb([{
+            "season": 2026, "round": "13",
+            "date": race["date"], "time": race["time"],
+            "FirstPractice": self._at(46),
+        }])
+        self.assertEqual(data_sync._rounds_in_play(db, 2026), [])
+
+    def test_in_play_rounds_are_ordered_numerically(self):
+        past = self._at(-200)
+        db = self.FakeDb([
+            {"season": 2026, "round": "10", "date": past["date"], "time": past["time"]},
+            {"season": 2026, "round": "2", "date": past["date"], "time": past["time"]},
+        ])
+        self.assertEqual(
+            [r["round"] for r in data_sync._rounds_in_play(db, 2026)], ["2", "10"]
+        )
+
+    def test_a_season_with_no_session_times_falls_back_to_the_race_gate(self):
+        # Ergast only publishes per-session times from ~2021. On an older
+        # season an absent `Qualifying` means "unknown", not "never happened",
+        # so that season must keep the old race-start behaviour rather than
+        # silently syncing nothing.
+        old_race = {"season": 2010, "round": "1", **self._at(-5)}
+        self.assertFalse(data_sync._has_session_schedule(old_race))
+        self.assertTrue(data_sync._session_has_run(old_race, "Qualifying"))
+        self.assertTrue(data_sync._session_has_run(old_race, "Race"))
+
+        upcoming = {"season": 2010, "round": "2", **self._at(5)}
+        self.assertFalse(data_sync._session_has_run(upcoming, "Qualifying"))
+
+    def test_a_modern_weekend_without_a_session_really_has_none(self):
+        # The other side of the same coin: 2026 round 12 DOES have session
+        # times, so its missing FP3 is a fact about the weekend, not a gap in
+        # the feed, and must not fall through to the race gate.
+        race = self._sprint_weekend()
+        self.assertTrue(data_sync._has_session_schedule(race))
+        self.assertFalse(data_sync._session_has_run(race, "ThirdPractice"))
+
+    def test_a_malformed_session_does_not_crash_the_sync(self):
+        race = {"season": 2026, "round": "1", "FirstPractice": "not-a-dict",
+                "Qualifying": {"date": "not-a-date", "time": "nonsense"}}
+        self.assertFalse(data_sync._session_has_run(race, "FirstPractice"))
+        self.assertFalse(data_sync._session_has_run(race, "Qualifying"))
+
+
 if __name__ == "__main__":
     unittest.main()
