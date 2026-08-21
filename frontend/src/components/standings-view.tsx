@@ -17,6 +17,7 @@ import DriverSeasonLogPanel from "@/components/driver-season-log";
 import SeasonSelector from "@/components/season-selector";
 import TeammateBattlePanel from "@/components/teammate-battle-panel";
 import TitleDeciderPanel from "@/components/title-decider-panel";
+import TeamCar from "@/components/team-car";
 
 interface StandingsViewProps {
   drivers: DriverStanding[];
@@ -393,7 +394,7 @@ export default function StandingsView({
             return (
               <StaggerItem
                 key={name || i}
-                className="relative px-5 sm:px-6 py-5 rounded-2xl overflow-hidden border"
+                className="relative px-5 sm:px-6 py-5 rounded-2xl overflow-hidden border isolate"
                 style={{
                   background: leader
                     ? "rgba(255,90,31,0.1)"
@@ -403,6 +404,31 @@ export default function StandingsView({
                     : "rgba(255,255,255,0.07)",
                 }}
               >
+                {/* The car, dissolving in from the right.
+                    This tab was the plainest surface in the app — eleven
+                    near-identical bars whose only distinguishing feature was a
+                    colour. The livery is what people actually recognise a team
+                    by, so it now does that job, from the right where the row
+                    has nothing but a points figure.
+
+                    Hidden below `sm`: at phone width the car would run under
+                    the points, which is the one number the row exists to
+                    state.
+
+                    `right-[212px]` for the same reason at desktop width. The
+                    wins and points columns are 80px + 100px with a 16px gutter
+                    and 24px of padding beyond them; anchored flush right the
+                    car's rear wing sat directly behind the win count. Stopping
+                    it short of that band keeps every figure on plain
+                    background and leaves the car in the dead space the row
+                    always had between the team name and its numbers. */}
+                <TeamCar
+                  team={name}
+                  variant="ghost-right"
+                  opacity={0.22}
+                  sizes="(min-width: 1024px) 460px, 50vw"
+                  className="hidden sm:block absolute -z-10 right-[232px] top-1 bottom-1 w-[40%]"
+                />
                 <div className="grid grid-cols-[40px_1fr_auto] sm:grid-cols-[44px_1fr_80px_100px] gap-3 sm:gap-4 items-center">
                   <span
                     className="font-extrabold text-lg tabular-nums"

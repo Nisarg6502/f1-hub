@@ -34,6 +34,64 @@ export function hasTeamLogo(teamName?: string): boolean {
   return getTeamLogoPath(teamName) !== null;
 }
 
+/* -------------------------------------------------------------------------- */
+/* car renders                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Official side-profile car renders, mirrored into `gs://f1-scratch-assets/cars`.
+ *
+ * **Licensing is different here and the difference matters.** The logos above
+ * are Wikimedia Commons material, which is why three teams are deliberately
+ * missing rather than sourced from somewhere convenient. These renders are
+ * Formula One World Championship Limited's own press assets, taken from
+ * formula1.com's media CDN — all rights reserved, used here on the same footing
+ * as any fan site. If this project ever needs to stand on clean licensing, this
+ * is the directory to revisit first.
+ *
+ * Unlike the logos, coverage is complete: all 11 constructors, so no caller
+ * needs a fallback branch for a missing car the way it does for a missing mark.
+ *
+ * 1920x423 WebP with a real alpha channel — they are cut out, not on a white
+ * plate, so they composite straight onto the dark theme with no scrim. Roughly
+ * 100KB each; the source is 3840px wide and can be re-pulled at that size if a
+ * hero ever needs it.
+ */
+const TEAM_CAR_MAP: Array<[string, string]> = [
+  ["mercedes", "Mercedes"],
+  ["ferrari", "Ferrari"],
+  ["mclaren", "McLaren"],
+  ["red bull", "Red_Bull"],
+  ["alpine", "Alpine"],
+  ["williams", "Williams"],
+  ["aston martin", "Aston_Martin"],
+  ["haas", "Haas"],
+  ["audi", "Audi"],
+  ["sauber", "Audi"],
+  ["cadillac", "Cadillac"],
+  ["racing bulls", "Racing_Bulls"],
+  ["rb", "Racing_Bulls"],
+];
+
+/** Which way the car points. Both exist for every team, so two cars can be put
+ * nose to nose in a head-to-head without one of them driving backwards. */
+export type CarFacing = "right" | "left";
+
+export function getTeamCarPath(
+  teamName?: string,
+  facing: CarFacing = "right"
+): string | null {
+  const name = (teamName ?? "").toLowerCase();
+  for (const [key, file] of TEAM_CAR_MAP) {
+    if (name.includes(key)) return `${ASSET_BASE}/cars/${file}-${facing}.webp`;
+  }
+  return null;
+}
+
+export function hasTeamCar(teamName?: string): boolean {
+  return getTeamCarPath(teamName) !== null;
+}
+
 // The short form to draw when a team has no logo above. Matched the same
 // case-insensitive-substring way as getTeamColor and getTeamLogoPath, most
 // specific first, so "Red Bull" cannot fall through to the "rb" entry.

@@ -20,7 +20,7 @@ import {
 } from "@/lib/constructor-profiles";
 import { getEngineForTeam } from "@/lib/engines";
 import { getTeamColor } from "@/lib/team-colors";
-import { getTeamAbbreviation, getTeamLogoPath } from "@/lib/team-images";
+import { getTeamAbbreviation, getTeamCarPath, getTeamLogoPath } from "@/lib/team-images";
 import TiltCard from "@/components/tilt-card";
 import { Stagger, StaggerItem } from "@/components/motion-primitives";
 import SeasonSelector from "@/components/season-selector";
@@ -239,6 +239,7 @@ export default async function TeamsPage({ searchParams }: PageProps) {
           // different marks. `slice(0, 2)` used to render Ferrari as "FE".
           const mono = getTeamAbbreviation(name);
           const logoPath = getTeamLogoPath(name);
+          const carPath = getTeamCarPath(name);
 
           // Matched on the raw Ergast constructorId, not the display name:
           // "RB F1 Team" / "Racing Bulls" / "Scuderia AlphaTauri" are all the
@@ -306,10 +307,38 @@ export default async function TeamsPage({ searchParams }: PageProps) {
                 )}
               </div>
 
+              {/* The car. Cut out against the card rather than boxed on a
+                  plate — the renders carry a real alpha channel, so the only
+                  thing under them is a wash of the team's own colour, and the
+                  livery reads as belonging to the card instead of sitting on
+                  it. Bleeds past the padding on both sides because a 4.5:1
+                  side profile inset by 26px of gutter looks like a thumbnail;
+                  running it to the edges is what makes it look like a car.
+
+                  `aria-hidden` with an empty alt: the constructor is named in
+                  text directly above, so announcing "Ferrari car" after it is
+                  a second reading of the same fact. */}
+              {carPath && (
+                <div className="relative mt-6 -mx-[26px] h-[92px]">
+                  <div
+                    className="absolute inset-x-6 bottom-2 h-[58px] rounded-full blur-[26px] opacity-30 pointer-events-none"
+                    style={{ background: color.hex }}
+                  />
+                  <Image
+                    src={carPath}
+                    alt=""
+                    aria-hidden
+                    fill
+                    sizes="(min-width: 768px) 46vw, 92vw"
+                    className="object-contain drop-shadow-[0_14px_26px_rgba(0,0,0,0.6)]"
+                  />
+                </div>
+              )}
+
               {/* This season only — the heritage block below carries the
                   all-time figures, and the two are labelled apart so a
                   season win count is never read as a career one. */}
-              <div className="relative mt-7">
+              <div className="relative mt-5">
                 <div className="font-semibold text-[9.5px] tracking-[0.1em] uppercase text-warm-500 mb-2">
                   {year} season
                 </div>
@@ -359,8 +388,19 @@ export default async function TeamsPage({ searchParams }: PageProps) {
       </Stagger>
 
       {/* CC BY 4.0 requires attribution — the Aston Martin logo is the only
-          team asset under that license; the rest are public-domain/CC0. */}
-      <p className="font-medium text-[10px] text-warm-500 mb-8 -mt-6">
+          team asset under that license; the rest of the *logos* are
+          public-domain/CC0.
+
+          The car renders are not, and are credited separately rather than
+          folded into the same sentence: they are Formula 1's own press assets,
+          all rights reserved, not freely-licensed material. Saying so plainly
+          is the minimum, and it keeps the distinction visible to whoever reads
+          this next. */}
+      <p className="font-medium text-[10px] text-warm-500 mb-2 -mt-6">
+        Car renders © Formula One World Championship Limited, used for
+        editorial illustration.
+      </p>
+      <p className="font-medium text-[10px] text-warm-500 mb-8">
         Aston Martin logo via{" "}
         <a
           href="https://commons.wikimedia.org/wiki/File:Aston_Martin_F1_Team_logo_2024.jpg"

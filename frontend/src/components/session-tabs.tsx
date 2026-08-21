@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 import type { Race, RaceResult } from "@/lib/api";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { getTeamColor } from "@/lib/team-colors";
+import TeamCar from "@/components/team-car";
 import { buildRaceSessionTimeline, type RaceSessionField } from "@/lib/sessions";
 import SessionRecapCard from "@/components/session-recap-card";
 
@@ -204,10 +205,23 @@ function WinnerCard({ r }: { r: RaceResult }) {
   const img = hasImg ? getDriverImagePath(given, family) : null;
 
   return (
-    <div className="apex-glass apex-sheen rounded-[18px] p-[22px] overflow-hidden relative">
+    <div className="apex-glass apex-sheen rounded-[18px] p-[22px] overflow-hidden relative isolate">
       <div
         className="absolute left-0 top-0 bottom-0 w-[5px]"
         style={{ background: color.hex, boxShadow: `0 0 16px ${color.glow}` }}
+      />
+      {/* The winning car, along the bottom edge, pulling away to the right.
+          Low enough to be texture rather than an image — the driver's portrait
+          already occupies the right third of this card, and two photographs
+          competing for one card is how a result hero turns into a collage.
+          Anchored bottom-left because that is the only region with nothing in
+          it once the name, team and total time are placed. */}
+      <TeamCar
+        team={r.Constructor?.name}
+        variant="ghost-left"
+        opacity={0.17}
+        sizes="(min-width: 768px) 420px, 80vw"
+        className="absolute -z-10 left-0 bottom-0 h-[64px] w-[74%]"
       />
       {img ? (
         <div className="absolute top-5 right-4 bottom-5 w-[34%] pointer-events-none overflow-hidden rounded-lg">
