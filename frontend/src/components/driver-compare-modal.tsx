@@ -14,6 +14,7 @@ import { getTeamColor } from "@/lib/team-colors";
 import { useModalDialog } from "@/lib/use-modal-dialog";
 import DriverComparisonRecap from "./driver-comparison-recap";
 import FlagImg from "./flag-img";
+import TeamCar from "./team-car";
 
 interface DriverCompareModalProps {
   driverA: DriverStanding;
@@ -168,6 +169,49 @@ export default function DriverCompareModal({
               </div>
             )
           )}
+        </div>
+
+        {/* Nose to nose.
+
+            This is the one surface where two cars facing each other is a
+            truthful picture rather than a decorative one: the drivers being
+            compared can be on different teams, so the two liveries meeting in
+            the middle *is* the comparison. (The teammate panel deliberately
+            does the opposite — same chassis, so one car behind both.)
+
+            Each half masks its car away from the centre, leaving a clear strip
+            for the divider, so the two noses approach each other without
+            colliding. The colour wash comes in from the outer edges for the
+            same reason: it frames the meeting point instead of filling it. */}
+        <div
+          className="relative h-[84px] overflow-hidden border-y border-white/[0.07]"
+          style={{
+            background: `linear-gradient(90deg, ${a.color.hex}1c, transparent 40%, transparent 60%, ${b.color.hex}1c)`,
+          }}
+        >
+          {/* Insets, not widths, and deliberately narrow ones. These boxes are
+              ~2.7:1 against a car that is 4.54:1, which is what makes `cover`
+              keep only the leading ~60% — a half-width box would show two
+              entire cars and no noses at all. The inner edges stop at 46%/54%
+              so the two fronts approach the divider without touching it. */}
+          <TeamCar
+            team={a.team}
+            variant="nose-right"
+            sizes="(min-width: 640px) 240px, 32vw"
+            className="absolute inset-y-2 left-[16%] right-[54%]"
+          />
+          <TeamCar
+            team={b.team}
+            variant="nose-left"
+            sizes="(min-width: 640px) 240px, 32vw"
+            className="absolute inset-y-2 left-[54%] right-[16%]"
+          />
+          <span
+            aria-hidden
+            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-[family-name:var(--font-headline)] font-extrabold text-[11px] tracking-[0.16em] text-warm-400"
+          >
+            VS
+          </span>
         </div>
 
         <div className="p-[30px] pt-6">
