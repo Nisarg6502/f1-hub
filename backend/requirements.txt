@@ -25,7 +25,7 @@ motor~=3.7.1
 pymongo[srv]~=4.16.0
 
 # --- F1 data ---------------------------------------------------------------
-fastf1~=3.7.0
+fastf1~=3.8.3
 # NOT upgraded past 2.0 without checking `f1_results.py` and the FastF1 call
 # sites: those read `.laps` and `.results` as DataFrames and depend on current
 # indexing behaviour. pandas 2.1+ changed enough around copy-on-write to make
