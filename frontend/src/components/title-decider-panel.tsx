@@ -104,7 +104,7 @@ export default function TitleDeciderPanel({
         {loading ? (
           <div className="flex-1 grid md:grid-cols-2 gap-5 lg:gap-9 animate-pulse">
             {Array.from({ length: 2 }).map((_, i) => (
-              <div key={i} className="h-[64px] rounded-xl bg-[rgba(245,235,222,0.05)]" />
+              <div key={i} className="h-[64px] rounded-xl bg-veil/5" />
             ))}
           </div>
         ) : failed || !races || !driverResult ? (

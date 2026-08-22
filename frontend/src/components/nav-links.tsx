@@ -54,7 +54,7 @@ export default function NavLinks() {
             {isActive && (
               <motion.span
                 layoutId="nav-underline"
-                className="absolute -bottom-0.5 left-0 right-0 h-[2px] rounded-full bg-primary-container shadow-[0_0_10px_rgba(255,90,31,0.8)]"
+                className="absolute -bottom-0.5 left-0 right-0 h-[2px] rounded-full bg-primary-container shadow-[0_0_10px_rgb(var(--rgb-primary-container)_/_0.8)]"
                 transition={{ type: "spring", stiffness: 400, damping: 32 }}
               />
             )}

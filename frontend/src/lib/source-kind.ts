@@ -57,7 +57,7 @@ const STYLES: Record<SourceKind, SourceKindStyle> = {
     icon: "database",
     // The hero accent, reserved for first-party F1 Hub data.
     accent: "var(--color-primary)",
-    tint: "rgba(255, 174, 106, 0.14)",
+    tint: "rgb(var(--rgb-primary) / 0.14)",
     label: "Database",
     description: "Timing and results from F1 Hub's own database.",
   },

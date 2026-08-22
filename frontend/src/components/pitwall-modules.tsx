@@ -52,8 +52,8 @@ export default function PitwallModules({
                 aria-current={isActive ? "page" : undefined}
                 className={`flex items-center justify-between px-5 py-4 rounded-2xl w-full text-left transition-[background-color,border-color,transform] duration-150 active:scale-[0.98] ${
                   isActive
-                    ? "border border-[rgba(255,90,31,0.35)] bg-[rgba(255,90,31,0.1)] text-primary"
-                    : "apex-glass-soft hover:border-[rgba(255,138,61,0.5)]"
+                    ? "border border-primary-container/35 bg-primary-container/10 text-primary"
+                    : "apex-glass-soft hover:border-flame-bright/50"
                 }`}
               >
                 <span className="font-bold text-[15px]">{module.label}</span>
@@ -75,7 +75,7 @@ export default function PitwallModules({
               className="flex items-center justify-between px-5 py-4 rounded-2xl apex-glass-soft opacity-50 cursor-not-allowed w-full text-left"
             >
               <span className="font-bold text-[15px]">{label}</span>
-              <span className="text-[10px] uppercase tracking-[0.1em] text-warm-500 font-bold rounded-md bg-[rgba(245,235,222,0.06)] px-2 py-1">
+              <span className="text-[10px] uppercase tracking-[0.1em] text-warm-500 font-bold rounded-md bg-veil/6 px-2 py-1">
                 Soon
               </span>
             </button>

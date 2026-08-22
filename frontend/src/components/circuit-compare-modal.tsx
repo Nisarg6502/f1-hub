@@ -95,7 +95,7 @@ function CircuitHalf({ circuit }: { circuit: CircuitOption }) {
     <div
       className="relative h-[150px] overflow-hidden"
       style={{
-        background: "linear-gradient(180deg, rgba(255,138,61,0.16), transparent)",
+        background: "linear-gradient(180deg, rgb(var(--rgb-flame-bright) / 0.16), transparent)",
       }}
     >
       <TrackMap
@@ -107,7 +107,7 @@ function CircuitHalf({ circuit }: { circuit: CircuitOption }) {
       />
       <div
         className="absolute top-0 left-0 right-0 h-[4px]"
-        style={{ background: "#FF8A3D", boxShadow: "0 0 16px rgba(255,138,61,0.5)" }}
+        style={{ background: "#FF8A3D", boxShadow: "0 0 16px rgb(var(--rgb-flame-bright) / 0.5)" }}
       />
       <div className="absolute bottom-3 left-4 right-4">
         <div className="flex items-center gap-2 mb-1">
@@ -176,7 +176,7 @@ export default function CircuitCompareModal({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.2 }}
-      className="fixed inset-0 z-[80] flex items-center justify-center p-5 md:p-10 bg-[rgba(6,5,4,0.65)] backdrop-blur-[8px]"
+      className="fixed inset-0 z-[80] flex items-center justify-center p-5 md:p-10 bg-surface-container-lowest/65 backdrop-blur-[8px]"
     >
       <motion.div
         ref={dialogRef}
@@ -196,7 +196,7 @@ export default function CircuitCompareModal({
         <button
           onClick={onClose}
           aria-label="Close"
-          className="absolute top-5 right-5 z-10 w-[34px] h-[34px] rounded-control bg-[rgba(16,14,11,0.5)] flex items-center justify-center text-warm-200 text-lg hover:bg-[rgba(16,14,11,0.7)] transition-[background-color,transform] duration-150 active:scale-90"
+          className="absolute top-5 right-5 z-10 w-[34px] h-[34px] rounded-control bg-surface-container-low/50 flex items-center justify-center text-warm-200 text-lg hover:bg-surface-container-low/70 transition-[background-color,transform] duration-150 active:scale-90"
         >
           ×
         </button>
@@ -214,7 +214,7 @@ export default function CircuitCompareModal({
           {loading ? (
             <div className="space-y-2.5 animate-pulse">
               {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="h-[46px] rounded-xl bg-[rgba(245,235,222,0.05)]" />
+                <div key={i} className="h-[46px] rounded-xl bg-veil/5" />
               ))}
             </div>
           ) : rows.length === 0 ? (
@@ -235,7 +235,7 @@ export default function CircuitCompareModal({
               {rows.map((row) => (
                 <div
                   key={row.label}
-                  className="grid grid-cols-[1fr_1.4fr_1.4fr] gap-2 items-center bg-[rgba(245,235,222,0.05)] rounded-xl px-3.5 py-3"
+                  className="grid grid-cols-[1fr_1.4fr_1.4fr] gap-2 items-center bg-veil/5 rounded-xl px-3.5 py-3"
                 >
                   <span className="font-semibold text-[10px] tracking-[0.06em] uppercase text-warm-400">
                     {row.label}

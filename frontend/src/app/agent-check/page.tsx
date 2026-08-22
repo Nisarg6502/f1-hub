@@ -135,7 +135,7 @@ export default function AgentCheckPage() {
         Pitwall Assistant — that lands in CP61.
       </p>
 
-      <section className="mt-6 rounded-xl border border-white/10 bg-[rgba(26,22,19,0.98)] p-4">
+      <section className="mt-6 rounded-xl border border-white/10 bg-surface-container/98 p-4">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-[var(--color-on-surface-variant)]">
           Health
         </h2>
@@ -195,7 +195,7 @@ export default function AgentCheckPage() {
               </span>
             )}
           </h2>
-          <p className="mt-2 whitespace-pre-wrap rounded-xl border border-white/10 bg-[rgba(26,22,19,0.98)] p-4 text-sm text-[var(--color-on-surface)]">
+          <p className="mt-2 whitespace-pre-wrap rounded-xl border border-white/10 bg-surface-container/98 p-4 text-sm text-[var(--color-on-surface)]">
             {answer}
           </p>
         </section>

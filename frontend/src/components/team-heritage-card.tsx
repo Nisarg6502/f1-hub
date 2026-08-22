@@ -287,8 +287,8 @@ export default function TeamHeritageCard({
                     style={{
                       background: isSelected
                         ? `${hex}2E`
-                        : "rgba(245,235,222,0.05)",
-                      border: `1px solid ${isSelected ? `${hex}9E` : "rgba(245,235,222,0.09)"}`,
+                        : "rgb(var(--rgb-veil) / 0.05)",
+                      border: `1px solid ${isSelected ? `${hex}9E` : "rgb(var(--rgb-veil) / 0.09)"}`,
                     }}
                   >
                     <span
@@ -320,7 +320,7 @@ export default function TeamHeritageCard({
               animate={{ opacity: 1, y: 0 }}
               exit={reduce ? { opacity: 0 } : { opacity: 0, y: -4 }}
               transition={{ duration: reduce ? 0.1 : 0.2, ease: EASE_OUT }}
-              className="mt-3 rounded-xl px-3.5 py-3 bg-[rgba(245,235,222,0.035)] border border-white/[0.06]"
+              className="mt-3 rounded-xl px-3.5 py-3 bg-veil/[0.035] border border-white/[0.06]"
             >
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                 <span className="font-[family-name:var(--font-headline)] font-bold text-[13px] text-warm-100">
@@ -355,7 +355,7 @@ export default function TeamHeritageCard({
                       </span>
                     )}
                     {selected.driverTitles.length > 0 && (
-                      <span className="font-semibold text-[10px] px-2 py-[3px] rounded-md bg-[rgba(245,235,222,0.07)] text-warm-200 tabular-nums">
+                      <span className="font-semibold text-[10px] px-2 py-[3px] rounded-md bg-veil/7 text-warm-200 tabular-nums">
                         {selected.driverTitles.length}× Drivers&apos;{" "}
                         <span className="text-warm-400">
                           {selected.driverTitles

@@ -260,7 +260,7 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
             setLapIndex(0);
           }}
           aria-label="Restart replay"
-          className="flex items-center justify-center w-10 h-10 rounded-xl bg-[rgba(245,235,222,0.06)] border border-white/10 text-warm-300 hover:text-primary transition-[color,transform] duration-150 ease-out active:scale-[0.97]"
+          className="flex items-center justify-center w-10 h-10 rounded-xl bg-veil/6 border border-white/10 text-warm-300 hover:text-primary transition-[color,transform] duration-150 ease-out active:scale-[0.97]"
         >
           <SkipBack size={16} />
         </button>
@@ -274,7 +274,7 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
               aria-pressed={speed === option}
               className={`font-bold text-[11px] px-2.5 py-1.5 rounded-lg transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] ${
                 speed === option
-                  ? "bg-[rgba(255,90,31,0.18)] text-primary"
+                  ? "bg-primary-container/18 text-primary"
                   : "text-warm-400 hover:text-on-background"
               }`}
             >
@@ -369,7 +369,7 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
                 transition: rowTransitionMs
                   ? `transform ${rowTransitionMs}ms ${EASE_OUT}, background-color 200ms ease, opacity 200ms ease`
                   : "background-color 200ms ease, opacity 200ms ease",
-                background: runner.pit ? "rgba(255,90,31,0.14)" : "transparent",
+                background: runner.pit ? "rgb(var(--rgb-primary-container) / 0.14)" : "transparent",
                 // A retired car's row is carried forward from its last real
                 // lap rather than live — dimmed so it doesn't read as an
                 // active, current gap.
@@ -423,8 +423,8 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
                   key={`${event.kind}-${index}`}
                   className="inline-flex items-center gap-1.5 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg"
                   style={{
-                    background: urgent ? "rgba(255,68,68,0.12)" : "rgba(255,90,31,0.1)",
-                    border: `1px solid ${urgent ? "rgba(255,68,68,0.3)" : "rgba(255,90,31,0.22)"}`,
+                    background: urgent ? "rgba(255,68,68,0.12)" : "rgb(var(--rgb-primary-container)_/_0.1)",
+                    border: `1px solid ${urgent ? "rgba(255,68,68,0.3)" : "rgb(var(--rgb-primary-container)_/_0.22)"}`,
                     color: urgent ? "#FF6B6B" : "var(--color-primary)",
                   }}
                   // The full race-control message on hover: the chip is a

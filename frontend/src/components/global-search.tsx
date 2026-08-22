@@ -297,7 +297,7 @@ export default function GlobalSearch() {
 
   return (
     <div className="relative hidden lg:block" ref={rootRef}>
-      <div className="flex items-center gap-[9px] bg-[rgba(245,235,222,0.06)] backdrop-blur-[10px] border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] rounded-xl px-[14px] py-[9px] w-[208px] focus-within:border-[rgba(255,138,61,0.5)] transition-colors duration-150">
+      <div className="flex items-center gap-[9px] bg-veil/6 backdrop-blur-[10px] border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] rounded-xl px-[14px] py-[9px] w-[208px] focus-within:border-flame-bright/50 transition-colors duration-150">
         <Search className="w-3 h-3 text-warm-400 flex-none" strokeWidth={2} />
         <input
           ref={inputRef}
@@ -337,7 +337,7 @@ export default function GlobalSearch() {
             exit={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.96, y: -4 }}
             transition={{ duration: reduce ? 0.1 : 0.16, ease: EASE_OUT }}
             style={{ transformOrigin: "top" }}
-            className="absolute top-full right-0 mt-1.5 w-[280px] rounded-xl bg-[rgba(26,22,19,0.98)] border border-white/10 shadow-2xl z-50 max-h-80 overflow-y-auto p-1"
+            className="absolute top-full right-0 mt-1.5 w-[280px] rounded-xl bg-surface-container/98 border border-white/10 shadow-2xl z-50 max-h-80 overflow-y-auto p-1"
           >
             {/* The listbox is rendered even when empty and the "no results"
                 line sits outside it. An empty listbox is valid; a listbox whose

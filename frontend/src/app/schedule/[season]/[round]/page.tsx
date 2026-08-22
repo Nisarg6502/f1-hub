@@ -216,8 +216,8 @@ export default async function RaceDetailPage({ params }: PageProps) {
   const statusBadge = isPast
     ? { label: "Completed", bg: "rgba(255,255,255,0.06)", color: "#a89e90" }
     : isNextRace
-    ? { label: "Next race", bg: "rgba(255,90,31,0.16)", color: "var(--color-primary)" }
-    : { label: "Upcoming", bg: "rgba(245,235,222,0.06)", color: "#c9c0b4" };
+    ? { label: "Next race", bg: "rgb(var(--rgb-primary-container) / 0.16)", color: "var(--color-primary)" }
+    : { label: "Upcoming", bg: "rgb(var(--rgb-veil) / 0.06)", color: "#c9c0b4" };
 
   return (
     <div className="px-6 md:px-10 pt-8 pb-16">
@@ -272,7 +272,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
           )}
           <Link
             href="/schedule"
-            className="font-bold text-xs px-5 h-[46px] rounded-control apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
+            className="font-bold text-xs px-5 h-[46px] rounded-control apex-glass-soft flex items-center justify-center hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-95"
           >
             ← Back to schedule
           </Link>

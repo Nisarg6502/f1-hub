@@ -55,13 +55,13 @@ function tileStyle(outcome: Outcome, color: TeamColor): React.CSSProperties {
   switch (outcome) {
     case "win":
       return {
-        background: "linear-gradient(160deg, rgba(255,174,106,0.30), rgba(255,90,31,0.16))",
-        borderColor: "rgba(255,138,61,0.62)",
+        background: "linear-gradient(160deg, rgb(var(--rgb-primary) / 0.30), rgb(var(--rgb-primary-container) / 0.16))",
+        borderColor: "rgb(var(--rgb-flame-bright) / 0.62)",
       };
     case "podium":
       return {
-        background: "rgba(255,138,61,0.13)",
-        borderColor: "rgba(255,138,61,0.34)",
+        background: "rgb(var(--rgb-flame-bright) / 0.13)",
+        borderColor: "rgb(var(--rgb-flame-bright) / 0.34)",
       };
     case "points":
       return {
@@ -75,7 +75,7 @@ function tileStyle(outcome: Outcome, color: TeamColor): React.CSSProperties {
       };
     default:
       return {
-        background: "rgba(245,235,222,0.04)",
+        background: "rgb(var(--rgb-veil) / 0.04)",
         borderColor: "rgba(255,255,255,0.08)",
       };
   }
@@ -107,7 +107,7 @@ function retiredButClassified(entry: DriverRoundEntry): boolean {
 
 function Chip({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-lg px-2.5 py-1.5 bg-[rgba(245,235,222,0.045)] border border-white/[0.06]">
+    <div className="rounded-lg px-2.5 py-1.5 bg-veil/[0.045] border border-white/[0.06]">
       <div className="font-extrabold text-[13px] tabular-nums leading-none">{value}</div>
       <div className="font-semibold text-[9px] tracking-[0.1em] uppercase text-warm-500 mt-1">
         {label}

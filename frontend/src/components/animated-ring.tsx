@@ -33,7 +33,7 @@ export function AnimatedRing({
           cy="54"
           r="44"
           fill="none"
-          stroke="rgba(245,235,222,0.07)"
+          stroke="rgb(var(--rgb-veil) / 0.07)"
           strokeWidth="5"
         />
         <motion.circle

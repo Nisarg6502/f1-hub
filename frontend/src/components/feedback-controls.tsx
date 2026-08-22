@@ -12,7 +12,7 @@
  *
  * Thumbs-down opens a small comment popover before submitting, reusing this
  * app's existing liquid-glass popover pattern (`compare-drivers-panel.tsx`'s
- * `DriverSelect`): `bg-[rgba(26,22,19,0.98)] border border-white/10`,
+ * `DriverSelect`): `bg-surface-container/98 border border-white/10`,
  * `motion/react` for the open/close transition, click-outside + Escape to
  * dismiss.
  */
@@ -141,7 +141,7 @@ export default function FeedbackControls({
               style={{ transformOrigin: "top left" }}
               role="dialog"
               aria-label="Add feedback comment"
-              className="absolute top-full left-0 z-50 mt-1.5 w-64 rounded-xl border border-white/10 bg-[rgba(26,22,19,0.98)] p-2.5 shadow-2xl"
+              className="absolute top-full left-0 z-50 mt-1.5 w-64 rounded-xl border border-white/10 bg-surface-container/98 p-2.5 shadow-2xl"
             >
               <textarea
                 ref={textareaRef}
@@ -155,7 +155,7 @@ export default function FeedbackControls({
                 }}
                 placeholder="What went wrong? (optional)"
                 rows={2}
-                className="w-full resize-none rounded-lg bg-[rgba(245,235,222,0.06)] border border-white/10 px-2.5 py-2 text-xs text-[var(--color-on-surface)] outline-none placeholder:text-[var(--color-on-surface-variant)] focus:border-[rgba(255,138,61,0.5)]"
+                className="w-full resize-none rounded-lg bg-veil/6 border border-white/10 px-2.5 py-2 text-xs text-[var(--color-on-surface)] outline-none placeholder:text-[var(--color-on-surface-variant)] focus:border-flame-bright/50"
               />
               <div className="mt-2 flex justify-end gap-1.5">
                 <button

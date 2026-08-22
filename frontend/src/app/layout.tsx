@@ -199,13 +199,13 @@ export default function RootLayout({
           className="fixed inset-0 z-0 pointer-events-none overflow-hidden"
           aria-hidden="true"
         >
-          <div className="absolute -top-[6%] left-[4%] w-[52vw] h-[52vw] rounded-full blur-[10px] bg-[radial-gradient(circle,rgba(255,90,31,0.13),transparent_60%)]" />
-          <div className="absolute -bottom-[14%] -right-[4%] w-[48vw] h-[48vw] rounded-full blur-[12px] bg-[radial-gradient(circle,rgba(226,58,14,0.10),transparent_62%)]" />
-          <div className="absolute top-[44%] left-[38%] w-[40vw] h-[40vw] rounded-full blur-[14px] bg-[radial-gradient(circle,rgba(255,138,61,0.07),transparent_64%)]" />
+          <div className="absolute -top-[6%] left-[4%] w-[52vw] h-[52vw] rounded-full blur-[10px] bg-[radial-gradient(circle,rgb(var(--rgb-primary-container)_/_0.13),transparent_60%)]" />
+          <div className="absolute -bottom-[14%] -right-[4%] w-[48vw] h-[48vw] rounded-full blur-[12px] bg-[radial-gradient(circle,rgb(var(--rgb-ember)_/_0.10),transparent_62%)]" />
+          <div className="absolute top-[44%] left-[38%] w-[40vw] h-[40vw] rounded-full blur-[14px] bg-[radial-gradient(circle,rgb(var(--rgb-flame-bright)_/_0.07),transparent_64%)]" />
         </div>
           }
           nav={
-        <nav aria-label="Main" className="sticky top-0 z-50 bg-[rgba(18,15,12,0.55)] backdrop-blur-[16px] backdrop-saturate-150 border-b border-white/[0.08] shadow-[0_1px_0_rgba(255,255,255,0.06)_inset,0_10px_40px_rgba(0,0,0,0.4)]">
+        <nav aria-label="Main" className="sticky top-0 z-50 bg-surface-container-low/55 backdrop-blur-[16px] backdrop-saturate-150 border-b border-white/[0.08] shadow-[0_1px_0_rgba(255,255,255,0.06)_inset,0_10px_40px_rgba(0,0,0,0.4)]">
           <div className="max-w-[1440px] mx-auto flex items-center justify-between px-6 md:px-10 py-[15px]">
             <div className="flex items-center gap-8 md:gap-12">
               {/* 32px tall as drawn, 40px to a finger — the nav's own vertical
@@ -213,7 +213,7 @@ export default function RootLayout({
                   suit would enlarge the one element setting the bar's
                   height. */}
               <Link href="/" className="relative flex items-center gap-[11px] before:absolute before:-inset-y-1 before:-inset-x-2 before:content-['']">
-                <span className="w-[9px] h-[9px] rounded-full bg-primary-container shadow-[0_0_14px_rgba(255,90,31,0.9)]" />
+                <span className="w-[9px] h-[9px] rounded-full bg-primary-container shadow-[0_0_14px_rgb(var(--rgb-primary-container)_/_0.9)]" />
                 <span className="font-[family-name:var(--font-headline)] font-extrabold text-[22px] tracking-[-0.5px]">
                   APEX
                 </span>
@@ -319,7 +319,7 @@ export default function RootLayout({
            its own label since a page now has two navigations. */
         <nav
           aria-label="Sections"
-          className="lg:hidden fixed bottom-0 left-0 w-full z-50 bg-[rgba(18,15,12,0.85)] backdrop-blur-xl border-t border-white/[0.08] px-3 sm:px-6 py-3 flex justify-between items-center"
+          className="lg:hidden fixed bottom-0 left-0 w-full z-50 bg-surface-container-low/85 backdrop-blur-xl border-t border-white/[0.08] px-3 sm:px-6 py-3 flex justify-between items-center"
         >
           <MobileNav />
         </nav>

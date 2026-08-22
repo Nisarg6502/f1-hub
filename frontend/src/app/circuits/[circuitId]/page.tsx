@@ -75,7 +75,7 @@ export default async function CircuitDetailPage({ params }: PageProps) {
 
       <header className="mb-6">
         <div className="flex flex-wrap items-center gap-2.5 mb-3">
-          <span className="font-bold text-[10px] tracking-[0.12em] uppercase px-2.5 py-1.5 rounded-lg bg-[rgba(255,90,31,0.16)] text-primary">
+          <span className="font-bold text-[10px] tracking-[0.12em] uppercase px-2.5 py-1.5 rounded-lg bg-primary-container/16 text-primary">
             3D elevation
           </span>
           {race && (

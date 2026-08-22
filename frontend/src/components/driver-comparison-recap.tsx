@@ -69,7 +69,7 @@ export default function DriverComparisonRecap({
   if (!isStreaming && !text) return null;
 
   return (
-    <div className="bg-[rgba(245,235,222,0.05)] rounded-xl px-4 py-3.5">
+    <div className="bg-veil/5 rounded-xl px-4 py-3.5">
       <div className="flex items-center gap-2 mb-2">
         <span className="font-semibold text-[9px] tracking-[0.1em] uppercase text-warm-500">
           AI Head-to-head

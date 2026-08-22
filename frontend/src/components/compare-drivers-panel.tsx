@@ -56,7 +56,7 @@ function DriverSelect({ drivers, selectedId, excludeId, placeholder, onSelect }:
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex items-center justify-between gap-2 w-full rounded-control bg-[rgba(245,235,222,0.06)] border border-white/10 px-4 py-2.5 text-xs hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-[0.98]"
+        className="flex items-center justify-between gap-2 w-full rounded-control bg-veil/6 border border-white/10 px-4 py-2.5 text-xs hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-[0.98]"
       >
         <span className="flex items-center gap-2 min-w-0">
           {selected && selectedColor && (
@@ -81,7 +81,7 @@ function DriverSelect({ drivers, selectedId, excludeId, placeholder, onSelect }:
             transition={{ duration: reduce ? 0.1 : 0.16, ease: [0.23, 1, 0.32, 1] }}
             style={{ transformOrigin: "top" }}
             role="listbox"
-            className="absolute top-full left-0 mt-1.5 w-full min-w-[220px] rounded-xl bg-[rgba(26,22,19,0.98)] border border-white/10 shadow-2xl z-50 max-h-64 overflow-y-auto p-1"
+            className="absolute top-full left-0 mt-1.5 w-full min-w-[220px] rounded-xl bg-surface-container/98 border border-white/10 shadow-2xl z-50 max-h-64 overflow-y-auto p-1"
           >
             {drivers.map((driver) => {
               const driverId = driver.Driver.driverId ?? "";
@@ -161,7 +161,7 @@ export default function CompareDriversPanel({ drivers, seasonYear }: CompareDriv
       <button
         onClick={() => setShowModal(true)}
         disabled={!canCompare}
-        className="font-bold text-xs tracking-[0.08em] uppercase text-[#1a1210] px-5 py-2.5 rounded-control shadow-[0_6px_20px_rgba(255,90,31,0.35)] disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed transition-[box-shadow,transform] duration-150 active:scale-95 shrink-0"
+        className="font-bold text-xs tracking-[0.08em] uppercase text-[#1a1210] px-5 py-2.5 rounded-control shadow-[0_6px_20px_rgb(var(--rgb-primary-container)_/_0.35)] disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed transition-[box-shadow,transform] duration-150 active:scale-95 shrink-0"
         style={{ background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
       >
         Compare

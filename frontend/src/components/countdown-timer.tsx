@@ -92,7 +92,7 @@ export default function CountdownTimer({ targetRace }: CountdownTimerProps) {
               </div>
             </div>
             {i < segments.length - 1 && (
-              <div className="w-px bg-[rgba(245,235,222,0.1)]" />
+              <div className="w-px bg-veil/10" />
             )}
           </div>
         ))}

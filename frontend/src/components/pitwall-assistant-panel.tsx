@@ -566,7 +566,7 @@ export default function PitwallAssistantPanel({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.2 }}
-      className="fixed inset-0 z-[80] bg-[rgba(6,5,4,0.65)] backdrop-blur-[8px]"
+      className="fixed inset-0 z-[80] bg-surface-container-lowest/65 backdrop-blur-[8px]"
     >
       <motion.div
         ref={dialogRef}
@@ -601,14 +601,14 @@ export default function PitwallAssistantPanel({
               onClick={requestNewChat}
               aria-label="New chat"
               title="New chat"
-              className="flex h-[34px] w-[34px] items-center justify-center rounded-control bg-[rgba(16,14,11,0.5)] text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[rgba(16,14,11,0.7)] active:scale-90"
+              className="flex h-[34px] w-[34px] items-center justify-center rounded-control bg-surface-container-low/50 text-warm-200 transition-[background-color,transform] duration-150 hover:bg-surface-container-low/70 active:scale-90"
             >
               <NewChatIcon />
             </button>
             <button
               onClick={onClose}
               aria-label="Close"
-              className="flex h-[34px] w-[34px] items-center justify-center rounded-control bg-[rgba(16,14,11,0.5)] text-lg text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[rgba(16,14,11,0.7)] active:scale-90"
+              className="flex h-[34px] w-[34px] items-center justify-center rounded-control bg-surface-container-low/50 text-lg text-warm-200 transition-[background-color,transform] duration-150 hover:bg-surface-container-low/70 active:scale-90"
             >
               ×
             </button>
@@ -630,7 +630,7 @@ export default function PitwallAssistantPanel({
                 : { opacity: 0, height: 0, transition: { duration: 0.12, ease: [0.23, 1, 0.32, 1] } }
             }
             transition={{ duration: reduce ? 0.1 : 0.18, ease: [0.23, 1, 0.32, 1] }}
-            className="flex items-center gap-2 overflow-hidden border-b border-white/10 bg-[rgba(16,14,11,0.4)] px-5 py-2.5"
+            className="flex items-center gap-2 overflow-hidden border-b border-white/10 bg-surface-container-low/40 px-5 py-2.5"
           >
             <p className="flex-1 text-[11px] text-[var(--color-on-surface-variant)]">
               Start a new chat? This conversation will be discarded.
@@ -853,7 +853,7 @@ const MessageBubble = memo(function MessageBubble({
               type="button"
               onClick={() => onAsk(message.question!)}
               disabled={running}
-              className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-[rgba(16,14,11,0.5)] px-3 py-1.5 text-xs font-medium text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[rgba(16,14,11,0.7)] active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40"
+              className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-surface-container-low/50 px-3 py-1.5 text-xs font-medium text-warm-200 transition-[background-color,transform] duration-150 hover:bg-surface-container-low/70 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40"
             >
               <RetryIcon />
               Retry
@@ -865,7 +865,7 @@ const MessageBubble = memo(function MessageBubble({
           <div
             aria-live="polite"
             aria-atomic="false"
-            className={`max-w-[85%] min-w-0 rounded-2xl border border-white/10 bg-[rgba(26,22,19,0.98)] px-4 py-3 text-sm leading-relaxed text-[var(--color-on-surface)] ${ANSWER_PROSE}`}
+            className={`max-w-[85%] min-w-0 rounded-2xl border border-white/10 bg-surface-container/98 px-4 py-3 text-sm leading-relaxed text-[var(--color-on-surface)] ${ANSWER_PROSE}`}
           >
             {/* A mark needs this message's identity, evidence and resolved
                 anchors, and `react-markdown` gives a `components.a` override
@@ -901,7 +901,7 @@ const MessageBubble = memo(function MessageBubble({
               type="button"
               onClick={() => onAsk(message.question!)}
               disabled={running}
-              className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-[rgba(16,14,11,0.5)] px-3 py-1.5 text-xs font-medium text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[rgba(16,14,11,0.7)] active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40"
+              className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-surface-container-low/50 px-3 py-1.5 text-xs font-medium text-warm-200 transition-[background-color,transform] duration-150 hover:bg-surface-container-low/70 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40"
             >
               <RetryIcon />
               Ask again

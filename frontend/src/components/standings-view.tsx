@@ -134,7 +134,7 @@ export default function StandingsView({
                 {tab === key && (
                   <motion.span
                     layoutId="standings-tab-pill"
-                    className="absolute inset-0 rounded-lg bg-[rgba(255,90,31,0.18)]"
+                    className="absolute inset-0 rounded-lg bg-primary-container/18"
                     transition={{ type: "spring", stiffness: 420, damping: 34 }}
                   />
                 )}
@@ -212,12 +212,12 @@ export default function StandingsView({
                   className="rounded-tile border transition-colors"
                   style={{
                     background: leader
-                      ? "rgba(255,90,31,0.12)"
+                      ? "rgb(var(--rgb-primary-container) / 0.12)"
                       : "rgba(40,32,26,0.32)",
                     borderColor: isOpen
-                      ? "rgba(255,138,61,0.5)"
+                      ? "rgb(var(--rgb-flame-bright) / 0.5)"
                       : leader
-                        ? "rgba(255,90,31,0.4)"
+                        ? "rgb(var(--rgb-primary-container) / 0.4)"
                         : "rgba(255,255,255,0.07)",
                   }}
                 >
@@ -245,7 +245,7 @@ export default function StandingsView({
                     // thing in the row that must stay readable. Reclaiming it
                     // from the gutters and from two points digits costs
                     // nothing.
-                    className="grid grid-cols-[36px_1fr_auto_auto] sm:grid-cols-[44px_1fr_70px_90px_auto] gap-2.5 sm:gap-4 items-center px-3.5 sm:px-5 py-[14px] rounded-tile cursor-pointer hover:bg-white/[0.03] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(255,138,61,0.6)]"
+                    className="grid grid-cols-[36px_1fr_auto_auto] sm:grid-cols-[44px_1fr_70px_90px_auto] gap-2.5 sm:gap-4 items-center px-3.5 sm:px-5 py-[14px] rounded-tile cursor-pointer hover:bg-white/[0.03] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-flame-bright/60"
                   >
                     <span
                       className="font-extrabold text-lg tabular-nums"
@@ -261,7 +261,7 @@ export default function StandingsView({
                           boxShadow: `0 0 10px ${color.glow}`,
                         }}
                       />
-                      <div className="relative w-9 h-9 rounded-control overflow-hidden flex-none bg-[rgba(245,235,222,0.06)]">
+                      <div className="relative w-9 h-9 rounded-control overflow-hidden flex-none bg-veil/6">
                         {imgPath ? (
                           <div style={driverPortraitFrameStyle("face")}>
                             <Image
@@ -424,10 +424,10 @@ export default function StandingsView({
                 className="relative px-5 sm:px-6 py-5 rounded-2xl overflow-hidden border isolate"
                 style={{
                   background: leader
-                    ? "rgba(255,90,31,0.1)"
+                    ? "rgb(var(--rgb-primary-container) / 0.1)"
                     : "rgba(40,32,26,0.3)",
                   borderColor: leader
-                    ? "rgba(255,90,31,0.35)"
+                    ? "rgb(var(--rgb-primary-container) / 0.35)"
                     : "rgba(255,255,255,0.07)",
                 }}
               >

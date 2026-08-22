@@ -159,8 +159,8 @@ export default function SeasonBarcode({ races, ghostSlots, activeSeason }: Seaso
         >
           <defs>
             <pattern id="barcode-ghost-hatch" width="3" height="3" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-              <rect width="3" height="3" fill="rgba(245,235,222,0.05)" />
-              <line x1="0" y1="0" x2="0" y2="3" stroke="rgba(245,235,222,0.18)" strokeWidth="1.4" />
+              <rect width="3" height="3" fill="rgb(var(--rgb-veil) / 0.05)" />
+              <line x1="0" y1="0" x2="0" y2="3" stroke="rgb(var(--rgb-veil) / 0.18)" strokeWidth="1.4" />
             </pattern>
           </defs>
 
@@ -177,7 +177,7 @@ export default function SeasonBarcode({ races, ghostSlots, activeSeason }: Seaso
                 height={STRIPE_HEIGHT}
                 fill={identity.color.hex}
                 opacity={opacity}
-                stroke={isIndy ? "rgba(245,235,222,0.55)" : "none"}
+                stroke={isIndy ? "rgb(var(--rgb-veil) / 0.55)" : "none"}
                 strokeWidth={isIndy ? 0.3 : 0}
                 style={
                   reduce
@@ -241,7 +241,7 @@ export default function SeasonBarcode({ races, ghostSlots, activeSeason }: Seaso
               height={STRIPE_HEIGHT + 6}
               fill={
                 activeIsGhost
-                  ? "rgba(245,235,222,0.35)"
+                  ? "rgb(var(--rgb-veil) / 0.35)"
                   : getConstructorIdentity(races[activeIndex]?.constructor_key ?? "").color.hex
               }
               stroke="rgba(255,255,255,0.9)"
@@ -276,7 +276,7 @@ export default function SeasonBarcode({ races, ghostSlots, activeSeason }: Seaso
         {activeIndex !== null && (
           <div
             role="tooltip"
-            className="absolute z-20 bottom-[calc(100%+10px)] w-60 -translate-x-1/2 rounded-control bg-[rgba(20,16,13,0.97)] border border-white/10 px-3.5 py-2.5 text-xs font-medium leading-snug text-warm-200 shadow-xl pointer-events-none"
+            className="absolute z-20 bottom-[calc(100%+10px)] w-60 -translate-x-1/2 rounded-control bg-surface-container-low/97 border border-white/10 px-3.5 py-2.5 text-xs font-medium leading-snug text-warm-200 shadow-xl pointer-events-none"
             style={{
               left: `clamp(120px, ${tooltipLeftPct}%, calc(100% - 120px))`,
             }}
@@ -315,7 +315,7 @@ export default function SeasonBarcode({ races, ghostSlots, activeSeason }: Seaso
               key={entry.key}
               type="button"
               className={`flex items-center gap-1.5 text-xs font-semibold px-1.5 py-1 rounded-md transition-colors ${
-                isPinned ? "bg-[rgba(245,235,222,0.08)]" : "hover:bg-[rgba(245,235,222,0.05)]"
+                isPinned ? "bg-veil/8" : "hover:bg-veil/5"
               }`}
               onMouseEnter={() => setHoverFilter(filter)}
               onMouseLeave={() => setHoverFilter(null)}

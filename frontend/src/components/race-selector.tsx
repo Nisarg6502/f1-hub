@@ -29,7 +29,7 @@ export default function RaceSelector({
         value={currentRound}
         onChange={handleSelect}
         aria-label="Select Grand Prix"
-        className="appearance-none apex-glass-soft rounded-control text-on-background font-bold text-sm py-[13px] pl-4 pr-11 outline-none focus:border-[rgba(255,138,61,0.5)] transition-colors cursor-pointer w-full md:w-60"
+        className="appearance-none apex-glass-soft rounded-control text-on-background font-bold text-sm py-[13px] pl-4 pr-11 outline-none focus:border-flame-bright/50 transition-colors cursor-pointer w-full md:w-60"
       >
         {races.map((race) => (
           <option key={race.round} value={race.round} className="bg-[#14110e]">

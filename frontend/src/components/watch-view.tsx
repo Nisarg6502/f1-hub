@@ -302,7 +302,7 @@ function PairedToast({
         // translucent panel over twenty rows of shifting numbers is the one
         // place where the house style actively costs legibility.
         background: "linear-gradient(180deg,#241a13,#191210)",
-        border: "1px solid rgba(255,138,61,0.45)",
+        border: "1px solid rgb(var(--rgb-flame-bright) / 0.45)",
         boxShadow: "0 20px 50px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.10)",
         animation: reduce ? undefined : "apex-toast-in 320ms var(--ease-out-apex) both",
       }}
@@ -1382,9 +1382,9 @@ export default function WatchView({
                   // rather than a class because the frame loop already holds the
                   // node and toggling a class would fight Tailwind's own.
                   background: inPitNow
-                    ? "rgba(255,90,31,0.16)"
+                    ? "rgb(var(--rgb-primary-container) / 0.16)"
                     : isPinned
-                    ? "rgba(255,138,61,0.13)"
+                    ? "rgb(var(--rgb-flame-bright) / 0.13)"
                     : slot % 2 === 0
                     ? "rgba(255,255,255,0.025)"
                     : "transparent",
@@ -1395,7 +1395,7 @@ export default function WatchView({
                   // whatever the car is doing.
                   boxShadow: isPinned
                     ? "inset 3px 0 0 0 var(--color-flame)"
-                    : "inset 0 0 0 calc(var(--closing, 0) * 1.5px) rgba(255,138,61,0.6)",
+                    : "inset 0 0 0 calc(var(--closing, 0) * 1.5px) rgb(var(--rgb-flame-bright) / 0.6)",
                   // A retired car's row is carried forward from its last real
                   // lap, not live — dimmed so it never reads as a current gap.
                   opacity: runner.retired ? 0.42 : 1,
@@ -1573,7 +1573,7 @@ export default function WatchView({
                         fresh
                           ? urgent
                             ? "rgba(255,68,68,0.55)"
-                            : "rgba(255,138,61,0.5)"
+                            : "rgb(var(--rgb-flame-bright) / 0.5)"
                           : "rgba(255,255,255,0.07)"
                       }`,
                     }}
@@ -1734,7 +1734,7 @@ export default function WatchView({
           />
           <button
             type="submit"
-            className="h-11 [@media(max-height:520px)]:h-9 px-4 rounded-xl apex-glass-soft font-bold text-xs hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
+            className="h-11 [@media(max-height:520px)]:h-9 px-4 rounded-xl apex-glass-soft font-bold text-xs hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-95"
           >
             Go
           </button>
@@ -1893,7 +1893,7 @@ export default function WatchView({
                         className="flex items-center gap-1.5 h-10 px-2 rounded-lg font-extrabold text-xs transition-[background-color,transform] duration-150 active:scale-95"
                         style={{
                           background: isPinned
-                            ? "rgba(255,138,61,0.18)"
+                            ? "rgb(var(--rgb-flame-bright) / 0.18)"
                             : "rgba(255,255,255,0.04)",
                           color: isPinned ? "var(--color-primary)" : "#c9c0b4",
                         }}
@@ -1950,7 +1950,7 @@ export default function WatchView({
                 className="flex items-center justify-center h-9 [@media(max-height:520px)]:h-9 px-2.5 rounded-control font-bold text-[11px] tracking-[0.08em] transition-colors duration-150"
                 style={{
                   background:
-                    timingMode === value ? "rgba(255,90,31,0.20)" : "transparent",
+                    timingMode === value ? "rgb(var(--rgb-primary-container) / 0.20)" : "transparent",
                   color: timingMode === value ? "var(--color-primary)" : "var(--color-warm-400)",
                 }}
               >
@@ -1987,7 +1987,7 @@ export default function WatchView({
               }
               className="flex items-center justify-center w-9 h-9 rounded-control transition-colors duration-150"
               style={{
-                background: density === value ? "rgba(255,90,31,0.20)" : "transparent",
+                background: density === value ? "rgb(var(--rgb-primary-container) / 0.20)" : "transparent",
                 color: density === value ? "var(--color-primary)" : "var(--color-warm-400)",
               }}
             >
@@ -2180,7 +2180,7 @@ export default function WatchView({
                         <button
                           type="submit"
                           disabled={party.busy || joinCode.trim().length === 0}
-                          className="h-11 px-4 rounded-xl apex-glass-soft font-bold text-xs hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95 disabled:opacity-50"
+                          className="h-11 px-4 rounded-xl apex-glass-soft font-bold text-xs hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-95 disabled:opacity-50"
                         >
                           Join
                         </button>
@@ -2195,8 +2195,8 @@ export default function WatchView({
                         <div
                           className="mt-3 flex items-center gap-2.5 rounded-xl px-3 py-2.5"
                           style={{
-                            background: "rgba(255,138,61,0.14)",
-                            border: "1px solid rgba(255,138,61,0.34)",
+                            background: "rgb(var(--rgb-flame-bright) / 0.14)",
+                            border: "1px solid rgb(var(--rgb-flame-bright) / 0.34)",
                           }}
                         >
                           <span
@@ -2228,7 +2228,7 @@ export default function WatchView({
                             // an object to point something at rather than
                             // another panel to read.
                             background: "#120d0a",
-                            border: "1px solid rgba(255,138,61,0.28)",
+                            border: "1px solid rgb(var(--rgb-flame-bright) / 0.28)",
                             boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)",
                           }}
                         >
@@ -2287,7 +2287,7 @@ export default function WatchView({
                           type="button"
                           onClick={() => void party.refreshCode()}
                           disabled={party.busy}
-                          className="flex-1 flex items-center justify-center gap-1.5 h-11 rounded-xl apex-glass-soft font-bold text-xs hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95 disabled:opacity-50"
+                          className="flex-1 flex items-center justify-center gap-1.5 h-11 rounded-xl apex-glass-soft font-bold text-xs hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-95 disabled:opacity-50"
                         >
                           <RefreshCw size={14} />
                           New code

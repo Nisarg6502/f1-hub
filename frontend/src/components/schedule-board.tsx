@@ -70,12 +70,12 @@ interface ScheduleBoardProps {
 
 function badgeFor(row: ScheduleRow) {
   if (row.status === "next")
-    return { label: "Next race", bg: "rgba(255,90,31,0.2)", color: "var(--color-primary)" };
+    return { label: "Next race", bg: "rgb(var(--rgb-primary-container) / 0.2)", color: "var(--color-primary)" };
   if (row.status === "completed")
-    return { label: "Completed", bg: "rgba(245,235,222,0.06)", color: "var(--color-warm-400)" };
+    return { label: "Completed", bg: "rgb(var(--rgb-veil) / 0.06)", color: "var(--color-warm-400)" };
   if (row.isSprint)
-    return { label: "Sprint", bg: "rgba(255,138,61,0.16)", color: "var(--color-primary)" };
-  return { label: "Upcoming", bg: "rgba(245,235,222,0.06)", color: "#c9c0b4" };
+    return { label: "Sprint", bg: "rgb(var(--rgb-flame-bright) / 0.16)", color: "var(--color-primary)" };
+  return { label: "Upcoming", bg: "rgb(var(--rgb-veil) / 0.06)", color: "#c9c0b4" };
 }
 
 export default function ScheduleBoard({
@@ -142,7 +142,7 @@ export default function ScheduleBoard({
                 {phase === key && (
                   <motion.span
                     layoutId="sched-phase-pill"
-                    className="absolute inset-0 rounded-control bg-[rgba(255,90,31,0.18)]"
+                    className="absolute inset-0 rounded-control bg-primary-container/18"
                     transition={{ type: "spring", stiffness: 420, damping: 34 }}
                   />
                 )}
@@ -201,17 +201,17 @@ export default function ScheduleBoard({
               >
               <Link
                 href={`/schedule/${r.season}/${r.round}`}
-                className="grid grid-cols-[84px_1fr_auto] sm:grid-cols-[96px_40px_1fr_auto] gap-3 sm:gap-5 items-center px-4 sm:px-[22px] py-5 rounded-2xl border transition-[border-color,background-color,transform] duration-150 hover:border-[rgba(255,138,61,0.4)] active:scale-[0.99]"
+                className="grid grid-cols-[84px_1fr_auto] sm:grid-cols-[96px_40px_1fr_auto] gap-3 sm:gap-5 items-center px-4 sm:px-[22px] py-5 rounded-2xl border transition-[border-color,background-color,transform] duration-150 hover:border-flame-bright/40 active:scale-[0.99]"
                 style={{
                   background:
                     r.status === "next"
-                      ? "rgba(255,90,31,0.1)"
+                      ? "rgb(var(--rgb-primary-container) / 0.1)"
                       : r.status === "completed"
                       ? "rgba(40,32,26,0.2)"
                       : "rgba(40,32,26,0.3)",
                   borderColor:
                     r.status === "next"
-                      ? "rgba(255,90,31,0.45)"
+                      ? "rgb(var(--rgb-primary-container) / 0.45)"
                       : "rgba(255,255,255,0.07)",
                 }}
               >
@@ -230,7 +230,7 @@ export default function ScheduleBoard({
                     )}
                   </div>
                 </div>
-                <div className="hidden sm:flex w-[38px] h-[26px] rounded-chip overflow-hidden items-center justify-center bg-[rgba(245,235,222,0.08)]">
+                <div className="hidden sm:flex w-[38px] h-[26px] rounded-chip overflow-hidden items-center justify-center bg-veil/8">
                   <FlagImg
                     src={r.flagSrc}
                     alt={r.country}
@@ -269,7 +269,7 @@ export default function ScheduleBoard({
                     {r.status === "completed" && r.isSprint && (
                       <span
                         className="font-bold text-[9px] tracking-[0.08em] uppercase px-2 py-1 rounded-lg whitespace-nowrap"
-                        style={{ background: "rgba(255,138,61,0.16)", color: "var(--color-primary)" }}
+                        style={{ background: "rgb(var(--rgb-flame-bright) / 0.16)", color: "var(--color-primary)" }}
                       >
                         Sprint
                       </span>

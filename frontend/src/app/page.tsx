@@ -214,8 +214,8 @@ export default async function Home() {
                       key={s.id}
                       className={`text-xs px-[14px] py-2 rounded-control ${
                         i === 0
-                          ? "font-bold bg-[rgba(255,90,31,0.16)] text-primary"
-                          : "font-semibold bg-[rgba(245,235,222,0.05)] text-warm-200"
+                          ? "font-bold bg-primary-container/16 text-primary"
+                          : "font-semibold bg-veil/5 text-warm-200"
                       }`}
                     >
                       {s.sessionLabel} ·{" "}
@@ -293,7 +293,7 @@ export default async function Home() {
                              side, which is what takes a 20px disc to 40;
                              `-inset-2` reached only 36 and still failed
                              the floor it was added to clear. */
-                          className="relative w-5 h-5 rounded-full bg-[rgba(245,235,222,0.06)] flex items-center justify-center text-warm-500 hover:text-warm-200 hover:bg-[rgba(245,235,222,0.12)] transition-colors before:absolute before:-inset-2.5 before:content-['']"
+                          className="relative w-5 h-5 rounded-full bg-veil/6 flex items-center justify-center text-warm-500 hover:text-warm-200 hover:bg-veil/12 transition-colors before:absolute before:-inset-2.5 before:content-['']"
                         >
                           {/* The ligature text IS the glyph, so without this
                               the button announced itself as "info What does
@@ -318,7 +318,7 @@ export default async function Home() {
                 ].map((row) => (
                   <div
                     key={row.k}
-                    className="flex justify-between py-[11px] border-t border-[rgba(245,235,222,0.07)] font-semibold text-[13px]"
+                    className="flex justify-between py-[11px] border-t border-veil/7 font-semibold text-[13px]"
                   >
                     <span className="text-warm-300">{row.k}</span>
                     <span className="tabular-nums">{row.v}</span>
@@ -396,7 +396,7 @@ export default async function Home() {
                   : "—"}
               </div>
               {latestWinner?.time && (
-                <div className="mt-[22px] inline-flex items-center gap-2 bg-[rgba(255,90,31,0.12)] rounded-control px-[13px] py-[9px]">
+                <div className="mt-[22px] inline-flex items-center gap-2 bg-primary-container/12 rounded-control px-[13px] py-[9px]">
                   <span
                     className="w-[6px] h-[6px] rounded-full"
                     style={{ background: winnerColor.hex }}
@@ -470,7 +470,7 @@ export default async function Home() {
             <StaggerItem key={c.href}>
             <Link
               href={c.href}
-              className="apex-glass-soft rounded-2xl p-[22px] flex flex-col gap-[14px] h-full transition-[transform,border-color] duration-200 hover:-translate-y-1 hover:border-[rgba(255,138,61,0.45)]"
+              className="apex-glass-soft rounded-2xl p-[22px] flex flex-col gap-[14px] h-full transition-[transform,border-color] duration-200 hover:-translate-y-1 hover:border-flame-bright/45"
             >
               <span className="font-semibold text-[11px] tracking-[0.12em] uppercase text-warm-400">
                 {c.kicker}

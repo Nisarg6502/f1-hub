@@ -159,7 +159,7 @@ export default function CircuitDetailsModal({
     <>
     <div
       onClick={onClose}
-      className={`fixed inset-0 z-[80] flex items-center justify-center p-5 md:p-10 bg-[rgba(6,5,4,0.6)] backdrop-blur-[6px] transition-opacity duration-200 ${
+      className={`fixed inset-0 z-[80] flex items-center justify-center p-5 md:p-10 bg-surface-container-lowest/60 backdrop-blur-[6px] transition-opacity duration-200 ${
         visible ? "opacity-100" : "opacity-0 pointer-events-none"
       }`}
     >
@@ -209,7 +209,7 @@ export default function CircuitDetailsModal({
             <button
               onClick={onClose}
               aria-label="Close"
-              className="w-[34px] h-[34px] rounded-control bg-[rgba(245,235,222,0.08)] flex items-center justify-center text-warm-200 text-lg hover:bg-[rgba(245,235,222,0.14)] transition-[background-color,transform] duration-150 active:scale-90 flex-none"
+              className="w-[34px] h-[34px] rounded-control bg-veil/8 flex items-center justify-center text-warm-200 text-lg hover:bg-veil/14 transition-[background-color,transform] duration-150 active:scale-90 flex-none"
             >
               ×
             </button>
@@ -229,7 +229,7 @@ export default function CircuitDetailsModal({
                 ref={expandButtonRef}
                 onClick={() => setLightboxOpen(true)}
                 aria-label="View full-size circuit layout"
-                className="absolute top-2.5 right-2.5 w-8 h-8 rounded-control bg-[rgba(6,5,4,0.55)] backdrop-blur-sm border border-white/10 flex items-center justify-center text-warm-100 hover:bg-[rgba(6,5,4,0.8)] hover:border-[rgba(255,138,61,0.5)] transition-[background-color,border-color,transform] duration-150 active:scale-90"
+                className="absolute top-2.5 right-2.5 w-8 h-8 rounded-control bg-surface-container-lowest/55 backdrop-blur-sm border border-white/10 flex items-center justify-center text-warm-100 hover:bg-surface-container-lowest/80 hover:border-flame-bright/50 transition-[background-color,border-color,transform] duration-150 active:scale-90"
               >
                 <span className="material-symbols-outlined text-[18px]">
                   open_in_full
@@ -241,7 +241,7 @@ export default function CircuitDetailsModal({
           {geometryState !== "unavailable" && (
             <Link
               href={`/circuits/${circuitId}`}
-              className="group flex items-center justify-between gap-3 mb-[22px] rounded-tile px-4 py-3.5 bg-[rgba(255,90,31,0.14)] border border-[rgba(255,174,106,0.32)] transition-transform duration-150 active:scale-[0.98]"
+              className="group flex items-center justify-between gap-3 mb-[22px] rounded-tile px-4 py-3.5 bg-primary-container/14 border border-primary/32 transition-transform duration-150 active:scale-[0.98]"
             >
               <span>
                 <span className="block font-semibold text-[13px] text-primary">
@@ -264,7 +264,7 @@ export default function CircuitDetailsModal({
               {stats.map((s) => (
                 <div
                   key={s.label}
-                  className="bg-[rgba(245,235,222,0.05)] rounded-xl px-3.5 py-3.5"
+                  className="bg-veil/5 rounded-xl px-3.5 py-3.5"
                 >
                   <div className="font-semibold text-[9px] tracking-[0.1em] uppercase text-warm-500">
                     {s.label}
@@ -275,7 +275,7 @@ export default function CircuitDetailsModal({
                 </div>
               ))}
               {info?.lap_record && (
-                <div className="bg-[rgba(245,235,222,0.05)] rounded-xl px-3.5 py-3.5">
+                <div className="bg-veil/5 rounded-xl px-3.5 py-3.5">
                   <div className="font-semibold text-[9px] tracking-[0.1em] uppercase text-warm-500">
                     Lap record
                   </div>
@@ -300,7 +300,7 @@ export default function CircuitDetailsModal({
                 {historyStats.map((s) => (
                   <div
                     key={s.label}
-                    className="flex items-center justify-between bg-[rgba(245,235,222,0.05)] rounded-xl px-3.5 py-3"
+                    className="flex items-center justify-between bg-veil/5 rounded-xl px-3.5 py-3"
                   >
                     <span className="font-semibold text-xs text-warm-400">
                       {s.label}
@@ -331,14 +331,14 @@ export default function CircuitDetailsModal({
         // the lightbox is actually open.
         inert={!lightboxOpen}
         onClick={() => setLightboxOpen(false)}
-        className={`fixed inset-0 z-[90] flex items-center justify-center p-6 bg-[rgba(4,3,3,0.85)] backdrop-blur-md transition-opacity duration-200 ${
+        className={`fixed inset-0 z-[90] flex items-center justify-center p-6 bg-surface-container-lowest/85 backdrop-blur-md transition-opacity duration-200 ${
           lightboxOpen ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
       >
         <button
           onClick={() => setLightboxOpen(false)}
           aria-label="Close full-size view"
-          className="absolute top-5 right-5 w-10 h-10 rounded-control bg-[rgba(245,235,222,0.1)] flex items-center justify-center text-warm-100 text-xl hover:bg-[rgba(245,235,222,0.16)] transition-[background-color,transform] duration-150 active:scale-90"
+          className="absolute top-5 right-5 w-10 h-10 rounded-control bg-veil/10 flex items-center justify-center text-warm-100 text-xl hover:bg-veil/16 transition-[background-color,transform] duration-150 active:scale-90"
         >
           ×
         </button>

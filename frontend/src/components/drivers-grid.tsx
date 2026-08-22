@@ -72,7 +72,7 @@ function TeamMark({
 }) {
   if (logoPath) {
     return (
-      <span className="relative w-[58px] h-[30px] rounded-control flex-none bg-[rgba(245,235,222,0.94)] shadow-[0_2px_10px_rgba(0,0,0,0.35)]">
+      <span className="relative w-[58px] h-[30px] rounded-control flex-none bg-veil/94 shadow-[0_2px_10px_rgba(0,0,0,0.35)]">
         <Image
           src={logoPath}
           alt={`${team} logo`}
@@ -234,7 +234,7 @@ export default function DriversGrid({ drivers }: DriversGridProps) {
                     Aramco" without truncating it to nonsense. */}
                 <div className="relative z-20 flex items-start justify-between gap-2">
                   <span className="flex items-center gap-[7px] min-w-0">
-                    <span className="w-[26px] h-[18px] rounded flex items-center justify-center overflow-hidden bg-[rgba(245,235,222,0.08)] flex-none">
+                    <span className="w-[26px] h-[18px] rounded flex items-center justify-center overflow-hidden bg-veil/8 flex-none">
                       <FlagImg
                         src={flagSrc}
                         alt=""

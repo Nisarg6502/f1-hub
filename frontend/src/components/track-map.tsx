@@ -49,7 +49,7 @@ export default function TrackMap({
     <div
       className={`overflow-hidden flex items-center justify-center ${
         hasPositionOverride ? "" : "relative"
-      } ${ok && src ? "bg-[rgba(245,235,222,0.035)]" : "apex-hatch"} ${containerClassName}`}
+      } ${ok && src ? "bg-veil/[0.035]" : "apex-hatch"} ${containerClassName}`}
     >
       {ok && src ? (
         <Image

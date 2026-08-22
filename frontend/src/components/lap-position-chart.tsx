@@ -60,7 +60,7 @@ function LapTooltip({
     .sort((a, b) => (a.value ?? 0) - (b.value ?? 0));
 
   return (
-    <div className="rounded-xl bg-[rgba(26,22,19,0.95)] border border-white/10 p-4 shadow-xl">
+    <div className="rounded-xl bg-surface-container/95 border border-white/10 p-4 shadow-xl">
       <div className="font-bold text-xs text-warm-300 mb-2">Lap {label}</div>
       <div className="flex flex-col gap-1.5">
         {rows.map((row) => {
@@ -181,7 +181,7 @@ export default function LapPositionChart({
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={() => setDropdownOpen(!dropdownOpen)}
-            className="flex items-center justify-between w-64 rounded-control bg-[rgba(245,235,222,0.06)] border border-white/10 px-4 py-2 text-sm hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-[0.98]"
+            className="flex items-center justify-between w-64 rounded-control bg-veil/6 border border-white/10 px-4 py-2 text-sm hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-[0.98]"
           >
             <span className="truncate font-semibold">
               {selectedDrivers.length} drivers selected
@@ -189,7 +189,7 @@ export default function LapPositionChart({
             <ChevronsUpDown className="w-4 h-4 text-warm-400" />
           </button>
           {dropdownOpen && (
-            <div className="absolute top-full left-0 mt-1.5 w-64 rounded-xl bg-[rgba(26,22,19,0.98)] border border-white/10 shadow-2xl z-50 max-h-64 overflow-y-auto p-1">
+            <div className="absolute top-full left-0 mt-1.5 w-64 rounded-xl bg-surface-container/98 border border-white/10 shadow-2xl z-50 max-h-64 overflow-y-auto p-1">
               <div className="flex items-center gap-1 px-2 py-1.5 mb-1 border-b border-white/10">
                 <button
                   onClick={() => setSelectedDrivers(drivers.map((d) => d.number))}
@@ -259,7 +259,7 @@ export default function LapPositionChart({
                   {effectiveMode === key && !disabled && (
                     <motion.span
                       layoutId="lap-chart-mode-pill"
-                      className="absolute inset-0 rounded-lg bg-[rgba(255,90,31,0.18)]"
+                      className="absolute inset-0 rounded-lg bg-primary-container/18"
                       transition={{ type: "spring", stiffness: 420, damping: 34 }}
                     />
                   )}

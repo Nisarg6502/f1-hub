@@ -87,7 +87,7 @@ export default function DriverModal({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.2 }}
-      className="fixed inset-0 z-[80] flex items-center justify-center p-5 md:p-10 bg-[rgba(6,5,4,0.65)] backdrop-blur-[8px]"
+      className="fixed inset-0 z-[80] flex items-center justify-center p-5 md:p-10 bg-surface-container-lowest/65 backdrop-blur-[8px]"
     >
       <motion.div
         ref={dialogRef}
@@ -109,7 +109,7 @@ export default function DriverModal({
         <button
           onClick={onClose}
           aria-label="Close"
-          className="absolute top-5 right-5 z-10 w-[34px] h-[34px] rounded-control bg-[rgba(16,14,11,0.5)] flex items-center justify-center text-warm-200 text-lg hover:bg-[rgba(16,14,11,0.7)] transition-[background-color,transform] duration-150 active:scale-90"
+          className="absolute top-5 right-5 z-10 w-[34px] h-[34px] rounded-control bg-surface-container-low/50 flex items-center justify-center text-warm-200 text-lg hover:bg-surface-container-low/70 transition-[background-color,transform] duration-150 active:scale-90"
         >
           ×
         </button>
@@ -175,7 +175,7 @@ export default function DriverModal({
             ].map((s) => (
               <div
                 key={s.l}
-                className="bg-[rgba(245,235,222,0.05)] rounded-xl px-3.5 py-3.5"
+                className="bg-veil/5 rounded-xl px-3.5 py-3.5"
               >
                 <div className="font-semibold text-[9px] tracking-[0.1em] uppercase text-warm-500">
                   {s.l}
@@ -197,7 +197,7 @@ export default function DriverModal({
                 {Array.from({ length: 4 }).map((_, i) => (
                   <div
                     key={i}
-                    className="h-[66px] rounded-xl bg-[rgba(245,235,222,0.05)]"
+                    className="h-[66px] rounded-xl bg-veil/5"
                   />
                 ))}
               </div>
@@ -207,7 +207,7 @@ export default function DriverModal({
                   {careerStats.map((s) => (
                     <div
                       key={s.l}
-                      className="bg-[rgba(245,235,222,0.05)] rounded-xl px-3.5 py-3.5 text-center"
+                      className="bg-veil/5 rounded-xl px-3.5 py-3.5 text-center"
                     >
                       <div className="font-extrabold text-xl tabular-nums text-primary">
                         {s.v}
