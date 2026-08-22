@@ -330,7 +330,8 @@ GA treats `utm_source=LinkedIn` and `utm_source=linkedin` as two campaigns.
 
 | Where the link is published | Suffix to append |
 | --- | --- |
-| This README, and the repo's About field | `?utm_source=github&utm_medium=readme` |
+| This README's live link | `?utm_source=github&utm_medium=readme` |
+| The repo's About → Website field | `?utm_source=github&utm_medium=about` |
 | CV / résumé | `?utm_source=resume&utm_medium=cv` |
 | LinkedIn profile or post | `?utm_source=linkedin&utm_medium=profile` |
 | Anywhere else | `?utm_source=<place>&utm_medium=<surface>` — lowercase |
