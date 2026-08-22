@@ -21,6 +21,7 @@ import { getCircuitImagePath } from "@/lib/circuit-images";
 import { getTeamColor } from "@/lib/team-colors";
 import DriverModal from "./driver-modal";
 import CircuitDetailsModal from "./circuit-details-modal";
+import { track } from "@/lib/analytics";
 
 const EASE_OUT = [0.23, 1, 0.32, 1] as const;
 
@@ -265,6 +266,10 @@ export default function GlobalSearch() {
   };
 
   const handleSelect = (result: SearchResult) => {
+    // The KIND only. The query is free text a user typed, and free text never
+    // leaves this app -- the open question is whether nav search is used and
+    // for what sort of thing, which a kind answers on its own.
+    track("search_result_selected", { entity_kind: result.kind });
     setOpen(false);
     setQuery("");
     setActiveKey(null);

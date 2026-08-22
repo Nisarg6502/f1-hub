@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import {
   MEASUREMENT_ID,
   isRegulatedRegion,
@@ -12,34 +12,60 @@ import {
 } from "@/lib/analytics";
 
 /**
+ * Whether this visitor still has to be asked.
+ *
+ * `useSyncExternalStore` rather than `useState` + an effect, matching
+ * `useWebglSupported` in `track3d/use-track-geometry.ts`, and for the same
+ * reason: the answer depends on values that exist only in a browser -- the
+ * timezone and `localStorage` -- so it cannot be computed during a server
+ * render, and computing it in an effect means a `setState` that lints as a
+ * cascading render because that is exactly what it is.
+ *
+ * The server snapshot is `false`, so the markup the server sends never contains
+ * a banner. That matters beyond correctness: a banner in the server HTML would
+ * flash for every visitor on earth, including the ones who must never see it,
+ * until hydration corrected it.
+ */
+const listeners = new Set<() => void>();
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function shouldAsk(): boolean {
+  if (!MEASUREMENT_ID) return false;
+  if (!isRegulatedRegion(resolveTimeZone())) return false;
+  // `null` is "never asked". A stored answer of either kind ends the question
+  // permanently -- declining is a decision, not a deferral.
+  return readConsent() === null;
+}
+
+/** Never ask during a server render; there is nothing there to ask about. */
+function neverAsk(): boolean {
+  return false;
+}
+
+/**
  * Asks EU/UK visitors before `_ga` is written. Nobody else ever sees it.
  *
  * Deliberately not a modal and not a blocker: it does not trap focus, does not
  * dim the page and does not stop anyone reading the site. A visitor who ignores
  * it entirely stays in the denied default, which is the correct outcome and
- * takes no interaction to reach.
+ * takes no interaction at all to reach.
  *
  * Both buttons are the same size and weight. A large "Allow" beside a grey
  * whisper of a "Decline" is the pattern regulators call a dark one, and it
  * would be sitting directly above a link to a page promising honesty.
  *
  * Positioned above the mobile bottom bar rather than over it -- that bar is the
- * only navigation below 1024px, and covering it would trap a visitor on
+ * only navigation below 1024px, and covering it would strand a visitor on
  * whatever page they landed on until they answered.
  */
 export default function ConsentBanner() {
-  // Starts hidden and is only ever revealed from an effect. The server has no
-  // timezone and no localStorage, so anything decided during render would be
-  // decided wrongly and would flash for every visitor on earth before
-  // hydration corrected it.
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    if (!MEASUREMENT_ID) return;
-    if (!isRegulatedRegion(resolveTimeZone())) return;
-    if (readConsent() !== null) return;
-    setVisible(true);
-  }, []);
+  const visible = useSyncExternalStore(subscribe, shouldAsk, neverAsk);
 
   if (!visible) return null;
 
@@ -48,7 +74,8 @@ export default function ConsentBanner() {
     if (choice === "granted") {
       window.gtag?.("consent", "update", { analytics_storage: "granted" });
     }
-    setVisible(false);
+    // Re-reads `shouldAsk`, which now finds a stored answer and returns false.
+    listeners.forEach((listener) => listener());
   };
 
   return (

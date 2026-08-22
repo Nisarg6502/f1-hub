@@ -25,6 +25,7 @@ import TiltCard from "@/components/tilt-card";
 import { Stagger, StaggerItem } from "@/components/motion-primitives";
 import SeasonSelector from "@/components/season-selector";
 import TeamHeritageDisclosure from "@/components/team-heritage-disclosure";
+import DegradedBeacon from "@/components/degraded-beacon";
 
 // Constructor standings change after every race; render per request.
 export const dynamic = "force-dynamic";
@@ -200,6 +201,7 @@ export default async function TeamsPage({ searchParams }: PageProps) {
 
   return (
     <div className="px-6 md:px-10 pt-11 pb-16">
+      {list.length === 0 && <DegradedBeacon route="/teams" />}
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-5 mb-7">
         <div>

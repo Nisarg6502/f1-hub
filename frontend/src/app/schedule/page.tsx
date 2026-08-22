@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { getActiveSeasonYear, getSeasonRaces, resolveSeasonYear } from "@/lib/api";
 import { getCountryFlagPath } from "@/lib/flags";
 import ScheduleBoard, { type ScheduleRow } from "@/components/schedule-board";
+import DegradedBeacon from "@/components/degraded-beacon";
 
 // Rendered per request: this page splits the calendar into past and upcoming
 // against the current time, which a prerender cannot keep correct.
@@ -90,6 +91,8 @@ export default async function SchedulePage({ searchParams }: PageProps) {
   const initialPhase = next === null && rows.length > 0 ? "completed" : "upcoming";
 
   return (
+    <>
+      {races.length === 0 && <DegradedBeacon route="/schedule" />}
     <ScheduleBoard
       year={year}
       maxYear={getActiveSeasonYear()}
@@ -100,5 +103,6 @@ export default async function SchedulePage({ searchParams }: PageProps) {
       nextCircuit={next?.race.Circuit?.circuitName ?? null}
       nextLocality={next?.race.Circuit?.Location?.locality ?? null}
     />
+    </>
   );
 }

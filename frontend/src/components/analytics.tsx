@@ -39,6 +39,13 @@ export default function Analytics() {
 
   return (
     <>
+      {/* The lint rule below is a Pages Router rule: it wants
+          `beforeInteractive` in `pages/_document.js`, which does not exist in
+          an App Router app. The root layout IS the documented location here,
+          and it is the only place that can run before gtag.js -- which is the
+          one thing this script must do. Verified in the built HTML rather than
+          taken on trust; see the design doc's implementation notes. */}
+      {/* eslint-disable-next-line @next/next/no-before-interactive-script-outside-document */}
       <Script id="ga-consent-default" strategy="beforeInteractive">
         {`
 window.dataLayer = window.dataLayer || [];
