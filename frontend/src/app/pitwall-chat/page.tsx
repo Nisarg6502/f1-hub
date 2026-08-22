@@ -134,7 +134,7 @@ export default function PitwallChatPage() {
         ))}
       </div>
 
-      <div className="sticky bottom-4 mt-6 flex gap-2 rounded-xl border border-white/10 bg-[rgba(26,22,19,0.98)] p-2">
+      <div className="sticky bottom-4 mt-6 flex gap-2 rounded-xl border border-white/10 bg-surface-container/98 p-2">
         <input
           value={input}
           onChange={(event) => setInput(event.target.value)}
@@ -195,7 +195,7 @@ function MessageBubble({ message }: { message: Message }) {
         </p>
       ) : (
         message.text && (
-          <div className="max-w-[80%] rounded-2xl border border-white/10 bg-[rgba(26,22,19,0.98)] px-4 py-3 text-sm leading-relaxed text-[var(--color-on-surface)] [&_p]:mb-2 [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5">
+          <div className="max-w-[80%] rounded-2xl border border-white/10 bg-surface-container/98 px-4 py-3 text-sm leading-relaxed text-[var(--color-on-surface)] [&_p]:mb-2 [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5">
             <ReactMarkdown>{message.text}</ReactMarkdown>
             {message.done?.mode === "echo" && (
               <p className="mt-2 text-xs text-[var(--color-error)]">

@@ -75,7 +75,7 @@ function PitTooltip({ active, payload }: PitTooltipProps) {
   }
 
   return (
-    <div className="rounded-xl bg-[rgba(26,22,19,0.95)] border border-white/10 p-4 shadow-xl">
+    <div className="rounded-xl bg-surface-container/95 border border-white/10 p-4 shadow-xl">
       <p className="font-[family-name:var(--font-headline)] font-bold text-lg mb-2">
         {row.fullName}
       </p>

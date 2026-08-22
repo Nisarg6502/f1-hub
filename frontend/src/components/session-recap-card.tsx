@@ -63,12 +63,12 @@ function decorateCitations(children: ReactNode, replayHref?: (lap: number) => st
                   const label = matches[i].slice(1, -1).trim();
                   const lapMatch = replayHref ? label.match(RC_WITH_LAP_RE) : null;
                   const chipClass =
-                    "inline-block align-baseline font-semibold text-[10px] tracking-[0.04em] text-[#FF9A5A]/70 bg-[rgba(255,90,31,0.08)] rounded px-1 py-px mx-0.5";
+                    "inline-block align-baseline font-semibold text-[10px] tracking-[0.04em] text-[#FF9A5A]/70 bg-primary-container/8 rounded px-1 py-px mx-0.5";
 
                   return lapMatch ? (
                     <Link
                       href={replayHref!(Number(lapMatch[1]))}
-                      className={`${chipClass} hover:text-[#FF9A5A] hover:bg-[rgba(255,90,31,0.16)] transition-colors`}
+                      className={`${chipClass} hover:text-[#FF9A5A] hover:bg-primary-container/16 transition-colors`}
                       title={`Jump to lap ${lapMatch[1]} in the race replay`}
                     >
                       {label}

@@ -1734,7 +1734,7 @@ export default function WatchView({
           />
           <button
             type="submit"
-            className="h-11 [@media(max-height:520px)]:h-9 px-4 rounded-xl apex-glass-soft font-bold text-xs hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
+            className="h-11 [@media(max-height:520px)]:h-9 px-4 rounded-xl apex-glass-soft font-bold text-xs hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-95"
           >
             Go
           </button>
@@ -2180,7 +2180,7 @@ export default function WatchView({
                         <button
                           type="submit"
                           disabled={party.busy || joinCode.trim().length === 0}
-                          className="h-11 px-4 rounded-xl apex-glass-soft font-bold text-xs hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95 disabled:opacity-50"
+                          className="h-11 px-4 rounded-xl apex-glass-soft font-bold text-xs hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-95 disabled:opacity-50"
                         >
                           Join
                         </button>
@@ -2287,7 +2287,7 @@ export default function WatchView({
                           type="button"
                           onClick={() => void party.refreshCode()}
                           disabled={party.busy}
-                          className="flex-1 flex items-center justify-center gap-1.5 h-11 rounded-xl apex-glass-soft font-bold text-xs hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95 disabled:opacity-50"
+                          className="flex-1 flex items-center justify-center gap-1.5 h-11 rounded-xl apex-glass-soft font-bold text-xs hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-95 disabled:opacity-50"
                         >
                           <RefreshCw size={14} />
                           New code

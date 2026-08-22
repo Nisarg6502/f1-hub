@@ -64,7 +64,7 @@ function StintTooltip({ active, payload }: StintTooltipProps) {
   }
 
   return (
-    <div className="rounded-xl bg-[rgba(26,22,19,0.95)] border border-white/10 p-4 shadow-xl">
+    <div className="rounded-xl bg-surface-container/95 border border-white/10 p-4 shadow-xl">
       <p className="font-[family-name:var(--font-headline)] font-bold text-lg mb-2">
         {row.fullName}
       </p>
@@ -175,7 +175,7 @@ export default function TireStintsChart({
           <div className="relative" ref={dropdownRef}>
             <button
               onClick={() => setDropdownOpen(!dropdownOpen)}
-              className="flex items-center justify-between w-64 rounded-control bg-[rgba(245,235,222,0.06)] border border-white/10 px-4 py-2 text-sm hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-[0.98]"
+              className="flex items-center justify-between w-64 rounded-control bg-veil/6 border border-white/10 px-4 py-2 text-sm hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-[0.98]"
             >
               <span className="truncate font-semibold">
                 {selectedDrivers.length} drivers selected
@@ -183,7 +183,7 @@ export default function TireStintsChart({
               <ChevronsUpDown className="w-4 h-4 text-warm-400" />
             </button>
             {dropdownOpen && (
-              <div className="absolute top-full left-0 mt-1.5 w-64 rounded-xl bg-[rgba(26,22,19,0.98)] border border-white/10 shadow-2xl z-50 max-h-64 overflow-y-auto p-1">
+              <div className="absolute top-full left-0 mt-1.5 w-64 rounded-xl bg-surface-container/98 border border-white/10 shadow-2xl z-50 max-h-64 overflow-y-auto p-1">
                 <div className="flex items-center gap-1 px-2 py-1.5 mb-1 border-b border-white/10">
                   <button
                     onClick={() => setSelectedDrivers(drivers.map((d) => d.number))}

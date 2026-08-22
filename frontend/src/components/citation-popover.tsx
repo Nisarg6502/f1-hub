@@ -10,7 +10,7 @@
  * actually quotes emphasised in place (see {@link findHighlightedIndices}).
  *
  * Visuals follow the established liquid-glass popover pattern
- * (`feedback-controls.tsx`, CP69): `bg-[rgba(26,22,19,0.98)]`,
+ * (`feedback-controls.tsx`, CP69): `bg-surface-container/98`,
  * `border border-white/10`, `motion/react` for enter/exit, click-outside and
  * Escape to dismiss. Kind colours/icons come from the one shared definition in
  * `@/lib/source-kind` so the pill, the card and this popover cannot drift.
@@ -234,7 +234,7 @@ export default function CitationPopover({
           ? `Evidence for ${anchor.value || anchor.text}, from ${source.title}`
           : `Evidence for ${source.title}`
       }
-      className="absolute top-full left-0 z-50 mt-1.5 w-72 max-w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-white/10 bg-[rgba(26,22,19,0.98)] p-3 shadow-2xl"
+      className="absolute top-full left-0 z-50 mt-1.5 w-72 max-w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-white/10 bg-surface-container/98 p-3 shadow-2xl"
     >
       <div className="flex items-start gap-2">
         <span
@@ -280,7 +280,7 @@ export default function CitationPopover({
                   <div
                     key={line.label}
                     className={`flex items-baseline gap-2 rounded-md px-1.5 py-1 ${
-                      proving ? "bg-[rgba(255,138,61,0.12)]" : ""
+                      proving ? "bg-flame-bright/12" : ""
                     }`}
                   >
                     <dt className="shrink-0 text-[10px] tracking-wide text-[var(--color-on-surface-variant)] uppercase">
@@ -326,7 +326,7 @@ export default function CitationPopover({
               <div
                 key={`${pair.label}-${i}`}
                 className={`flex items-baseline gap-2 rounded-md px-1.5 py-1 ${
-                  hit ? "bg-[rgba(255,138,61,0.12)]" : ""
+                  hit ? "bg-flame-bright/12" : ""
                 }`}
               >
                 <dt className="shrink-0 text-[10px] tracking-wide text-[var(--color-on-surface-variant)] uppercase">

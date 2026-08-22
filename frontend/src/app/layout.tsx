@@ -205,7 +205,7 @@ export default function RootLayout({
         </div>
           }
           nav={
-        <nav aria-label="Main" className="sticky top-0 z-50 bg-[rgba(18,15,12,0.55)] backdrop-blur-[16px] backdrop-saturate-150 border-b border-white/[0.08] shadow-[0_1px_0_rgba(255,255,255,0.06)_inset,0_10px_40px_rgba(0,0,0,0.4)]">
+        <nav aria-label="Main" className="sticky top-0 z-50 bg-surface-container-low/55 backdrop-blur-[16px] backdrop-saturate-150 border-b border-white/[0.08] shadow-[0_1px_0_rgba(255,255,255,0.06)_inset,0_10px_40px_rgba(0,0,0,0.4)]">
           <div className="max-w-[1440px] mx-auto flex items-center justify-between px-6 md:px-10 py-[15px]">
             <div className="flex items-center gap-8 md:gap-12">
               {/* 32px tall as drawn, 40px to a finger — the nav's own vertical
@@ -319,7 +319,7 @@ export default function RootLayout({
            its own label since a page now has two navigations. */
         <nav
           aria-label="Sections"
-          className="lg:hidden fixed bottom-0 left-0 w-full z-50 bg-[rgba(18,15,12,0.85)] backdrop-blur-xl border-t border-white/[0.08] px-3 sm:px-6 py-3 flex justify-between items-center"
+          className="lg:hidden fixed bottom-0 left-0 w-full z-50 bg-surface-container-low/85 backdrop-blur-xl border-t border-white/[0.08] px-3 sm:px-6 py-3 flex justify-between items-center"
         >
           <MobileNav />
         </nav>

@@ -114,7 +114,7 @@ export default function SessionTabs({
               onClick={() => setActiveSession(key)}
               className={`text-xs px-[18px] py-2.5 rounded-control transition-[background-color,color,transform] duration-150 active:scale-[0.97] ${
                 active
-                  ? "font-bold bg-[rgba(255,90,31,0.18)] text-primary"
+                  ? "font-bold bg-primary-container/18 text-primary"
                   : "font-semibold text-warm-300 hover:text-on-background"
               }`}
             >
@@ -899,7 +899,7 @@ function AddToCalendarButton({
         aria-label={`Add ${sessionLabel} to calendar`}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex items-center justify-center w-9 h-9 rounded-control bg-[rgba(245,235,222,0.06)] border border-white/10 text-warm-300 hover:text-primary hover:border-[rgba(255,138,61,0.5)] transition-[border-color,color,transform] duration-150 active:scale-[0.97]"
+        className="flex items-center justify-center w-9 h-9 rounded-control bg-veil/6 border border-white/10 text-warm-300 hover:text-primary hover:border-flame-bright/50 transition-[border-color,color,transform] duration-150 active:scale-[0.97]"
       >
         <span className="material-symbols-outlined text-[18px] leading-none">
           event_upcoming
@@ -907,7 +907,7 @@ function AddToCalendarButton({
       </button>
       <div
         role="menu"
-        className={`absolute right-0 top-full mt-2 w-48 origin-top-right rounded-xl bg-[rgba(26,22,19,0.98)] border border-white/10 shadow-2xl z-50 overflow-hidden transition-[transform,opacity] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] ${
+        className={`absolute right-0 top-full mt-2 w-48 origin-top-right rounded-xl bg-surface-container/98 border border-white/10 shadow-2xl z-50 overflow-hidden transition-[transform,opacity] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] ${
           open
             ? "opacity-100 scale-100 pointer-events-auto"
             : "opacity-0 scale-95 pointer-events-none"

@@ -85,7 +85,7 @@ export default function CircuitsGallery({
               transition={{ type: "spring", stiffness: 400, damping: 28 }}
               className={`text-left rounded-2xl overflow-hidden apex-glass-soft transition-[border-color] duration-200 ${
                 detail
-                  ? "cursor-pointer hover:border-[rgba(255,138,61,0.4)]"
+                  ? "cursor-pointer hover:border-flame-bright/40"
                   : "cursor-default"
               }`}
             >
@@ -95,7 +95,7 @@ export default function CircuitsGallery({
                   <span className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-400 truncate">
                     {location?.locality ?? `Round ${race.round}`}
                   </span>
-                  <span className="w-[26px] h-[18px] rounded overflow-hidden flex items-center justify-center bg-[rgba(245,235,222,0.08)] flex-none">
+                  <span className="w-[26px] h-[18px] rounded overflow-hidden flex items-center justify-center bg-veil/8 flex-none">
                     <FlagImg
                       src={flagPath}
                       alt={location?.country ?? ""}

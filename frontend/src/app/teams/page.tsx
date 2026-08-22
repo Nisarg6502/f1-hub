@@ -281,14 +281,14 @@ export default async function TeamsPage({ searchParams }: PageProps) {
                       {team.Constructor.nationality}
                     </span>
                     {engine && (
-                      <span className="font-semibold text-[10px] tracking-[0.04em] uppercase px-2.5 py-[5px] rounded-chip bg-[rgba(245,235,222,0.06)] text-warm-200">
+                      <span className="font-semibold text-[10px] tracking-[0.04em] uppercase px-2.5 py-[5px] rounded-chip bg-veil/6 text-warm-200">
                         Power · {engine.name}
                       </span>
                     )}
                   </div>
                 </div>
                 {logoPath ? (
-                  <div className="relative w-[54px] h-[54px] rounded-tile p-2 flex-none bg-[rgba(245,235,222,0.92)]">
+                  <div className="relative w-[54px] h-[54px] rounded-tile p-2 flex-none bg-veil/92">
                     <Image
                       src={logoPath}
                       alt={`${name} logo`}

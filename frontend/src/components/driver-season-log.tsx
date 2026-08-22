@@ -107,7 +107,7 @@ function retiredButClassified(entry: DriverRoundEntry): boolean {
 
 function Chip({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-lg px-2.5 py-1.5 bg-[rgba(245,235,222,0.045)] border border-white/[0.06]">
+    <div className="rounded-lg px-2.5 py-1.5 bg-veil/[0.045] border border-white/[0.06]">
       <div className="font-extrabold text-[13px] tabular-nums leading-none">{value}</div>
       <div className="font-semibold text-[9px] tracking-[0.1em] uppercase text-warm-500 mt-1">
         {label}

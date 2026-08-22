@@ -260,7 +260,7 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
             setLapIndex(0);
           }}
           aria-label="Restart replay"
-          className="flex items-center justify-center w-10 h-10 rounded-xl bg-[rgba(245,235,222,0.06)] border border-white/10 text-warm-300 hover:text-primary transition-[color,transform] duration-150 ease-out active:scale-[0.97]"
+          className="flex items-center justify-center w-10 h-10 rounded-xl bg-veil/6 border border-white/10 text-warm-300 hover:text-primary transition-[color,transform] duration-150 ease-out active:scale-[0.97]"
         >
           <SkipBack size={16} />
         </button>
@@ -274,7 +274,7 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
               aria-pressed={speed === option}
               className={`font-bold text-[11px] px-2.5 py-1.5 rounded-lg transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] ${
                 speed === option
-                  ? "bg-[rgba(255,90,31,0.18)] text-primary"
+                  ? "bg-primary-container/18 text-primary"
                   : "text-warm-400 hover:text-on-background"
               }`}
             >

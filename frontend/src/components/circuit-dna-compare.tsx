@@ -98,11 +98,11 @@ function CircuitSelect({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex items-center justify-between gap-2 w-full rounded-control bg-[rgba(245,235,222,0.06)] border border-white/10 px-3.5 py-2.5 text-xs hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-[0.98]"
+        className="flex items-center justify-between gap-2 w-full rounded-control bg-veil/6 border border-white/10 px-3.5 py-2.5 text-xs hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-[0.98]"
       >
         <span className="flex items-center gap-2 min-w-0">
           {selected?.flagPath && (
-            <span className="w-[20px] h-[14px] rounded overflow-hidden flex-none bg-[rgba(245,235,222,0.08)]">
+            <span className="w-[20px] h-[14px] rounded overflow-hidden flex-none bg-veil/8">
               <FlagImg
                 src={selected.flagPath}
                 alt=""
@@ -130,7 +130,7 @@ function CircuitSelect({
             transition={{ duration: reduce ? 0.1 : 0.16, ease: [0.23, 1, 0.32, 1] }}
             style={{ transformOrigin: "top" }}
             role="listbox"
-            className="absolute top-full left-0 mt-1.5 w-full min-w-[220px] rounded-xl bg-[rgba(26,22,19,0.98)] border border-white/10 shadow-2xl z-50 max-h-64 overflow-y-auto p-1"
+            className="absolute top-full left-0 mt-1.5 w-full min-w-[220px] rounded-xl bg-surface-container/98 border border-white/10 shadow-2xl z-50 max-h-64 overflow-y-auto p-1"
           >
             {options.map((option) => {
               const isSelected = option.round === selectedRound;
@@ -158,7 +158,7 @@ function CircuitSelect({
                     {isSelected && <Check className="w-3 h-3" />}
                   </div>
                   {option.flagPath && (
-                    <span className="w-[18px] h-[13px] rounded overflow-hidden flex-none mr-2 bg-[rgba(245,235,222,0.08)]">
+                    <span className="w-[18px] h-[13px] rounded overflow-hidden flex-none mr-2 bg-veil/8">
                       <FlagImg
                         src={option.flagPath}
                         alt=""

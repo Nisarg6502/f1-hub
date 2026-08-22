@@ -99,7 +99,7 @@ export default async function WatchRacePage({ params }: PageProps) {
             </p>
             <Link
               href={`/watch/${toRaceId(season, fallback.race.round)}`}
-              className="mt-2.5 flex items-center gap-4 rounded-2xl px-5 py-4 apex-glass-soft hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-[0.99]"
+              className="mt-2.5 flex items-center gap-4 rounded-2xl px-5 py-4 apex-glass-soft hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-[0.99]"
             >
               <span className="font-[family-name:var(--font-headline)] font-extrabold text-lg flex-1">
                 {fallback.race.raceName}
@@ -119,13 +119,13 @@ export default async function WatchRacePage({ params }: PageProps) {
         <div className="flex flex-wrap gap-3 mt-7">
           <Link
             href="/watch"
-            className="font-bold text-xs px-5 h-[46px] rounded-control apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
+            className="font-bold text-xs px-5 h-[46px] rounded-control apex-glass-soft flex items-center justify-center hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-95"
           >
             All races
           </Link>
           <Link
             href={`/schedule/${season}/${round}`}
-            className="font-bold text-xs px-5 h-[46px] rounded-control apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
+            className="font-bold text-xs px-5 h-[46px] rounded-control apex-glass-soft flex items-center justify-center hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-95"
           >
             Round {round} results
           </Link>

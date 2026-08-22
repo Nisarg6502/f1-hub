@@ -15,6 +15,26 @@
 @theme inline {
   /* --- APEX Design Tokens (warm-orange glassmorphism) --- */
 
+  /* --- Translucent surface colours ------------------------------------------
+
+     These two were the largest undeclared colours in the app: used 40 and 32
+     times respectively, always through `rgba()` in an arbitrary Tailwind
+     value, and defined nowhere. They are not drift -- they are consistent, and
+     they are what gives the glassmorphism its warmth -- so they are named at
+     the exact values that were already being drawn rather than snapped onto a
+     near neighbour.
+
+     `veil` is the warm off-white laid over dark surfaces at 3-16% to lift a
+     panel off the background. It is NOT `warm-100` (#f6f1ea): it is a touch
+     warmer, and at the two places it is used near-opaque that difference is
+     visible, so folding them together would change what is drawn.
+
+     `flame-bright` is the hover/focus border colour, one step brighter than
+     `flame` (#ff7a3d). Every one of its 32 uses is a border, which is exactly
+     the case where a slightly hotter edge reads as a highlight. */
+  --color-veil: #f5ebde;
+  --color-flame-bright: #ff8a3d;
+
   /* --- Corner radii -------------------------------------------------------
 
      Fourteen hand-picked pixel values were in use (2, 3, 5, 7, 9, 10, 11, 12,

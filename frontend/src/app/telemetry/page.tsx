@@ -156,18 +156,18 @@ export default function TelemetryPage() {
         </div>
         <div className="relative flex items-center gap-3">
           {liveSession ? (
-            <span className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] bg-[rgba(255,90,31,0.16)] text-primary">
+            <span className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] bg-primary-container/16 text-primary">
               <span className="h-2 w-2 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.9)] animate-pulse" />
               Live
             </span>
           ) : (
-            <span className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] bg-[rgba(245,235,222,0.06)] text-warm-300">
+            <span className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] bg-veil/6 text-warm-300">
               Standby
             </span>
           )}
           <Link
             href="/schedule"
-            className="font-bold text-[11px] uppercase tracking-[0.1em] px-4 py-2 rounded-control apex-glass-soft hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
+            className="font-bold text-[11px] uppercase tracking-[0.1em] px-4 py-2 rounded-control apex-glass-soft hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-95"
           >
             Schedule
           </Link>

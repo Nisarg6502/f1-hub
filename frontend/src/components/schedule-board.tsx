@@ -142,7 +142,7 @@ export default function ScheduleBoard({
                 {phase === key && (
                   <motion.span
                     layoutId="sched-phase-pill"
-                    className="absolute inset-0 rounded-control bg-[rgba(255,90,31,0.18)]"
+                    className="absolute inset-0 rounded-control bg-primary-container/18"
                     transition={{ type: "spring", stiffness: 420, damping: 34 }}
                   />
                 )}
@@ -201,7 +201,7 @@ export default function ScheduleBoard({
               >
               <Link
                 href={`/schedule/${r.season}/${r.round}`}
-                className="grid grid-cols-[84px_1fr_auto] sm:grid-cols-[96px_40px_1fr_auto] gap-3 sm:gap-5 items-center px-4 sm:px-[22px] py-5 rounded-2xl border transition-[border-color,background-color,transform] duration-150 hover:border-[rgba(255,138,61,0.4)] active:scale-[0.99]"
+                className="grid grid-cols-[84px_1fr_auto] sm:grid-cols-[96px_40px_1fr_auto] gap-3 sm:gap-5 items-center px-4 sm:px-[22px] py-5 rounded-2xl border transition-[border-color,background-color,transform] duration-150 hover:border-flame-bright/40 active:scale-[0.99]"
                 style={{
                   background:
                     r.status === "next"
@@ -230,7 +230,7 @@ export default function ScheduleBoard({
                     )}
                   </div>
                 </div>
-                <div className="hidden sm:flex w-[38px] h-[26px] rounded-chip overflow-hidden items-center justify-center bg-[rgba(245,235,222,0.08)]">
+                <div className="hidden sm:flex w-[38px] h-[26px] rounded-chip overflow-hidden items-center justify-center bg-veil/8">
                   <FlagImg
                     src={r.flagSrc}
                     alt={r.country}
