@@ -209,7 +209,7 @@ export default function StandingsView({
               return (
                 <StaggerItem
                   key={name || i}
-                  className="rounded-[14px] border transition-colors"
+                  className="rounded-tile border transition-colors"
                   style={{
                     background: leader
                       ? "rgba(255,90,31,0.12)"
@@ -245,7 +245,7 @@ export default function StandingsView({
                     // thing in the row that must stay readable. Reclaiming it
                     // from the gutters and from two points digits costs
                     // nothing.
-                    className="grid grid-cols-[36px_1fr_auto_auto] sm:grid-cols-[44px_1fr_70px_90px_auto] gap-2.5 sm:gap-4 items-center px-3.5 sm:px-5 py-[14px] rounded-[14px] cursor-pointer hover:bg-white/[0.03] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(255,138,61,0.6)]"
+                    className="grid grid-cols-[36px_1fr_auto_auto] sm:grid-cols-[44px_1fr_70px_90px_auto] gap-2.5 sm:gap-4 items-center px-3.5 sm:px-5 py-[14px] rounded-tile cursor-pointer hover:bg-white/[0.03] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(255,138,61,0.6)]"
                   >
                     <span
                       className="font-extrabold text-lg tabular-nums"
@@ -255,13 +255,13 @@ export default function StandingsView({
                     </span>
                     <div className="flex items-center gap-2.5 sm:gap-[14px] min-w-0">
                       <span
-                        className="w-1 h-[34px] rounded-[3px] flex-none"
+                        className="w-1 h-[34px] rounded-hairline flex-none"
                         style={{
                           background: color.hex,
                           boxShadow: `0 0 10px ${color.glow}`,
                         }}
                       />
-                      <div className="relative w-9 h-9 rounded-[9px] overflow-hidden flex-none bg-[rgba(245,235,222,0.06)]">
+                      <div className="relative w-9 h-9 rounded-control overflow-hidden flex-none bg-[rgba(245,235,222,0.06)]">
                         {imgPath ? (
                           <div style={driverPortraitFrameStyle("face")}>
                             <Image
@@ -465,14 +465,14 @@ export default function StandingsView({
                   </span>
                   <div className="flex items-center gap-[14px] min-w-0">
                     <span
-                      className="w-1.5 h-8 rounded-[3px] flex-none"
+                      className="w-1.5 h-8 rounded-hairline flex-none"
                       style={{
                         background: color.hex,
                         boxShadow: `0 0 10px ${color.glow}`,
                       }}
                     />
                     <div className="min-w-0">
-                      <div className="font-bold text-[17px] truncate">{name}</div>
+                      <div className="font-bold text-[18px] truncate">{name}</div>
                       <div className="font-semibold text-[11px] tracking-[0.04em] uppercase text-warm-400 truncate">
                         {c.Constructor.nationality}
                       </div>
@@ -518,7 +518,7 @@ export default function StandingsView({
 
 function EmptyRow({ label }: { label: string }) {
   return (
-    <div className="apex-glass-soft rounded-[14px] px-5 py-8 text-center font-medium text-sm text-warm-400">
+    <div className="apex-glass-soft rounded-tile px-5 py-8 text-center font-medium text-sm text-warm-400">
       {label}
     </div>
   );

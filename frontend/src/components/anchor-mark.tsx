@@ -134,7 +134,7 @@ export default function AnchorMark({
           textDecorationColor: kind.accent,
           backgroundColor: rect ? kind.tint : undefined,
         }}
-        className="apex-anchor-mark inline rounded-[3px] px-[1px] text-left underline decoration-[1.5px] underline-offset-[3px] transition-[background-color,text-decoration-thickness] duration-150 [transition-timing-function:cubic-bezier(0.23,1,0.32,1)] hover:decoration-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
+        className="apex-anchor-mark inline rounded-hairline px-[1px] text-left underline decoration-[1.5px] underline-offset-[3px] transition-[background-color,text-decoration-thickness] duration-150 [transition-timing-function:cubic-bezier(0.23,1,0.32,1)] hover:decoration-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary)]"
         aria-haspopup="dialog"
         aria-expanded={rect !== null}
         aria-label={`${spoken} — show the record this came from`}

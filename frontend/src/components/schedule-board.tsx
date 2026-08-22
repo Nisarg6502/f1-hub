@@ -123,7 +123,7 @@ export default function ScheduleBoard({
       <div className="grid lg:grid-cols-[280px_1fr] gap-7 items-start">
         {/* Sidebar */}
         <div className="lg:sticky lg:top-[88px] flex flex-col gap-4">
-          <div className="flex gap-1.5 apex-glass-soft rounded-[14px] p-1.5">
+          <div className="flex gap-1.5 apex-glass-soft rounded-tile p-1.5">
             {(
               [
                 ["upcoming", "Upcoming"],
@@ -133,7 +133,7 @@ export default function ScheduleBoard({
               <button
                 key={key}
                 onClick={() => setPhase(key)}
-                className={`relative flex-1 text-center text-xs py-2.5 rounded-[9px] transition-[color,transform] duration-150 active:scale-[0.97] ${
+                className={`relative flex-1 text-center text-xs py-2.5 rounded-control transition-[color,transform] duration-150 active:scale-[0.97] ${
                   phase === key
                     ? "font-bold text-primary"
                     : "font-semibold text-warm-300 hover:text-on-background"
@@ -142,7 +142,7 @@ export default function ScheduleBoard({
                 {phase === key && (
                   <motion.span
                     layoutId="sched-phase-pill"
-                    className="absolute inset-0 rounded-[9px] bg-[rgba(255,90,31,0.18)]"
+                    className="absolute inset-0 rounded-control bg-[rgba(255,90,31,0.18)]"
                     transition={{ type: "spring", stiffness: 420, damping: 34 }}
                   />
                 )}
@@ -152,7 +152,7 @@ export default function ScheduleBoard({
           </div>
 
           {nextTargetMs !== null && nextName && (
-            <div className="apex-glass apex-sheen rounded-[18px] p-[22px] overflow-hidden">
+            <div className="apex-glass apex-sheen rounded-card p-[22px] overflow-hidden">
               <div className="relative">
                 <span className="font-bold text-[11px] tracking-[0.12em] uppercase text-flame">
                   Next event
@@ -230,7 +230,7 @@ export default function ScheduleBoard({
                     )}
                   </div>
                 </div>
-                <div className="hidden sm:flex w-[38px] h-[26px] rounded-[5px] overflow-hidden items-center justify-center bg-[rgba(245,235,222,0.08)]">
+                <div className="hidden sm:flex w-[38px] h-[26px] rounded-chip overflow-hidden items-center justify-center bg-[rgba(245,235,222,0.08)]">
                   <FlagImg
                     src={r.flagSrc}
                     alt={r.country}
@@ -240,7 +240,7 @@ export default function ScheduleBoard({
                   />
                 </div>
                 <div className="min-w-0">
-                  <div className="font-bold text-[15px] sm:text-[17px] truncate">
+                  <div className="font-bold text-[15px] sm:text-[18px] truncate">
                     {r.name}
                   </div>
                   <div className="font-medium text-xs text-warm-400 mt-0.5 truncate">

@@ -112,7 +112,7 @@ export default function SessionTabs({
             <button
               key={key}
               onClick={() => setActiveSession(key)}
-              className={`text-xs px-[18px] py-2.5 rounded-[10px] transition-[background-color,color,transform] duration-150 active:scale-[0.97] ${
+              className={`text-xs px-[18px] py-2.5 rounded-control transition-[background-color,color,transform] duration-150 active:scale-[0.97] ${
                 active
                   ? "font-bold bg-[rgba(255,90,31,0.18)] text-primary"
                   : "font-semibold text-warm-300 hover:text-on-background"
@@ -235,7 +235,7 @@ function WinnerCard({ r }: { r: RaceResult }) {
   const img = hasImg ? getDriverImagePath(given, family) : null;
 
   return (
-    <div className="apex-glass apex-sheen rounded-[18px] p-[22px] overflow-hidden relative isolate">
+    <div className="apex-glass apex-sheen rounded-card p-[22px] overflow-hidden relative isolate">
       <div
         className="absolute left-0 top-0 bottom-0 w-[5px]"
         style={{ background: color.hex, boxShadow: `0 0 16px ${color.glow}` }}
@@ -302,7 +302,7 @@ function RunnerRow({ r, pos }: { r: RaceResult; pos: string }) {
     <div className="flex-1 apex-glass-soft rounded-2xl px-5 py-[18px] flex items-center gap-3.5">
       <span className="font-extrabold text-xl text-warm-200">{pos}</span>
       <span
-        className="w-1 h-[30px] rounded-[3px]"
+        className="w-1 h-[30px] rounded-hairline"
         style={{ background: color.hex }}
       />
       <div className="flex-1 min-w-0">
@@ -374,10 +374,10 @@ function FullResultsTable({ results }: { results: RaceResult[] }) {
         {season && round && (
           <Link
             href={`/schedule/${season}/${round}/pitwall`}
-            className="group inline-flex items-center gap-2 font-bold text-xs tracking-[0.08em] uppercase text-[#1a1210] px-5 py-2.5 rounded-[12px] shadow-[0_6px_20px_rgba(255,90,31,0.35)] hover:shadow-[0_8px_26px_rgba(255,90,31,0.5)] transition-[box-shadow,transform] duration-150 active:scale-95"
+            className="group inline-flex items-center gap-2 font-bold text-xs tracking-[0.08em] uppercase text-[#1a1210] px-5 py-2.5 rounded-control shadow-[0_6px_20px_rgba(255,90,31,0.35)] hover:shadow-[0_8px_26px_rgba(255,90,31,0.5)] transition-[box-shadow,transform] duration-150 active:scale-95"
             style={{ background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
           >
-            <span className="material-symbols-outlined text-[17px] leading-none">
+            <span className="material-symbols-outlined text-[18px] leading-none">
               query_stats
             </span>
             Pitwall analysis
@@ -414,7 +414,7 @@ function FullResultsTable({ results }: { results: RaceResult[] }) {
               </span>
               <div className="flex items-center gap-3 min-w-0">
                 <span
-                  className="w-[3px] h-6 rounded-[2px] flex-none"
+                  className="w-[3px] h-6 rounded-hairline flex-none"
                   style={{ background: color.hex }}
                 />
                 <span className="font-bold text-sm truncate">
@@ -506,7 +506,7 @@ function SessionResultsTable({
             </span>
             <div className="flex items-center gap-3 min-w-0">
               <span
-                className="w-[3px] h-6 rounded-[2px] flex-none"
+                className="w-[3px] h-6 rounded-hairline flex-none"
                 style={{ background: color.hex }}
               />
               <span className="font-bold text-sm truncate">
@@ -646,7 +646,7 @@ function InfoTile({
   accent?: boolean;
 }) {
   return (
-    <div className="apex-glass-soft rounded-[14px] px-[22px] py-[18px]">
+    <div className="apex-glass-soft rounded-tile px-[22px] py-[18px]">
       <p className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-500">
         {label}
       </p>
@@ -899,7 +899,7 @@ function AddToCalendarButton({
         aria-label={`Add ${sessionLabel} to calendar`}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex items-center justify-center w-9 h-9 rounded-[10px] bg-[rgba(245,235,222,0.06)] border border-white/10 text-warm-300 hover:text-primary hover:border-[rgba(255,138,61,0.5)] transition-[border-color,color,transform] duration-150 active:scale-[0.97]"
+        className="flex items-center justify-center w-9 h-9 rounded-control bg-[rgba(245,235,222,0.06)] border border-white/10 text-warm-300 hover:text-primary hover:border-[rgba(255,138,61,0.5)] transition-[border-color,color,transform] duration-150 active:scale-[0.97]"
       >
         <span className="material-symbols-outlined text-[18px] leading-none">
           event_upcoming

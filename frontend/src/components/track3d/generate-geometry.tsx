@@ -152,7 +152,7 @@ export default function GenerateGeometry({
   const percent = Math.min(100, Math.max(0, build?.progress_pct ?? 0));
 
   return (
-    <div className="apex-glass-strong apex-sheen rounded-[22px] p-6 md:p-8">
+    <div className="apex-glass-strong apex-sheen rounded-panel p-6 md:p-8">
       <div className="grid md:grid-cols-[minmax(0,1fr)_260px] gap-8 items-center">
         <div>
           <span className="inline-block font-bold text-[10px] tracking-[0.12em] uppercase px-2.5 py-1.5 rounded-lg bg-[rgba(255,90,31,0.16)] text-[#FFAE6A] mb-4">
@@ -205,7 +205,7 @@ export default function GenerateGeometry({
 
           {busyNotice && (
             <div
-              className="max-w-xl mb-6 rounded-[14px] px-4 py-3 bg-[rgba(255,174,106,0.10)] border border-[rgba(255,174,106,0.30)]"
+              className="max-w-xl mb-6 rounded-tile px-4 py-3 bg-[rgba(255,174,106,0.10)] border border-[rgba(255,174,106,0.30)]"
               role="status"
               aria-live="polite"
             >
@@ -221,7 +221,7 @@ export default function GenerateGeometry({
 
           {error && (
             <div
-              className="max-w-xl mb-6 rounded-[14px] px-4 py-3 bg-[rgba(255,90,31,0.10)] border border-[rgba(255,120,90,0.35)]"
+              className="max-w-xl mb-6 rounded-tile px-4 py-3 bg-[rgba(255,90,31,0.10)] border border-[rgba(255,120,90,0.35)]"
               role="alert"
             >
               <p className="font-semibold text-[13px] text-[#ff9b8a]">{error}</p>

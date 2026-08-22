@@ -162,7 +162,7 @@ export default async function RaceWeekGlimpse({
         className="group block anim-fade"
         style={{ animationDelay: "0.65s" }}
       >
-        <div className="apex-glass rounded-[16px] px-4 sm:px-5 py-4 transition-colors group-hover:bg-[rgba(245,235,222,0.05)]">
+        <div className="apex-glass rounded-tile px-4 sm:px-5 py-4 transition-colors group-hover:bg-[rgba(245,235,222,0.05)]">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-3">
             {live ? (
               <span className="inline-flex items-center gap-2 rounded-full bg-[rgba(255,90,31,0.16)] px-2.5 py-1 font-bold text-[10px] tracking-[0.14em] uppercase text-primary">
@@ -213,7 +213,7 @@ export default async function RaceWeekGlimpse({
               return (
                 <li
                   key={`${row.position}-${row.familyName}`}
-                  className="flex items-stretch gap-2.5 rounded-[12px] bg-[rgba(245,235,222,0.04)] px-3 py-2.5 min-w-0"
+                  className="flex items-stretch gap-2.5 rounded-control bg-[rgba(245,235,222,0.04)] px-3 py-2.5 min-w-0"
                 >
                   <span
                     aria-hidden
@@ -231,12 +231,12 @@ export default async function RaceWeekGlimpse({
                     <span className="block font-bold text-[13px] truncate">
                       {row.familyName}
                     </span>
-                    <span className="block font-medium text-[10.5px] text-warm-500 truncate">
+                    <span className="block font-medium text-[10px] text-warm-500 truncate">
                       {row.constructor || "—"}
                     </span>
                   </span>
                   <span
-                    className={`self-center font-semibold text-[11.5px] tabular-nums whitespace-nowrap ${
+                    className={`self-center font-semibold text-[11px] tabular-nums whitespace-nowrap ${
                       isWinner ? "text-primary" : "text-warm-300"
                     }`}
                   >

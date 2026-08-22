@@ -7,7 +7,7 @@ export default function PitwallLoading() {
           <div className="h-12 w-72 rounded-lg apex-glass-soft mt-3" />
           <div className="h-3 w-48 rounded apex-glass-soft mt-3" />
         </div>
-        <div className="h-[46px] w-36 rounded-[11px] apex-glass-soft" />
+        <div className="h-[46px] w-36 rounded-control apex-glass-soft" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">

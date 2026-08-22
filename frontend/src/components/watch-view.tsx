@@ -1451,7 +1451,7 @@ export default function WatchView({
                 </span>
 
                 <span
-                  className="w-[4px] rounded-[2px] flex-none"
+                  className="w-[4px] rounded-hairline flex-none"
                   style={{ background: color.hex, height: "1.3em" }}
                 />
 
@@ -1899,7 +1899,7 @@ export default function WatchView({
                         }}
                       >
                         <span
-                          className="w-[3px] h-[1.3em] rounded-[2px] flex-none"
+                          className="w-[3px] h-[1.3em] rounded-hairline flex-none"
                           style={{ background: color.hex }}
                         />
                         {driver.code}
@@ -1947,7 +1947,7 @@ export default function WatchView({
                     ? "Gap to the car ahead — the number that moves when someone is closing"
                     : "Gap to the race leader"
                 }
-                className="flex items-center justify-center h-9 [@media(max-height:520px)]:h-9 px-2.5 rounded-[9px] font-bold text-[11px] tracking-[0.08em] transition-colors duration-150"
+                className="flex items-center justify-center h-9 [@media(max-height:520px)]:h-9 px-2.5 rounded-control font-bold text-[11px] tracking-[0.08em] transition-colors duration-150"
                 style={{
                   background:
                     timingMode === value ? "rgba(255,90,31,0.20)" : "transparent",
@@ -1985,7 +1985,7 @@ export default function WatchView({
                   ? "Whole field as large as it will go: no names, race control on one line, two columns when there is width for them"
                   : "Names, and race control in full"
               }
-              className="flex items-center justify-center w-9 h-9 rounded-[9px] transition-colors duration-150"
+              className="flex items-center justify-center w-9 h-9 rounded-control transition-colors duration-150"
               style={{
                 background: density === value ? "rgba(255,90,31,0.20)" : "transparent",
                 color: density === value ? "var(--color-primary)" : "var(--color-warm-400)",

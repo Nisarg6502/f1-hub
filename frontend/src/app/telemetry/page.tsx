@@ -140,7 +140,7 @@ export default function TelemetryPage() {
 
   return (
     <div className="px-6 md:px-10 pt-10 pb-16 space-y-5">
-      <header className="apex-glass apex-sheen rounded-[20px] p-6 flex flex-wrap items-center justify-between gap-4">
+      <header className="apex-glass apex-sheen rounded-card p-6 flex flex-wrap items-center justify-between gap-4">
         <div className="relative">
           <p className="font-bold text-[11px] tracking-[0.18em] uppercase text-flame">
             APEX Live
@@ -167,7 +167,7 @@ export default function TelemetryPage() {
           )}
           <Link
             href="/schedule"
-            className="font-bold text-[11px] uppercase tracking-[0.1em] px-4 py-2 rounded-[10px] apex-glass-soft hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
+            className="font-bold text-[11px] uppercase tracking-[0.1em] px-4 py-2 rounded-control apex-glass-soft hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
           >
             Schedule
           </Link>
@@ -265,7 +265,7 @@ export default function TelemetryPage() {
                   {[0, 1, 2].map((sectorIdx) => (
                     <span
                       key={sectorIdx}
-                      className={`h-2 w-9 rounded-[2px] ${getSectorColor(
+                      className={`h-2 w-9 rounded-hairline ${getSectorColor(
                         line.Sectors?.[sectorIdx]
                       )}`}
                     />

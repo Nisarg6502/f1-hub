@@ -58,7 +58,7 @@ function ModuleEmptyState({
 }) {
   return (
     <div className="apex-glass-soft rounded-2xl p-12 flex flex-col items-center justify-center text-center min-h-[500px]">
-      <div className="w-14 h-14 rounded-[14px] bg-[rgba(255,90,31,0.1)] border border-[rgba(255,90,31,0.25)] flex items-center justify-center mb-5">
+      <div className="w-14 h-14 rounded-tile bg-[rgba(255,90,31,0.1)] border border-[rgba(255,90,31,0.25)] flex items-center justify-center mb-5">
         <span className="material-symbols-outlined text-flame text-2xl">
           hourglass_empty
         </span>
@@ -72,13 +72,13 @@ function ModuleEmptyState({
       <div className="mt-7 flex gap-3">
         <Link
           href={`/schedule/${season}/${round}`}
-          className="font-bold text-xs uppercase tracking-[0.1em] px-6 py-2.5 rounded-[11px] apex-glass-soft hover:border-[rgba(255,138,61,0.5)] transition-colors"
+          className="font-bold text-xs uppercase tracking-[0.1em] px-6 py-2.5 rounded-control apex-glass-soft hover:border-[rgba(255,138,61,0.5)] transition-colors"
         >
           Race results
         </Link>
         <Link
           href="/schedule"
-          className="font-bold text-xs uppercase tracking-[0.1em] px-6 py-2.5 rounded-[11px] bg-[rgba(255,90,31,0.16)] text-primary hover:bg-[rgba(255,90,31,0.24)] transition-colors"
+          className="font-bold text-xs uppercase tracking-[0.1em] px-6 py-2.5 rounded-control bg-[rgba(255,90,31,0.16)] text-primary hover:bg-[rgba(255,90,31,0.24)] transition-colors"
         >
           View schedule
         </Link>
@@ -164,7 +164,7 @@ export default async function PitwallPage({ params, searchParams }: PageProps) {
         </div>
         <Link
           href={`/schedule/${season}/${round}`}
-          className="font-bold text-xs px-5 h-[46px] rounded-[11px] apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
+          className="font-bold text-xs px-5 h-[46px] rounded-control apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
         >
           ← Back to race
         </Link>

@@ -5,7 +5,7 @@
  * a click looks like it did nothing and gets made twice.
  *
  * Dimensions are matched to `drivers-grid.tsx`'s real cards (`min-h-[340px]`,
- * `rounded-[18px]`, the same 1/2/4-column grid) so the skeleton does not
+ * `rounded-card`, the same 1/2/4-column grid) so the skeleton does not
  * relayout into the content.
  */
 export default function DriversLoading() {
@@ -20,7 +20,7 @@ export default function DriversLoading() {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="min-h-[340px] rounded-[18px] apex-glass-soft" />
+          <div key={i} className="min-h-[340px] rounded-card apex-glass-soft" />
         ))}
       </div>
     </div>

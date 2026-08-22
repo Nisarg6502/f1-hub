@@ -44,7 +44,7 @@ export default async function WatchIndexPage({ searchParams }: PageProps) {
       <div className="flex items-center gap-4 mb-7">
         <Link
           href="/"
-          className="font-bold text-xs px-4 h-[40px] rounded-[11px] apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95 flex-none"
+          className="font-bold text-xs px-4 h-[40px] rounded-control apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95 flex-none"
         >
           ← APEX
         </Link>
@@ -54,7 +54,7 @@ export default async function WatchIndexPage({ searchParams }: PageProps) {
               key={year}
               href={`/watch?season=${year}`}
               aria-current={year === season ? "page" : undefined}
-              className={`font-bold text-xs px-3.5 h-[40px] rounded-[11px] flex items-center justify-center transition-colors duration-150 ${
+              className={`font-bold text-xs px-3.5 h-[40px] rounded-control flex items-center justify-center transition-colors duration-150 ${
                 year === season
                   ? "bg-[rgba(255,90,31,0.18)] text-primary"
                   : "text-warm-400 hover:text-on-background"
@@ -101,7 +101,7 @@ export default async function WatchIndexPage({ searchParams }: PageProps) {
             <Link
               key={race.round}
               href={`/watch/${toRaceId(season, race.round)}`}
-              className="apex-glass-soft rounded-[16px] px-5 py-[18px] hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-[0.99] block"
+              className="apex-glass-soft rounded-tile px-5 py-[18px] hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-[0.99] block"
             >
               <p className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-500">
                 Round {race.round}

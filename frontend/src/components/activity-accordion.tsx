@@ -31,7 +31,7 @@ export type ActivityEntry = {
  */
 export function ActivityMarker({ kind }: { kind: ActivityEntry["kind"] }) {
   if (kind === "agent") {
-    return <span className="h-1.5 w-1.5 rounded-[2px] bg-[var(--color-secondary)]" />;
+    return <span className="h-1.5 w-1.5 rounded-hairline bg-[var(--color-secondary)]" />;
   }
   if (kind === "system") {
     return <span className="h-1 w-1 rounded-full bg-[var(--color-warm-500)]/40" />;

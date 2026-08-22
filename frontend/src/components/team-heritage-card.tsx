@@ -94,10 +94,10 @@ function Stat({
 }) {
   return (
     <div className="min-w-0">
-      <div className="font-semibold text-[9.5px] tracking-[0.1em] uppercase text-warm-500">
+      <div className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500">
         {label}
       </div>
-      <div className="font-extrabold text-[17px] tabular-nums leading-tight mt-0.5">
+      <div className="font-extrabold text-[18px] tabular-nums leading-tight mt-0.5">
         {value}
       </div>
       {hint && (
@@ -215,7 +215,7 @@ export default function TeamHeritageCard({
           leaving them out entirely reads as if the team began at its most
           recent debut. */}
       {current && dossier.priorStints.length > 0 && (
-        <div className="font-medium text-[10.5px] text-warm-400 mt-2.5 leading-snug">
+        <div className="font-medium text-[10px] text-warm-400 mt-2.5 leading-snug">
           {indefiniteArticle(current.node.label)} {current.node.label} team also
           raced in {dossier.priorStints.map(formatStint).join(", ")} — a
           separate entry, not counted above.
@@ -234,7 +234,7 @@ export default function TeamHeritageCard({
       {/* --- Hand-authored: what the team is ------------------------------ */}
       {profile && (
         <div className="mt-5">
-          <div className="font-semibold text-[9.5px] tracking-[0.1em] uppercase text-warm-500">
+          <div className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500">
             Based
           </div>
           <div className="font-bold text-[13px] mt-0.5">{profile.base}</div>
@@ -244,7 +244,7 @@ export default function TeamHeritageCard({
             </div>
           )}
           {profileIsCurrent && (
-            <p className="font-medium text-[12.5px] leading-relaxed text-warm-300 mt-2.5">
+            <p className="font-medium text-[13px] leading-relaxed text-warm-300 mt-2.5">
               {profile.blurb}
             </p>
           )}
@@ -253,7 +253,7 @@ export default function TeamHeritageCard({
 
       {/* --- The lineage ------------------------------------------------- */}
       <div className="mt-6">
-        <div className="font-semibold text-[9.5px] tracking-[0.1em] uppercase text-warm-500 mb-2.5">
+        <div className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500 mb-2.5">
           {isChain ? "How this team came to exist" : "Lineage"}
         </div>
 
@@ -326,7 +326,7 @@ export default function TeamHeritageCard({
                 <span className="font-[family-name:var(--font-headline)] font-bold text-[13px] text-warm-100">
                   {selected.node.label}
                 </span>
-                <span className="font-semibold text-[10.5px] tabular-nums text-warm-400">
+                <span className="font-semibold text-[10px] tabular-nums text-warm-400">
                   {eraSpan(selected)} · {selected.seasonCount}{" "}
                   {selected.seasonCount === 1 ? "season" : "seasons"} ·{" "}
                   {selected.wins === 0
@@ -369,7 +369,7 @@ export default function TeamHeritageCard({
 
               {/* The rename story. Curated, not computed — see the
                   constructor-lineages.ts header. */}
-              <p className="font-medium text-[11.5px] leading-relaxed text-warm-300 mt-2">
+              <p className="font-medium text-[11px] leading-relaxed text-warm-300 mt-2">
                 {selected.node.note}
               </p>
             </motion.div>

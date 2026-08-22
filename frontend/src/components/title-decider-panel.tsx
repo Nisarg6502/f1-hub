@@ -86,7 +86,7 @@ export default function TitleDeciderPanel({
     // sits where that answer is read first, and stays visible on the
     // Constructors tab, which previously could not see it at all.
     <section
-      className="apex-glass apex-sheen rounded-[20px] p-5 md:p-6 mb-7 overflow-hidden"
+      className="apex-glass apex-sheen rounded-card p-5 md:p-6 mb-7 overflow-hidden"
       aria-label="Title decider"
     >
       <div className="relative flex flex-col lg:flex-row lg:items-start gap-5 lg:gap-9">

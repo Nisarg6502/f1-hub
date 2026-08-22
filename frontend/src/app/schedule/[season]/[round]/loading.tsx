@@ -8,14 +8,14 @@ export default function RaceDetailLoading() {
           <div className="h-3 w-52 rounded apex-glass-soft mt-3" />
         </div>
         <div className="flex items-stretch gap-3">
-          <div className="h-[46px] w-40 rounded-[11px] apex-glass-soft" />
-          <div className="h-[46px] w-44 rounded-[11px] apex-glass-soft" />
+          <div className="h-[46px] w-40 rounded-control apex-glass-soft" />
+          <div className="h-[46px] w-44 rounded-control apex-glass-soft" />
         </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3.5 mb-6">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="h-[74px] rounded-[14px] apex-glass-soft" />
+          <div key={i} className="h-[74px] rounded-tile apex-glass-soft" />
         ))}
       </div>
 

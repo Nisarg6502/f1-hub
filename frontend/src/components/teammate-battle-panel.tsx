@@ -20,7 +20,7 @@ export default function TeammateBattlePanel({ battles }: TeammateBattlePanelProp
   return (
     <div
       data-teammate-battle
-      className="apex-glass apex-sheen rounded-[20px] p-6 overflow-hidden"
+      className="apex-glass apex-sheen rounded-card p-6 overflow-hidden"
     >
       <span className="font-bold text-xs tracking-[0.12em] uppercase text-flame">
         Teammate battle

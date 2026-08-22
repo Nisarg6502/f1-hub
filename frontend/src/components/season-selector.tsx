@@ -45,7 +45,7 @@ export default function SeasonSelector({
         value={currentYear}
         onChange={handleSelect}
         aria-label="Select season"
-        className="appearance-none apex-glass-soft rounded-[11px] text-on-background font-bold text-sm py-[13px] pl-4 pr-11 outline-none focus:border-[rgba(255,138,61,0.5)] transition-colors cursor-pointer w-full md:w-32"
+        className="appearance-none apex-glass-soft rounded-control text-on-background font-bold text-sm py-[13px] pl-4 pr-11 outline-none focus:border-[rgba(255,138,61,0.5)] transition-colors cursor-pointer w-full md:w-32"
       >
         {years.map((y) => (
           <option key={y} value={y} className="bg-[#14110e]">

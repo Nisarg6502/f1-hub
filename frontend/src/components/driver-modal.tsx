@@ -104,12 +104,12 @@ export default function DriverModal({
             ? { duration: 0.15 }
             : { type: "spring", stiffness: 320, damping: 30 }
         }
-        className="relative w-[640px] max-w-full max-h-full overflow-y-auto rounded-[24px] apex-glass-strong apex-sheen"
+        className="relative w-[640px] max-w-full max-h-full overflow-y-auto rounded-panel apex-glass-strong apex-sheen"
       >
         <button
           onClick={onClose}
           aria-label="Close"
-          className="absolute top-5 right-5 z-10 w-[34px] h-[34px] rounded-[10px] bg-[rgba(16,14,11,0.5)] flex items-center justify-center text-warm-200 text-lg hover:bg-[rgba(16,14,11,0.7)] transition-[background-color,transform] duration-150 active:scale-90"
+          className="absolute top-5 right-5 z-10 w-[34px] h-[34px] rounded-control bg-[rgba(16,14,11,0.5)] flex items-center justify-center text-warm-200 text-lg hover:bg-[rgba(16,14,11,0.7)] transition-[background-color,transform] duration-150 active:scale-90"
         >
           ×
         </button>
@@ -162,7 +162,7 @@ export default function DriverModal({
               {team}
             </span>
           </div>
-          <div className="font-[family-name:var(--font-headline)] font-extrabold text-3xl md:text-[38px] tracking-[-0.5px] leading-[1.02]">
+          <div className="font-[family-name:var(--font-headline)] font-extrabold text-3xl md:text-[40px] tracking-[-0.5px] leading-[1.02]">
             {given} {family}
           </div>
 

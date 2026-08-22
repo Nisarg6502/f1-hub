@@ -212,7 +212,7 @@ export default async function Home() {
                   {upcomingSessions.map((s, i) => (
                     <span
                       key={s.id}
-                      className={`text-xs px-[14px] py-2 rounded-[10px] ${
+                      className={`text-xs px-[14px] py-2 rounded-control ${
                         i === 0
                           ? "font-bold bg-[rgba(255,90,31,0.16)] text-primary"
                           : "font-semibold bg-[rgba(245,235,222,0.05)] text-warm-200"
@@ -237,7 +237,7 @@ export default async function Home() {
 
           {/* Right — This season stat card */}
           <TiltCard
-            className="apex-glass apex-sheen rounded-[22px] p-7 anim-rise min-w-0 overflow-hidden"
+            className="apex-glass apex-sheen rounded-panel p-7 anim-rise min-w-0 overflow-hidden"
             strength={5}
           >
             <div className="relative">
@@ -341,7 +341,7 @@ export default async function Home() {
         <Stagger className="grid md:grid-cols-3 gap-5" gap={0.08}>
           {/* Championship leader */}
           <StaggerItem>
-          <TiltCard className="apex-glass apex-sheen rounded-[22px] p-[26px] overflow-hidden min-h-[224px] block h-full">
+          <TiltCard className="apex-glass apex-sheen rounded-panel p-[26px] overflow-hidden min-h-[224px] block h-full">
             <BentoDriverArt
               given={leader?.Driver.givenName}
               family={leader?.Driver.familyName}
@@ -351,7 +351,7 @@ export default async function Home() {
               <span className="font-bold text-[11px] tracking-[0.14em] uppercase text-flame">
                 Championship leader
               </span>
-              <div className="font-[family-name:var(--font-headline)] font-bold text-[21px] leading-[1.05] my-[14px] mb-[3px]">
+              <div className="font-[family-name:var(--font-headline)] font-bold text-[22px] leading-[1.05] my-[14px] mb-[3px]">
                 {leaderName || "TBC"}
               </div>
               <div className="font-semibold text-xs text-warm-400">
@@ -378,7 +378,7 @@ export default async function Home() {
 
           {/* Last time out */}
           <StaggerItem>
-          <TiltCard className="apex-glass apex-sheen rounded-[22px] p-[26px] overflow-hidden min-h-[224px] block h-full">
+          <TiltCard className="apex-glass apex-sheen rounded-panel p-[26px] overflow-hidden min-h-[224px] block h-full">
             <BentoDriverArt
               given={latestWinner?.givenName}
               family={latestWinner?.familyName}
@@ -387,7 +387,7 @@ export default async function Home() {
               <span className="font-bold text-[11px] tracking-[0.14em] uppercase text-warm-300">
                 Last time out
               </span>
-              <div className="font-[family-name:var(--font-headline)] font-bold text-[21px] leading-[1.05] my-[14px] mb-[3px]">
+              <div className="font-[family-name:var(--font-headline)] font-bold text-[22px] leading-[1.05] my-[14px] mb-[3px]">
                 {latestWinner?.name || "TBC"}
               </div>
               <div className="font-semibold text-xs text-warm-400">
@@ -396,7 +396,7 @@ export default async function Home() {
                   : "—"}
               </div>
               {latestWinner?.time && (
-                <div className="mt-[22px] inline-flex items-center gap-2 bg-[rgba(255,90,31,0.12)] rounded-[10px] px-[13px] py-[9px]">
+                <div className="mt-[22px] inline-flex items-center gap-2 bg-[rgba(255,90,31,0.12)] rounded-control px-[13px] py-[9px]">
                   <span
                     className="w-[6px] h-[6px] rounded-full"
                     style={{ background: winnerColor.hex }}
@@ -418,7 +418,7 @@ export default async function Home() {
                 ? `/schedule/${seasonYear}/${nextRace.round}`
                 : "/circuits"
             }
-            className="apex-glass apex-sheen rounded-[22px] p-[26px] overflow-hidden min-h-[224px] block h-full"
+            className="apex-glass apex-sheen rounded-panel p-[26px] overflow-hidden min-h-[224px] block h-full"
             ariaLabel="Next circuit"
           >
             <span className="relative font-bold text-[11px] tracking-[0.14em] uppercase text-flame">
@@ -427,7 +427,7 @@ export default async function Home() {
             <TrackMap
               src={circuitImg}
               alt={heroCircuit ?? "Circuit"}
-              containerClassName="relative my-4 h-[100px] rounded-[14px]"
+              containerClassName="relative my-4 h-[100px] rounded-tile"
               imgClassName="object-contain p-3 opacity-80"
             />
             <div className="relative flex justify-between">
@@ -456,7 +456,7 @@ export default async function Home() {
       {/* ===================== EXPLORE ===================== */}
       <section className="px-6 md:px-10 pt-10 pb-14">
         <Reveal className="flex items-baseline justify-between mb-5">
-          <span className="font-[family-name:var(--font-headline)] font-bold text-[19px]">
+          <span className="font-[family-name:var(--font-headline)] font-bold text-[20px]">
             Explore the season
           </span>
         </Reveal>
@@ -533,7 +533,7 @@ function BentoDriverArt({
 
   return (
     <div
-      className={`absolute top-6 right-6 bottom-6 w-[98px] rounded-[14px] flex items-end justify-center pb-[10px] ${
+      className={`absolute top-6 right-6 bottom-6 w-[98px] rounded-tile flex items-end justify-center pb-[10px] ${
         accent ? "apex-hatch-flame" : "apex-hatch"
       }`}
     >

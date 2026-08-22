@@ -383,7 +383,7 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
                 {runner.retired ? "—" : runner.position ?? "—"}
               </span>
               <span
-                className="w-[3px] h-5 rounded-[2px] flex-none"
+                className="w-[3px] h-5 rounded-hairline flex-none"
                 style={{ background: color.hex }}
               />
               <span className="font-bold text-[13px] w-12 flex-none">

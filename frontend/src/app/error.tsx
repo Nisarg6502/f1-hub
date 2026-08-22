@@ -31,7 +31,7 @@ export default function Error({
   }, [error]);
 
   return (
-    <main className="relative z-10 max-w-[1440px] mx-auto px-6 md:px-10 py-20 md:py-28">
+    <div className="relative z-10 max-w-[1440px] mx-auto px-6 md:px-10 py-20 md:py-28">
       <div className="max-w-[52ch]">
         <p className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-500 mb-3">
           Something broke
@@ -49,13 +49,13 @@ export default function Error({
           <button
             type="button"
             onClick={reset}
-            className="font-bold text-xs px-5 h-[46px] rounded-[11px] apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
+            className="font-bold text-xs px-5 h-[46px] rounded-control apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
           >
             Try again
           </button>
           <Link
             href="/"
-            className="font-bold text-xs px-5 h-[46px] rounded-[11px] apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
+            className="font-bold text-xs px-5 h-[46px] rounded-control apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
           >
             Back to home
           </Link>
@@ -77,6 +77,6 @@ export default function Error({
           </p>
         )}
       </div>
-    </main>
+    </div>
   );
 }

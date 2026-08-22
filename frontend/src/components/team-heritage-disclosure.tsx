@@ -67,10 +67,10 @@ export default function TeamHeritageDisclosure({
             state, and saying it twice is worse than saying it once. */}
         <span className="sr-only">{teamName}, </span>
         <span className="min-w-0 flex-1">
-          <span className="block font-semibold text-[9.5px] tracking-[0.1em] uppercase text-warm-500 group-hover/disc:text-warm-300 transition-colors">
+          <span className="block font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500 group-hover/disc:text-warm-300 transition-colors">
             Heritage &amp; lineage
           </span>
-          <span className="block font-semibold text-[11.5px] text-warm-300 tabular-nums mt-0.5 truncate">
+          <span className="block font-semibold text-[11px] text-warm-300 tabular-nums mt-0.5 truncate">
             {summary}
           </span>
         </span>

@@ -214,7 +214,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
           {isPast && (
             <Link
               href={`/watch/${seasonYear}-${roundNumber}`}
-              className="font-bold text-xs px-5 h-[46px] rounded-[11px] flex items-center justify-center text-[#1a1210] transition-transform duration-150 active:scale-95"
+              className="font-bold text-xs px-5 h-[46px] rounded-control flex items-center justify-center text-[#1a1210] transition-transform duration-150 active:scale-95"
               style={{ background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
             >
               Watch at race pace
@@ -222,7 +222,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
           )}
           <Link
             href="/schedule"
-            className="font-bold text-xs px-5 h-[46px] rounded-[11px] apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
+            className="font-bold text-xs px-5 h-[46px] rounded-control apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
           >
             ← Back to schedule
           </Link>
@@ -235,7 +235,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
           {circuitStats.map((stat) => (
             <div
               key={stat.label}
-              className="apex-glass-soft rounded-[14px] px-[22px] py-[18px]"
+              className="apex-glass-soft rounded-tile px-[22px] py-[18px]"
             >
               <p className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-500">
                 {stat.label}

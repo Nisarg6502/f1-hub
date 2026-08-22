@@ -15,6 +15,26 @@
 @theme inline {
   /* --- APEX Design Tokens (warm-orange glassmorphism) --- */
 
+  /* --- Corner radii -------------------------------------------------------
+
+     Fourteen hand-picked pixel values were in use (2, 3, 5, 7, 9, 10, 11, 12,
+     14, 16, 18, 20, 22, 24). They were not random: the bulk already sat on a
+     4px progression, and the rest were within 2px of one of its steps. So this
+     names the scale that was being drawn freehand rather than imposing a new
+     one -- every value moves by at most 2px, and the four most-used ones (10,
+     14, 18, 22) do not move at all.
+
+     Named `hairline/chip/control/tile/card/panel` rather than xs/sm/md/lg,
+     deliberately: Tailwind's own `--radius-md|lg|xl|2xl` are already used 191
+     times across the app, and redefining those keys in `@theme` would silently
+     resize every one of them. These keys cannot collide. */
+  --radius-hairline: 2px;
+  --radius-chip: 6px;
+  --radius-control: 10px;
+  --radius-tile: 14px;
+  --radius-card: 18px;
+  --radius-panel: 22px;
+
   /* Surfaces — warm near-black through warm browns */
   --color-background: #0a0908;
   --color-on-background: #f6f1ea;
@@ -88,7 +108,25 @@
 }
 
 html {
-  scroll-behavior: smooth;
+  /* NOT `scroll-behavior: smooth`, and this is load-bearing.
+     
+     It was, and it broke navigation. Next's App Router scrolls to the top of
+     the new page by calling `scrollTo`, which a global smooth behaviour turns
+     into an ANIMATION -- one that the incoming page's own render interrupts,
+     so the scroll lands wherever it happened to be when the content changed.
+     Measured in production before the fix: clicking a footer link from
+     scrollY 1729 left the new page at scrollY 1530 instead of 0, with its
+     heading 1355px above the viewport. Milder cases just left the title
+     tucked under the sticky nav, which is how it was reported.
+     
+     Smooth scrolling for a deliberate in-page move still works: pass
+     `behavior: "smooth"` to that specific `scrollTo`/`scrollIntoView` call,
+     where it applies to one interaction instead of to every navigation. */
+
+  /* Keeps any anchor jump or `scrollIntoView` clear of the sticky nav, which
+     is 67px tall. Without it the browser aligns the target's top with the
+     viewport top -- i.e. underneath the nav. */
+  scroll-padding-top: 80px;
 }
 
 body {

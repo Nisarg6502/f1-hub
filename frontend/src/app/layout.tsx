@@ -214,7 +214,7 @@ export default function RootLayout({
                   height. */}
               <Link href="/" className="relative flex items-center gap-[11px] before:absolute before:-inset-y-1 before:-inset-x-2 before:content-['']">
                 <span className="w-[9px] h-[9px] rounded-full bg-primary-container shadow-[0_0_14px_rgba(255,90,31,0.9)]" />
-                <span className="font-[family-name:var(--font-headline)] font-extrabold text-[21px] tracking-[-0.5px]">
+                <span className="font-[family-name:var(--font-headline)] font-extrabold text-[22px] tracking-[-0.5px]">
                   APEX
                 </span>
               </Link>

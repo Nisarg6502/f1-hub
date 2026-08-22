@@ -109,7 +109,7 @@ function Chip({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-lg px-2.5 py-1.5 bg-[rgba(245,235,222,0.045)] border border-white/[0.06]">
       <div className="font-extrabold text-[13px] tabular-nums leading-none">{value}</div>
-      <div className="font-semibold text-[8.5px] tracking-[0.1em] uppercase text-warm-500 mt-1">
+      <div className="font-semibold text-[9px] tracking-[0.1em] uppercase text-warm-500 mt-1">
         {label}
       </div>
     </div>
@@ -121,7 +121,7 @@ function LegendKey({ outcome, label, color }: { outcome: Outcome; label: string;
   return (
     <span className="flex items-center gap-1.5">
       <span
-        className="w-2.5 h-2.5 rounded-[3px] border"
+        className="w-2.5 h-2.5 rounded-hairline border"
         style={{ background: style.background, borderColor: style.borderColor }}
       />
       <span className="font-semibold text-[9px] tracking-[0.08em] uppercase text-warm-500">
@@ -178,7 +178,7 @@ export default function DriverSeasonLog({
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-3.5 mb-2">
-        <span className="font-bold text-[9.5px] tracking-[0.12em] uppercase text-flame">
+        <span className="font-bold text-[10px] tracking-[0.12em] uppercase text-flame">
           Round by round
         </span>
         <LegendKey outcome="win" label="Win" color={color} />
@@ -197,7 +197,7 @@ export default function DriverSeasonLog({
           return (
             <div
               key={entry.round}
-              className="rounded-[10px] border px-2 pt-1.5 pb-2 min-w-0"
+              className="rounded-control border px-2 pt-1.5 pb-2 min-w-0"
               style={style}
               title={[
                 `Round ${entry.round} — ${entry.raceName}`,
@@ -264,7 +264,7 @@ export default function DriverSeasonLog({
                 />
               </div>
               {entry.sprintPoints > 0 && (
-                <div className="font-semibold text-[8.5px] tracking-[0.06em] uppercase text-warm-500 mt-1">
+                <div className="font-semibold text-[9px] tracking-[0.06em] uppercase text-warm-500 mt-1">
                   {entry.sprintPosition !== null ? `SPR P${entry.sprintPosition}` : "SPR"} ·
                   +{entry.sprintPoints}
                 </div>
