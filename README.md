@@ -5,7 +5,13 @@ constructor, circuit history back to 1950, a lap-accurate race replay, a 3D
 track viewer, and a grounded chat assistant that answers questions about all of
 it and cites where each answer came from.
 
-**Live:** https://f1-frontend-1076575666662.asia-south1.run.app
+**Live:** https://f1-frontend-1076575666662.asia-south1.run.app/?utm_source=github&utm_medium=readme
+
+> The `utm_*` suffix is deliberate and should be kept. Without it every arrival
+> from every channel lands in Analytics as "Direct" and becomes
+> indistinguishable, which defeats the one question this project most wants
+> answered: which link actually sends people. Other channels carry their own
+> tags — see the Analytics section below.
 
 > The GitHub repository and the GCP project are both named `f1-hub`, which was
 > the project's original name. The product has been **APEX** since the July 2026
@@ -313,6 +319,26 @@ second-screen pairing is ever used, whether the mobile navigation's six-item cap
 is a real problem, and where the traffic comes from. **Nothing a user types is
 ever sent** — the chat event is a count, the search event carries the result
 kind rather than the query.
+
+### Campaign tags
+
+Analytics can see *that* someone arrived, but not *from where* unless the link
+says so — an untagged inbound link is reported as "Direct", the same bucket as
+someone typing the URL from memory. Every place APEX is linked from therefore
+carries its own suffix, and they are recorded here so they stay consistent:
+GA treats `utm_source=LinkedIn` and `utm_source=linkedin` as two campaigns.
+
+| Where the link is published | Suffix to append |
+| --- | --- |
+| This README, and the repo's About field | `?utm_source=github&utm_medium=readme` |
+| CV / résumé | `?utm_source=resume&utm_medium=cv` |
+| LinkedIn profile or post | `?utm_source=linkedin&utm_medium=profile` |
+| Anywhere else | `?utm_source=<place>&utm_medium=<surface>` — lowercase |
+
+Read them in GA under **Reports → Acquisition → Traffic acquisition**, then
+switch the dimension to *Session source / medium*. Tags are only read on the
+**landing** URL; internal navigation must not carry them, and nothing in the app
+adds them.
 
 `_NEXT_PUBLIC_GA_MEASUREMENT_ID` is a Cloud Build substitution and is inlined at
 build time, so **creating or changing the property requires a frontend rebuild**.
