@@ -487,8 +487,17 @@ export default function PitStopsChart({ drivers, stops }: PitStopsChartProps) {
                     <Flag className="w-3.5 h-3.5 text-[#FF7A3D] inline" />
                   ) : delta === 0 ? (
                     "—"
+                  ) : delta == null ? (
+                    /* An optional chain inside a template literal renders the
+                       literal string "+undefined" rather than falling back --
+                       `${undefined}` stringifies. Unreachable today, because
+                       `delta` is only null when `fastest` is falsy and no rows
+                       render in that case, but it is exactly the shape that
+                       ships "+undefined" to the UI the first time the data
+                       model shifts. */
+                    "—"
                   ) : (
-                    `+${delta?.toFixed(3)}`
+                    `+${delta.toFixed(3)}`
                   )}
                 </span>
               </div>

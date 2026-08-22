@@ -665,48 +665,91 @@ export async function getCircuitInfo(year: number, eventName: string) {
 }
 
 
-export function isLiveTimingConfigured(): boolean {
-  return Boolean(process.env.NEXT_PUBLIC_RAPIDAPI_KEY);
+/**
+ * Thrown by `getLiveTimingData`, carrying the one distinction the UI acts on.
+ *
+ * The telemetry page needs to tell "this deployment has no live-timing feed"
+ * (a permanent state, worth a settled explanation) from "the feed is having a
+ * moment" (worth a retry). It used to make that call by reading the API key
+ * in the browser, which is precisely what stopped being possible when the key
+ * moved server-side — so the answer now comes from the proxy's status code
+ * instead, which is a better source for it anyway: it reflects the server's
+ * actual configuration rather than a build-time copy of it.
+ */
+export class LiveTimingError extends Error {
+  readonly unconfigured: boolean;
+
+  constructor(message: string, unconfigured: boolean) {
+    super(message);
+    this.name = "LiveTimingError";
+    this.unconfigured = unconfigured;
+  }
 }
 
+/**
+ * Live timing, fetched through this app's own server rather than directly.
+ *
+ * The direct call this replaced sent `NEXT_PUBLIC_RAPIDAPI_KEY` from the
+ * BROWSER, and `/telemetry` is a client component — `NEXT_PUBLIC_*` values are
+ * inlined into the client bundle at build time, so the key would have been
+ * readable in View Source by anyone. See `app/api/live-timing/route.ts`, which
+ * now holds the key server-side under a name Next will not inline.
+ *
+ * A relative URL on purpose: it is same-origin, so it needs no CORS entry and
+ * satisfies the CSP's `connect-src 'self'` without widening it.
+ */
 export async function getLiveTimingData() {
-  const rapidApiKey = process.env.NEXT_PUBLIC_RAPIDAPI_KEY;
-  const rapidApiHost =
-    process.env.NEXT_PUBLIC_RAPIDAPI_HOST ?? "f1-live-pulse.p.rapidapi.com";
-
-  if (!rapidApiKey) {
-    throw new Error("NEXT_PUBLIC_RAPIDAPI_KEY is not configured");
-  }
-
-  const response = await fetch(`https://${rapidApiHost}/timingData`, {
-    method: "GET",
-    headers: {
-      "X-Rapidapi-Key": rapidApiKey,
-      "X-Rapidapi-Host": rapidApiHost,
-      "Content-Type": "application/json",
-    },
-    cache: "no-store",
-  });
+  const response = await fetch("/api/live-timing", { cache: "no-store" });
 
   if (!response.ok) {
-    throw new Error(`RapidAPI error ${response.status}`);
+    // 503 is the proxy's "no key configured here" answer; anything else is a
+    // transient upstream problem.
+    throw new LiveTimingError(
+      `Live timing unavailable (${response.status})`,
+      response.status === 503
+    );
   }
 
   return (await response.json()) as LiveTimingResponse;
 }
 
+/** One session's conditions, as OpenF1 reported them. */
+export interface SessionWeather {
+  air_temperature?: number;
+  track_temperature?: number;
+  wind_speed?: number;
+  wind_direction?: number;
+  /** 0/1 indicator: did it rain at ANY point in the session. */
+  rainfall?: number;
+  /**
+   * Fraction of the session's samples that were wet, 0-1.
+   *
+   * Absent on rounds cached before weather schema 2. It exists because a bare
+   * "Yes" cannot separate a 21%-wet sprint from one stray sample, and any
+   * cutoff between them would be a threshold the data does not carry.
+   */
+  rainfall_share?: number;
+  humidity?: number;
+  pressure?: number;
+}
+
 export async function getRaceWeather(year: number, round: number) {
   try {
     return await fetchJson<{
-      weather?: {
-        air_temperature?: number;
-        track_temperature?: number;
-        wind_speed?: number;
-        wind_direction?: number;
-        rainfall?: number;
-        humidity?: number;
-        pressure?: number;
-      } | null;
+      weather?: (SessionWeather & {
+        /**
+         * Per-session conditions, keyed by Ergast schedule field
+         * ("FirstPractice", "Qualifying", "Race", …) — the same keys
+         * `SessionTabs` uses, so no translation is needed at the call site.
+         *
+         * Optional because rounds cached before `weather_schema` 2 carry only
+         * the race's figures at the top level. The hourly sync upgrades them;
+         * until it does, the conditions tile shows nothing on non-race tabs
+         * rather than showing the race's weather under another session's name.
+         */
+        sessions?: Record<string, SessionWeather>;
+        weather_schema?: number;
+      }) | null;
     }>("/api/race_weather", {
       year,
       round,

@@ -83,6 +83,17 @@ type Message = {
   // a second data structure through. `null` on user messages (meaningless
   // there) and left unused for them.
   question: string | null;
+  // Set when the reader pressed Cancel — a THIRD way a turn can end, alongside
+  // `done` and `error`.
+  //
+  // Without it, aborting left a message with neither: `settled` stayed false,
+  // so the activity timeline pulsed "Thinking..." forever, and Copy,
+  // Regenerate, the feedback controls and Retry all render only on a settled
+  // message, so the reader was left with a permanently-working bubble they
+  // could not retry or dismiss. The abort itself was always correct — the
+  // backend frees its concurrency slot and the quota is genuinely saved — it
+  // was only the aftermath in the UI that was missing.
+  cancelled: boolean;
 };
 
 let nextId = 0;
@@ -254,6 +265,14 @@ export default function PitwallAssistantPanel({
   // indefinitely-growing one.
   const threadId = useRef(crypto.randomUUID());
   const abortRef = useRef<AbortController | null>(null);
+  /**
+   * The assistant message the in-flight turn is writing into.
+   *
+   * `cancel` needs it to settle the right bubble, and it is a ref rather than
+   * state for the same reason `abortRef` is: it is read inside a callback that
+   * must not re-create itself every turn.
+   */
+  const runningMessageId = useRef<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // Auto-scroll-while-streaming (CP70). A ref, not state — this is read on
   // every scroll tick and every token, and re-rendering the whole panel on
@@ -392,6 +411,7 @@ export default function PitwallAssistantPanel({
         timestampMs: Date.now(),
         feedback: null,
         question: null,
+        cancelled: false,
       };
       const assistantId = newId();
       const assistantMessage: Message = {
@@ -407,8 +427,10 @@ export default function PitwallAssistantPanel({
         timestampMs: Date.now(),
         feedback: null,
         question: trimmed,
+        cancelled: false,
       };
       setMessages((prev) => [...prev, userMessage, assistantMessage]);
+      runningMessageId.current = assistantId;
       setRunning(true);
 
       // Start the elapsed-time tick. `startedAt` is closed over rather than
@@ -458,6 +480,7 @@ export default function PitwallAssistantPanel({
         })
         .finally(() => {
           stopElapsedTimer();
+          runningMessageId.current = null;
           setRunning(false);
         });
     },
@@ -465,7 +488,19 @@ export default function PitwallAssistantPanel({
   );
 
   const send = useCallback(() => ask(input), [ask, input]);
-  const cancel = useCallback(() => abortRef.current?.abort(), []);
+  /**
+   * Stop the in-flight turn AND settle its bubble.
+   *
+   * The abort has to be paired with a state change, because aborting alone
+   * leaves the message with no `done` and no `error` — see `Message.cancelled`
+   * for what that produced. The id is captured from the ref rather than passed
+   * in so the button stays a bare `onClick={cancel}`.
+   */
+  const cancel = useCallback(() => {
+    abortRef.current?.abort();
+    const id = runningMessageId.current;
+    if (id) patchMessage(id, (m) => ({ ...m, cancelled: true }));
+  }, [patchMessage]);
 
   /**
    * New chat (CP71, 5c) — this reverses CP70's "thread-per-open, no reset
@@ -638,6 +673,20 @@ export default function PitwallAssistantPanel({
                   </button>
                 ))}
               </div>
+              {/* Say that the conversation is disposable, because nothing else
+                  does.
+                  `threadId` is a fresh UUID on every mount and the launcher
+                  only mounts this panel while it is open, so closing the panel
+                  — not just reloading — discards the conversation. The
+                  deliberate reset ("Start a new chat? This conversation will be
+                  discarded") warns before doing exactly the same thing, which
+                  makes the silent version more surprising, not less. One line
+                  here is cheaper than persistence and honest about what the
+                  product is. */}
+              <p className="pt-1 text-[11px] text-[var(--color-on-surface-variant)]">
+                Conversations aren&apos;t saved — closing this panel starts a
+                fresh one.
+              </p>
             </div>
           )}
           {messages.map((message, index) => (
@@ -771,7 +820,7 @@ const MessageBubble = memo(function MessageBubble({
           successful one. */}
       <ActivityAccordion
         activity={message.activity}
-        settled={Boolean(message.done || message.error)}
+        settled={Boolean(message.done || message.error || message.cancelled)}
         elapsedLabel={
           message.done ? `${Math.round(message.done.elapsed_ms / 1000)}s` : undefined
         }
@@ -780,13 +829,24 @@ const MessageBubble = memo(function MessageBubble({
       {message.error ? (
         <div className="flex max-w-[85%] flex-col items-start gap-2">
           <p className="rounded-2xl border border-[var(--color-error)]/40 bg-[var(--color-error-container)]/20 px-4 py-2 text-sm text-[var(--color-error)]">
-            {/* `refused` already carries a real, specific message from the
-                backend (CP67 guardrails) — only codes missing good copy of
-                their own fall back to `ERROR_COPY`. */}
-            {message.error.code === "refused"
-              ? message.error.message
-              : ERROR_COPY[message.error.code as keyof typeof ERROR_COPY] ??
-                message.error.message}
+            {/* The SENT message wins; `ERROR_COPY` is the fallback.
+                This used to be the other way round, and the inversion made the
+                backend's error copy unreachable in production. `refused` was
+                deliberately excluded so a guardrail's specific refusal could
+                show through — but every OTHER code has an entry in the map, so
+                the `??` fallback could never fire for anything except
+                `refused`, and the map's generic apology always won.
+                What it was hiding is worth reading: `main.py` distinguishes a
+                queue timeout ("yours waited 31s for a turn without getting
+                one"), a research-budget timeout ("a narrower question — one
+                driver, one season, one race — will usually get through") and
+                an exhausted daily allowance ("resets within a few hours, and
+                cached answers still work in the meantime"), and the rate
+                limiter adds two more. All five were being flattened into "The
+                assistant is busy right now". */}
+            {message.error.message ||
+              ERROR_COPY[message.error.code as keyof typeof ERROR_COPY] ||
+              "Something went wrong reaching the assistant."}
           </p>
           {message.question && (
             <button
@@ -823,6 +883,33 @@ const MessageBubble = memo(function MessageBubble({
         )
       )}
 
+      {/* A stopped turn says so, and offers the way back.
+          Rendered outside the error/text branch above because cancelling is
+          neither: the reader may have stopped it before any text arrived (the
+          common case, since the draft is replayed in one burst at the end) or
+          part-way through, and both need the same two things — an explanation
+          that the silence is deliberate, and a Retry. Without this the bubble
+          simply stopped, with every control that appears on a settled message
+          absent. */}
+      {message.cancelled && !message.error && (
+        <div className="flex max-w-[85%] flex-col items-start gap-2">
+          <p className="font-medium text-xs text-warm-500">
+            Stopped. {message.text ? "This answer is incomplete." : "No answer was written."}
+          </p>
+          {message.question && (
+            <button
+              type="button"
+              onClick={() => onAsk(message.question!)}
+              disabled={running}
+              className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-[rgba(16,14,11,0.5)] px-3 py-1.5 text-xs font-medium text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[rgba(16,14,11,0.7)] active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40"
+            >
+              <RetryIcon />
+              Ask again
+            </button>
+          )}
+        </div>
+      )}
+
       {!message.error && message.done && (
         <div className="flex items-center gap-1.5">
           <CopyButton text={message.text} />
@@ -833,7 +920,7 @@ const MessageBubble = memo(function MessageBubble({
               disabled={running}
               aria-label="Regenerate answer"
               title="Regenerate"
-              className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--color-on-surface-variant)] transition-[background-color,color,transform] duration-150 hover:bg-white/5 hover:text-[var(--color-on-surface)] active:scale-[0.94] disabled:pointer-events-none disabled:opacity-40"
+              className="relative before:absolute before:-inset-2 before:content-[''] flex h-6 w-6 items-center justify-center rounded-md text-[var(--color-on-surface-variant)] transition-[background-color,color,transform] duration-150 hover:bg-white/5 hover:text-[var(--color-on-surface)] active:scale-[0.94] disabled:pointer-events-none disabled:opacity-40"
             >
               <RetryIcon />
             </button>
@@ -852,6 +939,24 @@ const MessageBubble = memo(function MessageBubble({
           }}
         />
       )}
+
+      {/* An answer with NO evidence must say so.
+          `SourceStrip` renders nothing when `sources` is empty and
+          `StatusFooter` renders nothing when verification passed -- and an
+          "empty-ish" draft passes by design. So a confident, entirely
+          uncited paragraph arrived looking identical to a fully cited one,
+          minus two absences, and the absence of a strip is not something a
+          reader notices. Stating it turns a silent gap into a claim the
+          reader can weigh. */}
+      {message.done &&
+        !message.error &&
+        message.sources.length === 0 &&
+        message.text && (
+          <p className="pl-1 text-[11px] text-[var(--color-on-surface-variant)]">
+            No stored records backed this answer — it is the model&apos;s own
+            account.
+          </p>
+        )}
 
       <SourceStrip
         sources={message.sources}
@@ -1077,7 +1182,7 @@ function CopyButton({ text }: { text: string }) {
       onClick={handleCopy}
       aria-label={copied ? "Copied" : "Copy answer"}
       title={copied ? "Copied" : "Copy"}
-      className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--color-on-surface-variant)] transition-[background-color,color,transform] duration-150 hover:bg-white/5 hover:text-[var(--color-on-surface)] active:scale-[0.94]"
+      className="relative before:absolute before:-inset-2 before:content-[''] flex h-6 w-6 items-center justify-center rounded-md text-[var(--color-on-surface-variant)] transition-[background-color,color,transform] duration-150 hover:bg-white/5 hover:text-[var(--color-on-surface)] active:scale-[0.94]"
     >
       {copied ? <CheckIcon /> : <CopyIcon />}
     </button>
@@ -1121,10 +1226,24 @@ function StatusFooter({ done }: { done: AgentDone | null }) {
     );
   }
   if (done.verification !== "verification_failed") return null;
+  // Styled as a warning, not a footnote.
+  //
+  // This fires when the verifier found a specific problem -- a citation
+  // pointing at a record that was never retrieved, a number absent from the
+  // record cited for it, or a meaningful number with no citation at all -- AND
+  // the model's one repair attempt failed to fix it. The answer is still shown,
+  // which is the right call, but it was announced in the same muted grey as the
+  // elapsed-time readout beside it, quieter than the metadata. A reader
+  // scanning the answer had no reason to read it as anything but chrome.
   return (
-    <p className="mt-2 text-xs text-[var(--color-on-surface-variant)]">
-      Some details in this answer could not be fully verified against
-      retrieved data.
+    <p className="mt-2 flex items-start gap-1.5 text-xs text-[var(--color-error)]">
+      <span className="material-symbols-outlined text-[15px] leading-none" aria-hidden="true">
+        warning
+      </span>
+      <span>
+        Some figures here could not be matched to a stored record. Check them
+        before relying on them.
+      </span>
     </p>
   );
 }

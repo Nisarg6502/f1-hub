@@ -71,15 +71,34 @@ export default function FeedbackControls({
     setComment("");
   };
 
+  /* The four controls below carry `before:-inset-2` rather than real padding:
+     they are 24px as drawn and a finger needs 40, but padding them would push
+     the row apart and re-space a footer that is already tuned. The uniform
+     `-inset-2` form is used deliberately — this codebase has a measured case
+     (see the footer link in app/layout.tsx) of a COMPOUND negative inset
+     (`-inset-y-3`) silently generating no CSS at all, so the working uniform
+     pattern from `pitwall-assistant-launcher.tsx` is the one copied here. */
   return (
     <div className="mt-2 flex items-center gap-1">
+      {/* A visible label, because four unlabelled grey squares are not an
+          invitation.
+          Thumbs-up, thumbs-down, Copy and Regenerate render as near-identical
+          24px icons in the same muted grey, one after another. Nothing among
+          them says which pair is "tell us this was wrong" — and a feedback
+          control nobody recognises collects nothing, which is the same as not
+          having one. Three words in front of the thumbs is the cheapest way to
+          make the affordance legible; the icons keep their `aria-label`s for
+          anyone not reading it visually. */}
+      <span className="mr-1 font-medium text-[11px] text-[var(--color-on-surface-variant)]">
+        Was this right?
+      </span>
       <button
         type="button"
         onClick={() => onVote(1)}
         disabled={voted}
         aria-label="Good answer"
         aria-pressed={feedback === 1}
-        className={`flex h-6 w-6 items-center justify-center rounded-md transition-[color,transform,background-color] duration-150 active:scale-90 disabled:active:scale-100 ${
+        className={`relative before:absolute before:-inset-2 before:content-[''] flex h-6 w-6 items-center justify-center rounded-md transition-[color,transform,background-color] duration-150 active:scale-90 disabled:active:scale-100 ${
           feedback === 1
             ? "text-[var(--color-primary)]"
             : voted
@@ -101,7 +120,7 @@ export default function FeedbackControls({
           aria-label="Bad answer"
           aria-pressed={feedback === -1}
           aria-expanded={open}
-          className={`flex h-6 w-6 items-center justify-center rounded-md transition-[color,transform,background-color] duration-150 active:scale-90 disabled:active:scale-100 ${
+          className={`relative before:absolute before:-inset-2 before:content-[''] flex h-6 w-6 items-center justify-center rounded-md transition-[color,transform,background-color] duration-150 active:scale-90 disabled:active:scale-100 ${
             feedback === -1
               ? "text-[var(--color-error)]"
               : voted

@@ -623,7 +623,7 @@ def sync_pit_stops(db, year: int, races: list[dict]) -> None:
 
 
 def sync_weather(db, year: int, races: list[dict]) -> None:
-    from .session_results import fetch_openf1_weather
+    from .session_results import WEATHER_SCHEMA_VERSION, fetch_openf1_weather
 
     synced = 0
     for race in races:
@@ -631,10 +631,21 @@ def sync_weather(db, year: int, races: list[dict]) -> None:
         race_date = race.get("date")
         if not race_date:
             continue
-        if not FORCE_RESYNC and db.weather_cache.find_one(
-            {"season": year, "round": str(round_number)}
-        ):
-            continue
+        # Write-once, but per SCHEMA VERSION rather than per existence.
+        #
+        # The plain existence check meant any improvement to how weather is
+        # read only ever reached rounds synced after the deploy — every round
+        # already in the collection kept the old shape forever, and the only
+        # escape was `FORCE_RESYNC=1`, which re-fetches every collection in the
+        # database to fix one of them. Comparing the stored version lets a
+        # weather-shape change back-fill itself on the next hourly run and
+        # nothing else re-sync at all.
+        if not FORCE_RESYNC:
+            cached = db.weather_cache.find_one(
+                {"season": year, "round": str(round_number)}, {"weather_schema": 1}
+            )
+            if cached and cached.get("weather_schema", 1) >= WEATHER_SCHEMA_VERSION:
+                continue
 
         weather = fetch_openf1_weather(year, race_date)
         if not weather:

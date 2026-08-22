@@ -377,3 +377,131 @@ input::placeholder {
 .material-symbols-outlined {
   font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
 }
+
+/* --- Information pages (/about, /privacy, /data-sources, …) -----------------
+
+   One type scale for the six standing information pages, applied by their
+   shared route-group layout rather than by each page.
+
+   These are the only long-form reading surfaces in the app; every other page
+   is a dashboard of tiles where type is set per component. Giving them a
+   single owned scale is what stops six independently-styled documents drifting
+   apart, and it keeps the pages themselves as almost-pure content.
+
+   Sizes come from the tokens already in use elsewhere so these pages read as
+   part of APEX rather than as a bolted-on legal annexe. */
+.info-prose h1 {
+  font-family: var(--font-headline);
+  font-weight: 800;
+  font-size: 32px;
+  letter-spacing: -0.7px;
+  line-height: 1.15;
+  margin-bottom: 10px;
+}
+
+.info-prose .lede {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--color-warm-200);
+  margin-bottom: 34px;
+}
+
+.info-prose h2 {
+  font-family: var(--font-headline);
+  font-weight: 700;
+  font-size: 19px;
+  letter-spacing: -0.3px;
+  margin-top: 38px;
+  margin-bottom: 12px;
+}
+
+.info-prose h3 {
+  font-weight: 700;
+  font-size: 14px;
+  margin-top: 24px;
+  margin-bottom: 8px;
+}
+
+.info-prose p {
+  font-size: 14px;
+  line-height: 1.72;
+  color: var(--color-warm-200);
+  margin-bottom: 14px;
+}
+
+.info-prose ul {
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.info-prose li {
+  position: relative;
+  padding-left: 18px;
+  font-size: 14px;
+  line-height: 1.72;
+  color: var(--color-warm-200);
+  margin-bottom: 9px;
+}
+
+.info-prose li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 10px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--color-primary-container);
+}
+
+.info-prose strong {
+  color: var(--color-warm-100);
+  font-weight: 700;
+}
+
+.info-prose a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.info-prose a:hover {
+  color: var(--color-warm-100);
+}
+
+/* Tables here carry provenance, which is wide by nature. The wrapper scrolls
+   rather than the page: a document that scrolls sideways on a phone is the
+   exact failure these pages are meant not to have. */
+.info-prose .info-table-wrap {
+  overflow-x: auto;
+  margin-bottom: 18px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.info-prose table {
+  width: 100%;
+  min-width: 460px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.info-prose th {
+  text-align: left;
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-warm-500);
+  padding: 0 14px 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  white-space: nowrap;
+}
+
+.info-prose td {
+  padding: 11px 14px 11px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--color-warm-200);
+  vertical-align: top;
+  line-height: 1.55;
+}

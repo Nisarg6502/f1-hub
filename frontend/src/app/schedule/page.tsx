@@ -59,11 +59,21 @@ export default async function SchedulePage({ searchParams }: PageProps) {
     return {
       round: r.race.round,
       season: r.race.season ?? String(year),
+      // Formatted here only as the pre-hydration fallback, and pinned to UTC
+      // so the server and the client's first pass agree. The real, reader-local
+      // date is rendered from `dateMs` by `LocalDateTime` in the board itself;
+      // formatting it here with `undefined` gave every reader the CONTAINER's
+      // timezone, which on Cloud Run is UTC.
       dateLabel: r.ms
         ? new Date(r.ms)
-            .toLocaleDateString(undefined, { day: "2-digit", month: "short" })
+            .toLocaleDateString("en-GB", {
+              day: "2-digit",
+              month: "short",
+              timeZone: "UTC",
+            })
             .toUpperCase()
         : "TBC",
+      dateMs: r.ms ?? null,
       name: r.race.raceName,
       circuit: r.race.Circuit?.circuitName ?? "",
       locality: r.race.Circuit?.Location?.locality ?? "",

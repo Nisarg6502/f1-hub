@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import LocalDateTime from "./local-datetime";
 import Image from "next/image";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ChevronRight } from "lucide-react";
@@ -28,6 +29,23 @@ interface StandingsViewProps {
   seasonLogs: Record<string, DriverSeasonLog>;
   year: number;
   maxYear: number;
+  /**
+   * When the server rendered this table, as a timestamp.
+   *
+   * Standings had no freshness signal at all, and `fetchJson` revalidates on a
+   * five-minute window — so a reader could be looking at points that changed
+   * before they loaded the page with no way to tell. That matters most on a
+   * race weekend, which is exactly when people check standings and exactly
+   * when this project's sync lag is largest (see /data-sources: the job runs
+   * hourly and waits for a session to settle).
+   *
+   * Passed from the server rather than read here, because a client-side
+   * `Date.now()` would report when the BROWSER rendered, which after a
+   * bfcache restore or a background tab can be hours off from when the data
+   * was actually fetched — a confidently wrong freshness claim is worse than
+   * none.
+   */
+  renderedAtMs: number;
 }
 
 /** Shared by the row's expand animation and its chevron so the disclosure and
@@ -41,6 +59,7 @@ export default function StandingsView({
   seasonLogs,
   year,
   maxYear,
+  renderedAtMs,
 }: StandingsViewProps) {
   const [tab, setTab] = useState<"drivers" | "cons">("drivers");
   // The same card-opens-a-profile behaviour `/drivers` has had all along. A
@@ -86,6 +105,14 @@ export default function StandingsView({
           <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[52px] tracking-[-1.5px] mt-2">
             Championship
           </h1>
+          <p className="font-medium text-xs text-warm-500 mt-2">
+            Updated{" "}
+            <LocalDateTime
+              timestampMs={renderedAtMs}
+              options={{ hour: "2-digit", minute: "2-digit", hour12: false }}
+            />{" "}
+            · results can lag the official timing screen by up to an hour
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex gap-1.5 apex-glass-soft rounded-xl p-[5px] w-fit">

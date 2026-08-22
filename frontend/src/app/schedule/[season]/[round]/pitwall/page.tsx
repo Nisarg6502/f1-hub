@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import {
@@ -17,6 +18,12 @@ import RaceControlPanel from "@/components/race-control-panel";
 import RaceReplayView from "@/components/race-replay";
 import PitwallModules from "@/components/pitwall-modules";
 import StrategyCommentaryCard from "@/components/strategy-commentary-card";
+
+export const metadata: Metadata = {
+  title: "Pitwall | APEX",
+  description:
+    "Strategy view for a single Grand Prix: tyre stints, pit stops, lap positions and pace, session by session.",
+};
 
 interface PageProps {
   params: Promise<{

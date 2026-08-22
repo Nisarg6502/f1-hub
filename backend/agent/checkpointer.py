@@ -45,6 +45,16 @@ _STATE: dict[str, Any] = {"cm": None, "saver": None}
 def open_saver() -> Any | None:
     """Open the Mongo checkpointer for the process lifetime, or return None.
 
+    Opened with a TTL, which is the difference between thread memory and an
+    unbounded write log. Every conversation writes checkpoints, the frontend
+    mints a fresh thread id on each panel open, and repairs spawn a second
+    `<thread>--repair` thread of their own -- so abandoned threads accumulate
+    permanently, in a 512MB free-tier cluster, for memory nothing will ever
+    read again. `MongoDBSaver` supports this natively (it already stamps each
+    document with a real `created_at` and creates the expiring index itself),
+    so this is a supported parameter rather than an index hand-rolled against
+    a schema this module does not own.
+
     Call once, at startup. Safe to call again after `close_saver()` — mainly
     for tests, which need a clean slate between cases that patch
     `config.mongodb_uri`.
@@ -62,7 +72,11 @@ def open_saver() -> Any | None:
     try:
         # Sync context manager; only `__enter__`/`__exit__` are used, never
         # `async with` — see module docstring.
-        context_manager = MongoDBSaver.from_conn_string(uri, db_name=config.MONGODB_DB_NAME)
+        context_manager = MongoDBSaver.from_conn_string(
+            uri,
+            db_name=config.MONGODB_DB_NAME,
+            ttl=config.CHECKPOINT_TTL_SECONDS,
+        )
         saver = context_manager.__enter__()
     except Exception as error:  # noqa: BLE001 - a bad URI must not crash the service
         print(f"agent checkpointer failed to open, continuing without thread memory: {error}")

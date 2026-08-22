@@ -1,20 +1,28 @@
-interface Weather {
-  air_temperature?: number | null;
-  track_temperature?: number | null;
-  wind_speed?: number | null;
-  wind_direction?: number | null;
-  rainfall?: number | null;
-  humidity?: number | null;
-  pressure?: number | null;
-}
+import type { SessionWeather } from "@/lib/api";
 
 interface ConditionsTileProps {
-  weather: Weather | null | undefined;
+  weather: SessionWeather | null | undefined;
+  /**
+   * The session these figures belong to, e.g. "Race", "FP2", "Sprint Race".
+   *
+   * Required rather than optional, and that is the point of this component's
+   * current shape. `/race_weather` is race-only by construction, while this
+   * tile is rendered inside `SessionTabs` alongside practice, qualifying and
+   * the sprint. Under the old bare "Conditions" heading the race's numbers
+   * read as belonging to whichever tab was open, and they never did.
+   *
+   * Measured against OpenF1 for Interlagos 2024: the sprint ran at 28.0°C air
+   * / 48.0°C track and completely dry, while this tile showed 22.0 / 24.9 and
+   * rain — a 23°C track error and a dry session presented as a wet one. Making
+   * the caller name the session is what stops the tile from silently
+   * mislabelling data again.
+   */
+  sessionLabel: string;
 }
 
-// Only the fields FastF1/OpenF1 actually reported for this event are shown —
-// same "render what we have" convention as the circuit info bar above it.
-export default function ConditionsTile({ weather }: ConditionsTileProps) {
+// Only the fields OpenF1 actually reported for this session are shown — same
+// "render what we have" convention as the circuit info bar above it.
+export default function ConditionsTile({ weather, sessionLabel }: ConditionsTileProps) {
   if (!weather) return null;
 
   const stats: Array<{ label: string; value: string | number }> = (
@@ -41,8 +49,21 @@ export default function ConditionsTile({ weather }: ConditionsTileProps) {
             : null,
       },
       {
+        // Derived from every sample in the session, not the one instant the
+        // temperatures come from — a midpoint read reports any session whose
+        // rain fell outside that minute as bone dry. The share is shown
+        // alongside "Yes" because "Yes" alone cannot separate a 21%-wet sprint
+        // from a single stray sample. Rounds cached before schema 2 have no
+        // share and fall back to a bare "Yes".
         label: "Rain",
-        value: weather.rainfall != null ? (weather.rainfall > 0 ? "Yes" : "No") : null,
+        value:
+          weather.rainfall == null
+            ? null
+            : weather.rainfall === 0
+              ? "No"
+              : weather.rainfall_share != null
+                ? `Yes · ${Math.round(weather.rainfall_share * 100)}% of session`
+                : "Yes",
       },
       {
         label: "Humidity",
@@ -60,7 +81,7 @@ export default function ConditionsTile({ weather }: ConditionsTileProps) {
   return (
     <div className="mb-6">
       <p className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-500 mb-2.5">
-        Conditions
+        {sessionLabel} conditions
       </p>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3.5">
         {stats.map((stat) => (
@@ -74,6 +95,10 @@ export default function ConditionsTile({ weather }: ConditionsTileProps) {
           </div>
         ))}
       </div>
+      <p className="font-medium text-[11px] text-warm-500 mt-2.5">
+        Temperatures, wind, humidity and pressure are a single mid-session sample from OpenF1,
+        not an average.
+      </p>
     </div>
   );
 }

@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -23,13 +25,43 @@ from . import watch_session
 
 app = FastAPI(title="F1 API")
 
-# CORS — allow the frontend (on a different Cloud Run URL) to call the backend
+# Mirrors `agent/config.py`'s `ALLOWED_ORIGINS`, deliberately including the
+# default: the localhost port the Next dev server runs on, so local development
+# works with no environment set, and nothing wider unless a deploy says so.
+_DEFAULT_ORIGINS = "http://localhost:3113,http://127.0.0.1:3113"
+
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in (os.getenv("API_ALLOWED_ORIGINS") or _DEFAULT_ORIGINS).split(",")
+    if origin.strip()
+]
+
+# CORS — allow the frontend (on a different Cloud Run URL) to call the backend.
+#
+# The default is localhost, NOT "*", and the difference is not cosmetic.
+# Starlette does not emit a literal `*` when credentials are allowed: it echoes
+# the caller's Origin back and sets `Access-Control-Allow-Credentials: true`.
+# Pairing `allow_origins=["*"]` with `allow_credentials=True` therefore made
+# every route on this service readable cross-origin, with cookies, by any site
+# that wanted it — including the six POST endpoints, which are unauthenticated
+# and mutate state.
+#
+# `allow_credentials` is now off because nothing here needs it. The data API
+# sets no cookie and reads no `Authorization` header; only the agent service
+# does, which is why the agent keeps credentials on and this does not. Methods
+# and headers are narrowed to what the routers actually declare (27 GET, 6
+# POST, JSON bodies) rather than `*`.
+#
+# `backend/agent/config.py` reaches the same conclusion for the same reason and
+# is worth reading alongside this: a safe default must not depend on a deploy
+# substitution being present, because the one time it is missing is the one
+# time it matters.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Tighten to your frontend URL in production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type"],
 )
 
 # include routers defined in each module

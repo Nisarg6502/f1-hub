@@ -15,7 +15,6 @@ import {
 import SessionTabs from "@/components/session-tabs";
 import RaceSelector from "@/components/race-selector";
 import SeasonSelector from "@/components/season-selector";
-import ConditionsTile from "@/components/conditions-tile";
 
 interface PageProps {
   params: Promise<{
@@ -249,8 +248,6 @@ export default async function RaceDetailPage({ params }: PageProps) {
         </div>
       )}
 
-      <ConditionsTile weather={weather} />
-
       {/* Session Tabs + Content */}
       <SessionTabs
         race={race}
@@ -262,6 +259,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
         fp2Results={fp2Results}
         fp3Results={fp3Results}
         isPast={isPast}
+        weather={weather}
       />
     </div>
   );
