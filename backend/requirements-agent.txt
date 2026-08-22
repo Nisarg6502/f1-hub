@@ -35,7 +35,7 @@ pymongo[srv]~=4.16.0
 # change cannot move them underneath us.
 deepagents~=0.7.4
 langchain~=1.3.0
-langgraph~=1.2.0
+langgraph~=1.2.11
 langchain-ollama~=1.1.0
 
 # CP62. Installed now so the image is built and deployed once, not rebuilt with
