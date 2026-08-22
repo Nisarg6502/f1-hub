@@ -12,7 +12,6 @@ steps:
       - '--build-arg'
       - 'NEXT_PUBLIC_ASSET_BASE_URL=${_NEXT_PUBLIC_ASSET_BASE_URL}'
       - '--build-arg'
-      - '--build-arg'
       - 'NEXT_PUBLIC_RAPIDAPI_HOST=${_NEXT_PUBLIC_RAPIDAPI_HOST}'
       - '--build-arg'
       - 'NEXT_PUBLIC_AGENT_BASE_URL=${_NEXT_PUBLIC_AGENT_BASE_URL}'
