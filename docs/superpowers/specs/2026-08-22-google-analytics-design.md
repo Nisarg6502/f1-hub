@@ -244,3 +244,108 @@ analytics tool, and acting on the findings. This design ships the instrument.
 What the numbers turn out to say — including, plausibly, that `/telemetry`
 should be unlinked — is a later decision, made with data that does not exist
 yet.
+
+---
+
+## Implementation notes (added after the work landed)
+
+Implemented on `feat/google-analytics`. Seven commits, following
+`docs/superpowers/plans/2026-08-22-google-analytics.md`.
+
+### What was verified, and how
+
+Chrome ignores the `TZ` environment variable on Windows -- it reads the OS
+timezone, which made the first region test silently meaningless (a
+`TZ=Europe/Berlin` browser reported `Asia/Calcutta` and showed no banner, which
+looked exactly like a bug in the region gate). Verification was redone over the
+DevTools Protocol using `Emulation.setTimezoneOverride`, driven from Node 22's
+global `WebSocket` so it needed no new dependency.
+
+Everything below was measured against a **production build** (`next build` +
+`next start`), not the dev server. That distinction turned out to matter -- see
+the next section.
+
+| Check | Result |
+| --- | --- |
+| Consent defaults present in served HTML, ahead of gtag.js | Yes -- inline block at offset ~5217; **zero** executing `gtag/js` tags in the initial HTML |
+| EU (`Europe/Berlin`): banner shown | Yes |
+| EU: any consent grant before the click | **None** -- `consent update` list was empty |
+| EU + Allow | `analytics_storage: granted`, banner gone, `apex.consent.analytics = "granted"` |
+| EU + Decline | No grant, banner gone, stored as `"denied"` |
+| Non-EU (`Asia/Kolkata`): banner | Never rendered |
+| Non-EU: grant on mount | Exactly one |
+| `page_view` per navigation | Exactly one each: `/`, `/standings`, `/drivers` |
+| `backend_unavailable` | Once per route view, correct route parameter |
+| `pitwall_panel_open` | Fires with `{ via: "button" }` and nothing else |
+| No measurement ID | Zero `googletagmanager` references, no consent script, no banner |
+
+One correction to a first reading: an early check reported gtag.js appearing
+*before* the consent defaults. That was a `<link rel="preload" as="script">`,
+which fetches but never executes. The ordering was correct.
+
+### The dev server double-counts everything, and it is not a bug
+
+Against `next dev`, `page_view`, the consent grant and `backend_unavailable` each
+fired **twice**. That is React Strict Mode double-invoking effects in
+development, which Next enables by default. The same run against a production
+build produced exactly one of each.
+
+Worth writing down because the doubling looks precisely like the
+double-counting this design set out to avoid by sending `page_view` by hand.
+**Any future check of event counts must run against a production build**, or it
+will report a bug that does not exist.
+
+### What could NOT be verified here
+
+`googletagmanager.com` is blocked at the network level in this environment --
+requests reach `Network.loadingFailed` while `fonts.googleapis.com` returns 200,
+so it is tracker-specific filtering rather than a lack of connectivity. gtag.js
+therefore never executed locally.
+
+The consequence: **the real `_ga` cookie was never observed being written**, so
+"cookie appears after consent" is confirmed only as far as "APEX asks for the
+grant correctly and withholds it until consent". Everything upstream of Google's
+own script is verified; Google's script itself has not run.
+
+It also means no `/g/collect` request was ever sent, so the claim in this
+document that a denied visitor still produces cookieless modelled pings is
+Google's documented behaviour, taken on trust, not something measured here.
+
+**Confirm both against the live deployment once a real measurement ID exists**:
+`_ga` present after consent and absent before it, and traffic arriving in
+DebugView.
+
+### Two departures from the spec, both forced by the code
+
+1. **`backend_unavailable` needed a component.** The spec put it in "the
+   existing empty-state catch", but those catches are in `async` server
+   components, which have no `gtag`. `components/degraded-beacon.tsx` renders on
+   the empty branch of `/standings`, `/schedule`, `/drivers`, `/teams` and
+   `/circuits` instead.
+2. **`circuit_3d_view` moved** from `track-viewer-mount.tsx` -- a bare
+   `dynamic()` re-export with no hooks -- to `track-viewer.tsx`, which already
+   calls `useWebglSupported()`. The event now carries `webgl_supported`. This
+   document listed "whether the WebGL viewer rendered successfully" as a gap
+   needing its own event; it cost a parameter instead.
+
+Also: `RaceReplay` has no `race_id`, so `watch_replay_start` carries `season`
+and `round`.
+
+### One lint rule suppressed, deliberately
+
+`@next/next/no-before-interactive-script-outside-document` fires on
+`analytics.tsx`. It is a Pages Router rule that wants `pages/_document.js`, which
+does not exist in an App Router app; the root layout is the documented location.
+Suppressed inline with the reasoning, and the emitted HTML was checked rather
+than trusted.
+
+### Still outstanding
+
+Neither can be done from the codebase:
+
+1. Create the GA4 property, take its `G-XXXXXXXXXX` ID, and set
+   `_NEXT_PUBLIC_GA_MEASUREMENT_ID` in `cloudbuild-frontend.yaml`. **The frontend
+   must be rebuilt afterwards** -- the ID is baked in at build time.
+2. **Set data retention to 14 months.** The default is 2, and the privacy page
+   now states 14 in writing. Enable the free BigQuery export at the same time;
+   it only captures events from the day it is switched on.
