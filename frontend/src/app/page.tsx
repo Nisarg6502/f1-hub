@@ -196,8 +196,17 @@ export default async function Home() {
                 className="flex flex-wrap items-center gap-4 anim-rise"
                 style={{ animationDelay: "0.5s" }}
               >
+                {/* The chips read "FP1 · Fri 15:00" and are the first times a
+                    visitor sees, so the qualifier belongs beside them and not
+                    somewhere further down the page. It sits on the label rather
+                    than inside each chip because repeating it four times would
+                    be four times the noise for one fact that applies to all of
+                    them — the same reason the countdown states it once. */}
                 <span className="font-semibold text-[13px] text-warm-300">
                   Next session
+                  <span className="block font-medium text-[11px] text-warm-500">
+                    your local time
+                  </span>
                 </span>
                 <div className="flex flex-wrap gap-2">
                   {upcomingSessions.map((s, i) => (

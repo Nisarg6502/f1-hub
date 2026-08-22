@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { getActiveSeasonYear } from "@/lib/api";
 import { Bricolage_Grotesque, Hanken_Grotesk } from "next/font/google";
 import Link from "next/link";
 import NavLinks, { MobileNav } from "@/components/nav-links";
@@ -8,6 +9,23 @@ import GlobalSearch from "@/components/global-search";
 import PitwallAssistantLauncher from "@/components/pitwall-assistant-launcher";
 import AppShell from "@/components/app-shell";
 import "./globals.css";
+
+/**
+ * Public origin, used for `metadataBase` and therefore for every absolute URL
+ * in a link preview.
+ *
+ * The fallback is the Cloud Run host the frontend is actually deployed to
+ * (the same origin `cloudbuild-agent.yaml` allowlists in
+ * `_AGENT_ALLOWED_ORIGINS`), so a build without the variable still produces
+ * preview cards that resolve. Without a `metadataBase` at all Next warns and
+ * falls back to localhost, which yields cards pointing at nothing.
+ *
+ * Set `NEXT_PUBLIC_SITE_URL` when a custom domain exists; this constant should
+ * not have to be edited for that.
+ */
+const SITE_URL =
+  process.env.NEXT_PUBLIC_SITE_URL ??
+  "https://f1-frontend-1076575666662.asia-south1.run.app";
 
 const bricolage = Bricolage_Grotesque({
   subsets: ["latin"],
@@ -23,11 +41,90 @@ const hanken = Hanken_Grotesk({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  title: "APEX | 2026 F1 Season Hub",
-  description:
-    "APEX — a warm, high-clarity home for the 2026 Formula 1 season: schedule, standings, drivers, teams and circuits.",
-};
+/**
+ * `generateMetadata`, not a static `metadata` object, so the season in the
+ * title is the season the app is actually serving.
+ *
+ * It was hardcoded to 2026 in three places here. Every other surface resolves
+ * the year through `getActiveSeasonYear`, so on 1 January the whole site would
+ * have rolled over while the browser tab, the meta description and the footer
+ * went on advertising the previous season — the most visible possible place
+ * for a stale constant.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const season = getActiveSeasonYear();
+  const title = `APEX | ${season} F1 Season Hub`;
+  const description = `APEX — a warm, high-clarity home for the ${season} Formula 1 season: schedule, standings, drivers, teams, circuits and telemetry.`;
+
+  return {
+    // Required for the relative OG image path below to resolve, and for any
+    // other absolute URL Next needs to build. Without it Next warns and falls
+    // back to localhost, which produces preview cards that resolve to nothing.
+    metadataBase: new URL(SITE_URL),
+    title,
+    description,
+    applicationName: "APEX",
+    openGraph: {
+      type: "website",
+      siteName: "APEX",
+      title,
+      description,
+      url: "/",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+    },
+  };
+}
+
+/**
+ * One labelled column of footer links.
+ *
+ * Every link carries a 40px hit area written as FOUR separate negative
+ * offsets rather than a compound `-inset-y-3`. That is not a style preference:
+ * the compound form SILENTLY GENERATED NOTHING here -- checked in the browser,
+ * no rule matching `inset-y-3` existed in any stylesheet, while `inset-y-1`
+ * was present. The classes look right, the element keeps its 16px hit box, and
+ * nothing warns. If you reach for a negative compound inset, measure it before
+ * believing it.
+ */
+function FooterGroup({
+  heading,
+  links,
+}: {
+  heading: string;
+  links: { href: string; label: string; external?: boolean }[];
+}) {
+  const linkClass =
+    "relative font-medium text-xs text-warm-400 hover:text-on-background transition-colors before:absolute before:-top-2.5 before:-bottom-2.5 before:-left-1 before:-right-1 before:content-['']";
+
+  return (
+    <div className="flex flex-col gap-3">
+      <span className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-600">
+        {heading}
+      </span>
+      {links.map((link) =>
+        link.external ? (
+          <a
+            key={link.href}
+            href={link.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={linkClass}
+          >
+            {link.label}
+          </a>
+        ) : (
+          <Link key={link.href} href={link.href} className={linkClass}>
+            {link.label}
+          </Link>
+        )
+      )}
+    </div>
+  );
+}
 
 export default function RootLayout({
   children,
@@ -145,41 +242,68 @@ export default function RootLayout({
           }
           footer={
         <footer className="relative z-10 border-t border-white/[0.07]">
-          <div className="max-w-[1440px] mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 px-6 md:px-10 py-7">
-            <div className="flex items-center gap-[10px]">
-              <span className="w-2 h-2 rounded-full bg-[#FF5A1F]" />
-              <span className="font-[family-name:var(--font-headline)] font-extrabold text-[15px]">
-                APEX
-              </span>
-              <span className="font-medium text-xs text-warm-500">
-                · 2026 F1 season hub
-              </span>
+          <div className="max-w-[1440px] mx-auto px-6 md:px-10 py-9">
+            {/* Three groups, and NOT in the main nav.
+                The nav bar already carries nine links and overflowed its own
+                container between 768 and 900px until the breakpoint was moved
+                to `lg` -- measured at 768x1024 the page scrollWidth was 880
+                against a clientWidth of 768, "History" rendered as "Histor"
+                and the season badge was off-screen. Six more destinations
+                would re-break exactly that. These pages are also the kind
+                people look for at the bottom rather than the top. */}
+            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-8 sm:gap-14 mb-8">
+              <FooterGroup
+                heading="Project"
+                links={[
+                  { href: "/about", label: "About" },
+                  { href: "/faq", label: "FAQ" },
+                  {
+                    href: "https://github.com/Nisarg6502/f1-hub",
+                    label: "GitHub",
+                    external: true,
+                  },
+                  {
+                    href: "https://github.com/Nisarg6502/f1-hub/issues",
+                    label: "Report a bug",
+                    external: true,
+                  },
+                ]}
+              />
+              <FooterGroup
+                heading="Data"
+                links={[
+                  { href: "/data-sources", label: "Data sources" },
+                  { href: "/ai-disclosure", label: "AI disclosure" },
+                ]}
+              />
+              <FooterGroup
+                heading="Legal"
+                links={[
+                  { href: "/privacy", label: "Privacy" },
+                  { href: "/disclaimer", label: "Disclaimer" },
+                ]}
+              />
             </div>
-            <div className="flex items-center gap-4">
-              <a
-                href="https://github.com/Nisarg6502/f1-hub"
-                target="_blank"
-                rel="noopener noreferrer"
-                /* 16px of text is far under a usable target. Padding it would
-                   push the footer row apart, so the hit area grows instead:
-                   12px above and below takes it to 40.
 
-                   Written as four separate offsets rather than
-                   `before:-inset-y-3 before:-inset-x-1`, and that is not a
-                   style preference. The compound form SILENTLY GENERATED
-                   NOTHING here — checked in the browser, no rule matching
-                   `inset-y-3` existed in any stylesheet, while `inset-y-1`
-                   (used by the wordmark above) was present. The classes look
-                   right, the element keeps its 16px hit box, and nothing
-                   warns. If you reach for a negative compound inset, measure
-                   it before believing it. */
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-6 border-t border-white/[0.05]">
+              <div className="flex items-center gap-[10px]">
+                <span className="w-2 h-2 rounded-full bg-[#FF5A1F]" />
+                <span className="font-[family-name:var(--font-headline)] font-extrabold text-[15px]">
+                  APEX
+                </span>
+                <span className="font-medium text-xs text-warm-500">
+                  · F1 season hub
+                </span>
+              </div>
+              {/* This line already existed and already made the right claim;
+                  it just had nowhere to go. It is now the entry point to the
+                  page that states it properly. */}
+              <Link
+                href="/disclaimer"
                 className="relative font-medium text-xs text-warm-500 underline hover:text-warm-300 transition-colors before:absolute before:-top-3 before:-bottom-3 before:-left-1 before:-right-1 before:content-['']"
               >
-                GitHub
-              </a>
-              <span className="font-medium text-xs text-warm-500">
-                Concept prototype · not affiliated with Formula 1
-              </span>
+                Unofficial · not affiliated with Formula 1
+              </Link>
             </div>
           </div>
         </footer>

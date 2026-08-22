@@ -1,7 +1,106 @@
 import type { NextConfig } from "next";
 
+/**
+ * Origins the browser is allowed to talk to, assembled from the same
+ * environment variables the client code reads.
+ *
+ * Derived rather than hardcoded so a CSP can never drift out of step with the
+ * hosts the app actually calls — a stale `connect-src` does not warn, it just
+ * breaks every request at runtime, in production, after the deploy that
+ * changed a service URL.
+ *
+ * Read at BUILD time, which is correct here: these are `NEXT_PUBLIC_*` values
+ * that are already inlined into the client bundle at build time, so the
+ * headers and the bundle are generated from one set of values.
+ */
+const CONNECT_ORIGINS = [
+  process.env.NEXT_PUBLIC_API_BASE_URL,
+  process.env.NEXT_PUBLIC_AGENT_BASE_URL,
+  process.env.NEXT_PUBLIC_ASSET_BASE_URL,
+]
+  .filter((value): value is string => Boolean(value))
+  .map((value) => {
+    try {
+      return new URL(value).origin;
+    } catch {
+      return null;
+    }
+  })
+  .filter((value): value is string => Boolean(value));
+
+/**
+ * Content-Security-Policy.
+ *
+ * Two concessions are load-bearing and should not be "tidied away":
+ *
+ * `script-src 'unsafe-inline'` — Next's App Router inlines the bootstrap and
+ * the streamed RSC payload as inline `<script>` tags. Removing this without
+ * first adopting a nonce (which requires middleware, and therefore a request
+ * hook on every page) breaks hydration site-wide.
+ *
+ * `style-src 'unsafe-inline'` — the app sets inline `style` attributes for
+ * per-team colours and animation delays, and the 3D track view generates
+ * styles at runtime.
+ *
+ * `frame-ancestors 'none'` is the one that does real work: it is the header
+ * form of clickjacking protection and, unlike `X-Frame-Options`, it is what
+ * modern browsers actually honour. Both are sent, since the older header still
+ * covers older clients.
+ */
+const CSP = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com data:",
+  // `data:` and `blob:` are needed for canvas-derived and generated imagery
+  // (the track renderer, the OG image route, chart exports).
+  "img-src 'self' data: blob: https://storage.googleapis.com https://upload.wikimedia.org https://commons.wikimedia.org",
+  [
+    "connect-src 'self'",
+    ...CONNECT_ORIGINS,
+    "https://api.openf1.org",
+    "https://www.opentopodata.org",
+  ].join(" "),
+  "upgrade-insecure-requests",
+].join("; ");
+
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Next advertises its version in a response header by default; it is free
+  // reconnaissance and nothing depends on it.
+  poweredByHeader: false,
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "Content-Security-Policy", value: CSP },
+          {
+            // Cloud Run serves HTTPS only, so committing to it costs nothing
+            // and closes the first-request downgrade window.
+            key: "Strict-Transport-Security",
+            value: "max-age=31536000; includeSubDomains",
+          },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "DENY" },
+          // Send the origin cross-site but the full path same-site: enough for
+          // an upstream to see who referred a request, without leaking which
+          // driver or race a reader was looking at.
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          {
+            // This app asks for none of these; saying so explicitly means a
+            // future dependency cannot quietly start asking.
+            key: "Permissions-Policy",
+            value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+          },
+        ],
+      },
+    ];
+  },
   images: {
     remotePatterns: [
       {
