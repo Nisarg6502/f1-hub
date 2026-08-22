@@ -42,7 +42,7 @@ export default async function DriversPage({ searchParams }: PageProps) {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-5 mb-7">
         <div>
-          <span className="font-bold text-xs tracking-[0.18em] uppercase text-[#FF7A3D]">
+          <span className="font-bold text-xs tracking-[0.18em] uppercase text-flame">
             {year} World Championship lineup
           </span>
           {/* An `h1`, not a styled div — see the note on the home page hero.

@@ -158,7 +158,7 @@ export default function DriverCompareModal({
                         />
                       </span>
                     )}
-                    <span className="font-bold text-[9px] tracking-[0.12em] uppercase text-[#FF7A3D]">
+                    <span className="font-bold text-[9px] tracking-[0.12em] uppercase text-flame">
                       {half.team}
                     </span>
                   </div>
@@ -269,14 +269,14 @@ export default function DriverCompareModal({
                   </p>
                 ) : (
                   <div className="flex items-center gap-3">
-                    <span className="font-extrabold text-2xl tabular-nums text-[#FFAE6A]">
+                    <span className="font-extrabold text-2xl tabular-nums text-primary">
                       {summary.raceAheadA}
                     </span>
                     <span className="text-xs text-warm-500 font-medium">
                       {a.family} finished ahead of {b.family}
                     </span>
                     <span className="text-warm-600 mx-1">·</span>
-                    <span className="font-extrabold text-2xl tabular-nums text-[#FFAE6A]">
+                    <span className="font-extrabold text-2xl tabular-nums text-primary">
                       {summary.raceAheadB}
                     </span>
                     <span className="text-xs text-warm-500 font-medium">
@@ -298,14 +298,14 @@ export default function DriverCompareModal({
                 ) : (
                   <>
                     <div className="flex items-center gap-3 mb-2">
-                      <span className="font-extrabold text-2xl tabular-nums text-[#FFAE6A]">
+                      <span className="font-extrabold text-2xl tabular-nums text-primary">
                         {summary.qualiAheadA}
                       </span>
                       <span className="text-xs text-warm-500 font-medium">
                         {a.family} faster
                       </span>
                       <span className="text-warm-600 mx-1">·</span>
-                      <span className="font-extrabold text-2xl tabular-nums text-[#FFAE6A]">
+                      <span className="font-extrabold text-2xl tabular-nums text-primary">
                         {summary.qualiAheadB}
                       </span>
                       <span className="text-xs text-warm-500 font-medium">

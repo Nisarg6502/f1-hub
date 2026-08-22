@@ -203,7 +203,7 @@ export default async function TeamsPage({ searchParams }: PageProps) {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-5 mb-7">
         <div>
-          <span className="font-bold text-xs tracking-[0.18em] uppercase text-[#FF7A3D]">
+          <span className="font-bold text-xs tracking-[0.18em] uppercase text-flame">
             Constructor standings {year}
           </span>
           {/* An `h1`, not a styled div — the last two routes without one.
@@ -347,7 +347,7 @@ export default async function TeamsPage({ searchParams }: PageProps) {
                     <div className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500">
                       Position
                     </div>
-                    <div className="font-[family-name:var(--font-headline)] font-extrabold text-xl text-[#FFAE6A]">
+                    <div className="font-[family-name:var(--font-headline)] font-extrabold text-xl text-primary">
                       P{team.position}
                     </div>
                   </div>

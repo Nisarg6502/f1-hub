@@ -56,7 +56,7 @@ export default async function WatchIndexPage({ searchParams }: PageProps) {
               aria-current={year === season ? "page" : undefined}
               className={`font-bold text-xs px-3.5 h-[40px] rounded-[11px] flex items-center justify-center transition-colors duration-150 ${
                 year === season
-                  ? "bg-[rgba(255,90,31,0.18)] text-[#FFAE6A]"
+                  ? "bg-[rgba(255,90,31,0.18)] text-primary"
                   : "text-warm-400 hover:text-on-background"
               }`}
             >
@@ -66,7 +66,7 @@ export default async function WatchIndexPage({ searchParams }: PageProps) {
         </div>
       </div>
 
-      <p className="font-bold text-[10px] tracking-[0.14em] uppercase text-[#FF7A3D]">
+      <p className="font-bold text-[10px] tracking-[0.14em] uppercase text-flame">
         Watch party
       </p>
       <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[52px] tracking-[-1.5px] leading-none mt-2">

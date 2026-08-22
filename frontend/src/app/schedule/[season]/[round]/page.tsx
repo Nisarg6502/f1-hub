@@ -166,7 +166,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
   const statusBadge = isPast
     ? { label: "Completed", bg: "rgba(255,255,255,0.06)", color: "#a89e90" }
     : isNextRace
-    ? { label: "Next race", bg: "rgba(255,90,31,0.16)", color: "#FFAE6A" }
+    ? { label: "Next race", bg: "rgba(255,90,31,0.16)", color: "var(--color-primary)" }
     : { label: "Upcoming", bg: "rgba(245,235,222,0.06)", color: "#c9c0b4" };
 
   return (
@@ -215,7 +215,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
             <Link
               href={`/watch/${seasonYear}-${roundNumber}`}
               className="font-bold text-xs px-5 h-[46px] rounded-[11px] flex items-center justify-center text-[#1a1210] transition-transform duration-150 active:scale-95"
-              style={{ background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)" }}
+              style={{ background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
             >
               Watch at race pace
             </Link>

@@ -78,7 +78,7 @@ export default function CountdownTimer({ targetRace }: CountdownTimerProps) {
                    bought there, is a wrong number shown forever. */
                 suppressHydrationWarning
                 className={`font-extrabold text-4xl sm:text-5xl md:text-[54px] leading-none tabular-nums ${
-                  seg.hot ? "text-[#FF7A3D]" : "text-on-background"
+                  seg.hot ? "text-flame" : "text-on-background"
                 }`}
               >
                 {seg.value}

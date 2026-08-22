@@ -122,7 +122,7 @@ function CircuitHalf({ circuit }: { circuit: CircuitOption }) {
               />
             </span>
           )}
-          <span className="font-bold text-[9px] tracking-[0.12em] uppercase text-[#FF7A3D]">
+          <span className="font-bold text-[9px] tracking-[0.12em] uppercase text-flame">
             {circuit.country}
           </span>
         </div>
@@ -240,10 +240,10 @@ export default function CircuitCompareModal({
                   <span className="font-semibold text-[10px] tracking-[0.06em] uppercase text-warm-400">
                     {row.label}
                   </span>
-                  <span className="font-bold text-xs md:text-sm tabular-nums truncate text-[#FFAE6A]">
+                  <span className="font-bold text-xs md:text-sm tabular-nums truncate text-primary">
                     {row.a}
                   </span>
-                  <span className="font-bold text-xs md:text-sm tabular-nums truncate text-right text-[#FFAE6A]">
+                  <span className="font-bold text-xs md:text-sm tabular-nums truncate text-right text-primary">
                     {row.b}
                   </span>
                 </div>

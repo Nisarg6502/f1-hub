@@ -178,7 +178,7 @@ export default function CircuitDetailsModal({
       >
         <div
           className="h-[5px]"
-          style={{ background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)" }}
+          style={{ background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
         />
         <div className="relative p-[30px]">
           <div className="flex items-start justify-between gap-4">
@@ -195,7 +195,7 @@ export default function CircuitDetailsModal({
                     />
                   </span>
                 )}
-                <span className="font-bold text-[10px] tracking-[0.12em] uppercase text-[#FF7A3D]">
+                <span className="font-bold text-[10px] tracking-[0.12em] uppercase text-flame">
                   Round {circuit.round} · {circuit.country}
                 </span>
               </div>
@@ -244,7 +244,7 @@ export default function CircuitDetailsModal({
               className="group flex items-center justify-between gap-3 mb-[22px] rounded-[14px] px-4 py-3.5 bg-[rgba(255,90,31,0.14)] border border-[rgba(255,174,106,0.32)] transition-transform duration-150 active:scale-[0.98]"
             >
               <span>
-                <span className="block font-semibold text-[13px] text-[#ffae6a]">
+                <span className="block font-semibold text-[13px] text-primary">
                   {geometryState === "ready" ? "Explore in 3D" : "Generate 3D view"}
                 </span>
                 <span className="block font-medium text-[11px] text-warm-400 mt-0.5">
@@ -253,7 +253,7 @@ export default function CircuitDetailsModal({
                     : "Not built yet — takes a couple of minutes, once"}
                 </span>
               </span>
-              <span className="material-symbols-outlined text-[20px] text-[#ffae6a] transition-transform duration-200 group-hover:translate-x-0.5">
+              <span className="material-symbols-outlined text-[20px] text-primary transition-transform duration-200 group-hover:translate-x-0.5">
                 arrow_forward
               </span>
             </Link>
@@ -279,7 +279,7 @@ export default function CircuitDetailsModal({
                   <div className="font-semibold text-[9px] tracking-[0.1em] uppercase text-warm-500">
                     Lap record
                   </div>
-                  <div className="font-extrabold text-[15px] tabular-nums mt-1.5 text-[#FFAE6A]">
+                  <div className="font-extrabold text-[15px] tabular-nums mt-1.5 text-primary">
                     {info.lap_record}
                   </div>
                 </div>

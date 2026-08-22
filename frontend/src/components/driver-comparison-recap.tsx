@@ -76,7 +76,7 @@ export default function DriverComparisonRecap({
         </span>
         {isStreaming && (
           <span
-            className={`w-1.5 h-1.5 rounded-full bg-[#FF7A3D] ${reduce ? "" : "animate-pulse"}`}
+            className={`w-1.5 h-1.5 rounded-full bg-flame ${reduce ? "" : "animate-pulse"}`}
             aria-hidden="true"
           />
         )}

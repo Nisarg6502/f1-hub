@@ -309,12 +309,12 @@ function PairedToast({
     >
       <span
         className="flex items-center justify-center w-8 h-8 rounded-full flex-none"
-        style={{ background: "linear-gradient(140deg,#FFAE6A,#FF5A1F)", color: "#1a1210" }}
+        style={{ background: "linear-gradient(140deg,var(--color-primary),var(--color-primary-container))", color: "#1a1210" }}
       >
         <Check size={17} strokeWidth={3} />
       </span>
       <div className="min-w-0">
-        <p className="font-extrabold text-[13px] text-[#FFAE6A] leading-tight">
+        <p className="font-extrabold text-[13px] text-primary leading-tight">
           {joined ? "Paired with the other screen" : "Second screen paired"}
         </p>
         <p className="font-medium text-[11px] text-warm-400 leading-snug mt-0.5">
@@ -1256,7 +1256,7 @@ export default function WatchView({
               : ""
           }`}
         >
-          <span className="font-bold text-[10px] tracking-[0.12em] uppercase text-[#FF7A3D]">
+          <span className="font-bold text-[10px] tracking-[0.12em] uppercase text-flame">
             This lap
           </span>
           <span
@@ -1297,7 +1297,7 @@ export default function WatchView({
           <div
             ref={lapFillRef}
             className="h-full rounded-full"
-            style={{ width: "0%", background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)" }}
+            style={{ width: "0%", background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
           />
         </div>
       </div>
@@ -1333,8 +1333,8 @@ export default function WatchView({
             const driver = replay.drivers[runner.number];
             const color = getTeamColor(driver?.team ?? undefined);
             const compound = runner.compound
-              ? COMPOUND_COLORS[runner.compound] ?? "#8f867a"
-              : "#8f867a";
+              ? COMPOUND_COLORS[runner.compound] ?? "var(--color-warm-400)"
+              : "var(--color-warm-400)";
             const delta = deltas[runner.number] ?? 0;
             // Read from the time-driven set, never from `runner.pit` — that
             // flag is on the driver's own lap while this row is drawn from the
@@ -1394,7 +1394,7 @@ export default function WatchView({
                   // the closing ring, since a pinned row must stay identifiable
                   // whatever the car is doing.
                   boxShadow: isPinned
-                    ? "inset 3px 0 0 0 #FF7A3D"
+                    ? "inset 3px 0 0 0 var(--color-flame)"
                     : "inset 0 0 0 calc(var(--closing, 0) * 1.5px) rgba(255,138,61,0.6)",
                   // A retired car's row is carried forward from its last real
                   // lap, not live — dimmed so it never reads as a current gap.
@@ -1408,7 +1408,7 @@ export default function WatchView({
                   <Pin
                     size={Math.max(8, layout.fontSize * 0.62)}
                     className="flex-none"
-                    style={{ color: "#FF7A3D" }}
+                    style={{ color: "var(--color-flame)" }}
                     aria-label="Pinned"
                   />
                 )}
@@ -1417,10 +1417,10 @@ export default function WatchView({
                   className="font-extrabold tabular-nums w-[1.6em] text-right flex-none"
                   style={{
                     color: runner.retired
-                      ? "#8f867a"
+                      ? "var(--color-warm-400)"
                       : positionOrder === 0
-                      ? "#FFAE6A"
-                      : "#f6f1ea",
+                      ? "var(--color-primary)"
+                      : "var(--color-warm-100)",
                   }}
                 >
                   {/* Initial value only — the frame loop overwrites it. It is
@@ -1582,11 +1582,11 @@ export default function WatchView({
                       <Flag
                         size={12}
                         className="flex-none"
-                        style={{ color: urgent ? "#FF6B6B" : "#FFAE6A" }}
+                        style={{ color: urgent ? "#FF6B6B" : "var(--color-primary)" }}
                       />
                       <span
                         className="font-extrabold text-[12px] md:text-[13px]"
-                        style={{ color: urgent ? "#FF6B6B" : "#FFAE6A" }}
+                        style={{ color: urgent ? "#FF6B6B" : "var(--color-primary)" }}
                       >
                         {eventLabel(event.kind)}
                       </span>
@@ -1621,7 +1621,7 @@ export default function WatchView({
               size={11}
               className="flex-none"
               style={{
-                color: latest && URGENT_EVENT_KINDS.has(latest.kind) ? "#FF6B6B" : "#FFAE6A",
+                color: latest && URGENT_EVENT_KINDS.has(latest.kind) ? "#FF6B6B" : "var(--color-primary)",
               }}
             />
             {latest ? (
@@ -1632,7 +1632,7 @@ export default function WatchView({
                 <span
                   className="font-extrabold text-[11px] flex-none"
                   style={{
-                    color: URGENT_EVENT_KINDS.has(latest.kind) ? "#FF6B6B" : "#FFAE6A",
+                    color: URGENT_EVENT_KINDS.has(latest.kind) ? "#FF6B6B" : "var(--color-primary)",
                   }}
                 >
                   {eventLabel(latest.kind)}
@@ -1673,7 +1673,7 @@ export default function WatchView({
           onClick={toggle}
           aria-label={playing ? "Pause" : "Play at race pace"}
           className="flex items-center justify-center w-11 h-11 [@media(max-height:520px)]:w-9 [@media(max-height:520px)]:h-9 rounded-xl text-[#1a1210] transition-transform duration-150 ease-out active:scale-[0.97] flex-none"
-          style={{ background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)" }}
+          style={{ background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
         >
           {playing ? <Pause size={19} /> : <Play size={19} />}
         </button>
@@ -1682,7 +1682,7 @@ export default function WatchView({
           type="button"
           onClick={restart}
           aria-label="Back to lap 1"
-          className="flex items-center justify-center w-11 h-11 [@media(max-height:520px)]:w-9 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft text-warm-300 hover:text-[#FFAE6A] transition-[color,transform] duration-150 active:scale-[0.97] flex-none"
+          className="flex items-center justify-center w-11 h-11 [@media(max-height:520px)]:w-9 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft text-warm-300 hover:text-primary transition-[color,transform] duration-150 active:scale-[0.97] flex-none"
         >
           <RotateCcw size={17} />
         </button>
@@ -1730,7 +1730,7 @@ export default function WatchView({
                focus indicator at all** for keyboard users. `outline` is not a
                property any `apex-glass-*` class declares, so it survives.
                See the layering note in globals.css. */
-            className="w-[74px] h-11 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft px-3 font-bold text-sm tabular-nums text-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FF7A3D]"
+            className="w-[74px] h-11 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft px-3 font-bold text-sm tabular-nums text-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-flame"
           />
           <button
             type="submit"
@@ -1802,7 +1802,7 @@ export default function WatchView({
                 : "Pin drivers to the top of the tower"
             }
             className="flex items-center gap-1.5 h-11 [@media(max-height:520px)]:h-9 px-3 rounded-xl apex-glass-soft font-bold text-xs transition-[color,border-color,transform] duration-150 active:scale-[0.97]"
-            style={{ color: pinned.size > 0 ? "#FFAE6A" : undefined }}
+            style={{ color: pinned.size > 0 ? "var(--color-primary)" : undefined }}
           >
             <Pin size={15} />
             {pinned.size > 0 && <span className="tabular-nums">{pinned.size}</span>}
@@ -1873,7 +1873,7 @@ export default function WatchView({
                       onClick={() => {
                         setPinnedPreference([]);
                       }}
-                      className="ml-auto font-bold text-[10px] tracking-[0.1em] uppercase text-warm-400 hover:text-[#FFAE6A] transition-colors"
+                      className="ml-auto font-bold text-[10px] tracking-[0.1em] uppercase text-warm-400 hover:text-primary transition-colors"
                     >
                       Clear
                     </button>
@@ -1895,7 +1895,7 @@ export default function WatchView({
                           background: isPinned
                             ? "rgba(255,138,61,0.18)"
                             : "rgba(255,255,255,0.04)",
-                          color: isPinned ? "#FFAE6A" : "#c9c0b4",
+                          color: isPinned ? "var(--color-primary)" : "#c9c0b4",
                         }}
                       >
                         <span
@@ -1951,7 +1951,7 @@ export default function WatchView({
                 style={{
                   background:
                     timingMode === value ? "rgba(255,90,31,0.20)" : "transparent",
-                  color: timingMode === value ? "#FFAE6A" : "#8f867a",
+                  color: timingMode === value ? "var(--color-primary)" : "var(--color-warm-400)",
                 }}
               >
                 {short}
@@ -1988,7 +1988,7 @@ export default function WatchView({
               className="flex items-center justify-center w-9 h-9 rounded-[9px] transition-colors duration-150"
               style={{
                 background: density === value ? "rgba(255,90,31,0.20)" : "transparent",
-                color: density === value ? "#FFAE6A" : "#8f867a",
+                color: density === value ? "var(--color-primary)" : "var(--color-warm-400)",
               }}
             >
               <Icon size={16} />
@@ -2026,7 +2026,7 @@ export default function WatchView({
                   : "Waiting for another screen to scan the code"
             }
             className="flex items-center gap-1.5 h-11 [@media(max-height:520px)]:h-9 px-3 rounded-xl apex-glass-soft font-bold text-xs transition-[color,border-color,transform] duration-150 active:scale-[0.97]"
-            style={{ color: party.paired ? "#FFAE6A" : undefined }}
+            style={{ color: party.paired ? "var(--color-primary)" : undefined }}
           >
             <Smartphone size={15} />
             {/* The count, only once it counts something. A lone "1" beside a
@@ -2123,7 +2123,7 @@ export default function WatchView({
                         onClick={() => void party.host()}
                         disabled={party.busy}
                         className="w-full h-11 mt-3 rounded-xl font-bold text-sm text-[#1a1210] transition-transform duration-150 active:scale-[0.98] disabled:opacity-60"
-                        style={{ background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)" }}
+                        style={{ background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
                       >
                         {party.busy ? "Starting…" : "Show a pairing code"}
                       </button>
@@ -2175,7 +2175,7 @@ export default function WatchView({
                              would be silently swallowed and this input would
                              have no focus indicator at all. Same trap as the
                              jump-to-lap field. */
-                          className="flex-1 min-w-0 h-11 rounded-xl apex-glass-soft px-3 font-bold text-sm tracking-[0.16em] uppercase text-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FF7A3D]"
+                          className="flex-1 min-w-0 h-11 rounded-xl apex-glass-soft px-3 font-bold text-sm tracking-[0.16em] uppercase text-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-flame"
                         />
                         <button
                           type="submit"
@@ -2202,13 +2202,13 @@ export default function WatchView({
                           <span
                             className="flex items-center justify-center w-6 h-6 rounded-full flex-none"
                             style={{
-                              background: "linear-gradient(140deg,#FFAE6A,#FF5A1F)",
+                              background: "linear-gradient(140deg,var(--color-primary),var(--color-primary-container))",
                               color: "#1a1210",
                             }}
                           >
                             <Check size={14} strokeWidth={3} />
                           </span>
-                          <p className="font-bold text-[12px] text-[#FFAE6A]">
+                          <p className="font-bold text-[12px] text-primary">
                             Paired ·{" "}
                             <span className="tabular-nums">{party.devices}</span> screens
                             in step
@@ -2243,7 +2243,7 @@ export default function WatchView({
                           <p className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-400">
                             {pairUrl ? "or type this" : "Type this on the other screen"}
                           </p>
-                          <p className="font-[family-name:var(--font-headline)] font-extrabold text-3xl tracking-[0.12em] mt-1.5 text-[#FFAE6A] tabular-nums">
+                          <p className="font-[family-name:var(--font-headline)] font-extrabold text-3xl tracking-[0.12em] mt-1.5 text-primary tabular-nums">
                             {groupCode(party.code)}
                           </p>
                           <p className="font-medium text-[10px] text-warm-500 mt-1.5">
@@ -2323,7 +2323,7 @@ export default function WatchView({
               : "Let the screen sleep normally"
           }
           className="flex items-center justify-center w-11 h-11 [@media(max-height:520px)]:w-9 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft transition-[color,transform] duration-150 active:scale-[0.97] flex-none"
-          style={{ color: keepAwake && wakeLockHeld ? "#FFAE6A" : "#8f867a" }}
+          style={{ color: keepAwake && wakeLockHeld ? "var(--color-primary)" : "var(--color-warm-400)" }}
         >
           {keepAwake && wakeLockHeld ? <Lightbulb size={17} /> : <LightbulbOff size={17} />}
         </button>
@@ -2332,7 +2332,7 @@ export default function WatchView({
           type="button"
           onClick={() => void toggleFullscreen()}
           aria-label={fullscreen ? "Leave fullscreen" : "Go fullscreen"}
-          className="flex items-center justify-center w-11 h-11 [@media(max-height:520px)]:w-9 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft text-warm-300 hover:text-[#FFAE6A] transition-[color,transform] duration-150 active:scale-[0.97] flex-none"
+          className="flex items-center justify-center w-11 h-11 [@media(max-height:520px)]:w-9 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft text-warm-300 hover:text-primary transition-[color,transform] duration-150 active:scale-[0.97] flex-none"
         >
           {fullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
         </button>

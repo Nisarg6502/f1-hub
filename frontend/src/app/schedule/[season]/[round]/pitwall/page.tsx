@@ -59,7 +59,7 @@ function ModuleEmptyState({
   return (
     <div className="apex-glass-soft rounded-2xl p-12 flex flex-col items-center justify-center text-center min-h-[500px]">
       <div className="w-14 h-14 rounded-[14px] bg-[rgba(255,90,31,0.1)] border border-[rgba(255,90,31,0.25)] flex items-center justify-center mb-5">
-        <span className="material-symbols-outlined text-[#FF7A3D] text-2xl">
+        <span className="material-symbols-outlined text-flame text-2xl">
           hourglass_empty
         </span>
       </div>
@@ -78,7 +78,7 @@ function ModuleEmptyState({
         </Link>
         <Link
           href="/schedule"
-          className="font-bold text-xs uppercase tracking-[0.1em] px-6 py-2.5 rounded-[11px] bg-[rgba(255,90,31,0.16)] text-[#FFAE6A] hover:bg-[rgba(255,90,31,0.24)] transition-colors"
+          className="font-bold text-xs uppercase tracking-[0.1em] px-6 py-2.5 rounded-[11px] bg-[rgba(255,90,31,0.16)] text-primary hover:bg-[rgba(255,90,31,0.24)] transition-colors"
         >
           View schedule
         </Link>
@@ -152,7 +152,7 @@ export default async function PitwallPage({ params, searchParams }: PageProps) {
     <div className="px-6 md:px-10 pt-8 pb-16">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-6">
         <div>
-          <span className="font-bold text-xs tracking-[0.18em] uppercase text-[#FF7A3D]">
+          <span className="font-bold text-xs tracking-[0.18em] uppercase text-flame">
             Telemetry lab
           </span>
           <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[56px] tracking-[-1.5px] leading-none mt-2">

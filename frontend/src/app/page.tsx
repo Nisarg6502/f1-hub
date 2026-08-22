@@ -146,7 +146,7 @@ export default async function Home() {
           {/* Left */}
           <div className="min-w-0">
             <div className="flex items-center gap-[13px] mb-6 anim-rise">
-              <span className="font-bold text-xs tracking-[0.16em] uppercase text-[#FF7A3D]">
+              <span className="font-bold text-xs tracking-[0.16em] uppercase text-flame">
                 {nextRace ? `Round ${nextRace.round}` : `Season ${seasonYear}`}
               </span>
               {(heroLocality || heroCircuit) && (
@@ -180,7 +180,7 @@ export default async function Home() {
             </h1>
 
             <div
-              className="h-[2px] w-[130px] bg-[linear-gradient(90deg,#FF5A1F,transparent)] anim-line mb-8"
+              className="h-[2px] w-[130px] bg-[linear-gradient(90deg,var(--color-primary-container),transparent)] anim-line mb-8"
               style={{ animationDelay: "0.5s" }}
             />
 
@@ -214,7 +214,7 @@ export default async function Home() {
                       key={s.id}
                       className={`text-xs px-[14px] py-2 rounded-[10px] ${
                         i === 0
-                          ? "font-bold bg-[rgba(255,90,31,0.16)] text-[#FFAE6A]"
+                          ? "font-bold bg-[rgba(255,90,31,0.16)] text-primary"
                           : "font-semibold bg-[rgba(245,235,222,0.05)] text-warm-200"
                       }`}
                     >
@@ -255,7 +255,7 @@ export default async function Home() {
                     label: "Elapsed",
                     center: `${Math.round(elapsedPct * 100)}%`,
                     offset: RING * (1 - elapsedPct),
-                    color: "#FF5A1F",
+                    color: "var(--color-primary-container)",
                     tooltip:
                       "Share of this season's rounds that have been run so far.",
                   },
@@ -348,7 +348,7 @@ export default async function Home() {
               accent
             />
             <div className="relative max-w-[62%]">
-              <span className="font-bold text-[11px] tracking-[0.14em] uppercase text-[#FF7A3D]">
+              <span className="font-bold text-[11px] tracking-[0.14em] uppercase text-flame">
                 Championship leader
               </span>
               <div className="font-[family-name:var(--font-headline)] font-bold text-[21px] leading-[1.05] my-[14px] mb-[3px]">
@@ -401,7 +401,7 @@ export default async function Home() {
                     className="w-[6px] h-[6px] rounded-full"
                     style={{ background: winnerColor.hex }}
                   />
-                  <span className="font-bold text-sm text-[#FFAE6A] tabular-nums">
+                  <span className="font-bold text-sm text-primary tabular-nums">
                     {latestWinner.time}
                   </span>
                 </div>
@@ -421,7 +421,7 @@ export default async function Home() {
             className="apex-glass apex-sheen rounded-[22px] p-[26px] overflow-hidden min-h-[224px] block h-full"
             ariaLabel="Next circuit"
           >
-            <span className="relative font-bold text-[11px] tracking-[0.14em] uppercase text-[#FF7A3D]">
+            <span className="relative font-bold text-[11px] tracking-[0.14em] uppercase text-flame">
               Next circuit
             </span>
             <TrackMap
@@ -485,7 +485,7 @@ export default async function Home() {
               ) : (
                 <span
                   className={`font-[family-name:var(--font-headline)] font-bold text-xl ${
-                    c.accent ? "text-[#FFAE6A]" : ""
+                    c.accent ? "text-primary" : ""
                   }`}
                 >
                   {c.title}

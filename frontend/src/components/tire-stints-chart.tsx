@@ -187,14 +187,14 @@ export default function TireStintsChart({
                 <div className="flex items-center gap-1 px-2 py-1.5 mb-1 border-b border-white/10">
                   <button
                     onClick={() => setSelectedDrivers(drivers.map((d) => d.number))}
-                    className="text-[11px] font-bold uppercase tracking-[0.08em] text-warm-400 hover:text-[#FFAE6A] transition-[color,transform] duration-150 active:scale-[0.97] px-1.5 py-0.5"
+                    className="text-[11px] font-bold uppercase tracking-[0.08em] text-warm-400 hover:text-primary transition-[color,transform] duration-150 active:scale-[0.97] px-1.5 py-0.5"
                   >
                     Select all
                   </button>
                   <span className="text-warm-600">·</span>
                   <button
                     onClick={() => setSelectedDrivers([])}
-                    className="text-[11px] font-bold uppercase tracking-[0.08em] text-warm-400 hover:text-[#FFAE6A] transition-[color,transform] duration-150 active:scale-[0.97] px-1.5 py-0.5"
+                    className="text-[11px] font-bold uppercase tracking-[0.08em] text-warm-400 hover:text-primary transition-[color,transform] duration-150 active:scale-[0.97] px-1.5 py-0.5"
                   >
                     Clear all
                   </button>
@@ -206,7 +206,7 @@ export default function TireStintsChart({
                       key={driver.number}
                       onClick={() => toggleDriver(driver.number)}
                       className={`flex items-center px-3 py-2 rounded-lg cursor-pointer hover:bg-white/[0.05] transition-colors ${
-                        isSelected ? "text-[#FFAE6A]" : "text-warm-300"
+                        isSelected ? "text-primary" : "text-warm-300"
                       }`}
                     >
                       <div className="w-4 h-4 rounded border border-warm-600 mr-3 flex items-center justify-center">
@@ -256,7 +256,7 @@ export default function TireStintsChart({
               <XAxis
                 type="number"
                 stroke="#5c554b"
-                tick={{ fill: "#8f867a", fontSize: 12 }}
+                tick={{ fill: "var(--color-warm-400)", fontSize: 12 }}
                 domain={[0, 'dataMax']}
                 label={{ value: 'Lap number', position: 'bottom', fill: '#6f665b', fontSize: 12, dy: 10 }}
               />
@@ -264,7 +264,7 @@ export default function TireStintsChart({
                 type="category"
                 dataKey="name"
                 stroke="#5c554b"
-                tick={{ fill: "#f6f1ea", fontSize: 14, fontWeight: "bold" }}
+                tick={{ fill: "var(--color-warm-100)", fontSize: 14, fontWeight: "bold" }}
                 width={60}
               />
               <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} content={<StintTooltip />} />

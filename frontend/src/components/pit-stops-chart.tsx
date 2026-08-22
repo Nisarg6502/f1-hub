@@ -137,8 +137,8 @@ function SortHeader({
   return (
     <button
       onClick={() => onSort(sortBy)}
-      className={`flex items-center gap-1 uppercase tracking-[0.12em] font-bold text-[10px] transition-colors hover:text-[#FFAE6A] ${
-        isActive ? "text-[#FFAE6A]" : "text-warm-500"
+      className={`flex items-center gap-1 uppercase tracking-[0.12em] font-bold text-[10px] transition-colors hover:text-primary ${
+        isActive ? "text-primary" : "text-warm-500"
       } ${className ?? ""}`}
     >
       {label}
@@ -365,7 +365,7 @@ export default function PitStopsChart({ drivers, stops }: PitStopsChartProps) {
               <XAxis
                 type="number"
                 stroke="#5c554b"
-                tick={{ fill: "#8f867a", fontSize: 12 }}
+                tick={{ fill: "var(--color-warm-400)", fontSize: 12 }}
                 domain={[0, "dataMax"]}
                 tickFormatter={(value: number) => `${Math.round(value)}s`}
                 label={{
@@ -380,7 +380,7 @@ export default function PitStopsChart({ drivers, stops }: PitStopsChartProps) {
                 type="category"
                 dataKey="name"
                 stroke="#5c554b"
-                tick={{ fill: "#f6f1ea", fontSize: 13, fontWeight: "bold" }}
+                tick={{ fill: "var(--color-warm-100)", fontSize: 13, fontWeight: "bold" }}
                 width={56}
               />
               <Tooltip
@@ -419,7 +419,7 @@ export default function PitStopsChart({ drivers, stops }: PitStopsChartProps) {
           </h3>
           {redFlagCount > 0 && (
             <p className="flex items-center gap-1.5 font-medium text-[11px] text-warm-500">
-              <Flag className="w-3.5 h-3.5 text-[#FF7A3D]" />
+              <Flag className="w-3.5 h-3.5 text-flame" />
               {redFlagCount} suspension-length {redFlagCount === 1 ? "stop" : "stops"} excluded from the stats above
             </p>
           )}
@@ -476,7 +476,7 @@ export default function PitStopsChart({ drivers, stops }: PitStopsChartProps) {
                     isRedFlag
                       ? "text-warm-500"
                       : stop.duration_seconds === fastest?.duration_seconds
-                        ? "text-[#FFAE6A]"
+                        ? "text-primary"
                         : ""
                   }`}
                 >
@@ -484,7 +484,7 @@ export default function PitStopsChart({ drivers, stops }: PitStopsChartProps) {
                 </span>
                 <span className="text-right font-semibold text-xs tabular-nums text-warm-500">
                   {isRedFlag ? (
-                    <Flag className="w-3.5 h-3.5 text-[#FF7A3D] inline" />
+                    <Flag className="w-3.5 h-3.5 text-flame inline" />
                   ) : delta === 0 ? (
                     "—"
                   ) : delta == null ? (

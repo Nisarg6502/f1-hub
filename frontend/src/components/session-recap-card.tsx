@@ -154,12 +154,12 @@ export default function SessionRecapCard({
   return (
     <div className="apex-glass-soft rounded-2xl p-[22px] mb-6">
       <div className="flex items-center gap-2 mb-3.5">
-        <span className="font-bold text-[11px] tracking-[0.12em] uppercase text-[#FF7A3D]">
+        <span className="font-bold text-[11px] tracking-[0.12em] uppercase text-flame">
           {RECAP_LABEL[session]}
         </span>
         {isStreaming && (
           <span
-            className={`w-1.5 h-1.5 rounded-full bg-[#FF7A3D] ${reduce ? "" : "animate-pulse"}`}
+            className={`w-1.5 h-1.5 rounded-full bg-flame ${reduce ? "" : "animate-pulse"}`}
             aria-hidden="true"
           />
         )}

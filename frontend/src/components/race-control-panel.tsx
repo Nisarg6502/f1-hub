@@ -29,7 +29,7 @@ const TONE_STYLES: Record<Tone, { text: string; bg: string; border: string }> = 
     border: "rgba(255,68,68,0.3)",
   },
   amber: {
-    text: "#FFAE6A",
+    text: "var(--color-primary)",
     bg: "rgba(255,90,31,0.12)",
     border: "rgba(255,90,31,0.3)",
   },
@@ -178,7 +178,7 @@ export default function RaceControlPanel({ drivers, messages }: RaceControlPanel
                   onClick={() => setFilter(f.id)}
                   className={`font-bold text-[11px] uppercase tracking-[0.08em] px-3 py-1.5 rounded-lg transition-colors duration-150 ${
                     isActive
-                      ? "bg-[rgba(255,90,31,0.16)] text-[#FFAE6A]"
+                      ? "bg-[rgba(255,90,31,0.16)] text-primary"
                       : "text-warm-500 hover:text-warm-300"
                   }`}
                 >

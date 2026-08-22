@@ -78,7 +78,7 @@ export default function PairQr({ value, size = 164 }: PairQrProps) {
 
   return (
     <div
-      className="rounded-2xl p-2.5 bg-[#f6f1ea]"
+      className="rounded-2xl p-2.5 bg-warm-100"
       style={{ width: size, height: size }}
     >
       <svg

@@ -193,14 +193,14 @@ export default function LapPositionChart({
               <div className="flex items-center gap-1 px-2 py-1.5 mb-1 border-b border-white/10">
                 <button
                   onClick={() => setSelectedDrivers(drivers.map((d) => d.number))}
-                  className="text-[11px] font-bold uppercase tracking-[0.08em] text-warm-400 hover:text-[#FFAE6A] transition-[color,transform] duration-150 active:scale-[0.97] px-1.5 py-0.5"
+                  className="text-[11px] font-bold uppercase tracking-[0.08em] text-warm-400 hover:text-primary transition-[color,transform] duration-150 active:scale-[0.97] px-1.5 py-0.5"
                 >
                   Select all
                 </button>
                 <span className="text-warm-600">·</span>
                 <button
                   onClick={() => setSelectedDrivers([])}
-                  className="text-[11px] font-bold uppercase tracking-[0.08em] text-warm-400 hover:text-[#FFAE6A] transition-[color,transform] duration-150 active:scale-[0.97] px-1.5 py-0.5"
+                  className="text-[11px] font-bold uppercase tracking-[0.08em] text-warm-400 hover:text-primary transition-[color,transform] duration-150 active:scale-[0.97] px-1.5 py-0.5"
                 >
                   Clear all
                 </button>
@@ -212,7 +212,7 @@ export default function LapPositionChart({
                     key={driver.number}
                     onClick={() => toggleDriver(driver.number)}
                     className={`flex items-center px-3 py-2 rounded-lg cursor-pointer hover:bg-white/[0.05] transition-colors ${
-                      isSelected ? "text-[#FFAE6A]" : "text-warm-300"
+                      isSelected ? "text-primary" : "text-warm-300"
                     }`}
                   >
                     <div className="w-4 h-4 rounded border border-warm-600 mr-3 flex items-center justify-center">
@@ -252,7 +252,7 @@ export default function LapPositionChart({
                       ? "font-semibold text-warm-600 cursor-not-allowed opacity-50"
                       : "active:scale-[0.97] " +
                         (effectiveMode === key
-                          ? "font-bold text-[#FFAE6A]"
+                          ? "font-bold text-primary"
                           : "font-semibold text-warm-300 hover:text-on-background")
                   }`}
                 >
@@ -273,7 +273,7 @@ export default function LapPositionChart({
 
       {!hasGapData && (
         <div className="flex items-center gap-2 -mt-4 px-1 text-[11px] text-warm-500">
-          <span className="material-symbols-outlined text-sm text-[#FF7A3D]">hourglass_empty</span>
+          <span className="material-symbols-outlined text-sm text-flame">hourglass_empty</span>
           Gap-to-leader isn&apos;t available for this round yet — it needs a fresh sync. Position is
           shown instead.
         </div>
@@ -293,7 +293,7 @@ export default function LapPositionChart({
                 type="number"
                 dataKey="lap"
                 stroke="#5c554b"
-                tick={{ fill: "#8f867a", fontSize: 12 }}
+                tick={{ fill: "var(--color-warm-400)", fontSize: 12 }}
                 domain={[1, "dataMax"]}
                 label={{ value: "Lap number", position: "bottom", fill: "#6f665b", fontSize: 12, dy: 10 }}
               />
@@ -307,7 +307,7 @@ export default function LapPositionChart({
                   reversed
                   domain={[0, maxGap || 1]}
                   stroke="#5c554b"
-                  tick={{ fill: "#8f867a", fontSize: 12 }}
+                  tick={{ fill: "var(--color-warm-400)", fontSize: 12 }}
                   tickFormatter={(value: number) => `+${value.toFixed(0)}s`}
                   label={{ value: "Gap to leader (s)", angle: -90, position: "insideLeft", fill: "#6f665b", fontSize: 12 }}
                 />
@@ -318,7 +318,7 @@ export default function LapPositionChart({
                   domain={[1, maxPosition]}
                   allowDecimals={false}
                   stroke="#5c554b"
-                  tick={{ fill: "#8f867a", fontSize: 12 }}
+                  tick={{ fill: "var(--color-warm-400)", fontSize: 12 }}
                   label={{ value: "Position", angle: -90, position: "insideLeft", fill: "#6f665b", fontSize: 12 }}
                 />
               )}

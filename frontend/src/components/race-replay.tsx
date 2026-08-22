@@ -226,7 +226,7 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
   return (
     <div className="apex-glass-soft rounded-2xl p-[22px]">
       <div className="flex items-baseline gap-3 mb-4">
-        <span className="font-bold text-[11px] tracking-[0.12em] uppercase text-[#FF7A3D]">
+        <span className="font-bold text-[11px] tracking-[0.12em] uppercase text-flame">
           Race replay
         </span>
         <span className="ml-auto font-extrabold text-lg tabular-nums">
@@ -248,7 +248,7 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
           }}
           aria-label={playing ? "Pause replay" : "Play replay"}
           className="flex items-center justify-center w-10 h-10 rounded-xl text-[#1a1210] transition-transform duration-150 ease-out active:scale-[0.97]"
-          style={{ background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)" }}
+          style={{ background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
         >
           {playing ? <Pause size={17} /> : <Play size={17} />}
         </button>
@@ -260,7 +260,7 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
             setLapIndex(0);
           }}
           aria-label="Restart replay"
-          className="flex items-center justify-center w-10 h-10 rounded-xl bg-[rgba(245,235,222,0.06)] border border-white/10 text-warm-300 hover:text-[#FFAE6A] transition-[color,transform] duration-150 ease-out active:scale-[0.97]"
+          className="flex items-center justify-center w-10 h-10 rounded-xl bg-[rgba(245,235,222,0.06)] border border-white/10 text-warm-300 hover:text-primary transition-[color,transform] duration-150 ease-out active:scale-[0.97]"
         >
           <SkipBack size={16} />
         </button>
@@ -274,7 +274,7 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
               aria-pressed={speed === option}
               className={`font-bold text-[11px] px-2.5 py-1.5 rounded-lg transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] ${
                 speed === option
-                  ? "bg-[rgba(255,90,31,0.18)] text-[#FFAE6A]"
+                  ? "bg-[rgba(255,90,31,0.18)] text-primary"
                   : "text-warm-400 hover:text-on-background"
               }`}
             >
@@ -298,7 +298,7 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
         onPointerUp={endScrub}
         onPointerCancel={endScrub}
         onKeyDown={handleTrackKeyDown}
-        className="relative h-9 mb-5 cursor-pointer touch-none select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FF7A3D] rounded-lg"
+        className="relative h-9 mb-5 cursor-pointer touch-none select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-flame rounded-lg"
       >
         <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-white/[0.08]" />
         <div
@@ -306,7 +306,7 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
           style={{
             left: 0,
             width: `calc(${THUMB_INSET}px + ${progress} * (100% - ${THUMB_INSET * 2}px))`,
-            background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)",
+            background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))",
             // No transition while dragging: the fill must stay glued to the
             // pointer. It only eases when playback moves it.
             transition: scrubbing || !rowTransitionMs ? "none" : `width ${rowTransitionMs}ms linear`,
@@ -353,8 +353,8 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
           // optional; it already falls back to a neutral colour for unknowns.
           const color = getTeamColor(driver?.team ?? undefined);
           const compound = runner.compound
-            ? COMPOUND_COLORS[runner.compound] ?? "#8f867a"
-            : "#8f867a";
+            ? COMPOUND_COLORS[runner.compound] ?? "var(--color-warm-400)"
+            : "var(--color-warm-400)";
           return (
             <div
               key={runner.number}
@@ -378,7 +378,7 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
             >
               <span
                 className="font-extrabold text-[13px] tabular-nums w-6 text-right"
-                style={{ color: runner.retired ? "#8f867a" : order === 0 ? "#FFAE6A" : "#8f867a" }}
+                style={{ color: runner.retired ? "var(--color-warm-400)" : order === 0 ? "var(--color-primary)" : "var(--color-warm-400)" }}
               >
                 {runner.retired ? "—" : runner.position ?? "—"}
               </span>
@@ -425,7 +425,7 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
                   style={{
                     background: urgent ? "rgba(255,68,68,0.12)" : "rgba(255,90,31,0.1)",
                     border: `1px solid ${urgent ? "rgba(255,68,68,0.3)" : "rgba(255,90,31,0.22)"}`,
-                    color: urgent ? "#FF6B6B" : "#FFAE6A",
+                    color: urgent ? "#FF6B6B" : "var(--color-primary)",
                   }}
                   // The full race-control message on hover: the chip is a
                   // summary, and the exact wording is often the real detail.

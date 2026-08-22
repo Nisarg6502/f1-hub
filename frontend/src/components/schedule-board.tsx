@@ -70,11 +70,11 @@ interface ScheduleBoardProps {
 
 function badgeFor(row: ScheduleRow) {
   if (row.status === "next")
-    return { label: "Next race", bg: "rgba(255,90,31,0.2)", color: "#FFAE6A" };
+    return { label: "Next race", bg: "rgba(255,90,31,0.2)", color: "var(--color-primary)" };
   if (row.status === "completed")
-    return { label: "Completed", bg: "rgba(245,235,222,0.06)", color: "#8f867a" };
+    return { label: "Completed", bg: "rgba(245,235,222,0.06)", color: "var(--color-warm-400)" };
   if (row.isSprint)
-    return { label: "Sprint", bg: "rgba(255,138,61,0.16)", color: "#FFAE6A" };
+    return { label: "Sprint", bg: "rgba(255,138,61,0.16)", color: "var(--color-primary)" };
   return { label: "Upcoming", bg: "rgba(245,235,222,0.06)", color: "#c9c0b4" };
 }
 
@@ -108,7 +108,7 @@ export default function ScheduleBoard({
     <div className="px-6 md:px-10 pt-11 pb-16">
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-5 mb-8">
         <div>
-          <span className="font-bold text-xs tracking-[0.18em] uppercase text-[#FF7A3D]">
+          <span className="font-bold text-xs tracking-[0.18em] uppercase text-flame">
             {year} FIA Formula One World Championship
           </span>
           {/* An `h1`, not a styled div — see the note on the home page hero.
@@ -135,7 +135,7 @@ export default function ScheduleBoard({
                 onClick={() => setPhase(key)}
                 className={`relative flex-1 text-center text-xs py-2.5 rounded-[9px] transition-[color,transform] duration-150 active:scale-[0.97] ${
                   phase === key
-                    ? "font-bold text-[#FFAE6A]"
+                    ? "font-bold text-primary"
                     : "font-semibold text-warm-300 hover:text-on-background"
                 }`}
               >
@@ -154,7 +154,7 @@ export default function ScheduleBoard({
           {nextTargetMs !== null && nextName && (
             <div className="apex-glass apex-sheen rounded-[18px] p-[22px] overflow-hidden">
               <div className="relative">
-                <span className="font-bold text-[11px] tracking-[0.12em] uppercase text-[#FF7A3D]">
+                <span className="font-bold text-[11px] tracking-[0.12em] uppercase text-flame">
                   Next event
                 </span>
                 <div className="font-[family-name:var(--font-headline)] font-bold text-xl mt-2.5 mb-1">
@@ -164,7 +164,7 @@ export default function ScheduleBoard({
                   {[nextCircuit, nextLocality].filter(Boolean).join(" · ")}
                 </div>
                 <div className="flex items-baseline gap-1.5">
-                  <span className="font-extrabold text-[40px] tabular-nums text-[#FFAE6A]">
+                  <span className="font-extrabold text-[40px] tabular-nums text-primary">
                     {dd}
                   </span>
                   <span className="font-semibold text-[11px] text-warm-500">
@@ -257,7 +257,7 @@ export default function ScheduleBoard({
                   {r.winner && r.winner.familyName && (
                     <span className="flex items-center gap-1 font-bold text-[11px] sm:text-xs text-warm-100 whitespace-nowrap">
                       <span
-                        className="material-symbols-outlined text-[15px] text-[#FFAE6A]"
+                        className="material-symbols-outlined text-[15px] text-primary"
                         aria-hidden="true"
                       >
                         trophy
@@ -269,7 +269,7 @@ export default function ScheduleBoard({
                     {r.status === "completed" && r.isSprint && (
                       <span
                         className="font-bold text-[9px] tracking-[0.08em] uppercase px-2 py-1 rounded-lg whitespace-nowrap"
-                        style={{ background: "rgba(255,138,61,0.16)", color: "#FFAE6A" }}
+                        style={{ background: "rgba(255,138,61,0.16)", color: "var(--color-primary)" }}
                       >
                         Sprint
                       </span>

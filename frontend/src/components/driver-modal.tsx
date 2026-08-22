@@ -158,7 +158,7 @@ export default function DriverModal({
                 />
               </span>
             )}
-            <span className="font-bold text-[10px] tracking-[0.12em] uppercase text-[#FF7A3D]">
+            <span className="font-bold text-[10px] tracking-[0.12em] uppercase text-flame">
               {team}
             </span>
           </div>
@@ -209,7 +209,7 @@ export default function DriverModal({
                       key={s.l}
                       className="bg-[rgba(245,235,222,0.05)] rounded-xl px-3.5 py-3.5 text-center"
                     >
-                      <div className="font-extrabold text-xl tabular-nums text-[#FFAE6A]">
+                      <div className="font-extrabold text-xl tabular-nums text-primary">
                         {s.v}
                       </div>
                       <div className="font-semibold text-[9px] tracking-[0.1em] uppercase text-warm-500 mt-1">
@@ -231,7 +231,7 @@ export default function DriverModal({
                       href={bio.wikiUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="font-bold text-[#FF7A3D] hover:text-[#FFAE6A] transition-colors"
+                      className="font-bold text-flame hover:text-primary transition-colors"
                     >
                       Wikipedia →
                     </a>

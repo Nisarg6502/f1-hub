@@ -165,18 +165,18 @@ export default async function RaceWeekGlimpse({
         <div className="apex-glass rounded-[16px] px-4 sm:px-5 py-4 transition-colors group-hover:bg-[rgba(245,235,222,0.05)]">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-3">
             {live ? (
-              <span className="inline-flex items-center gap-2 rounded-full bg-[rgba(255,90,31,0.16)] px-2.5 py-1 font-bold text-[10px] tracking-[0.14em] uppercase text-[#FFAE6A]">
+              <span className="inline-flex items-center gap-2 rounded-full bg-[rgba(255,90,31,0.16)] px-2.5 py-1 font-bold text-[10px] tracking-[0.14em] uppercase text-primary">
                 {/* Two stacked dots: the outer one pings, the inner one is the
                     steady mark that survives `prefers-reduced-motion`, which
                     Tailwind's `motion-safe:` variant turns the ping off for. */}
                 <span className="relative flex w-1.5 h-1.5 flex-none">
-                  <span className="absolute inline-flex w-full h-full rounded-full bg-[#FF5A1F] opacity-75 motion-safe:animate-ping" />
-                  <span className="relative inline-flex w-1.5 h-1.5 rounded-full bg-[#FF5A1F]" />
+                  <span className="absolute inline-flex w-full h-full rounded-full bg-primary-container opacity-75 motion-safe:animate-ping" />
+                  <span className="relative inline-flex w-1.5 h-1.5 rounded-full bg-primary-container" />
                 </span>
                 {live.sessionLabel} live
               </span>
             ) : (
-              <span className="font-bold text-[10px] tracking-[0.14em] uppercase text-[#FF7A3D]">
+              <span className="font-bold text-[10px] tracking-[0.14em] uppercase text-flame">
                 Race week
               </span>
             )}
@@ -222,7 +222,7 @@ export default async function RaceWeekGlimpse({
                   />
                   <span
                     className={`self-center font-[family-name:var(--font-headline)] font-extrabold text-[15px] tabular-nums flex-none ${
-                      isWinner ? "text-[#FFAE6A]" : "text-warm-500"
+                      isWinner ? "text-primary" : "text-warm-500"
                     }`}
                   >
                     {row.position}
@@ -237,7 +237,7 @@ export default async function RaceWeekGlimpse({
                   </span>
                   <span
                     className={`self-center font-semibold text-[11.5px] tabular-nums whitespace-nowrap ${
-                      isWinner ? "text-[#FFAE6A]" : "text-warm-300"
+                      isWinner ? "text-primary" : "text-warm-300"
                     }`}
                   >
                     {row.time}

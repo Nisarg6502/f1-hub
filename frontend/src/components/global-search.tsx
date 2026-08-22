@@ -298,7 +298,7 @@ export default function GlobalSearch() {
   return (
     <div className="relative hidden lg:block" ref={rootRef}>
       <div className="flex items-center gap-[9px] bg-[rgba(245,235,222,0.06)] backdrop-blur-[10px] border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] rounded-xl px-[14px] py-[9px] w-[208px] focus-within:border-[rgba(255,138,61,0.5)] transition-colors duration-150">
-        <Search className="w-3 h-3 text-[#8f867a] flex-none" strokeWidth={2} />
+        <Search className="w-3 h-3 text-warm-400 flex-none" strokeWidth={2} />
         <input
           ref={inputRef}
           className="flex-1 min-w-0 bg-transparent border-none outline-none font-medium text-xs text-on-background placeholder:text-warm-500"

@@ -11,7 +11,7 @@ export default function NotFound() {
   return (
     <main className="relative z-10 max-w-[1440px] mx-auto px-6 md:px-10 py-20 md:py-28">
       <div className="max-w-[52ch]">
-        <p className="font-[family-name:var(--font-headline)] font-extrabold text-[64px] leading-none tracking-[-2px] text-[#FF5A1F]">
+        <p className="font-[family-name:var(--font-headline)] font-extrabold text-[64px] leading-none tracking-[-2px] text-primary-container">
           404
         </p>
         <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-[28px] tracking-[-0.6px] mt-4 mb-3">

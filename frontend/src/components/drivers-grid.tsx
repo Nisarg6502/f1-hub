@@ -284,7 +284,7 @@ export default function DriversGrid({ drivers }: DriversGridProps) {
                       <div key={s.l} className="text-center">
                         <div
                           className={`font-extrabold text-[15px] tabular-nums ${
-                            s.accent ? "text-[#FFAE6A]" : ""
+                            s.accent ? "text-primary" : ""
                           }`}
                         >
                           {s.v}

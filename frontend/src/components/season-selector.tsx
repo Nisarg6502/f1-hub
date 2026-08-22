@@ -53,7 +53,7 @@ export default function SeasonSelector({
           </option>
         ))}
       </select>
-      <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-[#FFAE6A] pointer-events-none text-xl">
+      <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-primary pointer-events-none text-xl">
         keyboard_arrow_down
       </span>
     </div>

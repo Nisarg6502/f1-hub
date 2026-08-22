@@ -59,7 +59,7 @@ export default function TeamHeritageDisclosure({
         /* `outline`, not `ring` — `.apex-glass-*` is declared unlayered and its
            box-shadow swallows a Tailwind ring, which has already cost this repo
            a focus indicator once (see team-heritage-card.tsx). */
-        className="group/disc w-full flex items-center gap-3 pt-4 text-left rounded-lg outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFAE6A]"
+        className="group/disc w-full flex items-center gap-3 pt-4 text-left rounded-lg outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
       >
         {/* Eleven of these buttons sit on one page and the visible label is
             identical on all of them, so the team name leads the accessible

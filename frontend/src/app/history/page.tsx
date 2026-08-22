@@ -153,7 +153,7 @@ export default async function HistoryPage() {
   return (
     <div className="px-6 md:px-10 pt-10 pb-16">
       <section className="mb-10">
-        <span className="font-bold text-[10px] tracking-[0.12em] uppercase px-2.5 py-1.5 rounded-lg bg-[rgba(255,90,31,0.16)] text-[#FFAE6A]">
+        <span className="font-bold text-[10px] tracking-[0.12em] uppercase px-2.5 py-1.5 rounded-lg bg-[rgba(255,90,31,0.16)] text-primary">
           F1 Heritage
         </span>
         <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[44px] tracking-[-1px] leading-[0.98] mt-3">

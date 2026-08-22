@@ -283,7 +283,7 @@ export default function TeamHeritageCard({
                     // `outline`, not `ring`: `.apex-glass-*` is declared
                     // unlayered and its box-shadow swallows a Tailwind ring,
                     // which has already cost this repo a focus indicator once.
-                    className="group flex items-center gap-1.5 rounded-full pl-1.5 pr-2.5 py-1 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#FFAE6A] transition-colors"
+                    className="group flex items-center gap-1.5 rounded-full pl-1.5 pr-2.5 py-1 outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary transition-colors"
                     style={{
                       background: isSelected
                         ? `${hex}2E`
@@ -344,7 +344,7 @@ export default function TeamHeritageCard({
                         className="font-semibold text-[10px] px-2 py-[3px] rounded-md tabular-nums"
                         style={{
                           background: `${accentHex}22`,
-                          color: "#f6f1ea",
+                          color: "var(--color-warm-100)",
                         }}
                         title={selected.constructorTitles.join(", ")}
                       >
