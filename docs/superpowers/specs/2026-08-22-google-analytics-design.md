@@ -1,7 +1,7 @@
 # Google Analytics 4 — Design
 
 **Date:** 2026-08-22
-**Status:** Designed, not implemented
+**Status:** Implemented on `feat/google-analytics`; awaiting a real measurement ID
 
 ## Problem
 
