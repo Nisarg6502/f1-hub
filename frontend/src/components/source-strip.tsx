@@ -67,6 +67,17 @@ export default function SourceStrip({
       <h3 className="mb-1.5 text-[10px] font-semibold tracking-wide text-[var(--color-on-surface-variant)] uppercase">
         {sources.length === 1 ? "Record used" : "Records used"}
       </h3>
+      {/* A key for the underline language, because it has none otherwise.
+          The marks above are real buttons that open the record proving a
+          value -- the single most useful thing in this panel -- but nothing
+          tells a first-time reader that. Worse, an ordinary markdown link in
+          an answer is also underlined, so two different underline meanings
+          coexist separated only by colour. Without a key the most likely
+          reading is "emphasis", and nobody clicks emphasis. */}
+      <p className="mb-2 text-[11px] text-[var(--color-on-surface-variant)]">
+        Underlined values in the answer open the record they came from.
+        Everything else is the model&apos;s own wording.
+      </p>
       <ul className="flex flex-wrap gap-1.5">
         {visible.map((source) => (
           <SourceChip

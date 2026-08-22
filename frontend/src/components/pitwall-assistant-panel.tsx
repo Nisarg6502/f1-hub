@@ -673,6 +673,20 @@ export default function PitwallAssistantPanel({
                   </button>
                 ))}
               </div>
+              {/* Say that the conversation is disposable, because nothing else
+                  does.
+                  `threadId` is a fresh UUID on every mount and the launcher
+                  only mounts this panel while it is open, so closing the panel
+                  — not just reloading — discards the conversation. The
+                  deliberate reset ("Start a new chat? This conversation will be
+                  discarded") warns before doing exactly the same thing, which
+                  makes the silent version more surprising, not less. One line
+                  here is cheaper than persistence and honest about what the
+                  product is. */}
+              <p className="pt-1 text-[11px] text-[var(--color-on-surface-variant)]">
+                Conversations aren&apos;t saved — closing this panel starts a
+                fresh one.
+              </p>
             </div>
           )}
           {messages.map((message, index) => (
@@ -925,6 +939,24 @@ const MessageBubble = memo(function MessageBubble({
           }}
         />
       )}
+
+      {/* An answer with NO evidence must say so.
+          `SourceStrip` renders nothing when `sources` is empty and
+          `StatusFooter` renders nothing when verification passed -- and an
+          "empty-ish" draft passes by design. So a confident, entirely
+          uncited paragraph arrived looking identical to a fully cited one,
+          minus two absences, and the absence of a strip is not something a
+          reader notices. Stating it turns a silent gap into a claim the
+          reader can weigh. */}
+      {message.done &&
+        !message.error &&
+        message.sources.length === 0 &&
+        message.text && (
+          <p className="pl-1 text-[11px] text-[var(--color-on-surface-variant)]">
+            No stored records backed this answer — it is the model&apos;s own
+            account.
+          </p>
+        )}
 
       <SourceStrip
         sources={message.sources}
@@ -1194,10 +1226,24 @@ function StatusFooter({ done }: { done: AgentDone | null }) {
     );
   }
   if (done.verification !== "verification_failed") return null;
+  // Styled as a warning, not a footnote.
+  //
+  // This fires when the verifier found a specific problem -- a citation
+  // pointing at a record that was never retrieved, a number absent from the
+  // record cited for it, or a meaningful number with no citation at all -- AND
+  // the model's one repair attempt failed to fix it. The answer is still shown,
+  // which is the right call, but it was announced in the same muted grey as the
+  // elapsed-time readout beside it, quieter than the metadata. A reader
+  // scanning the answer had no reason to read it as anything but chrome.
   return (
-    <p className="mt-2 text-xs text-[var(--color-on-surface-variant)]">
-      Some details in this answer could not be fully verified against
-      retrieved data.
+    <p className="mt-2 flex items-start gap-1.5 text-xs text-[var(--color-error)]">
+      <span className="material-symbols-outlined text-[15px] leading-none" aria-hidden="true">
+        warning
+      </span>
+      <span>
+        Some figures here could not be matched to a stored record. Check them
+        before relying on them.
+      </span>
     </p>
   );
 }

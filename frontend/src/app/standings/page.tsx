@@ -87,6 +87,7 @@ export default async function StandingsPage({ searchParams }: PageProps) {
       seasonLogs={seasonLogs}
       year={year}
       maxYear={getActiveSeasonYear()}
+      renderedAtMs={Date.now()}
     />
   );
 }

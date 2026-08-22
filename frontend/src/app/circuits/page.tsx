@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import {
   getActiveSeasonYear,
   getSeasonRaces,
@@ -7,6 +8,12 @@ import { getCircuitImagePath } from "@/lib/circuit-images";
 import CircuitsGallery from "@/components/circuits-gallery";
 import CircuitDnaCompare from "@/components/circuit-dna-compare";
 import TrackMap from "@/components/track-map";
+
+export const metadata: Metadata = {
+  title: "Circuits | APEX",
+  description:
+    "Every circuit on the Formula 1 calendar: layout, corner count, lap record and elevation, with side-by-side circuit DNA comparison.",
+};
 
 // Circuit details are filled in by the sync job as the season runs, so this
 // page must not be pinned to a build-time snapshot.

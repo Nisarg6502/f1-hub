@@ -207,6 +207,16 @@ def session_secret() -> str | None:
 SESSION_TTL_SECONDS = _int("AGENT_SESSION_TTL_SECONDS", 7 * 24 * 3600)
 
 
+# How long a conversation thread's checkpoints survive.
+#
+# Thread memory is only useful for the life of a conversation, and the frontend
+# starts a new thread every time the panel opens -- so without an expiry, every
+# abandoned conversation is stored forever on a free tier that has 512MB in
+# total. Seven days is far longer than any single conversation and short enough
+# that the collection reaches a steady size instead of growing without bound.
+CHECKPOINT_TTL_SECONDS = _int("AGENT_CHECKPOINT_TTL_SECONDS", 7 * 24 * 3600)
+
+
 # --- Observability ---------------------------------------------------------
 
 # LangSmith reads these from the environment directly; the service only needs
