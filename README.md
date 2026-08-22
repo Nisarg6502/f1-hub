@@ -299,6 +299,30 @@ that the July 2026 APEX redesign replaced. Do not build against it.
 
 ---
 
+## Analytics
+
+APEX runs **Google Analytics 4**, added 2026-08-22. It is loaded consent-first:
+Consent Mode v2 defaults to denied for everyone before `gtag.js` is requested,
+visitors outside the EEA/UK are granted on mount, and EU/UK visitors get a
+banner and stay denied until they answer. Region comes from the browser's IANA
+timezone, because a bare `run.app` URL has no geo headers to read.
+
+Eight named events sit alongside page views, each chosen to answer a question
+this README could not: whether `/telemetry` is ever clicked, whether the
+second-screen pairing is ever used, whether the mobile navigation's six-item cap
+is a real problem, and where the traffic comes from. **Nothing a user types is
+ever sent** — the chat event is a count, the search event carries the result
+kind rather than the query.
+
+`_NEXT_PUBLIC_GA_MEASUREMENT_ID` is a Cloud Build substitution and is inlined at
+build time, so **creating or changing the property requires a frontend rebuild**.
+Left empty, the analytics components render nothing and the CSP keeps its
+narrower pre-analytics form. `frontend/src/app/(info)/privacy/page.tsx` is the
+user-facing statement of what is collected; the design and the verification
+record are in `docs/superpowers/specs/2026-08-22-google-analytics-design.md`.
+
+---
+
 ## Known gaps
 
 Recorded here rather than left to be discovered:

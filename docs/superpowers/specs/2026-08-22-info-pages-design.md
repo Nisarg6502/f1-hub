@@ -170,6 +170,11 @@ briefly incomplete.
 ### `/privacy`
 
 - **No analytics, no ad tech, no tracking pixels.**
+  > **Superseded 2026-08-22.** APEX now runs Google Analytics 4, and this
+  > bullet no longer describes the shipped page. The privacy and FAQ copy was
+  > rewritten as part of that work — see
+  > `2026-08-22-google-analytics-design.md`. Left here as the record of what
+  > this batch designed, not as a description of current behaviour.
 - **No accounts.** Nothing to sign up for or log into.
 - **One cookie, and what it is for.** `f1_agent_sid` — an HMAC-signed
   rate-limiting identity, set by the agent backend when you use the Pitwall

@@ -1,4 +1,54 @@
-# F1 Hub — Handoff (2026-08-18)
+# F1 Hub — Handoff (2026-08-23)
+
+## GA4 — the CSP silently ate the whole feature (2026-08-23)
+
+**Read this before adding any third-party script to the frontend.**
+
+APEX shipped Google Analytics and measured nothing. `next.config.ts` sets a
+CSP whose `script-src 'self' 'unsafe-inline'` named no Google host, so
+`gtag.js` was refused outright on the deployed site.
+
+**Why it survived a careful verification pass.** A CSP refusal arrives over CDP
+as `Network.loadingFailed` with an **empty `errorText`** — only
+`params.blockedReason` says `"csp"`. Without reading that field it is
+indistinguishable from network-level filtering, and it was diagnosed as exactly
+that: twice, and written into the design doc as an environment limitation.
+
+What made it convincing is that *our own code kept working perfectly*. The
+inline bootstrap defines `window.gtag` as a `dataLayer.push` shim, so consent
+defaults, the config call, the grant and every `page_view` queued into
+`dataLayer` in exactly the right order whether or not Google's script ever
+loaded. Every check of our instrumentation passed. The only true signal was
+`typeof window.google_tag_data`, which stays `"undefined"` until gtag.js
+actually executes.
+
+**The rule:** adding a third-party script means adding its hosts to the CSP in
+the same change — for GA that is `script-src` (the tag), `connect-src` (the
+`/g/collect` beacons, including the cookieless ones a denied visitor still
+sends) and `img-src` (the image-beacon fallback). Then confirm *the third party's
+own script ran*, not that our code called it.
+
+Two mechanical notes worth keeping:
+
+- `headers()` is evaluated at **build** time and baked into
+  `.next/routes-manifest.json`. That is where to verify a CSP change, and it is
+  why the builder stage's `ENV` is enough — the runner stage never needs the
+  variable.
+- The GA hosts are gated on `NEXT_PUBLIC_GA_MEASUREMENT_ID`, so a build without
+  analytics keeps the narrower policy. Both variants were checked in the
+  manifest.
+
+**Also: never measure event counts against `next dev`.** React Strict Mode
+double-invokes effects, so `page_view`, the consent grant and
+`backend_unavailable` each fired twice in development and once in production.
+That looks precisely like the double-counting the manual `page_view` design
+exists to prevent.
+
+Verified on the live deployment: `gtag.js` 200 and executing, EU visitor gets a
+banner and **no `_ga`** until they click, non-EU gets `_ga` immediately, one
+collector request per view. Design and full verification record in
+`docs/superpowers/specs/2026-08-22-google-analytics-design.md`.
+
 
 ## CP82-85 — the chat agent had no rate limiting at all (2026-08-18)
 

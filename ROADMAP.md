@@ -49,6 +49,7 @@ Checkpoints (`CP<n>`) number flatly and continuously across the project's life �
 | 24 | CP86 (completed) + unnumbered UI debt | Watch-party variant 2 — a phone and a laptop running one replay in step, syncing a command and an anchor rather than a playhead (PR #121). Then a read-only production UX audit and three parallel agents on its findings: nav/layout breakpoints and the mobile bar (#122), the hydration mismatch that turned out to be three bugs (#123), and team heritage, framed driver portraits and keyboard-operable modals/search (#124) | merged and deployed |
 | 24 (ad hoc) | unnumbered | Three further user-reported rounds merged 2026-08-21, recorded in no batch plan — `/teams` accuracy ("on the grid" named the lineage, not the team; a poisoned empty fetch-cache behind the wrong eras) plus portrait-as-card driver cards and scan-to-pair (#125); pairing confirmation on both screens, a single-scroll standings page with per-driver season expansion, and clearer driver cards (#126); the official car renders put to work across five surfaces (#127) | merged |
 | 24 (ad hoc, 2026-08-21) | unnumbered | Home page trades the "77 Seasons" barcode (and its ~1,200-race `historical_race_index` fetch) for a race-week session glimpse (#128); `/teams` heritage moves behind a per-card disclosure, ~9,000px → ~3,300px (#129); and the sync fix — session-scoped syncs were gated on the *race* having started, so every practice classification in the database had been ~2 days late for the life of the project (#130) | merged |
+| 24 (ad hoc, 2026-08-22/23) | unnumbered | Google Analytics 4, consent-first: Consent Mode v2 denied for everyone before `gtag.js` loads, granted on mount outside the EEA/UK, banner-gated inside it, with region taken from the browser's IANA timezone because a bare `run.app` URL has no geo headers. Eight named events, no free text. `/privacy` and `/faq` rewritten — both had promised "no analytics" in writing. Also the frontend's first test runner (Vitest, `lib/` only, 15 tests) (PR #149). **Shipped broken and was fixed the same day:** the app's own CSP `script-src` named no Google host, so `gtag.js` was refused outright and nothing was measured; a CSP refusal reports an empty `errorText` and was twice misdiagnosed as network filtering (`8658275`) | merged and deployed |
 
 The original plan's CP15-19 (driver/team head-to-head compare, championship calculator, lap-by-lap chart, calendar links, global search) were superseded by the ad-hoc work above and never built under those numbers. They're carried forward into the Backlog below rather than left as gaps — checkpoint numbering resumes cleanly at CP20.
 
@@ -1099,7 +1100,9 @@ it retry indefinitely.
   credential, not effort.
 
 ### Documentation currency
-`README.md`, `FEATURES.md` and this file were all refreshed on 2026-08-21, after the README was
+`README.md`, `FEATURES.md` and this file were refreshed again on 2026-08-23 for the GA4 work
+(analytics section, consent banner in global chrome, and the batch row above). Before that they
+were refreshed on 2026-08-21, after the README was
 found to be 226 commits stale — it still called the product "F1 Hub", named the retired Ergast API
 as the data source, described four deployed units instead of six, and did not mention the chat
 agent, watch mode, or any route at all. `DESIGN-CONTEXT.md` remains **stale** and is not worth
