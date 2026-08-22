@@ -147,7 +147,7 @@ export default async function Home() {
           <div className="min-w-0">
             <div className="flex items-center gap-[13px] mb-6 anim-rise">
               <span className="font-bold text-xs tracking-[0.16em] uppercase text-[#FF7A3D]">
-                {nextRace ? `Round ${nextRace.round}` : "Season 2026"}
+                {nextRace ? `Round ${nextRace.round}` : `Season ${seasonYear}`}
               </span>
               {(heroLocality || heroCircuit) && (
                 <>
