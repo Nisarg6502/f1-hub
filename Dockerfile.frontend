@@ -22,10 +22,16 @@ ARG NEXT_PUBLIC_RAPIDAPI_HOST
 # The f1-agent service (Batch 17). Separate from the API base URL because it is
 # a separate Cloud Run service with its own scaling and timeout settings.
 ARG NEXT_PUBLIC_AGENT_BASE_URL
+# The GA4 measurement ID. Baked into the client bundle, which is correct and
+# not a leak: a measurement ID is a public identifier, visible in View Source
+# on every site that uses GA. Empty is a supported value -- the analytics
+# components render nothing without it, so a build with no ID is today's site.
+ARG NEXT_PUBLIC_GA_MEASUREMENT_ID
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 ENV NEXT_PUBLIC_ASSET_BASE_URL=$NEXT_PUBLIC_ASSET_BASE_URL
 ENV NEXT_PUBLIC_RAPIDAPI_HOST=$NEXT_PUBLIC_RAPIDAPI_HOST
 ENV NEXT_PUBLIC_AGENT_BASE_URL=$NEXT_PUBLIC_AGENT_BASE_URL
+ENV NEXT_PUBLIC_GA_MEASUREMENT_ID=$NEXT_PUBLIC_GA_MEASUREMENT_ID
 
 # Build the Next.js app
 RUN npm run build
