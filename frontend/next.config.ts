@@ -29,6 +29,39 @@ const CONNECT_ORIGINS = [
   .filter((value): value is string => Boolean(value));
 
 /**
+ * Google Analytics hosts, added to the CSP only when a measurement ID exists.
+ *
+ * This is not optional decoration: the CSP shipped without it and silently
+ * killed the entire feature. `script-src` refused gtag.js with
+ * `blockedReason: "csp"`, which surfaces as a `loadingFailed` carrying an EMPTY
+ * errorText -- it looks exactly like a network-level block, and was
+ * misdiagnosed as one. Nothing in the app logs, nothing warns, and every one of
+ * our own consent calls still queues into `dataLayer` perfectly, so the code
+ * looks healthy right up until you notice Google never received anything.
+ *
+ * Three directives, all required, per Google's own guidance:
+ *   script-src  -- gtag.js itself
+ *   connect-src -- the /g/collect beacons, including the cookieless ones a
+ *                  denied visitor still sends
+ *   img-src     -- GA falls back to an image beacon where fetch is unavailable
+ *
+ * Gated on the ID so a build without analytics keeps the narrower policy it had
+ * before any of this existed.
+ */
+const GA_ENABLED = Boolean(process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID);
+const GA_SCRIPT = GA_ENABLED ? ["https://*.googletagmanager.com"] : [];
+const GA_CONNECT = GA_ENABLED
+  ? [
+      "https://*.google-analytics.com",
+      "https://*.analytics.google.com",
+      "https://*.googletagmanager.com",
+    ]
+  : [];
+const GA_IMG = GA_ENABLED
+  ? ["https://*.google-analytics.com", "https://*.googletagmanager.com"]
+  : [];
+
+/**
  * Content-Security-Policy.
  *
  * Two concessions are load-bearing and should not be "tidied away":
@@ -53,17 +86,21 @@ const CSP = [
   "object-src 'none'",
   "frame-ancestors 'none'",
   "form-action 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  ["script-src 'self' 'unsafe-inline'", ...GA_SCRIPT].join(" "),
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
   // `data:` and `blob:` are needed for canvas-derived and generated imagery
   // (the track renderer, the OG image route, chart exports).
-  "img-src 'self' data: blob: https://storage.googleapis.com https://upload.wikimedia.org https://commons.wikimedia.org",
+  [
+    "img-src 'self' data: blob: https://storage.googleapis.com https://upload.wikimedia.org https://commons.wikimedia.org",
+    ...GA_IMG,
+  ].join(" "),
   [
     "connect-src 'self'",
     ...CONNECT_ORIGINS,
     "https://api.openf1.org",
     "https://www.opentopodata.org",
+    ...GA_CONNECT,
   ].join(" "),
   // The add-to-calendar control builds an .ics as a blob URL
   // (`session-tabs.tsx`), and the 3D track view is the kind of code that grows
