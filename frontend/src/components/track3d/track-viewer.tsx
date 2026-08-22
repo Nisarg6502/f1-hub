@@ -121,7 +121,7 @@ export default function TrackViewer({
 
   if (error) {
     return (
-      <div className="apex-glass-soft rounded-[22px] p-8 text-center">
+      <div className="apex-glass-soft rounded-panel p-8 text-center">
         <p className="font-semibold text-sm text-warm-200">
           Track geometry unavailable
         </p>
@@ -140,7 +140,7 @@ export default function TrackViewer({
 
   if (!payload || !bundle || webgl === null) {
     return (
-      <div className="apex-glass-soft rounded-[22px] h-[540px] animate-pulse" />
+      <div className="apex-glass-soft rounded-panel h-[540px] animate-pulse" />
     );
   }
 
@@ -150,7 +150,7 @@ export default function TrackViewer({
   // still learns that Eau Rouge climbs 47 m.
   if (webgl === false) {
     return (
-      <div className="apex-glass-strong apex-sheen rounded-[22px] p-6">
+      <div className="apex-glass-strong apex-sheen rounded-panel p-6">
         <p className="font-semibold text-[11px] tracking-[0.14em] uppercase text-warm-500 mb-4">
           3D unavailable in this browser — showing the elevation profile
         </p>
@@ -167,7 +167,7 @@ export default function TrackViewer({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="apex-glass-strong apex-sheen rounded-[22px] overflow-hidden relative">
+      <div className="apex-glass-strong apex-sheen rounded-panel overflow-hidden relative">
         <div
           className="h-[clamp(360px,58vh,660px)] w-full outline-none"
           tabIndex={0}
@@ -310,7 +310,7 @@ export default function TrackViewer({
       </div>
 
       {/* Controls */}
-      <div className="apex-glass apex-sheen rounded-[18px] p-4 flex flex-wrap items-center gap-x-6 gap-y-4">
+      <div className="apex-glass apex-sheen rounded-card p-4 flex flex-wrap items-center gap-x-6 gap-y-4">
         <ControlGroup label="View">
           {PRESETS.map((item) => (
             <Chip
@@ -388,7 +388,7 @@ export default function TrackViewer({
       </div>
 
       {/* Elevation profile + highlights */}
-      <div className="apex-glass apex-sheen rounded-[18px] p-5">
+      <div className="apex-glass apex-sheen rounded-card p-5">
         <div className="flex items-baseline justify-between mb-2">
           <h2 className="font-[family-name:var(--font-headline)] font-bold text-[15px]">
             Elevation profile
@@ -412,7 +412,7 @@ export default function TrackViewer({
               key={highlight.id}
               type="button"
               onClick={() => selectHighlight(highlight)}
-              className={`apex-glass-soft rounded-[14px] p-4 text-left transition-transform duration-150 active:scale-[0.98] ${
+              className={`apex-glass-soft rounded-tile p-4 text-left transition-transform duration-150 active:scale-[0.98] ${
                 activeHighlight === highlight.id ? "ring-1 ring-[rgba(255,174,106,0.5)]" : ""
               }`}
             >

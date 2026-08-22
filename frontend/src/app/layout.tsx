@@ -213,8 +213,8 @@ export default function RootLayout({
                   suit would enlarge the one element setting the bar's
                   height. */}
               <Link href="/" className="relative flex items-center gap-[11px] before:absolute before:-inset-y-1 before:-inset-x-2 before:content-['']">
-                <span className="w-[9px] h-[9px] rounded-full bg-[#FF5A1F] shadow-[0_0_14px_rgba(255,90,31,0.9)]" />
-                <span className="font-[family-name:var(--font-headline)] font-extrabold text-[21px] tracking-[-0.5px]">
+                <span className="w-[9px] h-[9px] rounded-full bg-primary-container shadow-[0_0_14px_rgba(255,90,31,0.9)]" />
+                <span className="font-[family-name:var(--font-headline)] font-extrabold text-[22px] tracking-[-0.5px]">
                   APEX
                 </span>
               </Link>
@@ -289,7 +289,7 @@ export default function RootLayout({
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-6 border-t border-white/[0.05]">
               <div className="flex items-center gap-[10px]">
-                <span className="w-2 h-2 rounded-full bg-[#FF5A1F]" />
+                <span className="w-2 h-2 rounded-full bg-primary-container" />
                 <span className="font-[family-name:var(--font-headline)] font-extrabold text-[15px]">
                   APEX
                 </span>

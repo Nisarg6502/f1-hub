@@ -85,7 +85,7 @@ export default function ConditionsTile({ weather, sessionLabel }: ConditionsTile
       </p>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3.5">
         {stats.map((stat) => (
-          <div key={stat.label} className="apex-glass-soft rounded-[14px] px-[22px] py-[18px]">
+          <div key={stat.label} className="apex-glass-soft rounded-tile px-[22px] py-[18px]">
             <p className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-500">
               {stat.label}
             </p>

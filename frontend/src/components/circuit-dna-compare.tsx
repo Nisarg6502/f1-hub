@@ -98,7 +98,7 @@ function CircuitSelect({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="flex items-center justify-between gap-2 w-full rounded-[10px] bg-[rgba(245,235,222,0.06)] border border-white/10 px-3.5 py-2.5 text-xs hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-[0.98]"
+        className="flex items-center justify-between gap-2 w-full rounded-control bg-[rgba(245,235,222,0.06)] border border-white/10 px-3.5 py-2.5 text-xs hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-[0.98]"
       >
         <span className="flex items-center gap-2 min-w-0">
           {selected?.flagPath && (
@@ -150,7 +150,7 @@ function CircuitSelect({
                     isExcluded
                       ? "opacity-35 cursor-not-allowed"
                       : `cursor-pointer hover:bg-white/[0.05] ${
-                          isSelected ? "text-[#FFAE6A]" : "text-warm-300"
+                          isSelected ? "text-primary" : "text-warm-300"
                         }`
                   }`}
                 >
@@ -226,8 +226,8 @@ export default function CircuitDnaCompare({
           <button
             onClick={() => setShowModal(true)}
             disabled={!canCompare}
-            className="font-bold text-xs tracking-[0.08em] uppercase text-[#1a1210] px-5 py-2.5 rounded-[12px] shadow-[0_6px_20px_rgba(255,90,31,0.35)] disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed transition-[box-shadow,transform] duration-150 active:scale-95 mt-1"
-            style={{ background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)" }}
+            className="font-bold text-xs tracking-[0.08em] uppercase text-[#1a1210] px-5 py-2.5 rounded-control shadow-[0_6px_20px_rgba(255,90,31,0.35)] disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed transition-[box-shadow,transform] duration-150 active:scale-95 mt-1"
+            style={{ background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
           >
             Compare tracks
           </button>

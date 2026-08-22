@@ -203,7 +203,7 @@ export default async function TeamsPage({ searchParams }: PageProps) {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-5 mb-7">
         <div>
-          <span className="font-bold text-xs tracking-[0.18em] uppercase text-[#FF7A3D]">
+          <span className="font-bold text-xs tracking-[0.18em] uppercase text-flame">
             Constructor standings {year}
           </span>
           {/* An `h1`, not a styled div — the last two routes without one.
@@ -256,7 +256,7 @@ export default async function TeamsPage({ searchParams }: PageProps) {
           return (
             <StaggerItem key={name || idx}>
             <TiltCard
-              className="apex-glass rounded-[20px] overflow-hidden p-[26px] block h-full"
+              className="apex-glass rounded-card overflow-hidden p-[26px] block h-full"
               strength={5}
             >
               {/* corner wash + blurred blob */}
@@ -281,14 +281,14 @@ export default async function TeamsPage({ searchParams }: PageProps) {
                       {team.Constructor.nationality}
                     </span>
                     {engine && (
-                      <span className="font-semibold text-[10px] tracking-[0.04em] uppercase px-2.5 py-[5px] rounded-[7px] bg-[rgba(245,235,222,0.06)] text-warm-200">
+                      <span className="font-semibold text-[10px] tracking-[0.04em] uppercase px-2.5 py-[5px] rounded-chip bg-[rgba(245,235,222,0.06)] text-warm-200">
                         Power · {engine.name}
                       </span>
                     )}
                   </div>
                 </div>
                 {logoPath ? (
-                  <div className="relative w-[54px] h-[54px] rounded-[14px] p-2 flex-none bg-[rgba(245,235,222,0.92)]">
+                  <div className="relative w-[54px] h-[54px] rounded-tile p-2 flex-none bg-[rgba(245,235,222,0.92)]">
                     <Image
                       src={logoPath}
                       alt={`${name} logo`}
@@ -299,7 +299,7 @@ export default async function TeamsPage({ searchParams }: PageProps) {
                   </div>
                 ) : (
                   <div
-                    className="w-[54px] h-[54px] rounded-[14px] flex items-center justify-center font-[family-name:var(--font-headline)] font-extrabold text-xl flex-none"
+                    className="w-[54px] h-[54px] rounded-tile flex items-center justify-center font-[family-name:var(--font-headline)] font-extrabold text-xl flex-none"
                     style={{ background: color.hex, color: "#0a0908" }}
                   >
                     {mono}
@@ -339,7 +339,7 @@ export default async function TeamsPage({ searchParams }: PageProps) {
                   all-time figures, and the two are labelled apart so a
                   season win count is never read as a career one. */}
               <div className="relative mt-5">
-                <div className="font-semibold text-[9.5px] tracking-[0.1em] uppercase text-warm-500 mb-2">
+                <div className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500 mb-2">
                   {year} season
                 </div>
                 <div className="flex items-end justify-between">
@@ -347,7 +347,7 @@ export default async function TeamsPage({ searchParams }: PageProps) {
                     <div className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500">
                       Position
                     </div>
-                    <div className="font-[family-name:var(--font-headline)] font-extrabold text-xl text-[#FFAE6A]">
+                    <div className="font-[family-name:var(--font-headline)] font-extrabold text-xl text-primary">
                       P{team.position}
                     </div>
                   </div>
@@ -424,14 +424,14 @@ export default async function TeamsPage({ searchParams }: PageProps) {
       {/* Power units */}
       {engineGroups.size > 0 && (
         <>
-          <div className="font-[family-name:var(--font-headline)] font-bold text-[19px] mb-4">
+          <div className="font-[family-name:var(--font-headline)] font-bold text-[20px] mb-4">
             Power units
           </div>
           <Stagger className="grid grid-cols-2 lg:grid-cols-4 gap-3.5" gap={0.05}>
             {[...engineGroups.entries()].map(([engineName, teams]) => (
               <StaggerItem
                 key={engineName}
-                className="apex-glass-soft rounded-[14px] px-5 py-[18px]"
+                className="apex-glass-soft rounded-tile px-5 py-[18px]"
               >
                 <div className="font-bold text-sm">{engineName}</div>
                 <div className="font-medium text-xs text-warm-400 mt-1.5">

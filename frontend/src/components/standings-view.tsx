@@ -97,7 +97,7 @@ export default function StandingsView({
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 mb-7">
         <div>
-          <span className="font-bold text-xs tracking-[0.18em] uppercase text-[#FF7A3D]">
+          <span className="font-bold text-xs tracking-[0.18em] uppercase text-flame">
             Season {year} · Championship
           </span>
           {/* An `h1`, not a styled div — the last two routes without one.
@@ -127,7 +127,7 @@ export default function StandingsView({
                 onClick={() => setTab(key)}
                 className={`relative text-xs px-5 py-[9px] rounded-lg transition-[color,transform] duration-150 active:scale-[0.97] ${
                   tab === key
-                    ? "font-bold text-[#FFAE6A]"
+                    ? "font-bold text-primary"
                     : "font-semibold text-warm-300 hover:text-on-background"
                 }`}
               >
@@ -209,7 +209,7 @@ export default function StandingsView({
               return (
                 <StaggerItem
                   key={name || i}
-                  className="rounded-[14px] border transition-colors"
+                  className="rounded-tile border transition-colors"
                   style={{
                     background: leader
                       ? "rgba(255,90,31,0.12)"
@@ -245,23 +245,23 @@ export default function StandingsView({
                     // thing in the row that must stay readable. Reclaiming it
                     // from the gutters and from two points digits costs
                     // nothing.
-                    className="grid grid-cols-[36px_1fr_auto_auto] sm:grid-cols-[44px_1fr_70px_90px_auto] gap-2.5 sm:gap-4 items-center px-3.5 sm:px-5 py-[14px] rounded-[14px] cursor-pointer hover:bg-white/[0.03] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(255,138,61,0.6)]"
+                    className="grid grid-cols-[36px_1fr_auto_auto] sm:grid-cols-[44px_1fr_70px_90px_auto] gap-2.5 sm:gap-4 items-center px-3.5 sm:px-5 py-[14px] rounded-tile cursor-pointer hover:bg-white/[0.03] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(255,138,61,0.6)]"
                   >
                     <span
                       className="font-extrabold text-lg tabular-nums"
-                      style={{ color: leader ? "#FFAE6A" : "#8f867a" }}
+                      style={{ color: leader ? "var(--color-primary)" : "var(--color-warm-400)" }}
                     >
                       {String(i + 1).padStart(2, "0")}
                     </span>
                     <div className="flex items-center gap-2.5 sm:gap-[14px] min-w-0">
                       <span
-                        className="w-1 h-[34px] rounded-[3px] flex-none"
+                        className="w-1 h-[34px] rounded-hairline flex-none"
                         style={{
                           background: color.hex,
                           boxShadow: `0 0 10px ${color.glow}`,
                         }}
                       />
-                      <div className="relative w-9 h-9 rounded-[9px] overflow-hidden flex-none bg-[rgba(245,235,222,0.06)]">
+                      <div className="relative w-9 h-9 rounded-control overflow-hidden flex-none bg-[rgba(245,235,222,0.06)]">
                         {imgPath ? (
                           <div style={driverPortraitFrameStyle("face")}>
                             <Image
@@ -297,7 +297,7 @@ export default function StandingsView({
                       <AnimatedNumber
                         value={Number(d.points) || 0}
                         className={`font-extrabold text-xl sm:text-2xl tabular-nums ${
-                          leader ? "text-[#FFAE6A]" : "text-[#f6f1ea]"
+                          leader ? "text-primary" : "text-warm-100"
                         }`}
                       />
                       <span className="font-semibold text-[9px] text-warm-500">
@@ -328,7 +328,7 @@ export default function StandingsView({
                         className="flex items-center justify-center w-5 h-5 sm:w-6 sm:h-6 rounded-md bg-white/[0.05]"
                         animate={{ rotate: isOpen ? 90 : 0 }}
                         transition={{ duration: reduce ? 0 : 0.22, ease: ACCORDION_EASE }}
-                        style={{ color: isOpen ? "#FFAE6A" : undefined }}
+                        style={{ color: isOpen ? "var(--color-primary)" : undefined }}
                       >
                         <ChevronRight size={15} />
                       </motion.span>
@@ -459,20 +459,20 @@ export default function StandingsView({
                 <div className="grid grid-cols-[40px_1fr_auto] sm:grid-cols-[44px_1fr_80px_100px] gap-3 sm:gap-4 items-center">
                   <span
                     className="font-extrabold text-lg tabular-nums"
-                    style={{ color: leader ? "#FFAE6A" : "#8f867a" }}
+                    style={{ color: leader ? "var(--color-primary)" : "var(--color-warm-400)" }}
                   >
                     {String(i + 1).padStart(2, "0")}
                   </span>
                   <div className="flex items-center gap-[14px] min-w-0">
                     <span
-                      className="w-1.5 h-8 rounded-[3px] flex-none"
+                      className="w-1.5 h-8 rounded-hairline flex-none"
                       style={{
                         background: color.hex,
                         boxShadow: `0 0 10px ${color.glow}`,
                       }}
                     />
                     <div className="min-w-0">
-                      <div className="font-bold text-[17px] truncate">{name}</div>
+                      <div className="font-bold text-[18px] truncate">{name}</div>
                       <div className="font-semibold text-[11px] tracking-[0.04em] uppercase text-warm-400 truncate">
                         {c.Constructor.nationality}
                       </div>
@@ -490,7 +490,7 @@ export default function StandingsView({
                     <AnimatedNumber
                       value={Number(c.points) || 0}
                       className={`font-extrabold text-2xl tabular-nums ${
-                        leader ? "text-[#FFAE6A]" : "text-[#f6f1ea]"
+                        leader ? "text-primary" : "text-warm-100"
                       }`}
                     />
                     <span className="font-semibold text-[9px] text-warm-500">
@@ -518,7 +518,7 @@ export default function StandingsView({
 
 function EmptyRow({ label }: { label: string }) {
   return (
-    <div className="apex-glass-soft rounded-[14px] px-5 py-8 text-center font-medium text-sm text-warm-400">
+    <div className="apex-glass-soft rounded-tile px-5 py-8 text-center font-medium text-sm text-warm-400">
       {label}
     </div>
   );

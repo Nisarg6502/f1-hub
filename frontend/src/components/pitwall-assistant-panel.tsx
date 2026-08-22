@@ -601,14 +601,14 @@ export default function PitwallAssistantPanel({
               onClick={requestNewChat}
               aria-label="New chat"
               title="New chat"
-              className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] bg-[rgba(16,14,11,0.5)] text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[rgba(16,14,11,0.7)] active:scale-90"
+              className="flex h-[34px] w-[34px] items-center justify-center rounded-control bg-[rgba(16,14,11,0.5)] text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[rgba(16,14,11,0.7)] active:scale-90"
             >
               <NewChatIcon />
             </button>
             <button
               onClick={onClose}
               aria-label="Close"
-              className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] bg-[rgba(16,14,11,0.5)] text-lg text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[rgba(16,14,11,0.7)] active:scale-90"
+              className="flex h-[34px] w-[34px] items-center justify-center rounded-control bg-[rgba(16,14,11,0.5)] text-lg text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[rgba(16,14,11,0.7)] active:scale-90"
             >
               ×
             </button>
@@ -1094,7 +1094,7 @@ const ANSWER_PROSE = [
   "[&_h1:first-child]:mt-0 [&_h2:first-child]:mt-0 [&_h3:first-child]:mt-0",
   "[&_code]:rounded [&_code]:bg-white/[0.07] [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[12px] [&_code]:font-mono",
   "[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-white/10 [&_pre]:bg-[rgba(10,9,7,0.7)] [&_pre]:p-2.5",
-  "[&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[11.5px] [&_pre_code]:leading-relaxed",
+  "[&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[11px] [&_pre_code]:leading-relaxed",
   "[&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--color-primary)]/40 [&_blockquote]:pl-3 [&_blockquote]:text-[var(--color-on-surface-variant)]",
   "[&_hr]:my-3 [&_hr]:border-white/10",
   "[&_th]:whitespace-nowrap [&_th]:border-b [&_th]:border-white/10 [&_th]:bg-white/[0.04] [&_th]:px-2.5 [&_th]:py-1.5 [&_th]:font-semibold [&_th]:text-[var(--color-on-surface-variant)]",

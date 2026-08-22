@@ -276,7 +276,7 @@ export default function SeasonBarcode({ races, ghostSlots, activeSeason }: Seaso
         {activeIndex !== null && (
           <div
             role="tooltip"
-            className="absolute z-20 bottom-[calc(100%+10px)] w-60 -translate-x-1/2 rounded-[10px] bg-[rgba(20,16,13,0.97)] border border-white/10 px-3.5 py-2.5 text-xs font-medium leading-snug text-warm-200 shadow-xl pointer-events-none"
+            className="absolute z-20 bottom-[calc(100%+10px)] w-60 -translate-x-1/2 rounded-control bg-[rgba(20,16,13,0.97)] border border-white/10 px-3.5 py-2.5 text-xs font-medium leading-snug text-warm-200 shadow-xl pointer-events-none"
             style={{
               left: `clamp(120px, ${tooltipLeftPct}%, calc(100% - 120px))`,
             }}
@@ -324,7 +324,7 @@ export default function SeasonBarcode({ races, ghostSlots, activeSeason }: Seaso
               }
             >
               <span
-                className="w-2.5 h-2.5 rounded-[3px] flex-none"
+                className="w-2.5 h-2.5 rounded-hairline flex-none"
                 style={{ backgroundColor: entry.identity.color.hex }}
               />
               <span className="text-warm-300">{entry.identity.name}</span>

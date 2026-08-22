@@ -54,7 +54,7 @@ export default function NavLinks() {
             {isActive && (
               <motion.span
                 layoutId="nav-underline"
-                className="absolute -bottom-0.5 left-0 right-0 h-[2px] rounded-full bg-[#FF5A1F] shadow-[0_0_10px_rgba(255,90,31,0.8)]"
+                className="absolute -bottom-0.5 left-0 right-0 h-[2px] rounded-full bg-primary-container shadow-[0_0_10px_rgba(255,90,31,0.8)]"
                 transition={{ type: "spring", stiffness: 400, damping: 32 }}
               />
             )}
@@ -107,7 +107,7 @@ export function MobileNav() {
             href={item.href}
             aria-current={isActive ? "page" : undefined}
             className={`flex flex-col items-center gap-1 flex-1 min-w-0 transition-colors ${
-              isActive ? "text-[#FFAE6A]" : "text-warm-500"
+              isActive ? "text-primary" : "text-warm-500"
             }`}
           >
             {/* Hidden from assistive technology because the ligature text IS

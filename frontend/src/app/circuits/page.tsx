@@ -59,7 +59,7 @@ export default async function CircuitsPage() {
     <div className="px-6 md:px-10 pt-10 pb-16">
       {/* Featured + DNA */}
       <section className="grid lg:grid-cols-[1fr_320px] gap-5 mb-10">
-        <div className="apex-glass-strong apex-sheen rounded-[22px] overflow-hidden relative min-h-[340px] flex items-end">
+        <div className="apex-glass-strong apex-sheen rounded-panel overflow-hidden relative min-h-[340px] flex items-end">
           <TrackMap
             src={featuredImagePath}
             alt={featured?.Circuit?.circuitName ?? "Circuit"}
@@ -70,7 +70,7 @@ export default async function CircuitsPage() {
           />
           <div className="relative z-10 p-8">
             <div className="flex flex-wrap items-center gap-2.5 mb-3">
-              <span className="font-bold text-[10px] tracking-[0.12em] uppercase px-2.5 py-1.5 rounded-lg bg-[rgba(255,90,31,0.16)] text-[#FFAE6A]">
+              <span className="font-bold text-[10px] tracking-[0.12em] uppercase px-2.5 py-1.5 rounded-lg bg-[rgba(255,90,31,0.16)] text-primary">
                 Featured track
               </span>
               {featured && (
@@ -85,13 +85,13 @@ export default async function CircuitsPage() {
           </div>
         </div>
 
-        <div className="apex-glass apex-sheen rounded-[22px] p-[26px]">
+        <div className="apex-glass apex-sheen rounded-panel p-[26px]">
           <CircuitDnaCompare races={races} circuitDetails={circuitDetails} />
         </div>
       </section>
 
       {/* World tour */}
-      <div className="font-[family-name:var(--font-headline)] font-bold text-[19px] mb-1">
+      <div className="font-[family-name:var(--font-headline)] font-bold text-[20px] mb-1">
         World tour
       </div>
       <div className="font-medium text-[13px] text-warm-400 mb-[18px]">

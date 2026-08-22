@@ -16,9 +16,9 @@ const TrackViewer = dynamic(() => import("./track-viewer"), {
   ssr: false,
   loading: () => (
     <div className="flex flex-col gap-4">
-      <div className="apex-glass-soft rounded-[22px] h-[clamp(360px,58vh,660px)] animate-pulse" />
-      <div className="apex-glass-soft rounded-[18px] h-[76px] animate-pulse" />
-      <div className="apex-glass-soft rounded-[18px] h-[300px] animate-pulse" />
+      <div className="apex-glass-soft rounded-panel h-[clamp(360px,58vh,660px)] animate-pulse" />
+      <div className="apex-glass-soft rounded-card h-[76px] animate-pulse" />
+      <div className="apex-glass-soft rounded-card h-[300px] animate-pulse" />
     </div>
   ),
 });

@@ -33,7 +33,7 @@ function getSectorColor(
   if (!sector) return "bg-[#2a231d]";
   if (sector.OverallFastest) return "bg-[#b14fff]";
   if (sector.PersonalFastest) return "bg-[#4ade80]";
-  return "bg-[#FF7A3D]/70";
+  return "bg-flame/70";
 }
 
 export default function TelemetryPage() {
@@ -140,9 +140,9 @@ export default function TelemetryPage() {
 
   return (
     <div className="px-6 md:px-10 pt-10 pb-16 space-y-5">
-      <header className="apex-glass apex-sheen rounded-[20px] p-6 flex flex-wrap items-center justify-between gap-4">
+      <header className="apex-glass apex-sheen rounded-card p-6 flex flex-wrap items-center justify-between gap-4">
         <div className="relative">
-          <p className="font-bold text-[11px] tracking-[0.18em] uppercase text-[#FF7A3D]">
+          <p className="font-bold text-[11px] tracking-[0.18em] uppercase text-flame">
             APEX Live
           </p>
           <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-3xl md:text-4xl tracking-[-1px] mt-1">
@@ -156,7 +156,7 @@ export default function TelemetryPage() {
         </div>
         <div className="relative flex items-center gap-3">
           {liveSession ? (
-            <span className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] bg-[rgba(255,90,31,0.16)] text-[#FFAE6A]">
+            <span className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] bg-[rgba(255,90,31,0.16)] text-primary">
               <span className="h-2 w-2 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.9)] animate-pulse" />
               Live
             </span>
@@ -167,7 +167,7 @@ export default function TelemetryPage() {
           )}
           <Link
             href="/schedule"
-            className="font-bold text-[11px] uppercase tracking-[0.1em] px-4 py-2 rounded-[10px] apex-glass-soft hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
+            className="font-bold text-[11px] uppercase tracking-[0.1em] px-4 py-2 rounded-control apex-glass-soft hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
           >
             Schedule
           </Link>
@@ -180,7 +180,7 @@ export default function TelemetryPage() {
             Live timing polling is paused because no session is currently active.
           </p>
           {nextSession && (
-            <p className="mt-3 font-semibold text-xs uppercase tracking-[0.12em] text-[#FFAE6A]">
+            <p className="mt-3 font-semibold text-xs uppercase tracking-[0.12em] text-primary">
               Next session: {nextSession.raceName} · {nextSession.sessionLabel} ·{" "}
               {new Date(nextSession.startTimeMs).toLocaleString("en-US", {
                 month: "short",
@@ -265,7 +265,7 @@ export default function TelemetryPage() {
                   {[0, 1, 2].map((sectorIdx) => (
                     <span
                       key={sectorIdx}
-                      className={`h-2 w-9 rounded-[2px] ${getSectorColor(
+                      className={`h-2 w-9 rounded-hairline ${getSectorColor(
                         line.Sectors?.[sectorIdx]
                       )}`}
                     />

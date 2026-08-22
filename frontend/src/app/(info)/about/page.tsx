@@ -4,7 +4,7 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "About | APEX",
   description:
-    "APEX is an independent Formula 1 hub: schedule, standings, drivers, teams, circuits, telemetry and a cited chat assistant. Built by Nisarg as a personal project.",
+    "APEX is an independent Formula 1 hub: schedule, standings, drivers, teams, circuits, telemetry and a cited chat assistant. An independent personal project.",
 };
 
 export default function AboutPage() {
@@ -70,10 +70,10 @@ export default function AboutPage() {
 
       <h2>Who built it</h2>
       <p>
-        APEX is built and maintained by <strong>Nisarg</strong>, as a personal
-        project. There is no company, no team and no funding behind it — it runs
-        entirely on free service tiers, which is also why it is sometimes slow
-        and occasionally rate-limited.
+        APEX is built and maintained by one developer, as a personal project.
+        There is no company, no team and no funding behind it — it runs entirely
+        on free service tiers, which is also why it is sometimes slow and
+        occasionally rate-limited.
       </p>
       <p>
         It is open source. The{" "}

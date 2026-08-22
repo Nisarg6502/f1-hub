@@ -86,12 +86,12 @@ export default function TitleDeciderPanel({
     // sits where that answer is read first, and stays visible on the
     // Constructors tab, which previously could not see it at all.
     <section
-      className="apex-glass apex-sheen rounded-[20px] p-5 md:p-6 mb-7 overflow-hidden"
+      className="apex-glass apex-sheen rounded-card p-5 md:p-6 mb-7 overflow-hidden"
       aria-label="Title decider"
     >
       <div className="relative flex flex-col lg:flex-row lg:items-start gap-5 lg:gap-9">
         <div className="lg:w-[196px] flex-none">
-          <span className="font-bold text-xs tracking-[0.12em] uppercase text-[#FF7A3D]">
+          <span className="font-bold text-xs tracking-[0.12em] uppercase text-flame">
             Title decider
           </span>
           {roundsSummary && !seasonOver && (
@@ -161,9 +161,9 @@ function TitleDeciderRow({
           {gap} pt{gap === 1 ? "" : "s"} clear
         </span>
       </div>
-      <div className="text-[13px] font-bold text-[#f6f1ea] truncate">{leader.name}</div>
+      <div className="text-[13px] font-bold text-warm-100 truncate">{leader.name}</div>
       {result.clinched ? (
-        <p className="mt-1 text-xs font-medium text-[#FFAE6A]">
+        <p className="mt-1 text-xs font-medium text-primary">
           Title mathematically clinched — {runnerUp.name} cannot close a {gap}-point
           gap over the {maxRemainingPoints} points left in play
           {rounds ? ` across ${rounds}` : ""}.

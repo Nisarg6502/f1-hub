@@ -122,7 +122,7 @@ function CircuitHalf({ circuit }: { circuit: CircuitOption }) {
               />
             </span>
           )}
-          <span className="font-bold text-[9px] tracking-[0.12em] uppercase text-[#FF7A3D]">
+          <span className="font-bold text-[9px] tracking-[0.12em] uppercase text-flame">
             {circuit.country}
           </span>
         </div>
@@ -191,12 +191,12 @@ export default function CircuitCompareModal({
         transition={
           reduce ? { duration: 0.15 } : { type: "spring", stiffness: 320, damping: 30 }
         }
-        className="relative w-[680px] max-w-full max-h-full overflow-y-auto rounded-[24px] apex-glass-strong apex-sheen"
+        className="relative w-[680px] max-w-full max-h-full overflow-y-auto rounded-panel apex-glass-strong apex-sheen"
       >
         <button
           onClick={onClose}
           aria-label="Close"
-          className="absolute top-5 right-5 z-10 w-[34px] h-[34px] rounded-[10px] bg-[rgba(16,14,11,0.5)] flex items-center justify-center text-warm-200 text-lg hover:bg-[rgba(16,14,11,0.7)] transition-[background-color,transform] duration-150 active:scale-90"
+          className="absolute top-5 right-5 z-10 w-[34px] h-[34px] rounded-control bg-[rgba(16,14,11,0.5)] flex items-center justify-center text-warm-200 text-lg hover:bg-[rgba(16,14,11,0.7)] transition-[background-color,transform] duration-150 active:scale-90"
         >
           ×
         </button>
@@ -240,10 +240,10 @@ export default function CircuitCompareModal({
                   <span className="font-semibold text-[10px] tracking-[0.06em] uppercase text-warm-400">
                     {row.label}
                   </span>
-                  <span className="font-bold text-xs md:text-sm tabular-nums truncate text-[#FFAE6A]">
+                  <span className="font-bold text-xs md:text-sm tabular-nums truncate text-primary">
                     {row.a}
                   </span>
-                  <span className="font-bold text-xs md:text-sm tabular-nums truncate text-right text-[#FFAE6A]">
+                  <span className="font-bold text-xs md:text-sm tabular-nums truncate text-right text-primary">
                     {row.b}
                   </span>
                 </div>

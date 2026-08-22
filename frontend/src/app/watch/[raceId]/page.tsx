@@ -75,7 +75,7 @@ export default async function WatchRacePage({ params }: PageProps) {
   return (
     <div className="min-h-[100dvh] flex items-center justify-center px-6 py-16">
       <div className="apex-glass-strong rounded-3xl px-7 py-9 md:px-10 md:py-11 max-w-xl w-full">
-        <p className="font-bold text-[10px] tracking-[0.14em] uppercase text-[#FF7A3D]">
+        <p className="font-bold text-[10px] tracking-[0.14em] uppercase text-flame">
           Watch party
         </p>
         <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-2xl md:text-3xl mt-2 leading-tight">
@@ -107,7 +107,7 @@ export default async function WatchRacePage({ params }: PageProps) {
                   Round {fallback.race.round} · {fallback.totalLaps} laps
                 </span>
               </span>
-              <span className="font-bold text-sm text-[#FFAE6A]">Watch →</span>
+              <span className="font-bold text-sm text-primary">Watch →</span>
             </Link>
           </div>
         ) : (
@@ -119,13 +119,13 @@ export default async function WatchRacePage({ params }: PageProps) {
         <div className="flex flex-wrap gap-3 mt-7">
           <Link
             href="/watch"
-            className="font-bold text-xs px-5 h-[46px] rounded-[11px] apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
+            className="font-bold text-xs px-5 h-[46px] rounded-control apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
           >
             All races
           </Link>
           <Link
             href={`/schedule/${season}/${round}`}
-            className="font-bold text-xs px-5 h-[46px] rounded-[11px] apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
+            className="font-bold text-xs px-5 h-[46px] rounded-control apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
           >
             Round {round} results
           </Link>

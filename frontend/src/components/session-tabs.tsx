@@ -112,9 +112,9 @@ export default function SessionTabs({
             <button
               key={key}
               onClick={() => setActiveSession(key)}
-              className={`text-xs px-[18px] py-2.5 rounded-[10px] transition-[background-color,color,transform] duration-150 active:scale-[0.97] ${
+              className={`text-xs px-[18px] py-2.5 rounded-control transition-[background-color,color,transform] duration-150 active:scale-[0.97] ${
                 active
-                  ? "font-bold bg-[rgba(255,90,31,0.18)] text-[#FFAE6A]"
+                  ? "font-bold bg-[rgba(255,90,31,0.18)] text-primary"
                   : "font-semibold text-warm-300 hover:text-on-background"
               }`}
             >
@@ -235,7 +235,7 @@ function WinnerCard({ r }: { r: RaceResult }) {
   const img = hasImg ? getDriverImagePath(given, family) : null;
 
   return (
-    <div className="apex-glass apex-sheen rounded-[18px] p-[22px] overflow-hidden relative isolate">
+    <div className="apex-glass apex-sheen rounded-card p-[22px] overflow-hidden relative isolate">
       <div
         className="absolute left-0 top-0 bottom-0 w-[5px]"
         style={{ background: color.hex, boxShadow: `0 0 16px ${color.glow}` }}
@@ -274,7 +274,7 @@ function WinnerCard({ r }: { r: RaceResult }) {
         </div>
       )}
       <div className="relative max-w-[62%]">
-        <span className="font-bold text-[11px] tracking-[0.12em] uppercase text-[#FF7A3D]">
+        <span className="font-bold text-[11px] tracking-[0.12em] uppercase text-flame">
           Race winner
         </span>
         <div className="font-[family-name:var(--font-headline)] font-bold text-2xl mt-3 mb-0.5">
@@ -302,7 +302,7 @@ function RunnerRow({ r, pos }: { r: RaceResult; pos: string }) {
     <div className="flex-1 apex-glass-soft rounded-2xl px-5 py-[18px] flex items-center gap-3.5">
       <span className="font-extrabold text-xl text-warm-200">{pos}</span>
       <span
-        className="w-1 h-[30px] rounded-[3px]"
+        className="w-1 h-[30px] rounded-hairline"
         style={{ background: color.hex }}
       />
       <div className="flex-1 min-w-0">
@@ -323,10 +323,10 @@ function RunnerRow({ r, pos }: { r: RaceResult; pos: string }) {
 function FastestLapCard({ r }: { r: RaceResult }) {
   return (
     <div className="apex-glass-soft rounded-2xl p-[22px]">
-      <span className="font-bold text-[11px] tracking-[0.12em] uppercase text-[#FF7A3D]">
+      <span className="font-bold text-[11px] tracking-[0.12em] uppercase text-flame">
         Fastest lap
       </span>
-      <div className="font-extrabold text-3xl tabular-nums my-3.5 mb-1 text-[#FFAE6A]">
+      <div className="font-extrabold text-3xl tabular-nums my-3.5 mb-1 text-primary">
         {r.FastestLap?.Time?.time ?? "—"}
       </div>
       <div className="font-bold text-[15px]">
@@ -374,10 +374,10 @@ function FullResultsTable({ results }: { results: RaceResult[] }) {
         {season && round && (
           <Link
             href={`/schedule/${season}/${round}/pitwall`}
-            className="group inline-flex items-center gap-2 font-bold text-xs tracking-[0.08em] uppercase text-[#1a1210] px-5 py-2.5 rounded-[12px] shadow-[0_6px_20px_rgba(255,90,31,0.35)] hover:shadow-[0_8px_26px_rgba(255,90,31,0.5)] transition-[box-shadow,transform] duration-150 active:scale-95"
-            style={{ background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)" }}
+            className="group inline-flex items-center gap-2 font-bold text-xs tracking-[0.08em] uppercase text-[#1a1210] px-5 py-2.5 rounded-control shadow-[0_6px_20px_rgba(255,90,31,0.35)] hover:shadow-[0_8px_26px_rgba(255,90,31,0.5)] transition-[box-shadow,transform] duration-150 active:scale-95"
+            style={{ background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
           >
-            <span className="material-symbols-outlined text-[17px] leading-none">
+            <span className="material-symbols-outlined text-[18px] leading-none">
               query_stats
             </span>
             Pitwall analysis
@@ -408,13 +408,13 @@ function FullResultsTable({ results }: { results: RaceResult[] }) {
             <ResultRow key={`${r.position}-${given}${family}-${idx}`} cols={cols}>
               <span
                 className="font-extrabold text-[15px] tabular-nums"
-                style={{ color: isP1 ? "#FFAE6A" : "#8f867a" }}
+                style={{ color: isP1 ? "var(--color-primary)" : "var(--color-warm-400)" }}
               >
                 {String(r.position ?? idx + 1).padStart(2, "0")}
               </span>
               <div className="flex items-center gap-3 min-w-0">
                 <span
-                  className="w-[3px] h-6 rounded-[2px] flex-none"
+                  className="w-[3px] h-6 rounded-hairline flex-none"
                   style={{ background: color.hex }}
                 />
                 <span className="font-bold text-sm truncate">
@@ -432,7 +432,7 @@ function FullResultsTable({ results }: { results: RaceResult[] }) {
               </span>
               <span
                 className="hidden sm:block text-right font-extrabold text-[15px] tabular-nums"
-                style={{ color: Number(r.points) > 0 ? "#f6f1ea" : "#6f665b" }}
+                style={{ color: Number(r.points) > 0 ? "var(--color-warm-100)" : "#6f665b" }}
               >
                 {r.points ?? "0"}
               </span>
@@ -500,13 +500,13 @@ function SessionResultsTable({
           >
             <span
               className="font-extrabold text-[15px] tabular-nums"
-              style={{ color: isP1 ? "#FFAE6A" : "#8f867a" }}
+              style={{ color: isP1 ? "var(--color-primary)" : "var(--color-warm-400)" }}
             >
               {String(r.position ?? idx + 1).padStart(2, "0")}
             </span>
             <div className="flex items-center gap-3 min-w-0">
               <span
-                className="w-[3px] h-6 rounded-[2px] flex-none"
+                className="w-[3px] h-6 rounded-hairline flex-none"
                 style={{ background: color.hex }}
               />
               <span className="font-bold text-sm truncate">
@@ -524,12 +524,12 @@ function SessionResultsTable({
                 <span className="font-semibold text-[13px] tabular-nums text-right sm:text-left text-warm-200">
                   {r.Q2 || "—"}
                 </span>
-                <span className="font-semibold text-[13px] tabular-nums text-right sm:text-left text-[#FFAE6A]">
+                <span className="font-semibold text-[13px] tabular-nums text-right sm:text-left text-primary">
                   {r.Q3 || "—"}
                 </span>
               </>
             ) : showBestLap ? (
-              <span className="font-semibold text-[13px] tabular-nums text-right sm:text-left text-[#FFAE6A]">
+              <span className="font-semibold text-[13px] tabular-nums text-right sm:text-left text-primary">
                 {r.Time?.time || "—"}
               </span>
             ) : (
@@ -588,8 +588,8 @@ function SessionInfo({
           className="ml-auto font-bold text-[10px] tracking-[0.1em] uppercase px-3 py-1.5 rounded-lg"
           style={
             sessionPast
-              ? { background: "rgba(245,235,222,0.06)", color: "#8f867a" }
-              : { background: "rgba(255,90,31,0.16)", color: "#FFAE6A" }
+              ? { background: "rgba(245,235,222,0.06)", color: "var(--color-warm-400)" }
+              : { background: "rgba(255,90,31,0.16)", color: "var(--color-primary)" }
           }
         >
           {sessionPast ? "Completed" : "Upcoming"}
@@ -646,13 +646,13 @@ function InfoTile({
   accent?: boolean;
 }) {
   return (
-    <div className="apex-glass-soft rounded-[14px] px-[22px] py-[18px]">
+    <div className="apex-glass-soft rounded-tile px-[22px] py-[18px]">
       <p className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-500">
         {label}
       </p>
       <p
         className={`font-[family-name:var(--font-headline)] font-bold text-lg mt-1 ${
-          accent ? "text-[#FFAE6A]" : ""
+          accent ? "text-primary" : ""
         }`}
       >
         {value}
@@ -733,7 +733,7 @@ function UpcomingSessionTimings({
               <div className="text-right">
                 <p
                   className={`font-[family-name:var(--font-headline)] font-bold text-xl tabular-nums ${
-                    s.isRace ? "text-[#FFAE6A]" : ""
+                    s.isRace ? "text-primary" : ""
                   }`}
                 >
                   <LocalDateTime
@@ -899,7 +899,7 @@ function AddToCalendarButton({
         aria-label={`Add ${sessionLabel} to calendar`}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex items-center justify-center w-9 h-9 rounded-[10px] bg-[rgba(245,235,222,0.06)] border border-white/10 text-warm-300 hover:text-[#FFAE6A] hover:border-[rgba(255,138,61,0.5)] transition-[border-color,color,transform] duration-150 active:scale-[0.97]"
+        className="flex items-center justify-center w-9 h-9 rounded-control bg-[rgba(245,235,222,0.06)] border border-white/10 text-warm-300 hover:text-primary hover:border-[rgba(255,138,61,0.5)] transition-[border-color,color,transform] duration-150 active:scale-[0.97]"
       >
         <span className="material-symbols-outlined text-[18px] leading-none">
           event_upcoming
@@ -919,7 +919,7 @@ function AddToCalendarButton({
           rel="noopener noreferrer"
           role="menuitem"
           onClick={() => setOpen(false)}
-          className="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-warm-200 hover:bg-white/[0.06] hover:text-[#FFAE6A] transition-colors duration-150"
+          className="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-warm-200 hover:bg-white/[0.06] hover:text-primary transition-colors duration-150"
         >
           <span className="material-symbols-outlined text-[16px] leading-none">
             open_in_new
@@ -930,7 +930,7 @@ function AddToCalendarButton({
           type="button"
           role="menuitem"
           onClick={handleIcsDownload}
-          className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-warm-200 hover:bg-white/[0.06] hover:text-[#FFAE6A] transition-colors duration-150"
+          className="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-warm-200 hover:bg-white/[0.06] hover:text-primary transition-colors duration-150"
         >
           <span className="material-symbols-outlined text-[16px] leading-none">
             download

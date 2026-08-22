@@ -17,7 +17,7 @@ interface CircuitsGalleryProps {
 
 // Rotating accent palette so the grid reads with variety.
 const PALETTE = [
-  "#FF5A1F",
+  "var(--color-primary-container)",
   "#00D7B6",
   "#E80020",
   "#FF8000",
@@ -27,7 +27,7 @@ const PALETTE = [
   "#64C4FF",
   "#229971",
   "#52E252",
-  "#FFAE6A",
+  "var(--color-primary)",
 ];
 
 export default function CircuitsGallery({
@@ -112,7 +112,7 @@ export default function CircuitsGallery({
                 <TrackMap
                   src={circuitImagePath}
                   alt={`${race.Circuit?.circuitName ?? "circuit"} layout`}
-                  containerClassName="my-3.5 h-[120px] rounded-[10px]"
+                  containerClassName="my-3.5 h-[120px] rounded-control"
                   imgClassName="object-contain p-3"
                   labelClassName="font-semibold text-[8px] tracking-[0.1em] text-warm-600"
                   sizes="(max-width: 640px) 45vw, 300px"

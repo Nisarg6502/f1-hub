@@ -105,12 +105,12 @@ export default function DriverCompareModal({
         transition={
           reduce ? { duration: 0.15 } : { type: "spring", stiffness: 320, damping: 30 }
         }
-        className="relative w-[760px] max-w-full max-h-full overflow-y-auto rounded-[24px] apex-glass-strong apex-sheen"
+        className="relative w-[760px] max-w-full max-h-full overflow-y-auto rounded-panel apex-glass-strong apex-sheen"
       >
         <button
           onClick={onClose}
           aria-label="Close"
-          className="absolute top-5 right-5 z-10 w-[34px] h-[34px] rounded-[10px] bg-[rgba(16,14,11,0.5)] flex items-center justify-center text-warm-200 text-lg hover:bg-[rgba(16,14,11,0.7)] transition-[background-color,transform] duration-150 active:scale-90"
+          className="absolute top-5 right-5 z-10 w-[34px] h-[34px] rounded-control bg-[rgba(16,14,11,0.5)] flex items-center justify-center text-warm-200 text-lg hover:bg-[rgba(16,14,11,0.7)] transition-[background-color,transform] duration-150 active:scale-90"
         >
           ×
         </button>
@@ -158,7 +158,7 @@ export default function DriverCompareModal({
                         />
                       </span>
                     )}
-                    <span className="font-bold text-[9px] tracking-[0.12em] uppercase text-[#FF7A3D]">
+                    <span className="font-bold text-[9px] tracking-[0.12em] uppercase text-flame">
                       {half.team}
                     </span>
                   </div>
@@ -269,14 +269,14 @@ export default function DriverCompareModal({
                   </p>
                 ) : (
                   <div className="flex items-center gap-3">
-                    <span className="font-extrabold text-2xl tabular-nums text-[#FFAE6A]">
+                    <span className="font-extrabold text-2xl tabular-nums text-primary">
                       {summary.raceAheadA}
                     </span>
                     <span className="text-xs text-warm-500 font-medium">
                       {a.family} finished ahead of {b.family}
                     </span>
                     <span className="text-warm-600 mx-1">·</span>
-                    <span className="font-extrabold text-2xl tabular-nums text-[#FFAE6A]">
+                    <span className="font-extrabold text-2xl tabular-nums text-primary">
                       {summary.raceAheadB}
                     </span>
                     <span className="text-xs text-warm-500 font-medium">
@@ -298,14 +298,14 @@ export default function DriverCompareModal({
                 ) : (
                   <>
                     <div className="flex items-center gap-3 mb-2">
-                      <span className="font-extrabold text-2xl tabular-nums text-[#FFAE6A]">
+                      <span className="font-extrabold text-2xl tabular-nums text-primary">
                         {summary.qualiAheadA}
                       </span>
                       <span className="text-xs text-warm-500 font-medium">
                         {a.family} faster
                       </span>
                       <span className="text-warm-600 mx-1">·</span>
-                      <span className="font-extrabold text-2xl tabular-nums text-[#FFAE6A]">
+                      <span className="font-extrabold text-2xl tabular-nums text-primary">
                         {summary.qualiAheadB}
                       </span>
                       <span className="text-xs text-warm-500 font-medium">

@@ -37,7 +37,7 @@ const SECTIONS = [
 
 export default function InfoLayout({ children }: { children: React.ReactNode }) {
   return (
-    <main className="relative z-10 max-w-[1440px] mx-auto px-6 md:px-10 py-10 md:py-14">
+    <div className="relative z-10 max-w-[1440px] mx-auto px-6 md:px-10 py-10 md:py-14">
       <div className="max-w-[68ch]">
         <nav
           aria-label="Information pages"
@@ -75,6 +75,6 @@ export default function InfoLayout({ children }: { children: React.ReactNode }) 
           .
         </p>
       </div>
-    </main>
+    </div>
   );
 }

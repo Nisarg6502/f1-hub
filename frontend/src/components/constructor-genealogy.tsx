@@ -121,14 +121,14 @@ function estimateTextWidth(text: string, fontSize: number): number {
  * carry. Threshold is the WCAG break-even luminance between the two. */
 function readableTextOn(hex: string): string {
   const clean = hex.replace("#", "");
-  if (clean.length !== 6) return "#f6f1ea";
+  if (clean.length !== 6) return "var(--color-warm-100)";
   const channel = (offset: number) => {
     const c = parseInt(clean.slice(offset, offset + 2), 16) / 255;
     return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
   };
   const luminance =
     0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
-  return luminance > 0.179 ? "#100d0b" : "#f6f1ea";
+  return luminance > 0.179 ? "#100d0b" : "var(--color-warm-100)";
 }
 
 /** "1970–98", "1993–2005", "2026" — compact enough to sit inside a band
@@ -394,7 +394,7 @@ export default function ConstructorGenealogy({
                   fontSize={10}
                   fontWeight={700}
                   textAnchor="middle"
-                  fill="#8f867a"
+                  fill="var(--color-warm-400)"
                   className="tabular-nums"
                 >
                   {year}
@@ -469,7 +469,7 @@ export default function ConstructorGenealogy({
                         fontSize={CALLOUT_FONT}
                         fontWeight={700}
                         textAnchor="middle"
-                        fill={isActive ? "#f6f1ea" : "#a89e90"}
+                        fill={isActive ? "var(--color-warm-100)" : "#a89e90"}
                       >
                         {callout.text}
                       </text>
@@ -633,7 +633,7 @@ export default function ConstructorGenealogy({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, ...(reduce ? {} : { y: tooltipBelow ? -4 : 4 }) }}
             transition={{ duration: reduce ? 0.1 : 0.16, ease: EASE_OUT }}
-            className="w-72 max-w-[92vw] rounded-[10px] bg-[rgba(20,16,13,0.97)] border border-white/10 px-3.5 py-2.5 shadow-xl"
+            className="w-72 max-w-[92vw] rounded-control bg-[rgba(20,16,13,0.97)] border border-white/10 px-3.5 py-2.5 shadow-xl"
           >
             <div className="flex items-center gap-2">
               <span

@@ -72,7 +72,7 @@ function TeamMark({
 }) {
   if (logoPath) {
     return (
-      <span className="relative w-[58px] h-[30px] rounded-[9px] flex-none bg-[rgba(245,235,222,0.94)] shadow-[0_2px_10px_rgba(0,0,0,0.35)]">
+      <span className="relative w-[58px] h-[30px] rounded-control flex-none bg-[rgba(245,235,222,0.94)] shadow-[0_2px_10px_rgba(0,0,0,0.35)]">
         <Image
           src={logoPath}
           alt={`${team} logo`}
@@ -85,7 +85,7 @@ function TeamMark({
   }
   return (
     <span
-      className="w-[58px] h-[30px] rounded-[9px] flex-none flex items-center justify-center font-[family-name:var(--font-headline)] font-extrabold text-[13px] tracking-[0.06em] shadow-[0_2px_10px_rgba(0,0,0,0.35)]"
+      className="w-[58px] h-[30px] rounded-control flex-none flex items-center justify-center font-[family-name:var(--font-headline)] font-extrabold text-[13px] tracking-[0.06em] shadow-[0_2px_10px_rgba(0,0,0,0.35)]"
       style={{ background: color.hex, color: "#0a0908" }}
       aria-label={`${team} logo`}
     >
@@ -136,7 +136,7 @@ export default function DriversGrid({ drivers }: DriversGridProps) {
           return (
             <StaggerItem key={`${given} ${family}` || idx}>
               <TiltCard
-                className="group apex-glass rounded-[18px] overflow-hidden p-5 min-h-[340px] block h-full cursor-pointer"
+                className="group apex-glass rounded-card overflow-hidden p-5 min-h-[340px] block h-full cursor-pointer"
                 strength={6}
                 onClick={() => setSelected(driver)}
                 ariaLabel={`View ${given} ${family}'s profile`}
@@ -284,7 +284,7 @@ export default function DriversGrid({ drivers }: DriversGridProps) {
                       <div key={s.l} className="text-center">
                         <div
                           className={`font-extrabold text-[15px] tabular-nums ${
-                            s.accent ? "text-[#FFAE6A]" : ""
+                            s.accent ? "text-primary" : ""
                           }`}
                         >
                           {s.v}
@@ -295,7 +295,7 @@ export default function DriversGrid({ drivers }: DriversGridProps) {
                       </div>
                     ))}
                   </div>
-                  <div className="h-1 bg-white/[0.06] rounded-[3px] overflow-hidden">
+                  <div className="h-1 bg-white/[0.06] rounded-hairline overflow-hidden">
                     <div
                       className="h-full anim-bar"
                       style={{ width: `${barPct}%`, background: color.hex }}

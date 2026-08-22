@@ -52,7 +52,7 @@ export default function PitwallModules({
                 aria-current={isActive ? "page" : undefined}
                 className={`flex items-center justify-between px-5 py-4 rounded-2xl w-full text-left transition-[background-color,border-color,transform] duration-150 active:scale-[0.98] ${
                   isActive
-                    ? "border border-[rgba(255,90,31,0.35)] bg-[rgba(255,90,31,0.1)] text-[#FFAE6A]"
+                    ? "border border-[rgba(255,90,31,0.35)] bg-[rgba(255,90,31,0.1)] text-primary"
                     : "apex-glass-soft hover:border-[rgba(255,138,61,0.5)]"
                 }`}
               >

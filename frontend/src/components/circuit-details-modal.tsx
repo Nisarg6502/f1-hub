@@ -170,7 +170,7 @@ export default function CircuitDetailsModal({
         aria-label={circuit.circuit_name}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
-        className={`relative w-[560px] max-w-full max-h-full overflow-y-auto rounded-[24px] apex-glass-strong apex-sheen transition-all duration-300 ease-[cubic-bezier(0.2,0.9,0.2,1)] ${
+        className={`relative w-[560px] max-w-full max-h-full overflow-y-auto rounded-panel apex-glass-strong apex-sheen transition-all duration-300 ease-[cubic-bezier(0.2,0.9,0.2,1)] ${
           visible
             ? "opacity-100 scale-100 translate-y-0"
             : "opacity-0 scale-95 translate-y-6"
@@ -178,7 +178,7 @@ export default function CircuitDetailsModal({
       >
         <div
           className="h-[5px]"
-          style={{ background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)" }}
+          style={{ background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
         />
         <div className="relative p-[30px]">
           <div className="flex items-start justify-between gap-4">
@@ -195,11 +195,11 @@ export default function CircuitDetailsModal({
                     />
                   </span>
                 )}
-                <span className="font-bold text-[10px] tracking-[0.12em] uppercase text-[#FF7A3D]">
+                <span className="font-bold text-[10px] tracking-[0.12em] uppercase text-flame">
                   Round {circuit.round} · {circuit.country}
                 </span>
               </div>
-              <div className="font-[family-name:var(--font-headline)] font-extrabold text-2xl md:text-[30px] tracking-[-0.5px] leading-[1.02]">
+              <div className="font-[family-name:var(--font-headline)] font-extrabold text-2xl md:text-[28px] tracking-[-0.5px] leading-[1.02]">
                 {circuit.circuit_name}
               </div>
               <div className="font-semibold text-xs text-warm-400 mt-1">
@@ -209,7 +209,7 @@ export default function CircuitDetailsModal({
             <button
               onClick={onClose}
               aria-label="Close"
-              className="w-[34px] h-[34px] rounded-[10px] bg-[rgba(245,235,222,0.08)] flex items-center justify-center text-warm-200 text-lg hover:bg-[rgba(245,235,222,0.14)] transition-[background-color,transform] duration-150 active:scale-90 flex-none"
+              className="w-[34px] h-[34px] rounded-control bg-[rgba(245,235,222,0.08)] flex items-center justify-center text-warm-200 text-lg hover:bg-[rgba(245,235,222,0.14)] transition-[background-color,transform] duration-150 active:scale-90 flex-none"
             >
               ×
             </button>
@@ -219,7 +219,7 @@ export default function CircuitDetailsModal({
             <TrackMap
               src={circuitImagePath}
               alt={`${circuit.circuit_name} layout`}
-              containerClassName="h-[150px] rounded-[14px]"
+              containerClassName="h-[150px] rounded-tile"
               imgClassName="object-contain p-4"
               labelClassName="font-semibold text-[10px] tracking-[0.16em] text-warm-600"
               sizes="(max-width: 768px) 90vw, 520px"
@@ -229,7 +229,7 @@ export default function CircuitDetailsModal({
                 ref={expandButtonRef}
                 onClick={() => setLightboxOpen(true)}
                 aria-label="View full-size circuit layout"
-                className="absolute top-2.5 right-2.5 w-8 h-8 rounded-[9px] bg-[rgba(6,5,4,0.55)] backdrop-blur-sm border border-white/10 flex items-center justify-center text-warm-100 hover:bg-[rgba(6,5,4,0.8)] hover:border-[rgba(255,138,61,0.5)] transition-[background-color,border-color,transform] duration-150 active:scale-90"
+                className="absolute top-2.5 right-2.5 w-8 h-8 rounded-control bg-[rgba(6,5,4,0.55)] backdrop-blur-sm border border-white/10 flex items-center justify-center text-warm-100 hover:bg-[rgba(6,5,4,0.8)] hover:border-[rgba(255,138,61,0.5)] transition-[background-color,border-color,transform] duration-150 active:scale-90"
               >
                 <span className="material-symbols-outlined text-[18px]">
                   open_in_full
@@ -241,10 +241,10 @@ export default function CircuitDetailsModal({
           {geometryState !== "unavailable" && (
             <Link
               href={`/circuits/${circuitId}`}
-              className="group flex items-center justify-between gap-3 mb-[22px] rounded-[14px] px-4 py-3.5 bg-[rgba(255,90,31,0.14)] border border-[rgba(255,174,106,0.32)] transition-transform duration-150 active:scale-[0.98]"
+              className="group flex items-center justify-between gap-3 mb-[22px] rounded-tile px-4 py-3.5 bg-[rgba(255,90,31,0.14)] border border-[rgba(255,174,106,0.32)] transition-transform duration-150 active:scale-[0.98]"
             >
               <span>
-                <span className="block font-semibold text-[13px] text-[#ffae6a]">
+                <span className="block font-semibold text-[13px] text-primary">
                   {geometryState === "ready" ? "Explore in 3D" : "Generate 3D view"}
                 </span>
                 <span className="block font-medium text-[11px] text-warm-400 mt-0.5">
@@ -253,7 +253,7 @@ export default function CircuitDetailsModal({
                     : "Not built yet — takes a couple of minutes, once"}
                 </span>
               </span>
-              <span className="material-symbols-outlined text-[20px] text-[#ffae6a] transition-transform duration-200 group-hover:translate-x-0.5">
+              <span className="material-symbols-outlined text-[20px] text-primary transition-transform duration-200 group-hover:translate-x-0.5">
                 arrow_forward
               </span>
             </Link>
@@ -279,7 +279,7 @@ export default function CircuitDetailsModal({
                   <div className="font-semibold text-[9px] tracking-[0.1em] uppercase text-warm-500">
                     Lap record
                   </div>
-                  <div className="font-extrabold text-[15px] tabular-nums mt-1.5 text-[#FFAE6A]">
+                  <div className="font-extrabold text-[15px] tabular-nums mt-1.5 text-primary">
                     {info.lap_record}
                   </div>
                 </div>
@@ -338,7 +338,7 @@ export default function CircuitDetailsModal({
         <button
           onClick={() => setLightboxOpen(false)}
           aria-label="Close full-size view"
-          className="absolute top-5 right-5 w-10 h-10 rounded-[10px] bg-[rgba(245,235,222,0.1)] flex items-center justify-center text-warm-100 text-xl hover:bg-[rgba(245,235,222,0.16)] transition-[background-color,transform] duration-150 active:scale-90"
+          className="absolute top-5 right-5 w-10 h-10 rounded-control bg-[rgba(245,235,222,0.1)] flex items-center justify-center text-warm-100 text-xl hover:bg-[rgba(245,235,222,0.16)] transition-[background-color,transform] duration-150 active:scale-90"
         >
           ×
         </button>
@@ -351,7 +351,7 @@ export default function CircuitDetailsModal({
           <TrackMap
             src={circuitImagePath}
             alt={`${circuit.circuit_name} layout, full size`}
-            containerClassName="absolute inset-0 rounded-[18px]"
+            containerClassName="absolute inset-0 rounded-card"
             imgClassName="object-contain"
             sizes="90vw"
           />

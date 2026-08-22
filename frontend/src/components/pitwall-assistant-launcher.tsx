@@ -60,7 +60,7 @@ export default function PitwallAssistantLauncher() {
            moves nothing visually. */
         className="relative flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-[var(--color-surface-container-low)] text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[var(--color-surface-container)] active:scale-[0.95] before:absolute before:-inset-1 before:content-['']"
       >
-        <span className="material-symbols-outlined text-[19px]" aria-hidden="true">
+        <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
           forum
         </span>
       </button>

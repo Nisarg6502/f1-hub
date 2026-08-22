@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { parseDateTimeToMs, type RaceSessionField } from "@/lib/sessions";
 import Link from "next/link";
 import {
   getActiveSeasonYear,
@@ -26,6 +27,26 @@ interface PageProps {
 // Rendered per request: whether a round counts as completed depends on the
 // current time, and results land during the weekend itself.
 export const dynamic = "force-dynamic";
+
+/** The per-session schedule fields a race document can carry. */
+const SESSION_FIELDS: RaceSessionField[] = [
+  "FirstPractice",
+  "SecondPractice",
+  "ThirdPractice",
+  "SprintQualifying",
+  "Sprint",
+  "Qualifying",
+  "Race",
+];
+
+/** `Race` viewed as its optional per-session schedule fields.
+ *
+ * `Partial` because a weekend genuinely may not have a session (a sprint
+ * weekend has no FP3), and because `Race` carries the grand prix's own
+ * date/time at the top level rather than under a `Race` key. */
+type RaceWithSessions = Partial<
+  Record<RaceSessionField, { date?: string; time?: string }>
+>;
 
 // The [season] path segment is the season being viewed, verbatim — no need
 // to re-derive it via resolveSeasonYear the way the query-param routes do.
@@ -72,6 +93,35 @@ export default async function RaceDetailPage({ params }: PageProps) {
     isPast = !Number.isNaN(parsed.getTime()) && parsed.getTime() < now.getTime();
   }
 
+  // Whether any session of this weekend has STARTED -- not whether the race is
+  // over.
+  //
+  // The fetch below used to be gated on `isPast`, which is true only once the
+  // grand prix itself has begun. On a sprint weekend that meant FP1 and sprint
+  // qualifying could have run, been classified, and been sitting in the
+  // database for two days while this page refused to ask for them: the Dutch
+  // GP showed an empty FP1 tab on the Saturday with its results already synced.
+  //
+  // `data_sync.py` hit exactly this and documented it -- "practice, qualifying
+  // and sprint results used to be synced only for rounds whose *race* had
+  // started, which meant a session run on Friday was not even asked for until
+  // Sunday afternoon" -- and fixed it there by splitting `_rounds_in_play`
+  // from `_completed_rounds`. The backend stopped making the mistake; the
+  // frontend kept it.
+  //
+  // Every request below already fails independently, so asking early for a
+  // session that has not run costs one empty response, not a broken page.
+  const weekendHasBegun = SESSION_FIELDS.some((field) => {
+    const start =
+      field === "Race"
+        ? parseDateTimeToMs(race.date, race.time)
+        : parseDateTimeToMs(
+            (race as RaceWithSessions)[field]?.date,
+            (race as RaceWithSessions)[field]?.time
+          );
+    return start !== null && start < now.getTime();
+  });
+
   const upcomingRace = races
     .map((r) => {
       if (!r.date) return null;
@@ -99,7 +149,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
   let circuitInfo = null;
   let weather: Awaited<ReturnType<typeof getRaceWeather>>["weather"] = null;
 
-  if (isPast) {
+  if (weekendHasBegun) {
     const [
       raceRes,
       qualiRes,
@@ -166,7 +216,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
   const statusBadge = isPast
     ? { label: "Completed", bg: "rgba(255,255,255,0.06)", color: "#a89e90" }
     : isNextRace
-    ? { label: "Next race", bg: "rgba(255,90,31,0.16)", color: "#FFAE6A" }
+    ? { label: "Next race", bg: "rgba(255,90,31,0.16)", color: "var(--color-primary)" }
     : { label: "Upcoming", bg: "rgba(245,235,222,0.06)", color: "#c9c0b4" };
 
   return (
@@ -214,15 +264,15 @@ export default async function RaceDetailPage({ params }: PageProps) {
           {isPast && (
             <Link
               href={`/watch/${seasonYear}-${roundNumber}`}
-              className="font-bold text-xs px-5 h-[46px] rounded-[11px] flex items-center justify-center text-[#1a1210] transition-transform duration-150 active:scale-95"
-              style={{ background: "linear-gradient(90deg,#FFAE6A,#FF5A1F)" }}
+              className="font-bold text-xs px-5 h-[46px] rounded-control flex items-center justify-center text-[#1a1210] transition-transform duration-150 active:scale-95"
+              style={{ background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
             >
               Watch at race pace
             </Link>
           )}
           <Link
             href="/schedule"
-            className="font-bold text-xs px-5 h-[46px] rounded-[11px] apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
+            className="font-bold text-xs px-5 h-[46px] rounded-control apex-glass-soft flex items-center justify-center hover:border-[rgba(255,138,61,0.5)] transition-[border-color,transform] duration-150 active:scale-95"
           >
             ← Back to schedule
           </Link>
@@ -235,7 +285,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
           {circuitStats.map((stat) => (
             <div
               key={stat.label}
-              className="apex-glass-soft rounded-[14px] px-[22px] py-[18px]"
+              className="apex-glass-soft rounded-tile px-[22px] py-[18px]"
             >
               <p className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-500">
                 {stat.label}

@@ -109,7 +109,7 @@ function Chip({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-lg px-2.5 py-1.5 bg-[rgba(245,235,222,0.045)] border border-white/[0.06]">
       <div className="font-extrabold text-[13px] tabular-nums leading-none">{value}</div>
-      <div className="font-semibold text-[8.5px] tracking-[0.1em] uppercase text-warm-500 mt-1">
+      <div className="font-semibold text-[9px] tracking-[0.1em] uppercase text-warm-500 mt-1">
         {label}
       </div>
     </div>
@@ -121,7 +121,7 @@ function LegendKey({ outcome, label, color }: { outcome: Outcome; label: string;
   return (
     <span className="flex items-center gap-1.5">
       <span
-        className="w-2.5 h-2.5 rounded-[3px] border"
+        className="w-2.5 h-2.5 rounded-hairline border"
         style={{ background: style.background, borderColor: style.borderColor }}
       />
       <span className="font-semibold text-[9px] tracking-[0.08em] uppercase text-warm-500">
@@ -178,7 +178,7 @@ export default function DriverSeasonLog({
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-3.5 mb-2">
-        <span className="font-bold text-[9.5px] tracking-[0.12em] uppercase text-[#FF7A3D]">
+        <span className="font-bold text-[10px] tracking-[0.12em] uppercase text-flame">
           Round by round
         </span>
         <LegendKey outcome="win" label="Win" color={color} />
@@ -197,7 +197,7 @@ export default function DriverSeasonLog({
           return (
             <div
               key={entry.round}
-              className="rounded-[10px] border px-2 pt-1.5 pb-2 min-w-0"
+              className="rounded-control border px-2 pt-1.5 pb-2 min-w-0"
               style={style}
               title={[
                 `Round ${entry.round} — ${entry.raceName}`,
@@ -227,10 +227,10 @@ export default function DriverSeasonLog({
                   <span
                     className={`font-[family-name:var(--font-headline)] font-extrabold text-[15px] leading-none tabular-nums ${
                       outcome === "win" || outcome === "podium"
-                        ? "text-[#FFAE6A]"
+                        ? "text-primary"
                         : outcome === "dnf"
                           ? "text-[#FF9B8F]"
-                          : "text-[#f6f1ea]"
+                          : "text-warm-100"
                     }`}
                   >
                     {finishLabel(entry)}
@@ -255,7 +255,7 @@ export default function DriverSeasonLog({
                   style={{
                     background:
                       outcome === "win" || outcome === "podium"
-                        ? "linear-gradient(90deg,#FFAE6A,#FF5A1F)"
+                        ? "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))"
                         : color.hex,
                   }}
                   initial={reduce ? false : { width: 0 }}
@@ -264,7 +264,7 @@ export default function DriverSeasonLog({
                 />
               </div>
               {entry.sprintPoints > 0 && (
-                <div className="font-semibold text-[8.5px] tracking-[0.06em] uppercase text-warm-500 mt-1">
+                <div className="font-semibold text-[9px] tracking-[0.06em] uppercase text-warm-500 mt-1">
                   {entry.sprintPosition !== null ? `SPR P${entry.sprintPosition}` : "SPR"} ·
                   +{entry.sprintPoints}
                 </div>
@@ -291,7 +291,7 @@ export default function DriverSeasonLog({
         <button
           type="button"
           onClick={onOpenProfile}
-          className="font-bold text-[10px] tracking-[0.08em] uppercase px-3 py-1.5 rounded-lg apex-glass-soft text-warm-200 hover:text-[#FFAE6A] transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#FF7A3D]"
+          className="font-bold text-[10px] tracking-[0.08em] uppercase px-3 py-1.5 rounded-lg apex-glass-soft text-warm-200 hover:text-primary transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-flame"
         >
           Full profile
         </button>
