@@ -55,13 +55,13 @@ function tileStyle(outcome: Outcome, color: TeamColor): React.CSSProperties {
   switch (outcome) {
     case "win":
       return {
-        background: "linear-gradient(160deg, rgba(255,174,106,0.30), rgba(255,90,31,0.16))",
-        borderColor: "rgba(255,138,61,0.62)",
+        background: "linear-gradient(160deg, rgb(var(--rgb-primary) / 0.30), rgb(var(--rgb-primary-container) / 0.16))",
+        borderColor: "rgb(var(--rgb-flame-bright) / 0.62)",
       };
     case "podium":
       return {
-        background: "rgba(255,138,61,0.13)",
-        borderColor: "rgba(255,138,61,0.34)",
+        background: "rgb(var(--rgb-flame-bright) / 0.13)",
+        borderColor: "rgb(var(--rgb-flame-bright) / 0.34)",
       };
     case "points":
       return {
@@ -75,7 +75,7 @@ function tileStyle(outcome: Outcome, color: TeamColor): React.CSSProperties {
       };
     default:
       return {
-        background: "rgba(245,235,222,0.04)",
+        background: "rgb(var(--rgb-veil) / 0.04)",
         borderColor: "rgba(255,255,255,0.08)",
       };
   }

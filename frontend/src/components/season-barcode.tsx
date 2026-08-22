@@ -159,8 +159,8 @@ export default function SeasonBarcode({ races, ghostSlots, activeSeason }: Seaso
         >
           <defs>
             <pattern id="barcode-ghost-hatch" width="3" height="3" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-              <rect width="3" height="3" fill="rgba(245,235,222,0.05)" />
-              <line x1="0" y1="0" x2="0" y2="3" stroke="rgba(245,235,222,0.18)" strokeWidth="1.4" />
+              <rect width="3" height="3" fill="rgb(var(--rgb-veil) / 0.05)" />
+              <line x1="0" y1="0" x2="0" y2="3" stroke="rgb(var(--rgb-veil) / 0.18)" strokeWidth="1.4" />
             </pattern>
           </defs>
 
@@ -177,7 +177,7 @@ export default function SeasonBarcode({ races, ghostSlots, activeSeason }: Seaso
                 height={STRIPE_HEIGHT}
                 fill={identity.color.hex}
                 opacity={opacity}
-                stroke={isIndy ? "rgba(245,235,222,0.55)" : "none"}
+                stroke={isIndy ? "rgb(var(--rgb-veil) / 0.55)" : "none"}
                 strokeWidth={isIndy ? 0.3 : 0}
                 style={
                   reduce
@@ -241,7 +241,7 @@ export default function SeasonBarcode({ races, ghostSlots, activeSeason }: Seaso
               height={STRIPE_HEIGHT + 6}
               fill={
                 activeIsGhost
-                  ? "rgba(245,235,222,0.35)"
+                  ? "rgb(var(--rgb-veil) / 0.35)"
                   : getConstructorIdentity(races[activeIndex]?.constructor_key ?? "").color.hex
               }
               stroke="rgba(255,255,255,0.9)"

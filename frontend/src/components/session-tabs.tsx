@@ -374,7 +374,7 @@ function FullResultsTable({ results }: { results: RaceResult[] }) {
         {season && round && (
           <Link
             href={`/schedule/${season}/${round}/pitwall`}
-            className="group inline-flex items-center gap-2 font-bold text-xs tracking-[0.08em] uppercase text-[#1a1210] px-5 py-2.5 rounded-control shadow-[0_6px_20px_rgba(255,90,31,0.35)] hover:shadow-[0_8px_26px_rgba(255,90,31,0.5)] transition-[box-shadow,transform] duration-150 active:scale-95"
+            className="group inline-flex items-center gap-2 font-bold text-xs tracking-[0.08em] uppercase text-[#1a1210] px-5 py-2.5 rounded-control shadow-[0_6px_20px_rgb(var(--rgb-primary-container)_/_0.35)] hover:shadow-[0_8px_26px_rgb(var(--rgb-primary-container)_/_0.5)] transition-[box-shadow,transform] duration-150 active:scale-95"
             style={{ background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
           >
             <span className="material-symbols-outlined text-[18px] leading-none">
@@ -588,8 +588,8 @@ function SessionInfo({
           className="ml-auto font-bold text-[10px] tracking-[0.1em] uppercase px-3 py-1.5 rounded-lg"
           style={
             sessionPast
-              ? { background: "rgba(245,235,222,0.06)", color: "var(--color-warm-400)" }
-              : { background: "rgba(255,90,31,0.16)", color: "var(--color-primary)" }
+              ? { background: "rgb(var(--rgb-veil) / 0.06)", color: "var(--color-warm-400)" }
+              : { background: "rgb(var(--rgb-primary-container) / 0.16)", color: "var(--color-primary)" }
           }
         >
           {sessionPast ? "Completed" : "Upcoming"}
@@ -706,10 +706,10 @@ function UpcomingSessionTimings({
             className="flex items-center justify-between px-5 py-4 rounded-2xl border"
             style={{
               background: s.isRace
-                ? "rgba(255,90,31,0.1)"
+                ? "rgb(var(--rgb-primary-container) / 0.1)"
                 : "rgba(40,32,26,0.3)",
               borderColor: s.isRace
-                ? "rgba(255,90,31,0.4)"
+                ? "rgb(var(--rgb-primary-container) / 0.4)"
                 : "rgba(255,255,255,0.07)",
               opacity: s.past ? 0.55 : 1,
             }}

@@ -199,9 +199,9 @@ export default function RootLayout({
           className="fixed inset-0 z-0 pointer-events-none overflow-hidden"
           aria-hidden="true"
         >
-          <div className="absolute -top-[6%] left-[4%] w-[52vw] h-[52vw] rounded-full blur-[10px] bg-[radial-gradient(circle,rgba(255,90,31,0.13),transparent_60%)]" />
-          <div className="absolute -bottom-[14%] -right-[4%] w-[48vw] h-[48vw] rounded-full blur-[12px] bg-[radial-gradient(circle,rgba(226,58,14,0.10),transparent_62%)]" />
-          <div className="absolute top-[44%] left-[38%] w-[40vw] h-[40vw] rounded-full blur-[14px] bg-[radial-gradient(circle,rgba(255,138,61,0.07),transparent_64%)]" />
+          <div className="absolute -top-[6%] left-[4%] w-[52vw] h-[52vw] rounded-full blur-[10px] bg-[radial-gradient(circle,rgb(var(--rgb-primary-container)_/_0.13),transparent_60%)]" />
+          <div className="absolute -bottom-[14%] -right-[4%] w-[48vw] h-[48vw] rounded-full blur-[12px] bg-[radial-gradient(circle,rgb(var(--rgb-ember)_/_0.10),transparent_62%)]" />
+          <div className="absolute top-[44%] left-[38%] w-[40vw] h-[40vw] rounded-full blur-[14px] bg-[radial-gradient(circle,rgb(var(--rgb-flame-bright)_/_0.07),transparent_64%)]" />
         </div>
           }
           nav={
@@ -213,7 +213,7 @@ export default function RootLayout({
                   suit would enlarge the one element setting the bar's
                   height. */}
               <Link href="/" className="relative flex items-center gap-[11px] before:absolute before:-inset-y-1 before:-inset-x-2 before:content-['']">
-                <span className="w-[9px] h-[9px] rounded-full bg-primary-container shadow-[0_0_14px_rgba(255,90,31,0.9)]" />
+                <span className="w-[9px] h-[9px] rounded-full bg-primary-container shadow-[0_0_14px_rgb(var(--rgb-primary-container)_/_0.9)]" />
                 <span className="font-[family-name:var(--font-headline)] font-extrabold text-[22px] tracking-[-0.5px]">
                   APEX
                 </span>

@@ -30,8 +30,8 @@ const TONE_STYLES: Record<Tone, { text: string; bg: string; border: string }> = 
   },
   amber: {
     text: "var(--color-primary)",
-    bg: "rgba(255,90,31,0.12)",
-    border: "rgba(255,90,31,0.3)",
+    bg: "rgb(var(--rgb-primary-container) / 0.12)",
+    border: "rgb(var(--rgb-primary-container) / 0.3)",
   },
   yellow: {
     text: "#F5D547",
@@ -50,8 +50,8 @@ const TONE_STYLES: Record<Tone, { text: string; bg: string; border: string }> = 
   },
   neutral: {
     text: "#B8AE9E",
-    bg: "rgba(245,235,222,0.06)",
-    border: "rgba(245,235,222,0.14)",
+    bg: "rgb(var(--rgb-veil) / 0.06)",
+    border: "rgb(var(--rgb-veil) / 0.14)",
   },
 };
 

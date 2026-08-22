@@ -369,7 +369,7 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
                 transition: rowTransitionMs
                   ? `transform ${rowTransitionMs}ms ${EASE_OUT}, background-color 200ms ease, opacity 200ms ease`
                   : "background-color 200ms ease, opacity 200ms ease",
-                background: runner.pit ? "rgba(255,90,31,0.14)" : "transparent",
+                background: runner.pit ? "rgb(var(--rgb-primary-container) / 0.14)" : "transparent",
                 // A retired car's row is carried forward from its last real
                 // lap rather than live — dimmed so it doesn't read as an
                 // active, current gap.
@@ -423,8 +423,8 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
                   key={`${event.kind}-${index}`}
                   className="inline-flex items-center gap-1.5 font-semibold text-[11px] px-2.5 py-1.5 rounded-lg"
                   style={{
-                    background: urgent ? "rgba(255,68,68,0.12)" : "rgba(255,90,31,0.1)",
-                    border: `1px solid ${urgent ? "rgba(255,68,68,0.3)" : "rgba(255,90,31,0.22)"}`,
+                    background: urgent ? "rgba(255,68,68,0.12)" : "rgb(var(--rgb-primary-container)_/_0.1)",
+                    border: `1px solid ${urgent ? "rgba(255,68,68,0.3)" : "rgb(var(--rgb-primary-container)_/_0.22)"}`,
                     color: urgent ? "#FF6B6B" : "var(--color-primary)",
                   }}
                   // The full race-control message on hover: the chip is a

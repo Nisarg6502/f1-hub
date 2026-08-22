@@ -226,7 +226,7 @@ export default function CircuitDnaCompare({
           <button
             onClick={() => setShowModal(true)}
             disabled={!canCompare}
-            className="font-bold text-xs tracking-[0.08em] uppercase text-[#1a1210] px-5 py-2.5 rounded-control shadow-[0_6px_20px_rgba(255,90,31,0.35)] disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed transition-[box-shadow,transform] duration-150 active:scale-95 mt-1"
+            className="font-bold text-xs tracking-[0.08em] uppercase text-[#1a1210] px-5 py-2.5 rounded-control shadow-[0_6px_20px_rgb(var(--rgb-primary-container)_/_0.35)] disabled:opacity-40 disabled:shadow-none disabled:cursor-not-allowed transition-[box-shadow,transform] duration-150 active:scale-95 mt-1"
             style={{ background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
           >
             Compare tracks

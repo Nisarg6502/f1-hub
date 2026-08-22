@@ -35,6 +35,33 @@
   --color-veil: #f5ebde;
   --color-flame-bright: #ff8a3d;
 
+  /* --- Palette as RGB triples ------------------------------------------------
+
+     The same five colours as above, as space-separated channels, so they can
+     be used with an arbitrary alpha in the places a Tailwind opacity modifier
+     cannot reach: inline `style` objects, `linear-gradient()` and
+     `radial-gradient()` stops, `box-shadow` colours, and SVG presentation
+     attributes like `stroke`.
+
+     Written `rgb(var(--rgb-veil) / 0.07)` at the call site.
+
+     THIS IS A DUPLICATE OF THE HEX VALUES ABOVE, which is the one real cost of
+     doing it this way, and `test_design_tokens.py` exists solely to make that
+     duplication safe: it parses this file and fails if any triple stops
+     matching its `--color-*` counterpart. Change one, change the other, and
+     the test will tell you if you forget.
+
+     The alternative was `rgb(from var(--color-veil) r g b / 0.07)`, which needs
+     no duplicate -- but it is CSS Color 5 relative syntax, and a browser that
+     does not understand it drops the declaration silently rather than falling
+     back, which turns an old browser into a page with missing backgrounds. */
+  --rgb-veil: 245 235 222;
+  --rgb-flame-bright: 255 138 61;
+  --rgb-primary: 255 174 106;
+  --rgb-primary-container: 255 90 31;
+  --rgb-flame: 255 122 61;
+  --rgb-ember: 226 58 14;
+
   /* --- Corner radii -------------------------------------------------------
 
      Fourteen hand-picked pixel values were in use (2, 3, 5, 7, 9, 10, 11, 12,

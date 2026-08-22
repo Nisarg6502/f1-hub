@@ -212,12 +212,12 @@ export default function StandingsView({
                   className="rounded-tile border transition-colors"
                   style={{
                     background: leader
-                      ? "rgba(255,90,31,0.12)"
+                      ? "rgb(var(--rgb-primary-container) / 0.12)"
                       : "rgba(40,32,26,0.32)",
                     borderColor: isOpen
-                      ? "rgba(255,138,61,0.5)"
+                      ? "rgb(var(--rgb-flame-bright) / 0.5)"
                       : leader
-                        ? "rgba(255,90,31,0.4)"
+                        ? "rgb(var(--rgb-primary-container) / 0.4)"
                         : "rgba(255,255,255,0.07)",
                   }}
                 >
@@ -424,10 +424,10 @@ export default function StandingsView({
                 className="relative px-5 sm:px-6 py-5 rounded-2xl overflow-hidden border isolate"
                 style={{
                   background: leader
-                    ? "rgba(255,90,31,0.1)"
+                    ? "rgb(var(--rgb-primary-container) / 0.1)"
                     : "rgba(40,32,26,0.3)",
                   borderColor: leader
-                    ? "rgba(255,90,31,0.35)"
+                    ? "rgb(var(--rgb-primary-container) / 0.35)"
                     : "rgba(255,255,255,0.07)",
                 }}
               >

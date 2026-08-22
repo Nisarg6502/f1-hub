@@ -287,8 +287,8 @@ export default function TeamHeritageCard({
                     style={{
                       background: isSelected
                         ? `${hex}2E`
-                        : "rgba(245,235,222,0.05)",
-                      border: `1px solid ${isSelected ? `${hex}9E` : "rgba(245,235,222,0.09)"}`,
+                        : "rgb(var(--rgb-veil) / 0.05)",
+                      border: `1px solid ${isSelected ? `${hex}9E` : "rgb(var(--rgb-veil) / 0.09)"}`,
                     }}
                   >
                     <span

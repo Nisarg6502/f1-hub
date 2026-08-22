@@ -95,7 +95,7 @@ function CircuitHalf({ circuit }: { circuit: CircuitOption }) {
     <div
       className="relative h-[150px] overflow-hidden"
       style={{
-        background: "linear-gradient(180deg, rgba(255,138,61,0.16), transparent)",
+        background: "linear-gradient(180deg, rgb(var(--rgb-flame-bright) / 0.16), transparent)",
       }}
     >
       <TrackMap
@@ -107,7 +107,7 @@ function CircuitHalf({ circuit }: { circuit: CircuitOption }) {
       />
       <div
         className="absolute top-0 left-0 right-0 h-[4px]"
-        style={{ background: "#FF8A3D", boxShadow: "0 0 16px rgba(255,138,61,0.5)" }}
+        style={{ background: "#FF8A3D", boxShadow: "0 0 16px rgb(var(--rgb-flame-bright) / 0.5)" }}
       />
       <div className="absolute bottom-3 left-4 right-4">
         <div className="flex items-center gap-2 mb-1">
