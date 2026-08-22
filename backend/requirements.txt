@@ -1,15 +1,34 @@
 # Dependencies for the `f1-backend` Cloud Run service.
 #
-# Pinned with `~=` (compatible-release): patch updates flow, minor ones do not.
-# These were bare names until now, which meant two builds of the SAME commit
-# could install different code — the image that passed review and the image
-# that shipped were not necessarily the same software, and a break had no diff
-# to blame it on. `requirements-agent.txt` already made this argument for the
-# agent tree; it applies just as well to the service that talks to Mongo.
+# The service layer is pinned with `~=` (compatible-release): patch updates
+# flow, minor ones do not. These were bare names until now, which meant two
+# builds of the same commit could install different code.
 #
-# Versions match what the working environment actually had installed when they
-# were pinned, rather than the newest on PyPI, so pinning changed nothing about
-# how the service behaves.
+# THE SCIENTIFIC STACK IS DELIBERATELY LEFT UNPINNED. That is not an oversight,
+# and it should not be "tidied up" without reading this.
+#
+# Pinning `pandas~=2.0.1` here broke production. pandas 2.0.1 is compiled
+# against the numpy 1.x C ABI; with numpy unpinned, pip installed numpy 2.x
+# beside it. Nothing complained -- pip saw no conflict, the image built, the
+# image pushed -- and the container then died on startup with:
+#
+#     ValueError: numpy.dtype size changed, may indicate binary
+#     incompatibility. Expected 96 from C header, got 88 from PyObject
+#
+# An ABI mismatch is invisible to a dependency resolver, so it cannot surface
+# until the container actually runs. Pinning numpy alongside pandas fixes that
+# one pair and immediately moves the same problem one layer down: fastf1 also
+# pulls scipy and matplotlib, whose current wheels are built against numpy 2.x
+# and would then become the mismatched ones.
+#
+# Doing this properly needs a lockfile resolved on linux/amd64 and a container
+# to test the import in -- not hand-picked specifiers checked on a Windows
+# machine. Meanwhile fastf1's own dependency ranges have resolved a working set
+# on every deploy this service has ever had, so they are left to keep doing it.
+#
+# If you pin them later: pin numpy, pandas, scipy and matplotlib TOGETHER, and
+# verify by building the image and importing `app.main` inside it, because
+# `pip install` succeeding proves nothing about this class of failure.
 
 # --- Service ---------------------------------------------------------------
 fastapi~=0.141.1
@@ -18,16 +37,12 @@ python-dotenv~=1.2.2
 httpx~=0.28.1
 
 # --- Database --------------------------------------------------------------
-# `motor` is the async driver the request path uses; `pymongo[srv]` is both its
+# `motor` is the async driver the request path uses; `pymongo` is both its
 # dependency and the driver `data_sync.py` uses directly, since the sync job is
 # synchronous. `[srv]` is required for the `mongodb+srv://` Atlas URI.
 motor~=3.7.1
 pymongo[srv]~=4.16.0
 
-# --- F1 data ---------------------------------------------------------------
-fastf1~=3.7.0
-# NOT upgraded past 2.0 without checking `f1_results.py` and the FastF1 call
-# sites: those read `.laps` and `.results` as DataFrames and depend on current
-# indexing behaviour. pandas 2.1+ changed enough around copy-on-write to make
-# this worth an explicit decision rather than a silent minor bump.
-pandas~=2.0.1
+# --- F1 data (read the note above before pinning any of this) ---------------
+fastf1
+pandas
