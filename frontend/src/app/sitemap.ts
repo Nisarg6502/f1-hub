@@ -30,6 +30,7 @@ const ROUTES = [
   { path: "/data-sources", priority: 0.5 },
   { path: "/ai-disclosure", priority: 0.5 },
   { path: "/faq", priority: 0.5 },
+  { path: "/attributions", priority: 0.4 },
   { path: "/privacy", priority: 0.3 },
   { path: "/disclaimer", priority: 0.3 },
 ];

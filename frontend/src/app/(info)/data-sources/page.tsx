@@ -151,15 +151,9 @@ export default function DataSourcesPage() {
         >
           CC BY-SA 4.0
         </a>
-        . A full attributions page is still to be written; until it exists, the{" "}
-        <a
-          href="https://github.com/Nisarg6502/f1-hub"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          source repository
-        </a>{" "}
-        is the authoritative record of what this project depends on.
+. <Link href="/attributions">Attributions</Link> lists every source, image and
+        font with the licence it is used under — including the assets that are
+        not freely licensed.
       </p>
       <p>
         None of these providers is affiliated with APEX, and APEX is not

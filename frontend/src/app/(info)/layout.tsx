@@ -31,6 +31,7 @@ const SECTIONS = [
   { href: "/data-sources", label: "Data sources" },
   { href: "/ai-disclosure", label: "AI disclosure" },
   { href: "/faq", label: "FAQ" },
+  { href: "/attributions", label: "Attributions" },
   { href: "/privacy", label: "Privacy" },
   { href: "/disclaimer", label: "Disclaimer" },
 ];

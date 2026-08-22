@@ -283,6 +283,7 @@ export default function RootLayout({
                 links={[
                   { href: "/privacy", label: "Privacy" },
                   { href: "/disclaimer", label: "Disclaimer" },
+                  { href: "/attributions", label: "Attributions" },
                 ]}
               />
             </div>
