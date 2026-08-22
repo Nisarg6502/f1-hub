@@ -295,25 +295,50 @@ double-counting this design set out to avoid by sending `page_view` by hand.
 **Any future check of event counts must run against a production build**, or it
 will report a bug that does not exist.
 
-### What could NOT be verified here
+### The CSP blocked the whole feature — corrected 2026-08-23
 
-`googletagmanager.com` is blocked at the network level in this environment --
-requests reach `Network.loadingFailed` while `fonts.googleapis.com` returns 200,
-so it is tracker-specific filtering rather than a lack of connectivity. gtag.js
-therefore never executed locally.
+This section previously claimed `googletagmanager.com` was blocked at the
+network level on the development machine, and recorded the `_ga` cookie as
+unverifiable. **That was wrong, and the error mattered: the feature was broken
+in production and this document said the environment was at fault.**
 
-The consequence: **the real `_ga` cookie was never observed being written**, so
-"cookie appears after consent" is confirmed only as far as "APEX asks for the
-grant correctly and withholds it until consent". Everything upstream of Google's
-own script is verified; Google's script itself has not run.
+The block was APEX's own Content-Security-Policy. `script-src 'self'
+'unsafe-inline'` in `frontend/next.config.ts` named no Google host, so `gtag.js`
+was refused outright.
 
-It also means no `/g/collect` request was ever sent, so the claim in this
-document that a denied visitor still produces cookieless modelled pings is
-Google's documented behaviour, taken on trust, not something measured here.
+It hid well. A CSP refusal arrives as `Network.loadingFailed` with an **empty
+`errorText`** — identical in appearance to network filtering unless
+`params.blockedReason` ("csp") is read. Meanwhile every one of our own calls
+kept queueing into `dataLayer` in the correct order, so the instrumentation
+looked healthy end to end while Google received nothing.
 
-**Confirm both against the live deployment once a real measurement ID exists**:
-`_ga` present after consent and absent before it, and traffic arriving in
-DebugView.
+Fixed in `8658275`: `script-src` for gtag.js, `connect-src` for the
+`/g/collect` beacons, `img-src` for the image-beacon fallback — all gated on
+the measurement ID so an analytics-free build keeps the narrower policy.
+`headers()` is baked into `.next/routes-manifest.json` at build time; both
+variants were checked there.
+
+**Lesson for the next third-party script:** adding one to this repo means
+adding its hosts to the CSP in the same change, and confirming the script
+actually executed (`typeof window.google_tag_data === "object"`) rather than
+confirming that our own code called it.
+
+### Verified against the live deployment (2026-08-23)
+
+With `G-LFJ5KBBXD3` deployed and the CSP fixed, over CDP against
+`f1-frontend-1076575666662.asia-south1.run.app`:
+
+| Check | Result |
+| --- | --- |
+| `gtag.js` request | **200**, and `google_tag_data` is an object — it executed |
+| EU (`Europe/Berlin`) before answering | Banner shown, **no `_ga` cookie** |
+| EU after clicking Allow | `_ga` present, stored `granted`, banner gone |
+| Non-EU (`Asia/Kolkata`) | No banner, `_ga` present immediately |
+| Collector requests | 1 per page view, both regions |
+
+This closes the gap this document previously listed as unverifiable. The
+consent contract holds against the real Google tag, not merely against our own
+`dataLayer` calls.
 
 ### Two departures from the spec, both forced by the code
 
