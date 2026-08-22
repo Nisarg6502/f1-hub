@@ -1,0 +1,43 @@
+# Dependency update alerts and PRs.
+#
+# There was no `.github/` directory at all before this: no Dependabot, no
+# secret scanning workflow, no CI. Combined with `backend/requirements.txt`
+# being entirely unpinned, that meant nothing in this repo would ever tell
+# anyone that a dependency had a published advisory.
+#
+# Free on public repositories. Grouped and weekly on purpose — the failure mode
+# of dependency automation is a pull request every day until everyone stops
+# reading them.
+version: 2
+updates:
+  # Both requirements files live in /backend and are picked up together.
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      # Patch bumps are what `~=` already permits, so they carry the least risk
+      # and there is no reason to review them one at a time.
+      backend-patch:
+        patterns: ["*"]
+        update-types: ["patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      frontend-patch:
+        patterns: ["*"]
+        update-types: ["patch", "minor"]
+    ignore:
+      # Next and React majors are migrations, not updates; they should be
+      # chosen deliberately rather than arriving as a PR.
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]

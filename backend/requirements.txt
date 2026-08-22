@@ -1,8 +1,33 @@
-fastapi
-uvicorn
-motor
-pymongo[srv]
-fastf1
-pandas
-python-dotenv
-httpx
+# Dependencies for the `f1-backend` Cloud Run service.
+#
+# Pinned with `~=` (compatible-release): patch updates flow, minor ones do not.
+# These were bare names until now, which meant two builds of the SAME commit
+# could install different code — the image that passed review and the image
+# that shipped were not necessarily the same software, and a break had no diff
+# to blame it on. `requirements-agent.txt` already made this argument for the
+# agent tree; it applies just as well to the service that talks to Mongo.
+#
+# Versions match what the working environment actually had installed when they
+# were pinned, rather than the newest on PyPI, so pinning changed nothing about
+# how the service behaves.
+
+# --- Service ---------------------------------------------------------------
+fastapi~=0.141.1
+uvicorn~=0.52.1
+python-dotenv~=1.2.2
+httpx~=0.28.1
+
+# --- Database --------------------------------------------------------------
+# `motor` is the async driver the request path uses; `pymongo[srv]` is both its
+# dependency and the driver `data_sync.py` uses directly, since the sync job is
+# synchronous. `[srv]` is required for the `mongodb+srv://` Atlas URI.
+motor~=3.7.1
+pymongo[srv]~=4.16.0
+
+# --- F1 data ---------------------------------------------------------------
+fastf1~=3.7.0
+# NOT upgraded past 2.0 without checking `f1_results.py` and the FastF1 call
+# sites: those read `.laps` and `.results` as DataFrames and depend on current
+# indexing behaviour. pandas 2.1+ changed enough around copy-on-write to make
+# this worth an explicit decision rather than a silent minor bump.
+pandas~=2.0.1

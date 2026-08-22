@@ -139,9 +139,30 @@ _TRACING_LIVE = tracing.configure()
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(..., description="The user's question")
+    """The chat request body, with a HARD ceiling on every field.
+
+    These `max_length`s are an abuse ceiling, not the product limit. Pydantic
+    enforces them before the handler runs -- before `estimate_cost` reads the
+    message, before a rate-limit decision is taken, before a ledger exists --
+    which is the whole point: without them FastAPI happily parses whatever
+    Cloud Run accepts, and Cloud Run's request ceiling is 32 MiB. An
+    unauthenticated endpoint that will parse a 32 MiB body and then run a cost
+    estimator over it is a free way to burn the instance this service is
+    limited to one of.
+
+    `message` is capped at 8000 rather than the 4000 the product actually
+    allows, and the gap is deliberate. The 4000-character limit is enforced
+    further down as a streamed `bad_request` carrying a sentence a person can
+    read; moving it here would replace that with a bare 422 and a Pydantic
+    error blob. So ordinary overshoot keeps the good message, and only lengths
+    no honest client would send are refused at the door.
+    """
+
+    message: str = Field(..., max_length=8000, description="The user's question")
     thread_id: str | None = Field(
-        None, description="Conversation id; reserved for CP61's checkpointer"
+        None,
+        max_length=64,
+        description="Conversation id; reserved for CP61's checkpointer",
     )
 
 
@@ -777,9 +798,17 @@ class FeedbackRequest(BaseModel):
     # the first place (see that component's docstring), so a null here is a
     # client bug worth surfacing, not telemetry to swallow — matches
     # `test_agent_feedback.py`'s `test_null_run_id_is_a_pydantic_422_and_calls_nothing`.
-    run_id: str = Field(..., description="The LangSmith run id from the matching `done` event")
+    run_id: str = Field(
+        ..., max_length=128, description="The LangSmith run id from the matching `done` event"
+    )
     score: int = Field(..., description="1 for thumbs up, -1 for thumbs down")
-    comment: str | None = Field(None, description="Optional free-text, typically on thumbs-down")
+    # Bounded because this is unauthenticated free text that is written
+    # straight to Mongo. Unbounded, it is a way for anyone to fill a 512MB
+    # free-tier cluster one POST at a time. 2000 characters is far more than
+    # anyone types into a thumbs-down box.
+    comment: str | None = Field(
+        None, max_length=2000, description="Optional free-text, typically on thumbs-down"
+    )
 
     @field_validator("score")
     @classmethod

@@ -28,7 +28,26 @@ steps:
       - 'asia-south1'
       - '--platform'
       - 'managed'
+      # `--update-env-vars`, NOT `--set-env-vars`. This service's other
+      # variables (MONGODB_URI among them) were set directly on the service and
+      # do not appear in this file; `--set-env-vars` REPLACES the whole
+      # environment and would delete every one of them on the next deploy.
+      # `--update-env-vars` merges.
+      - '--update-env-vars'
+      - '^;^API_ALLOWED_ORIGINS=${_API_ALLOWED_ORIGINS}'
+      # The data API has no rate limiter of its own, so instance count is the
+      # only ceiling on what a burst of traffic can cost. The agent already
+      # pins itself to 1 for the same reason.
+      - '--max-instances'
+      - '2'
       - '--quiet'
+
+substitutions:
+  # Both Cloud Run URLs the frontend is served from, matching
+  # `_AGENT_ALLOWED_ORIGINS` in cloudbuild-agent.yaml. The delimiter is
+  # overridden to `;` above because this value contains commas, which gcloud
+  # would otherwise read as separators between variables.
+  _API_ALLOWED_ORIGINS: 'https://f1-frontend-1076575666662.asia-south1.run.app,https://f1-frontend-2w5wydk2ca-el.a.run.app'
 
 images:
   - 'gcr.io/f1-dashboard-493015/f1-backend'

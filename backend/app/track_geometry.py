@@ -213,6 +213,52 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# How long a failed build is refused for before it may be retried.
+#
+# The global lock stops two builds running AT ONCE, and the already-built check
+# stops a successful build repeating. Neither bounds the FAILURE loop: a circuit
+# whose build fails releases the lock and returns to the unbuilt pool, so a
+# script — or an impatient reload — can restart it as fast as the job can fail.
+# Each attempt spends Cloud Run Job minutes and OpenTopoData courtesy quota,
+# both of which this project has a strictly limited free allowance of, and a
+# build that just failed is unlikely to succeed a second later anyway.
+#
+# Five minutes is short enough that a genuine transient failure (a cold job, a
+# momentary upstream refusal) costs a person one wait, and long enough that a
+# tight loop cannot spend anything meaningful.
+BUILD_FAILURE_COOLDOWN_SECONDS = 300
+
+
+def _failure_cooldown_remaining(existing: dict | None) -> int | None:
+    """Seconds left before a failed build may be retried, or None if it may now.
+
+    Reads the build document already fetched by the caller rather than adding a
+    round trip, and treats an unreadable or missing timestamp as "no cooldown":
+    the cost of wrongly allowing one retry is one job run, while wrongly
+    blocking one is a circuit nobody can ever build.
+    """
+    if not existing or existing.get("status") != "failed":
+        return None
+
+    updated_at = existing.get("updated_at")
+    if isinstance(updated_at, str):
+        try:
+            updated_at = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if not isinstance(updated_at, datetime):
+        return None
+    if updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=timezone.utc)
+
+    elapsed = (_now() - updated_at).total_seconds()
+    # A clock skew that puts the failure in the future must not read as an
+    # indefinite block.
+    if elapsed < 0 or elapsed >= BUILD_FAILURE_COOLDOWN_SECONDS:
+        return None
+    return int(BUILD_FAILURE_COOLDOWN_SECONDS - elapsed)
+
+
 def _iso(value):
     if isinstance(value, datetime):
         if value.tzinfo is None:
@@ -801,6 +847,23 @@ async def start_track_geometry_build(request: BuildRequest):
         return JSONResponse(
             status_code=200,
             content={"already_built": True, "build": _public_doc(existing, spec)},
+        )
+
+    cooling = _failure_cooldown_remaining(existing)
+    if cooling is not None:
+        return JSONResponse(
+            status_code=429,
+            headers={"Retry-After": str(cooling)},
+            content={
+                "error": "build_cooling_down",
+                "circuit_id": key,
+                "display_name": spec.get("display_name"),
+                "retry_after_seconds": cooling,
+                "message": (
+                    "That build failed recently. Give it a few minutes before trying again."
+                ),
+                "build": _public_doc(existing, spec),
+            },
         )
 
     acquired, holder = await acquire_lock(db, spec)
