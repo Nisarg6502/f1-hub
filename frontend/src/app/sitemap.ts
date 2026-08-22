@@ -14,7 +14,7 @@ import type { MetadataRoute } from "next";
  */
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ??
-  "https://f1-frontend-1076575666662.asia-south1.run.app";
+  "https://f1-frontend-2w5wydk2ca-el.a.run.app";
 
 const ROUTES = [
   { path: "", priority: 1 },

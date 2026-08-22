@@ -65,6 +65,11 @@ const CSP = [
     "https://api.openf1.org",
     "https://www.opentopodata.org",
   ].join(" "),
+  // The add-to-calendar control builds an .ics as a blob URL
+  // (`session-tabs.tsx`), and the 3D track view is the kind of code that grows
+  // a worker. Neither is covered by `default-src 'self'`, and a CSP that
+  // silently breaks a download is worse than one that is slightly wider.
+  "worker-src 'self' blob:",
   "upgrade-insecure-requests",
 ].join("; ");
 

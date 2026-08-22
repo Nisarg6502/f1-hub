@@ -14,10 +14,12 @@ import "./globals.css";
  * Public origin, used for `metadataBase` and therefore for every absolute URL
  * in a link preview.
  *
- * The fallback is the Cloud Run host the frontend is actually deployed to
- * (the same origin `cloudbuild-agent.yaml` allowlists in
- * `_AGENT_ALLOWED_ORIGINS`), so a build without the variable still produces
- * preview cards that resolve. Without a `metadataBase` at all Next warns and
+ * The fallback is the service's CANONICAL Cloud Run URL -- the one
+ * `gcloud run services describe f1-frontend` reports as `status.url`, verified
+ * rather than assumed. Cloud Run answers on a second, project-number form as
+ * well (both are allowlisted for CORS), but only one is canonical, and putting
+ * the other in a preview card or a sitemap advertises a host that is not the
+ * site's own address. Without a `metadataBase` at all Next warns and
  * falls back to localhost, which yields cards pointing at nothing.
  *
  * Set `NEXT_PUBLIC_SITE_URL` when a custom domain exists; this constant should
@@ -25,7 +27,7 @@ import "./globals.css";
  */
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ??
-  "https://f1-frontend-1076575666662.asia-south1.run.app";
+  "https://f1-frontend-2w5wydk2ca-el.a.run.app";
 
 const bricolage = Bricolage_Grotesque({
   subsets: ["latin"],
