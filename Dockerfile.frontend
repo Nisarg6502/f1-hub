@@ -15,14 +15,15 @@ COPY frontend/ .
 # Build-time env vars (will be baked into the client bundle)
 ARG NEXT_PUBLIC_API_BASE_URL
 ARG NEXT_PUBLIC_ASSET_BASE_URL
-ARG NEXT_PUBLIC_RAPIDAPI_KEY
+# NOTE: the RapidAPI KEY is deliberately absent here. It is read at RUNTIME as
+# `RAPIDAPI_KEY` by app/api/live-timing/route.ts. A `NEXT_PUBLIC_` key would be
+# inlined into the client bundle at build time and readable in View Source.
 ARG NEXT_PUBLIC_RAPIDAPI_HOST
 # The f1-agent service (Batch 17). Separate from the API base URL because it is
 # a separate Cloud Run service with its own scaling and timeout settings.
 ARG NEXT_PUBLIC_AGENT_BASE_URL
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
 ENV NEXT_PUBLIC_ASSET_BASE_URL=$NEXT_PUBLIC_ASSET_BASE_URL
-ENV NEXT_PUBLIC_RAPIDAPI_KEY=$NEXT_PUBLIC_RAPIDAPI_KEY
 ENV NEXT_PUBLIC_RAPIDAPI_HOST=$NEXT_PUBLIC_RAPIDAPI_HOST
 ENV NEXT_PUBLIC_AGENT_BASE_URL=$NEXT_PUBLIC_AGENT_BASE_URL
 

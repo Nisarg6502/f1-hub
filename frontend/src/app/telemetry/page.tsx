@@ -6,7 +6,7 @@ import {
   getActiveSeasonYear,
   getLiveTimingData,
   getSeasonRaces,
-  isLiveTimingConfigured,
+  LiveTimingError,
   type LiveTimingLine,
   type Race,
 } from "@/lib/api";
@@ -88,16 +88,13 @@ export default function TelemetryPage() {
       return;
     }
 
-    if (!isLiveTimingConfigured()) {
-      // No RapidAPI key in this environment -- don't even attempt the fetch,
-      // and never let the "not configured" internals reach the DOM.
-      setTimingRows([]);
-      setTimingError(null);
-      setIsConfigError(true);
-      setIsLoadingTiming(false);
-      return;
-    }
-
+    // Whether live timing is configured is now the SERVER's answer, not a
+    // value read from the bundle. The key it used to be inferred from moved
+    // behind `/api/live-timing` (it was a `NEXT_PUBLIC_` value on a client
+    // page, i.e. readable in View Source), so the pre-flight check that used
+    // to sit here is gone and the proxy's 503 sets `isConfigError` in the
+    // catch below instead. The "not configured" internals still never reach
+    // the DOM — the page renders its own settled copy for that state.
     setIsConfigError(false);
     let isMounted = true;
 
@@ -117,6 +114,14 @@ export default function TelemetryPage() {
       } catch (error) {
         if (!isMounted) return;
         console.error("Live timing fetch failed:", error);
+        if (error instanceof LiveTimingError && error.unconfigured) {
+          // Permanent for this deployment: stop promising a retry that will
+          // never produce anything.
+          setTimingRows([]);
+          setTimingError(null);
+          setIsConfigError(true);
+          return;
+        }
         setTimingError("Couldn't reach the live timing feed. Retrying…");
       } finally {
         if (isMounted) {

@@ -10,6 +10,7 @@ import { getTeamColor } from "@/lib/team-colors";
 import TeamCar from "@/components/team-car";
 import { buildRaceSessionTimeline, type RaceSessionField } from "@/lib/sessions";
 import SessionRecapCard from "@/components/session-recap-card";
+import LocalDateTime from "@/components/local-datetime";
 import ConditionsTile from "@/components/conditions-tile";
 
 interface SessionTabsProps {
@@ -715,12 +716,17 @@ function UpcomingSessionTimings({
           >
             <div>
               <h4 className="font-bold text-[15px]">{s.label}</h4>
+              {/* `LocalDateTime`, not a bare `toLocaleDateString(undefined,
+                  ...)`. This component is `"use client"` but Next still renders
+                  it on the SERVER first, where `undefined` resolves to the
+                  container's timezone (UTC on Cloud Run) rather than the
+                  reader's -- the exact React #418 hydration mismatch
+                  `local-datetime.tsx` was written to eliminate. */}
               <p className="font-medium text-xs text-warm-500 mt-0.5">
-                {s.dt.toLocaleDateString(undefined, {
-                  weekday: "short",
-                  month: "short",
-                  day: "2-digit",
-                })}
+                <LocalDateTime
+                  timestampMs={s.dt.getTime()}
+                  options={{ weekday: "short", month: "short", day: "2-digit" }}
+                />
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -730,13 +736,22 @@ function UpcomingSessionTimings({
                     s.isRace ? "text-[#FFAE6A]" : ""
                   }`}
                 >
-                  {s.dt.toLocaleTimeString(undefined, {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
+                  <LocalDateTime
+                    timestampMs={s.dt.getTime()}
+                    options={{ hour: "2-digit", minute: "2-digit", hour12: false }}
+                  />
                 </p>
+                {/* Every state names the timezone, and it says WHOSE.
+                    Two of the three previously carried no timezone information
+                    at all -- "Completed" and "Lights out" -- and the third said
+                    "Local time", which is ambiguous between track-local and
+                    viewer-local in a sport where those routinely differ by
+                    eight hours. It is the viewer's. A reader planning to watch
+                    is making a decision from this number, so it has to say so
+                    on every row rather than only on the ones that happen to be
+                    upcoming and non-race. */}
                 <p className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500">
-                  {s.past ? "Completed" : s.isRace ? "Lights out" : "Local time"}
+                  {s.past ? "Completed · your time" : s.isRace ? "Lights out · your time" : "Your local time"}
                 </p>
               </div>
               <AddToCalendarButton

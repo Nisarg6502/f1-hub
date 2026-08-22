@@ -6,6 +6,7 @@ import { motion, type Variants } from "motion/react";
 import { EASE_OUT, Stagger } from "./motion-primitives";
 import FlagImg from "./flag-img";
 import SeasonSelector from "./season-selector";
+import LocalDateTime from "./local-datetime";
 
 // Rows fade+rise in; completed rows settle at a dimmed rest opacity (the
 // `custom` boolean drives it) so the cascade doesn't leave them fully lit.
@@ -21,7 +22,27 @@ const rowVariants: Variants = {
 export interface ScheduleRow {
   round: string;
   season: string;
+  /**
+   * Pre-formatted fallback, used only until the client can format the real
+   * one. See `dateMs`.
+   */
   dateLabel: string;
+  /**
+   * The race start as a timestamp, so the date can be formatted in the
+   * READER's timezone rather than the server's.
+   *
+   * `dateLabel` was formatted on the server with
+   * `toLocaleDateString(undefined, ...)`, where `undefined` resolves to the
+   * container's locale -- UTC on Cloud Run -- and then passed down as a string.
+   * That is the same bug `local-datetime.tsx` exists to prevent, reintroduced
+   * by going through a prop instead of the component. It matters most at
+   * exactly the races people ask about: Las Vegas starts on a Saturday
+   * evening local time and a Sunday in UTC, so the schedule showed the wrong
+   * DAY.
+   *
+   * Optional so a row without a known start time still renders its "TBC".
+   */
+  dateMs?: number | null;
   name: string;
   circuit: string;
   locality: string;
@@ -199,7 +220,14 @@ export default function ScheduleBoard({
                     Round {r.round}
                   </div>
                   <div className="font-[family-name:var(--font-headline)] font-bold text-lg sm:text-xl mt-0.5">
-                    {r.dateLabel}
+                    {r.dateMs ? (
+                      <LocalDateTime
+                        timestampMs={r.dateMs}
+                        options={{ day: "2-digit", month: "short" }}
+                      />
+                    ) : (
+                      r.dateLabel
+                    )}
                   </div>
                 </div>
                 <div className="hidden sm:flex w-[38px] h-[26px] rounded-[5px] overflow-hidden items-center justify-center bg-[rgba(245,235,222,0.08)]">
@@ -220,9 +248,21 @@ export default function ScheduleBoard({
                   </div>
                 </div>
                 <div className="justify-self-end flex flex-col items-end gap-1.5">
+                  {/* Material Symbol, not an emoji. This was the only
+                      user-visible emoji left in an app that uses Material
+                      Symbols everywhere else, and an emoji among icons renders
+                      in the platform's own style -- a different shape, weight
+                      and colour on every OS, on the row a reader looks at
+                      most. */}
                   {r.winner && r.winner.familyName && (
-                    <span className="font-bold text-[11px] sm:text-xs text-warm-100 whitespace-nowrap">
-                      🏆 {r.winner.code || r.winner.familyName}
+                    <span className="flex items-center gap-1 font-bold text-[11px] sm:text-xs text-warm-100 whitespace-nowrap">
+                      <span
+                        className="material-symbols-outlined text-[15px] text-[#FFAE6A]"
+                        aria-hidden="true"
+                      >
+                        trophy
+                      </span>
+                      {r.winner.code || r.winner.familyName}
                     </span>
                   )}
                   <div className="flex items-center gap-1.5">

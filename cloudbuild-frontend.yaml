@@ -12,7 +12,6 @@ steps:
       - '--build-arg'
       - 'NEXT_PUBLIC_ASSET_BASE_URL=${_NEXT_PUBLIC_ASSET_BASE_URL}'
       - '--build-arg'
-      - 'NEXT_PUBLIC_RAPIDAPI_KEY=${_NEXT_PUBLIC_RAPIDAPI_KEY}'
       - '--build-arg'
       - 'NEXT_PUBLIC_RAPIDAPI_HOST=${_NEXT_PUBLIC_RAPIDAPI_HOST}'
       - '--build-arg'
@@ -38,6 +37,11 @@ steps:
       - 'asia-south1'
       - '--platform'
       - 'managed'
+      # `--update-env-vars`, not `--set-env-vars`: RAPIDAPI_KEY is set on the
+      # service out of band and `--set-env-vars` would delete it on every
+      # deploy.
+      - '--update-env-vars'
+      - 'RAPIDAPI_HOST=${_NEXT_PUBLIC_RAPIDAPI_HOST}'
       - '--quiet'
 
 images:
@@ -46,14 +50,19 @@ images:
 substitutions:
   _NEXT_PUBLIC_API_BASE_URL: 'https://f1-backend-1076575666662.asia-south1.run.app'
   _NEXT_PUBLIC_ASSET_BASE_URL: 'https://storage.googleapis.com/f1-scratch-assets'
-  # The RapidAPI key is kept out of the repo. Provide it at build time:
-  #   gcloud builds submit --config=cloudbuild-frontend.yaml \
-  #     --substitutions=_NEXT_PUBLIC_RAPIDAPI_KEY=<key>
-  # Left empty by default; without it the /telemetry live-timing feature is
-  # simply unavailable, which is preferable to a failed build. (Note this value
-  # is baked into the client bundle, so it is not truly secret — rotate the key
-  # if it leaks and consider proxying the call server-side.)
-  _NEXT_PUBLIC_RAPIDAPI_KEY: ''
+  # The RapidAPI key is no longer a build substitution at all.
+  #
+  # It used to be `_NEXT_PUBLIC_RAPIDAPI_KEY`, baked into the client bundle,
+  # and the comment that stood here said so plainly - "not truly secret ...
+  # consider proxying the call server-side". That is now done: the call goes
+  # through `app/api/live-timing/route.ts`, which reads `RAPIDAPI_KEY` at
+  # RUNTIME, so the key is never inlined into anything a browser downloads.
+  #
+  # Supply it as a Cloud Run secret once, out of band; it persists across
+  # deploys because the deploy step uses `--update-env-vars`, which merges:
+  #   gcloud run services update f1-frontend --region=asia-south1   #     --set-secrets=RAPIDAPI_KEY=RAPIDAPI_KEY:latest
+  # Without it, /telemetry reports live timing as unconfigured, which is
+  # preferable to a failed build.
   _NEXT_PUBLIC_RAPIDAPI_HOST: 'f1-live-pulse.p.rapidapi.com'
   # The f1-agent Cloud Run service (Batch 17). Baked into the client bundle at
   # build time, so the frontend must be rebuilt after the agent service is
