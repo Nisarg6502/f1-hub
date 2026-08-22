@@ -32,13 +32,24 @@ export type AgentErrorCode =
 export type ClientErrorCode = "network";
 
 /**
- * Human-readable copy for error codes that don't already carry a good
- * user-facing message of their own (CP70). `refused` is deliberately left
- * out: CP67's guardrails already attach a real, specific refusal message to
- * that code (e.g. "I can't help with that"), and clobbering it with generic
- * copy here would be a regression, not a fix. Any code missing from this map
- * — including `refused` — should fall back to the message the backend/SSE
- * layer actually sent rather than a canned string.
+ * Last-resort copy, used only when a failure arrives carrying no message of
+ * its own.
+ *
+ * This map is the FALLBACK, not the preferred wording — a distinction the
+ * panel got backwards for three checkpoints. It originally read as "generic
+ * copy unless the code is missing here", with `refused` deliberately omitted
+ * so CP67's guardrail message could show through. But every other code has an
+ * entry, so the `??` fallback in the renderer could never fire for anything
+ * *except* `refused`, and the backend's specific messages were unreachable in
+ * practice. Those messages are good: `main.py` distinguishes a queue timeout
+ * ("yours waited 31s for a turn") from an exhausted daily allowance ("the
+ * free tier's daily allowance… resets within a few hours") from a
+ * research-budget timeout, all three of which land on codes this map flattens
+ * into one apology. `rate_limit.py` does the same for its two refusals.
+ *
+ * So the rule is: the sent message wins, and this is what gets rendered when
+ * there is nothing to show instead — an older service build, a synthesized
+ * client-side failure, or an `error` frame with an empty `message`.
  */
 export const ERROR_COPY: Partial<Record<AgentErrorCode | ClientErrorCode, string>> = {
   at_capacity: "The assistant is busy right now — try again in a moment.",
@@ -48,6 +59,30 @@ export const ERROR_COPY: Partial<Record<AgentErrorCode | ClientErrorCode, string
   internal: "Something went wrong on our end. Try again.",
   network: "Couldn't reach the assistant — check your connection and try again.",
 };
+
+/**
+ * The `AgentErrorCode` union as a runtime set, so a code arriving over the
+ * wire can be checked before it is trusted as one.
+ *
+ * Needed because not every failure the backend can produce uses a code from
+ * `sse.ERROR_CODES`: the rate limiter refuses with `rate_limited` /
+ * `budget_exhausted`, which `rate_limit.py`'s docstring explains were kept
+ * *outside* that closed set on purpose rather than widening it with codes an
+ * SSE stream can never carry. A cast would let one of those through into a
+ * union that does not contain it, and the UI styles on these.
+ */
+const AGENT_ERROR_CODES: ReadonlySet<string> = new Set<AgentErrorCode>([
+  "at_capacity",
+  "timeout",
+  "upstream",
+  "bad_request",
+  "refused",
+  "internal",
+]);
+
+function isAgentErrorCode(value: unknown): value is AgentErrorCode {
+  return typeof value === "string" && AGENT_ERROR_CODES.has(value);
+}
 
 /**
  * One `{label, value}` pair of the inspectable evidence a citation rests on
@@ -345,14 +380,36 @@ export async function streamChat(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, thread_id: options.threadId ?? null }),
     signal: options.signal,
+    // Without this the session cookie is never sent, and the per-person rate
+    // limit it exists to enforce silently stops applying to every browser.
+    //
+    // `rate_limit.py` mints an HMAC-signed `HttpOnly; Secure; SameSite=None`
+    // cookie precisely so a returning visitor keeps their own allowance
+    // instead of sharing one with everyone behind the same CGNAT address, and
+    // the agent sets `allow_credentials=True` for it. But the frontend and the
+    // agent are separate `*.run.app` services, and `*.run.app` is on the
+    // Public Suffix List, so this is a CROSS-SITE request: `fetch` omits
+    // cookies on those unless asked. The cookie was therefore set once and
+    // never returned, quietly demoting every real user to the looser shared-IP
+    // bucket — the exact failure the session layer was written to fix, with a
+    // cookie visible in devtools implying it had been fixed.
+    credentials: "include",
   });
 
   if (!res.ok || !res.body) {
-    // Release the socket rather than leaving an unread body pinned open.
-    await res.body?.cancel().catch(() => {});
+    // Read the body before discarding it: a refusal is not the same as an
+    // outage, and the backend says which it is.
+    //
+    // Every non-OK status used to collapse into "the assistant is
+    // unreachable", which is actively wrong for the one that matters most.
+    // `main.py` answers an exhausted allowance with a real 429 carrying
+    // `Retry-After` and a JSON body explaining the shared free-tier budget and
+    // roughly when it resets. Telling that user the service is broken, when it
+    // is working and simply metered, sends them away instead of back later.
+    const refusal = await readErrorBody(res);
     handlers.onError?.(
-      "upstream",
-      `The assistant is unreachable (HTTP ${res.status}).`
+      refusal?.code ?? "upstream",
+      refusal?.message ?? `The assistant is unreachable (HTTP ${res.status}).`
     );
     return;
   }
@@ -360,6 +417,23 @@ export async function streamChat(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  // Whether the stream ever delivered a frame that ENDS a turn.
+  //
+  // The loop below exits on `done` from `reader.read()`, which means "the
+  // socket closed", not "the answer finished" — and the two are not the same
+  // event. A Cloud Run request hitting the 300s ceiling, an intermediary
+  // dropping an idle connection, or the container being evicted mid-turn all
+  // close the socket after the 200 has been committed and without a `done` or
+  // `error` frame ever arriving. This resolved as success, and the panel,
+  // which treats `done` as the only way a turn can end, was left with a
+  // message that had neither: a permanently pulsing "Thinking...", no Retry,
+  // no Regenerate, no feedback controls, and no way back except retyping the
+  // question.
+  //
+  // It is worse than it sounds, because the graph buffers the whole draft and
+  // replays it in one burst at the very end. A truncation therefore usually
+  // leaves an EMPTY bubble rather than a half-written one.
+  let settled = false;
 
   try {
     for (;;) {
@@ -376,12 +450,66 @@ export async function streamChat(
       for (const frame of frames) {
         const parsed = parseFrame(frame);
         if (!parsed) continue;
+        if (parsed.event === "done" || parsed.event === "error") settled = true;
         dispatch(parsed.event, parsed.data, handlers);
       }
+    }
+
+    if (!settled) {
+      // Route a truncated stream into the error path the UI already handles,
+      // rather than letting it resolve as a success that produced no answer.
+      handlers.onError?.(
+        "upstream",
+        "The answer was cut off before it finished — the connection closed early. Trying again usually works."
+      );
     }
   } finally {
     reader.releaseLock();
   }
+}
+
+/**
+ * Pull `{code, message}` out of a non-OK response, if it carries one.
+ *
+ * Defensive on every axis because this runs on the failure path: the body may
+ * be empty, may be an HTML error page from an intermediary rather than
+ * anything this service wrote, or may be JSON in an unexpected shape. Any of
+ * those yields `null` and the caller falls back to its synthetic message.
+ *
+ * A 429's code is inferred from the status when the body does not name one,
+ * because the rate limiter's own refusal codes (`rate_limited`,
+ * `budget_exhausted`) are deliberately kept outside the SSE `ERROR_CODES`
+ * union — they can never travel over a stream — so they will not survive
+ * `isAgentErrorCode`. `at_capacity` is the union member that carries the
+ * meaning the UI needs.
+ */
+async function readErrorBody(
+  res: Response
+): Promise<{ code: AgentErrorCode; message: string } | null> {
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch {
+    await res.body?.cancel().catch(() => {});
+    return null;
+  }
+
+  if (!body || typeof body !== "object") return null;
+  const payload = body as Record<string, unknown>;
+
+  const message =
+    typeof payload.message === "string" && payload.message.trim()
+      ? payload.message
+      : null;
+  if (!message) return null;
+
+  const code = isAgentErrorCode(payload.code)
+    ? payload.code
+    : res.status === 429
+      ? "at_capacity"
+      : "upstream";
+
+  return { code, message };
 }
 
 /**
@@ -410,6 +538,10 @@ export async function postFeedback(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ run_id: runId, score, comment: comment ?? null }),
+      // Same cross-site cookie reason as `streamChat` — this endpoint is rate
+      // limited too, and without the session cookie a vote is charged against
+      // the shared IP bucket instead of the voter's own.
+      credentials: "include",
     });
   } catch {
     // Fire-and-forget telemetry — a failed vote is not a user-visible error.
