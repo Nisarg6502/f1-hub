@@ -33,7 +33,7 @@ pymongo[srv]~=4.16.0
 # deepagents 0.7.4 is the version CHAT-AGENT-PLAN.md was written against, and
 # it brings langchain/langgraph with it; both are pinned anyway so a resolver
 # change cannot move them underneath us.
-deepagents~=0.7.4
+deepagents~=0.7.7
 langchain~=1.3.0
 langgraph~=1.2.0
 langchain-ollama~=1.1.0
