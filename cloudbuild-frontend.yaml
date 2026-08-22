@@ -15,6 +15,8 @@ steps:
       - 'NEXT_PUBLIC_RAPIDAPI_HOST=${_NEXT_PUBLIC_RAPIDAPI_HOST}'
       - '--build-arg'
       - 'NEXT_PUBLIC_AGENT_BASE_URL=${_NEXT_PUBLIC_AGENT_BASE_URL}'
+      - '--build-arg'
+      - 'NEXT_PUBLIC_GA_MEASUREMENT_ID=${_NEXT_PUBLIC_GA_MEASUREMENT_ID}'
       - '.'
 
   # 2. Push the Docker image to Container Registry
@@ -68,6 +70,14 @@ substitutions:
   # first deployed — deploying the agent alone will not make the frontend see
   # it.
   _NEXT_PUBLIC_AGENT_BASE_URL: 'https://f1-agent-2w5wydk2ca-el.a.run.app'
+  # GA4 measurement ID (G-XXXXXXXXXX). Empty by default and safe that way: the
+  # analytics components render nothing without it, so an un-set build produces
+  # the pre-analytics site rather than a broken one.
+  #
+  # Because it is baked in at BUILD time, creating the GA property does not
+  # make a running deployment start reporting -- the frontend must be rebuilt.
+  # Same gotcha as _NEXT_PUBLIC_AGENT_BASE_URL above.
+  _NEXT_PUBLIC_GA_MEASUREMENT_ID: 'G-LFJ5KBBXD3'
 
 options:
   logging: CLOUD_LOGGING_ONLY

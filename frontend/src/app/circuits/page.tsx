@@ -8,6 +8,7 @@ import { getCircuitImagePath } from "@/lib/circuit-images";
 import CircuitsGallery from "@/components/circuits-gallery";
 import CircuitDnaCompare from "@/components/circuit-dna-compare";
 import TrackMap from "@/components/track-map";
+import DegradedBeacon from "@/components/degraded-beacon";
 
 export const metadata: Metadata = {
   title: "Circuits | APEX",
@@ -57,6 +58,7 @@ export default async function CircuitsPage() {
 
   return (
     <div className="px-6 md:px-10 pt-10 pb-16">
+      {races.length === 0 && <DegradedBeacon route="/circuits" />}
       {/* Featured + DNA */}
       <section className="grid lg:grid-cols-[1fr_320px] gap-5 mb-10">
         <div className="apex-glass-strong apex-sheen rounded-panel overflow-hidden relative min-h-[340px] flex items-end">

@@ -18,6 +18,7 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import PitwallAssistantPanel from "./pitwall-assistant-panel";
+import { track } from "@/lib/analytics";
 
 export default function PitwallAssistantLauncher() {
   const [open, setOpen] = useState(false);
@@ -40,6 +41,7 @@ export default function PitwallAssistantLauncher() {
         return;
       }
       e.preventDefault();
+      track("pitwall_panel_open", { via: "shortcut" });
       setOpen(true);
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -49,7 +51,10 @@ export default function PitwallAssistantLauncher() {
   return (
     <>
       <button
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          track("pitwall_panel_open", { via: "button" });
+          setOpen(true);
+        }}
         aria-label="Ask the Pitwall Assistant"
         title="Ask the Pitwall Assistant"
         /* 36px to the eye, 44px to a finger. The disc is the right visual

@@ -14,6 +14,7 @@ import {
   type DriverSeasonLog,
   type TeammateBattle,
 } from "@/lib/season-results";
+import DegradedBeacon from "@/components/degraded-beacon";
 
 // Standings change after every race; render per request rather than serving a
 // prerender captured at build time.
@@ -79,7 +80,14 @@ export default async function StandingsPage({ searchParams }: PageProps) {
     }
   }
 
+  // Both tables empty means the fetch above failed and the page is about to
+  // render as a shell. That still returns HTTP 200, so the server sees a
+  // healthy request; the beacon is the only way it gets counted.
+  const degraded = (drivers ?? []).length === 0 && (constructors ?? []).length === 0;
+
   return (
+    <>
+      {degraded && <DegradedBeacon route="/standings" />}
     <StandingsView
       drivers={drivers ?? []}
       constructors={constructors ?? []}
@@ -89,5 +97,6 @@ export default async function StandingsPage({ searchParams }: PageProps) {
       maxYear={getActiveSeasonYear()}
       renderedAtMs={Date.now()}
     />
+    </>
   );
 }

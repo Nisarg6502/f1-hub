@@ -3,6 +3,7 @@ import { getActiveSeasonYear, getDriverStandings, resolveSeasonYear } from "@/li
 import DriversGrid from "@/components/drivers-grid";
 import SeasonSelector from "@/components/season-selector";
 import CompareDriversPanel from "@/components/compare-drivers-panel";
+import DegradedBeacon from "@/components/degraded-beacon";
 
 // Driver standings change after every race; render per request.
 export const dynamic = "force-dynamic";
@@ -39,6 +40,7 @@ export default async function DriversPage({ searchParams }: PageProps) {
 
   return (
     <div className="px-6 md:px-10 pt-11 pb-16">
+      {list.length === 0 && <DegradedBeacon route="/drivers" />}
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-5 mb-7">
         <div>

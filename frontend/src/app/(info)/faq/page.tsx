@@ -73,9 +73,11 @@ export default function FaqPage() {
 
       <h2>Do you track me?</h2>
       <p>
-        No analytics, no ad tech, no tracking pixels, no accounts. One cookie is
-        set when you use the chat assistant, purely to rate-limit requests
-        fairly. <Link href="/privacy">Privacy</Link>.
+        Google Analytics counts visits and page use — no ad tech, no accounts,
+        and nothing you type is ever sent to it. In the EU, EEA and UK you are
+        asked first, and it stays off unless you agree. A second cookie is set
+        when you use the chat assistant, purely to rate-limit requests fairly.{" "}
+        <Link href="/privacy">What it collects</Link>.
       </p>
 
       <h2>Is my chat private?</h2>

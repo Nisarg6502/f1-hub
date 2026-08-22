@@ -8,6 +8,8 @@ import SeasonBadge from "@/components/season-badge";
 import GlobalSearch from "@/components/global-search";
 import PitwallAssistantLauncher from "@/components/pitwall-assistant-launcher";
 import AppShell from "@/components/app-shell";
+import Analytics from "@/components/analytics";
+import ConsentBanner from "@/components/consent-banner";
 import "./globals.css";
 
 /**
@@ -144,6 +146,9 @@ export default function RootLayout({
       <body
         className={`${bricolage.variable} ${hanken.variable} bg-background text-on-background font-[family-name:var(--font-body)] antialiased`}
       >
+        <Analytics />
+        <ConsentBanner />
+
         {/* Liquid-glass displacement filters referenced by .apex-glass* via url(#liquid) */}
         <svg
           width="0"

@@ -5,6 +5,7 @@ import { useReducedMotion } from "motion/react";
 import { Play, Pause, SkipBack, Flag } from "lucide-react";
 import type { RaceReplay, ReplayLap } from "@/lib/api";
 import { getTeamColor } from "@/lib/team-colors";
+import { track } from "@/lib/analytics";
 
 interface RaceReplayViewProps {
   replay: RaceReplay;
@@ -244,7 +245,18 @@ export default function RaceReplayView({ replay, initialLap }: RaceReplayViewPro
           type="button"
           onClick={() => {
             if (lapIndex >= lastLapIndex) setLapIndex(0);
-            setPlaying((p) => !p);
+            setPlaying((p) => {
+              // Only the transition INTO playing is an event. Pause is not an
+              // interesting question, and counting both would roughly double
+              // every session that anyone actually watched.
+              if (!p) {
+                track("watch_replay_start", {
+                  season: replay.year,
+                  round: replay.round,
+                });
+              }
+              return !p;
+            });
           }}
           aria-label={playing ? "Pause replay" : "Play replay"}
           className="flex items-center justify-center w-10 h-10 rounded-xl text-[#1a1210] transition-transform duration-150 ease-out active:scale-[0.97]"

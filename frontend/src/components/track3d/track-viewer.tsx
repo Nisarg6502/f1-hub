@@ -23,6 +23,7 @@ import {
   useWebglSupported,
   type TrackScrubStore,
 } from "./use-track-geometry";
+import { track } from "@/lib/analytics";
 
 const PRESETS: { id: CameraPresetId; label: string; hint: string }[] = [
   { id: "three-quarter", label: "Three-quarter", hint: "1" },
@@ -62,6 +63,22 @@ export default function TrackViewer({
   const scrub = useScrubStore();
   const reducedMotion = usePrefersReducedMotion();
   const webgl = useWebglSupported();
+
+  /**
+   * One event per viewer mount, carrying whether WebGL actually worked.
+   *
+   * `useWebglSupported` returns null until it has probed, so this waits for a
+   * real answer rather than recording the indeterminate first render. Without
+   * the flag the event would say the viewer was reached but not whether anyone
+   * saw anything -- and the fallback path is the one worth knowing about.
+   */
+  useEffect(() => {
+    if (webgl === null) return;
+    track("circuit_3d_view", {
+      circuit_id: geometryId,
+      webgl_supported: webgl ? "yes" : "no",
+    });
+  }, [geometryId, webgl]);
 
   const rig = useRef<CameraRigHandle>(null);
   const [exaggeration, setExaggeration] = useState(2);

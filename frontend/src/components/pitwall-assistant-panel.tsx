@@ -47,6 +47,7 @@ import SourceStrip from "./source-strip";
 import LocalDateTime from "./local-datetime";
 import FeedbackControls from "./feedback-controls";
 import { ActivityAccordion, type ActivityEntry } from "./activity-accordion";
+import { track } from "@/lib/analytics";
 
 type Message = {
   id: string;
@@ -487,7 +488,18 @@ export default function PitwallAssistantPanel({
     [running, patchMessage, stopElapsedTimer]
   );
 
-  const send = useCallback(() => ask(input), [ask, input]);
+  /**
+   * The COUNT is tracked, never the message.
+   *
+   * What users type already goes to a model provider, and the privacy page
+   * discloses that. Sending it to Google as well would be a second disclosure
+   * for no analytical gain -- the open question is whether the assistant is
+   * used at all, and a number answers it.
+   */
+  const send = useCallback(() => {
+    track("pitwall_message_sent");
+    return ask(input);
+  }, [ask, input]);
   /**
    * Stop the in-flight turn AND settle its bubble.
    *

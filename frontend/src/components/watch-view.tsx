@@ -68,6 +68,7 @@ import {
   timingModeSnapshot,
   towerLayout,
 } from "@/lib/watch-preferences";
+import { track } from "@/lib/analytics";
 
 /** Shared with `race-replay.tsx` and `tire-stints-chart.tsx` — the same tyre
  * reads the same colour everywhere in the app. */
@@ -2120,7 +2121,13 @@ export default function WatchView({
                     <>
                       <button
                         type="button"
-                        onClick={() => void party.host()}
+                        onClick={() => {
+                          // The HOST offering a code, not a scan. A code shown
+                          // and never scanned is exactly the finding this event
+                          // exists to surface, so it has to be counted here.
+                          track("watch_pair_qr");
+                          void party.host();
+                        }}
                         disabled={party.busy}
                         className="w-full h-11 mt-3 rounded-xl font-bold text-sm text-[#1a1210] transition-transform duration-150 active:scale-[0.98] disabled:opacity-60"
                         style={{ background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}

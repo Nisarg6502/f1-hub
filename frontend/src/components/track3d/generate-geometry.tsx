@@ -11,6 +11,7 @@ import {
   type TrackBuildDoc,
 } from "@/lib/track-geometry-api";
 import { usePrefersReducedMotion } from "./use-track-geometry";
+import { track } from "@/lib/analytics";
 
 /**
  * "Generate 3D view" for a circuit that has a curated recipe but no payload yet.
@@ -119,6 +120,7 @@ export default function GenerateGeometry({
   }, [watching, circuitId, finish]);
 
   const start = useCallback(async () => {
+    track("circuit_3d_generate", { circuit_id: circuitId });
     setStarting(true);
     setError(null);
     setBusyNotice(null);
