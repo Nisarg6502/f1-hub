@@ -97,18 +97,31 @@ export async function generateMetadata(): Promise<Metadata> {
 function FooterGroup({
   heading,
   links,
+  wide = false,
 }: {
   heading: string;
   links: { href: string; label: string; external?: boolean }[];
+  /** Lay the links out in two sub-columns and span two grid columns.
+   *  Only "Explore" needs it: it lists all nine sections, and as a single
+   *  stack it made the footer twice as tall as its own content warranted
+   *  while the other three columns ended level with its third link. */
+  wide?: boolean;
 }) {
   const linkClass =
     "relative font-medium text-xs text-warm-400 hover:text-on-background transition-colors before:absolute before:-top-2.5 before:-bottom-2.5 before:-left-1 before:-right-1 before:content-['']";
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className={`flex flex-col gap-3 ${wide ? "col-span-2" : ""}`}>
       <span className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-600">
         {heading}
       </span>
+      <div
+        className={
+          wide
+            ? "grid grid-cols-2 gap-x-6 gap-y-3"
+            : "flex flex-col gap-3"
+        }
+      >
       {links.map((link) =>
         link.external ? (
           <a
@@ -126,6 +139,7 @@ function FooterGroup({
           </Link>
         )
       )}
+      </div>
     </div>
   );
 }
@@ -223,19 +237,17 @@ export default function RootLayout({
                   APEX
                 </span>
               </Link>
-              {/* `lg`, not `md`, and the difference is two unreachable
-                  destinations. Nine links plus the logo, search, launcher and
-                  season badge need about 900px; turning them on at 768 made the
-                  bar overflow its own container — measured at 768x1024 the page
-                  scrollWidth was 880 against a clientWidth of 768, "History"
-                  rendered as "Histor" and the season badge was off-screen
-                  entirely. At 844x390 the Pitwall launcher was drawn *on top of*
-                  a nav link. Every tablet and every landscape phone lands in
-                  that 768-900 band. `lg` is also where GlobalSearch already
-                  hides itself, so the two now agree. */}
-              <div className="hidden lg:flex items-center gap-[30px] font-[family-name:var(--font-body)] font-semibold text-[13px]">
-                <NavLinks />
-              </div>
+              {/* NavLinks renders its own row container, and has to: the
+                  active-tab underline is measured against that row and drawn
+                  inside it. It used to be a Motion `layoutId` shared element,
+                  which projects in document space and so, in this `sticky`
+                  nav, mistook the App Router's scroll-to-top for a vertical
+                  move — the underline flew up from the bottom of the screen on
+                  every navigation. The `hidden lg:flex` breakpoint moved into
+                  NavLinks with the row; see the comment there for why `lg` and
+                  not `md`, and note that the mobile bar below must move with
+                  it or 768-1023px has no navigation at all. */}
+              <NavLinks />
             </div>
             <div className="flex items-center gap-4">
               <GlobalSearch />
@@ -249,69 +261,149 @@ export default function RootLayout({
           }
           footer={
         <footer className="relative z-10 border-t border-white/[0.07]">
-          <div className="max-w-[1440px] mx-auto px-6 md:px-10 py-9">
-            {/* Three groups, and NOT in the main nav.
+          {/* `pb-24` below `lg`, because the mobile tab strip is `fixed
+              bottom-0` and the footer is the one region nothing was holding
+              clear of it. `AppShell` carries `pb-24 lg:pb-12`, but on the MAIN
+              content div, which sits above this element -- so the last ~66px
+              of the footer rendered underneath the strip and its final row was
+              unreachable. Measured at 390x844 before the fix: the Sitemap link
+              ended at y=712 against a tab strip starting at y=682. This was
+              true of the old disclaimer row too; it is not new here. */}
+          <div className="max-w-[1440px] mx-auto px-6 md:px-10 pt-9 pb-24 lg:pb-9">
+            {/* Four groups, and NOT in the main nav.
                 The nav bar already carries nine links and overflowed its own
                 container between 768 and 900px until the breakpoint was moved
                 to `lg` -- measured at 768x1024 the page scrollWidth was 880
                 against a clientWidth of 768, "History" rendered as "Histor"
                 and the season badge was off-screen. Six more destinations
                 would re-break exactly that. These pages are also the kind
-                people look for at the bottom rather than the top. */}
-            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-8 sm:gap-14 mb-8">
-              <FooterGroup
-                heading="Project"
-                links={[
-                  { href: "/about", label: "About" },
-                  { href: "/faq", label: "FAQ" },
-                  {
-                    href: "https://github.com/Nisarg6502/f1-hub",
-                    label: "GitHub",
-                    external: true,
-                  },
-                  {
-                    href: "https://github.com/Nisarg6502/f1-hub/issues",
-                    label: "Report a bug",
-                    external: true,
-                  },
-                ]}
-              />
-              <FooterGroup
-                heading="Data"
-                links={[
-                  { href: "/data-sources", label: "Data sources" },
-                  { href: "/ai-disclosure", label: "AI disclosure" },
-                ]}
-              />
-              <FooterGroup
-                heading="Legal"
-                links={[
-                  { href: "/privacy", label: "Privacy" },
-                  { href: "/disclaimer", label: "Disclaimer" },
-                  { href: "/attributions", label: "Attributions" },
-                ]}
-              />
+                people look for at the bottom rather than the top.
+
+                "Explore" is the fourth group and is doing real work, not
+                filling space: `nav-links.tsx` documents that the mobile bar
+                reaches only six of the nine sections, so Teams, Live and
+                History had no route to them on a phone at all. Now they do.
+
+                On the layout itself: the three groups used to sit in a bare
+                `flex-row` with no `justify-*`, which packs to the start. Each
+                column is only ~65px wide, so the whole footer's content lived
+                in the leftmost quarter -- measured at 1440px, 315px of a
+                1350px band, 23%. Nothing anywhere reserved that space for
+                anything; it was left over from the reskin, which replaced an
+                original four-column grid with a single `justify-between` row
+                and then had the groups added back above it. The identity block
+                now holds the left edge and the columns are pushed to the
+                right, so the band is spanned rather than hugged. */}
+            <div className="flex flex-col gap-10 lg:flex-row lg:items-start lg:justify-between mb-8">
+              <div className="flex flex-col gap-3 lg:max-w-[290px]">
+                <div className="flex items-center gap-[10px]">
+                  <span className="w-2 h-2 rounded-full bg-primary-container" />
+                  <span className="font-[family-name:var(--font-headline)] font-extrabold text-[15px]">
+                    APEX
+                  </span>
+                </div>
+                <p className="font-medium text-xs leading-relaxed text-warm-500">
+                  A season hub for Formula 1 — every round, every session,
+                  every driver, with the timing and telemetry behind them.
+                </p>
+                {/* This line already existed and already made the right claim;
+                    it just had nowhere to go. It is now the entry point to the
+                    page that states it properly. */}
+                <Link
+                  href="/disclaimer"
+                  className="relative self-start font-medium text-xs text-warm-500 underline hover:text-warm-300 transition-colors before:absolute before:-top-3 before:-bottom-3 before:-left-1 before:-right-1 before:content-['']"
+                >
+                  Unofficial · not affiliated with Formula 1
+                </Link>
+              </div>
+
+              {/* `flex-1` with a cap, not natural width: left to size themselves
+                  these five columns come to ~550px and, pushed right by
+                  `justify-between`, simply move the dead space from the right
+                  of the footer into the middle of it. Letting the grid claim
+                  the remaining width spreads the columns instead, so the
+                  headings sit on an even rhythm across the band. The cap stops
+                  that becoming four links marooned at 2560px. */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-x-8 gap-y-8 lg:flex-1 lg:max-w-[820px]">
+                <FooterGroup
+                  heading="Explore"
+                  wide
+                  links={[
+                    { href: "/schedule", label: "Schedule" },
+                    { href: "/standings", label: "Standings" },
+                    { href: "/drivers", label: "Drivers" },
+                    { href: "/teams", label: "Teams" },
+                    { href: "/circuits", label: "Circuits" },
+                    { href: "/telemetry", label: "Live" },
+                    { href: "/watch", label: "Watch" },
+                    { href: "/history", label: "History" },
+                  ]}
+                />
+                <FooterGroup
+                  heading="Project"
+                  links={[
+                    { href: "/about", label: "About" },
+                    { href: "/faq", label: "FAQ" },
+                    {
+                      href: "https://github.com/Nisarg6502/f1-hub",
+                      label: "GitHub",
+                      external: true,
+                    },
+                    {
+                      href: "https://github.com/Nisarg6502/f1-hub/issues",
+                      label: "Report a bug",
+                      external: true,
+                    },
+                  ]}
+                />
+                <FooterGroup
+                  heading="Data"
+                  links={[
+                    { href: "/data-sources", label: "Data sources" },
+                    { href: "/ai-disclosure", label: "AI disclosure" },
+                  ]}
+                />
+                <FooterGroup
+                  heading="Legal"
+                  links={[
+                    { href: "/privacy", label: "Privacy" },
+                    { href: "/disclaimer", label: "Disclaimer" },
+                    { href: "/attributions", label: "Attributions" },
+                  ]}
+                />
+              </div>
             </div>
 
+            {/* Provenance, and the reason this row exists rather than the
+                previous logo-plus-disclaimer bar: the site is obliged to say
+                some of it. `/attributions` records that Wikipedia-derived
+                content is used under CC BY-SA, and that attribution
+                conventionally sits adjacent to the work rather than one click
+                away. It also closes the block horizontally, which four
+                narrow columns above a hairline do not.
+
+                The season is DERIVED, never written down. Hardcoding 2026
+                here is the exact bug that was fixed for the title and
+                description -- a stale year in a footer is the kind of thing
+                nobody notices until January. */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-6 border-t border-white/[0.05]">
-              <div className="flex items-center gap-[10px]">
-                <span className="w-2 h-2 rounded-full bg-primary-container" />
-                <span className="font-[family-name:var(--font-headline)] font-extrabold text-[15px]">
-                  APEX
-                </span>
-                <span className="font-medium text-xs text-warm-500">
-                  · F1 season hub
-                </span>
-              </div>
-              {/* This line already existed and already made the right claim;
-                  it just had nowhere to go. It is now the entry point to the
-                  page that states it properly. */}
-              <Link
-                href="/disclaimer"
-                className="relative font-medium text-xs text-warm-500 underline hover:text-warm-300 transition-colors before:absolute before:-top-3 before:-bottom-3 before:-left-1 before:-right-1 before:content-['']"
+              <p className="font-medium text-[11px] leading-relaxed text-warm-600">
+                Season {getActiveSeasonYear()} · Timing and results from{" "}
+                <Link
+                  href="/data-sources"
+                  className="text-warm-500 hover:text-warm-300 underline transition-colors"
+                >
+                  Jolpica (Ergast), FastF1 and OpenF1
+                </Link>
+                {" "}· Circuit and history text derived from Wikipedia, used
+                under CC BY-SA
+              </p>
+              <a
+                href="/sitemap.xml"
+                className="relative font-medium text-[11px] text-warm-600 hover:text-warm-300 transition-colors whitespace-nowrap before:absolute before:-top-3 before:-bottom-3 before:-left-1 before:-right-1 before:content-['']"
               >
-                Unofficial · not affiliated with Formula 1
-              </Link>
+                Sitemap
+              </a>
             </div>
           </div>
         </footer>
