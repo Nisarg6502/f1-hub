@@ -124,3 +124,128 @@ def classify_lap_sectors(rows: list[dict]) -> list[dict]:
 
     board.sort(key=lambda r: r["lap_duration_seconds"])
     return board
+
+
+def _fetch_json(url: str, params: dict | None = None, timeout: float = 20.0):
+    try:
+        response = httpx.get(url, params=params, timeout=timeout)
+        if response.status_code != 200:
+            return None
+        return response.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+
+
+def fetch_openf1_session_key_for(race_date: str, session_name: str) -> int | None:
+    """OpenF1's `session_key` for the named session within the race weekend
+    containing `race_date`.
+
+    Unlike a Race or Sprint, a practice/qualifying session's own date can land
+    up to three days before the Sunday race date this app indexes rounds by,
+    so sessions are matched by name within a trailing window rather than by
+    exact date. The closest match to the race date wins, in case OpenF1 ever
+    returns a same-named session from an adjacent round.
+    """
+    if not race_date:
+        return None
+
+    sessions = _fetch_json(
+        f"{OPENF1_BASE}/sessions", {"year": race_date[:4], "session_name": session_name}
+    )
+    if not isinstance(sessions, list):
+        return None
+
+    race_day = datetime.date.fromisoformat(race_date)
+    window_start = race_day - datetime.timedelta(days=4)
+
+    candidates = [
+        s
+        for s in sessions
+        if window_start.isoformat() <= str(s.get("date_start", ""))[:10] <= race_date
+    ]
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda s: str(s.get("date_start", "")), reverse=True)
+    return int(candidates[0]["session_key"]) if candidates[0].get("session_key") is not None else None
+
+
+def build_session_sectors_openf1(race_date: str, session_code: str) -> list[dict] | None:
+    """Sector board for one session via OpenF1, or None if it has nothing.
+
+    Returns None (rather than raising) whenever the session code is unknown,
+    the session can't be found, or it has no usable laps -- the caller treats
+    all three the same way: report `available: false` rather than erroring.
+    """
+    session_name = SESSION_NAMES.get(session_code)
+    if session_name is None:
+        return None
+
+    session_key = fetch_openf1_session_key_for(race_date, session_name)
+    if session_key is None:
+        return None
+
+    rows = _fetch_json(f"{OPENF1_BASE}/laps", {"session_key": session_key})
+    if not isinstance(rows, list) or not rows:
+        return None
+
+    return classify_lap_sectors(rows) or None
+
+
+async def _race_date(db, year: int, round_number: int) -> str | None:
+    try:
+        race = await db.races.find_one(
+            {"season": year, "round": str(round_number)}, {"_id": 0, "date": 1}
+        )
+    except Exception as error:
+        print(f"Failed to read race date for {year} R{round_number}: {error}")
+        return None
+    return (race or {}).get("date")
+
+
+@router.get("/session_sectors")
+async def get_session_sectors(
+    year: int = Query(..., description="Season year"),
+    round_number: int = Query(..., alias="round", description="Round number"),
+    session: str = Query(..., description="FP1, FP2, FP3, Q or SQ"),
+):
+    """Sector purple/green/yellow board for a practice or qualifying session.
+
+    Mongo-first, same self-heal shape as `race_stints`/`race_laps`, but with a
+    single source (OpenF1) rather than an OpenF1-then-FastF1 chain -- see the
+    module docstring for why FastF1 is not worth adding here.
+    """
+    session_code = session.upper()
+    if session_code not in SESSION_NAMES:
+        return JSONResponse(content={"available": False, "rows": []}, status_code=400)
+
+    db = get_db()
+
+    doc = await db.session_sectors.find_one(
+        {"season": year, "round": str(round_number), "session": session_code},
+        {"_id": 0, "synced_at": 0},
+    )
+    if doc and doc.get("rows"):
+        return JSONResponse(content={"available": True, "rows": doc["rows"]})
+
+    race_date = await _race_date(db, year, round_number)
+    rows = build_session_sectors_openf1(race_date, session_code) if race_date else None
+
+    if not rows:
+        return JSONResponse(content={"available": False, "rows": []})
+
+    try:
+        await db.session_sectors.update_one(
+            {"season": year, "round": str(round_number), "session": session_code},
+            {"$set": {
+                "season": year,
+                "round": str(round_number),
+                "session": session_code,
+                "rows": rows,
+            }},
+            upsert=True,
+        )
+    except Exception as error:
+        print(f"Failed to cache session_sectors for {year} R{round_number} {session_code}: {error}")
+
+    return JSONResponse(content={"available": True, "rows": rows})
