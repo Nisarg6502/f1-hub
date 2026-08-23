@@ -23,11 +23,41 @@ function result(number: string, code: string, teamName: string): RaceResult {
   };
 }
 
+/**
+ * Builds a RaceResult the way every real backend producer actually does --
+ * with the driver's number only on Driver.permanentNumber, and no top-level
+ * `number` field. See f1_results.py's sanitize_result/results_to_api and
+ * session_results.py's _normalize_ergast_result.
+ */
+function resultFromPermanentNumber(
+  permanentNumber: string,
+  code: string,
+  teamName: string
+): RaceResult {
+  return {
+    Driver: { code, permanentNumber, givenName: "Max", familyName: "Verstappen" },
+    Constructor: { name: teamName },
+  };
+}
+
 describe("joinSectorRowsWithResults", () => {
   it("attaches code, name and team color from the matching classification result", () => {
     const joined = joinSectorRowsWithResults(
       [sectorRow(1)],
       [result("1", "VER", "Red Bull")]
+    );
+
+    expect(joined).toHaveLength(1);
+    expect(joined[0].code).toBe("VER");
+    expect(joined[0].name).toBe("Max Verstappen");
+    expect(joined[0].teamColorHex).toBe("#3671C6");
+    expect(joined[0].driverNumber).toBe(1);
+  });
+
+  it("attaches identity when the result only has Driver.permanentNumber (the real producer shape)", () => {
+    const joined = joinSectorRowsWithResults(
+      [sectorRow(1)],
+      [resultFromPermanentNumber("1", "VER", "Red Bull")]
     );
 
     expect(joined).toHaveLength(1);

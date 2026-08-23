@@ -11,10 +11,10 @@ interface SectorBattlePanelProps {
   results: RaceResult[];
 }
 
-const CLASSIFICATION_STYLE: Record<string, { bg: string; color: string; label: string }> = {
-  purple: { bg: "rgba(174,59,255,0.18)", color: "#c99bff", label: "Purple" },
-  green: { bg: "rgba(57,213,75,0.14)", color: "#6ee085", label: "Green" },
-  yellow: { bg: "transparent", color: "var(--color-warm-300)", label: "" },
+const CLASSIFICATION_STYLE: Record<string, { bg: string; color: string }> = {
+  purple: { bg: "rgba(174,59,255,0.18)", color: "#c99bff" },
+  green: { bg: "rgba(57,213,75,0.14)", color: "#6ee085" },
+  yellow: { bg: "transparent", color: "var(--color-warm-300)" },
 };
 
 export default function SectorBattlePanel({ year, round, session, results }: SectorBattlePanelProps) {
@@ -29,11 +29,12 @@ export default function SectorBattlePanel({ year, round, session, results }: Sec
     getSessionSectors(year, round, session)
       .then((data) => {
         if (cancelled) return;
-        if (!data.available || data.rows.length === 0) {
+        if (!data.available) {
           setState({ status: "unavailable" });
           return;
         }
-        setState({ status: "ready", drivers: joinSectorRowsWithResults(data.rows, results) });
+        const drivers = joinSectorRowsWithResults(data.rows, results);
+        setState(drivers.length > 0 ? { status: "ready", drivers } : { status: "unavailable" });
       })
       .catch(() => {
         if (!cancelled) setState({ status: "unavailable" });

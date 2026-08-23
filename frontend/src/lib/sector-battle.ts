@@ -20,7 +20,8 @@ export function joinSectorRowsWithResults(
 ): SectorBattleDriver[] {
   const resultByNumber = new Map<string, RaceResult>();
   for (const result of results) {
-    if (result.number) resultByNumber.set(result.number, result);
+    const number = result.number || result.Driver?.permanentNumber;
+    if (number) resultByNumber.set(number, result);
   }
 
   const joined: SectorBattleDriver[] = [];
