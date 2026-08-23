@@ -34,42 +34,47 @@ interface ProgressionTooltipProps {
   highlighted: Set<string>;
 }
 
+const TOOLTIP_MAX_UNFILTERED = 12;
+
 function ProgressionTooltip({ active, payload, entities, highlighted }: ProgressionTooltipProps) {
   if (!active || !payload?.length) return null;
   const row = payload[0].payload;
-  const visible = entities.filter((e) => highlighted.size === 0 || highlighted.has(e.id));
+  const filtered = entities.filter((e) => highlighted.size === 0 || highlighted.has(e.id));
+  const sorted = filtered.slice().sort((a, b) => row.cumulative[b.id] - row.cumulative[a.id]);
+  const visible = highlighted.size === 0 ? sorted.slice(0, TOOLTIP_MAX_UNFILTERED) : sorted;
+  const hiddenCount = sorted.length - visible.length;
 
   return (
-    <div className="rounded-xl bg-surface-container/95 border border-white/10 p-4 shadow-xl max-h-80 overflow-y-auto">
+    <div className="rounded-xl bg-surface-container/95 border border-white/10 p-4 shadow-xl">
       <p className="font-[family-name:var(--font-headline)] font-bold text-lg mb-2">
         {row.shortName}
       </p>
       <div className="space-y-2">
-        {visible
-          .slice()
-          .sort((a, b) => row.cumulative[b.id] - row.cumulative[a.id])
-          .map((entity) => (
-            <div key={entity.id} className="flex items-center gap-2 text-sm">
-              <div
-                className="w-3 h-3 rounded-full flex-none"
-                style={{ backgroundColor: entity.colorHex }}
-              />
-              <span className="font-bold w-24 truncate">{entity.name}</span>
-              <span className="tabular-nums font-bold">{row.cumulative[entity.id]} pts</span>
+        {visible.map((entity) => (
+          <div key={entity.id} className="flex items-center gap-2 text-sm">
+            <div
+              className="w-3 h-3 rounded-full flex-none"
+              style={{ backgroundColor: entity.colorHex }}
+            />
+            <span className="font-bold w-24 truncate">{entity.name}</span>
+            <span className="tabular-nums font-bold">{row.cumulative[entity.id]} pts</span>
+            <span className="text-xs text-warm-500 tabular-nums">
+              +{row.gained[entity.id]}
+            </span>
+            {row.position[entity.id] !== null && (
+              <span className="text-xs text-warm-500">P{row.position[entity.id]}</span>
+            )}
+            {row.cumulative[entity.id] < row.leaderPoints && (
               <span className="text-xs text-warm-500 tabular-nums">
-                +{row.gained[entity.id]}
+                -{row.leaderPoints - row.cumulative[entity.id]}
               </span>
-              {row.position[entity.id] !== null && (
-                <span className="text-xs text-warm-500">P{row.position[entity.id]}</span>
-              )}
-              {row.cumulative[entity.id] < row.leaderPoints && (
-                <span className="text-xs text-warm-500 tabular-nums">
-                  -{row.leaderPoints - row.cumulative[entity.id]}
-                </span>
-              )}
-            </div>
-          ))}
+            )}
+          </div>
+        ))}
       </div>
+      {hiddenCount > 0 && (
+        <p className="text-xs text-warm-500 mt-2">+{hiddenCount} more</p>
+      )}
     </div>
   );
 }
@@ -172,6 +177,11 @@ export default function ChampionshipProgressionChart({
           );
         })}
       </div>
+
+      <p className="text-[10px] text-warm-500 mt-3">
+        Totals reflect the rounds currently loaded and may lag the official standings by a round
+        if a source temporarily failed.
+      </p>
     </div>
   );
 }
