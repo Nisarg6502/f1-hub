@@ -77,11 +77,28 @@ The tool **never raises** — same rule as every other tool in the package.
 
 ### Prompt instruction (summary; exact wording lives in the prompt module)
 
-The model is told: call this at most twice per answer, only when a picture
-says something a sentence cannot, always after retrieving the evidence, never
-with invented data, and that the `apex` runtime exists with the surface in §3.
-It is told explicitly that a table is often the better answer and that not
-every question wants a chart.
+The model is told: call this at most twice per answer, always after
+retrieving the evidence, never with invented data, and that the `apex`
+runtime exists with the surface in §3.
+
+The bias is toward drawing, not away from it — this is a deliberate reversal
+from this document's first version, made after real use showed the
+conservative default meant a chart-shaped answer usually got no chart at all.
+The model is told to default to offering a picture whenever the evidence
+bundle has more than one comparable value in it (a ranking, a series, a
+head-to-head, anything with more than one row or point), and that the prose
+and the picture are not alternatives — answer in words first, and it is
+expected and fine for the chart to still be rendering when the words are
+already on screen, since it streams in asynchronously below the answer (§5).
+The two things that still say "don't": a single scalar with nothing to
+compare it to, and the two-per-answer cap. A table remains worth adding
+alongside a chart, not just instead of one, when the reader wants exact
+values row by row.
+
+This is a `PROMPT_VERSION` bump (see the version history in
+`backend/agent/config.py`) — the cache is keyed on prompt version precisely
+so a policy change like this one cannot be served stale out of a
+pre-reversal cache row.
 
 ---
 

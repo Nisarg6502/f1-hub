@@ -258,7 +258,20 @@ def langsmith_configured() -> bool:
 # `visuals` field, and a pre-bump row replaying with no picture for a question
 # that now warrants one is precisely the "a working feature looks broken in
 # production" failure the paragraph above was written after.
-PROMPT_VERSION = 4
+#
+# Bumped to 5 for the same reason again, one paragraph later. `_VISUAL_RULE`'s
+# threshold flipped from "most answers should have no chart" to "offer one
+# whenever the bundle has more than one comparable value" — no tool changed
+# and no signature changed, so nothing here would have forced the bump on its
+# own. It is exactly the version-4 lesson: a version-4 cache row already holds
+# a correct, cited answer with no chart for a standings-shaped question,
+# because that was the right call under the OLD rule. Under the new rule the
+# same question warrants one. Same evidence, different verdict, and a cache
+# keyed only on the question text cannot tell those two rows apart without
+# this bump — this was in fact how the old rule's behaviour was first noticed
+# in production, replaying an unrelated pre-visuals question straight out of
+# cache while diagnosing something else entirely.
+PROMPT_VERSION = 5
 
 # Defaults to local dev origins, NOT "*". Starlette echoes the caller's origin
 # rather than emitting a literal `*`, so a wildcard default on a public,
