@@ -271,7 +271,26 @@ def langsmith_configured() -> bool:
 # this bump — this was in fact how the old rule's behaviour was first noticed
 # in production, replaying an unrelated pre-visuals question straight out of
 # cache while diagnosing something else entirely.
-PROMPT_VERSION = 5
+#
+# Bumped to 6 within the hour, after a clean live test of version 5 (fresh
+# thread, no cache hit) asked "the points gap between the top 6 drivers",
+# watched the model call `get_standings` and receive all six, and then answer
+# with only the leader-vs-6th number and NO `render_visual` call. Version 5's
+# wording was not wrong, it was outranked: the SYSTEM_PROMPT's older
+# instruction — "when a tool has already returned the facts the question
+# asked for, STOP and write the answer... it spends the step budget" — reads,
+# to a 30B model under real step-budget pressure, as covering every further
+# tool call including this one. Version 6 does not change the threshold
+# again; it resolves that fight explicitly, in both directions: the STOP rule
+# now says plainly that it means fact tools and names `render_visual` as the
+# exception, and `_VISUAL_RULE` now opens by saying the call is part of
+# finishing the answer rather than a further investigation, and to decide
+# using the bundle's full shape rather than whichever number the prose ended
+# up quoting. Same mechanism as versions 4 and 5: a version-5 cache row is a
+# correct, chart-less answer that was wrong for a different reason than any
+# prior version, and would keep replaying as "working as intended" without
+# this bump.
+PROMPT_VERSION = 6
 
 # Defaults to local dev origins, NOT "*". Starlette echoes the caller's origin
 # rather than emitting a literal `*`, so a wildcard default on a public,
