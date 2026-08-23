@@ -250,7 +250,15 @@ def langsmith_configured() -> bool:
 # made a working fix look like a broken one. A checkpoint that changes what the
 # model is told, or what its tools accept, has changed the answer contract even
 # when no prompt string is edited — bump this.
-PROMPT_VERSION = 3
+#
+# Bumped to 4 for the chat-visuals slice. Both halves again: `SYSTEM_PROMPT`
+# and `ORCHESTRATOR_SYSTEM_PROMPT` gained `_VISUAL_RULE`, and the tool contract
+# gained `render_visual` — a tool the model can call that no cached answer was
+# ever written with the option of calling. The stored rows also gained a
+# `visuals` field, and a pre-bump row replaying with no picture for a question
+# that now warrants one is precisely the "a working feature looks broken in
+# production" failure the paragraph above was written after.
+PROMPT_VERSION = 4
 
 # Defaults to local dev origins, NOT "*". Starlette echoes the caller's origin
 # rather than emitting a literal `*`, so a wildcard default on a public,

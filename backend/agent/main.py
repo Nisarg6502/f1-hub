@@ -43,6 +43,7 @@ from . import (
     sse,
     tracing,
     verifier,
+    visuals,
 )
 from .ledger import EvidenceLedger
 
@@ -330,6 +331,16 @@ async def _stream(
         # the cache round-trips one `sources` blob, and an entry written before
         # CP72 simply carries none, which the frontend already has to handle
         # for every unanchored answer.
+        # Between the tokens and `sources`, the same position a live turn puts
+        # them in (`CHAT-VISUALS-CONTRACT.md` §4) — a replayed answer must be
+        # indistinguishable on the wire from the turn that produced it, apart
+        # from `cached: true`. Rehydrated through `VisualBuffer.from_dicts`
+        # rather than splatted straight from Mongo, so a row written before
+        # visuals existed (no key), or one carrying a partial payload, yields a
+        # complete §4 frame with empty strings instead of a `TypeError` inside
+        # an already-committed stream.
+        for stored in visuals.VisualBuffer.from_dicts(cached.get("visuals")):
+            yield sse.visual(**stored.to_dict())
         cached_sources = cached.get("sources") or []
         yield sse.sources(
             cached_sources,
@@ -362,6 +373,11 @@ async def _stream(
         mode = "model"
         chars = 0
         answer_parts: list[str] = []
+        # Zero, one or two `visual` payloads (`CHAT-VISUALS-CONTRACT.md` §4),
+        # collected as they stream so the same list can be handed to the cache
+        # write below — the replay path has no agent run to regenerate them
+        # from, and does not need one.
+        answer_visuals: list[dict] = []
         tier: int | None = None
         # None for tier 1 (CP64 skips verification there — see graph.py's
         # astream_answer docstring) and for the echo fallback, neither of
@@ -475,6 +491,19 @@ async def _stream(
                             _, passed, violation_count = event
                             verification_status = "passed" if passed else "verification_failed"
                             verification_violations = violation_count
+                        elif kind == "visual":
+                            # `CHAT-VISUALS-CONTRACT.md` §4. `graph.py`
+                            # yields these after the last token, so simply
+                            # forwarding them in arrival order puts them
+                            # between the answer and `sources` — no
+                            # sequencing logic here to fall out of step with
+                            # that guarantee. Kept for the cache write too:
+                            # a visual is a pure function of `(code, data)`
+                            # (§7), so a replay of this answer must show the
+                            # same picture.
+                            _, payload = event
+                            answer_visuals.append(payload)
+                            yield sse.visual(**payload)
                         elif kind == "degraded":
                             # The step-budget degrade (see graph.py). It reads
                             # as a normal answer on the wire by design, which
@@ -638,6 +667,13 @@ async def _stream(
                     # ride nested inside each source rather than alongside them
                     # — the replay path flattens them back out.
                     sources=answer_sources,
+                    # §7's last row. Stored with the answer rather than
+                    # rebuilt, because rebuilding would mean re-running the
+                    # tools to refill a ledger — which is the entire cost the
+                    # cache exists to avoid — and because a visual is a pure
+                    # function of `(code, data)`, so the stored pair replays
+                    # to the identical picture.
+                    visuals=answer_visuals,
                 )
 
         # CP73: these three used to blur into one apology. They are three

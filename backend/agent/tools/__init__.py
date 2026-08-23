@@ -1,6 +1,8 @@
 """The internal F1 data tools — `CHAT-AGENT-PLAN.md` §5.1.
 
-Every tool in this package obeys one contract, enforced in `base.py`:
+Every *fact* tool in this package obeys one contract, enforced in `base.py`
+(`render_visual` is the single exception and says why in its own docstring —
+it is a sink for the model's drawing code, not a source of facts):
 
     success  {"available": True, "data": {...}, "evidence_id": "ev_7",
               "source": "mongo:race_results/2026-14", "as_of": "..."}
@@ -41,6 +43,7 @@ from .race import (
     get_race_strategy,
 )
 from .season import get_season_calendar, get_session_result, get_standings, get_weather
+from .visual import render_visual
 
 # §5.1's sixteen, plus the two utility tools from §5.3 that had to exist for
 # them to be callable at all: `resolve_context` (which turns "the last race"
@@ -68,6 +71,13 @@ ALL_TOOLS = (
     get_constructor_seasons,
     resolve_context,
     get_season_state,
+    # The one member of this registry that is NOT a fact tool — it retrieves
+    # nothing and appends nothing to the ledger. It is here because it is a
+    # tool the model calls and therefore has to be bindable through the same
+    # `TOOLS` registry `graph.py` reads; `tools/visual.py`'s docstring records
+    # why `@fact_tool` was deliberately not applied to it. If you are auditing
+    # this list for "what can an answer cite", this is the entry to skip.
+    render_visual,
 )
 
 TOOLS = {fn.tool_name: fn for fn in ALL_TOOLS}

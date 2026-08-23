@@ -61,20 +61,26 @@ from . import verifier
 from .labels import ACTIVITY_LABELS, SUBAGENT_ACTIVITY_LABELS, activity_label
 from .ledger import EvidenceLedger
 from .tools import TOOLS
+from .visuals import VisualBuffer
 
 # --- Tool binding ------------------------------------------------------------
 
-_HIDDEN_ARGS = frozenset({"ledger", "db", "today"})
+_HIDDEN_ARGS = frozenset({"ledger", "db", "today", "visuals"})
 """Tool parameters the model never sees, whichever tool declares them.
 
-Each of the three is hidden for a different reason (see `_public_signature`),
+Each of the four is hidden for a different reason (see `_public_signature`),
 and `today` is the one added on the strength of a measurement rather than of a
 principle. Membership here is by *name*, across every tool, which is only
-right for a name that means the same thing everywhere: `ledger` and `db` are
-this package's own plumbing, and `today` is the clock on both tools that take
-one. A knob that is internal to one tool but would be a legitimate argument on
-another belongs in that tool's own `fact_tool(hidden_args=...)` instead — see
-`web_search`'s `max_results`."""
+right for a name that means the same thing everywhere: `ledger`, `db` and
+`visuals` are this package's own plumbing, and `today` is the clock on both
+tools that take one. A knob that is internal to one tool but would be a
+legitimate argument on another belongs in that tool's own
+`fact_tool(hidden_args=...)` instead — see `web_search`'s `max_results`.
+
+`visuals` joins on the plumbing criterion, not the measurement one: it is this
+turn's `VisualBuffer`, the same object with the same meaning wherever it
+appears, and a model that could pass its own would be handing `render_visual`
+something that is not a buffer at all."""
 
 
 def _public_signature(fn: Any) -> inspect.Signature:
@@ -143,11 +149,29 @@ def _tool_description(fn: Any, tool_name: str) -> str:
     return doc.split("\n\n")[0].strip() or tool_name
 
 
-def _bind_tool(tool_name: str, fn: Any, ledger: EvidenceLedger) -> StructuredTool:
+def _bind_tool(
+    tool_name: str,
+    fn: Any,
+    ledger: EvidenceLedger,
+    visuals: "VisualBuffer | None" = None,
+) -> StructuredTool:
+    """Bind one tool to this turn's run state.
+
+    `ledger` goes to every tool unconditionally — every tool in this package
+    takes one. `visuals` is passed **only to the tools that declare it**, which
+    today is `render_visual` alone. Injecting it unconditionally would break
+    every other tool's signature, and adding an ignored `**_` to eighteen
+    functions to make one injection uniform is the wrong direction: the
+    parameter list is the declaration of what a tool needs, and reading it is
+    cheaper than maintaining a second table saying the same thing.
+    """
     sig = _public_signature(fn)
     args_model = _args_model(tool_name, sig)
+    wants_visuals = "visuals" in inspect.signature(fn).parameters
 
     async def _call(**kwargs: Any) -> dict:
+        if wants_visuals:
+            return await fn(**kwargs, ledger=ledger, visuals=visuals)
         return await fn(**kwargs, ledger=ledger)
 
     _call.__name__ = tool_name
@@ -159,7 +183,9 @@ def _bind_tool(tool_name: str, fn: Any, ledger: EvidenceLedger) -> StructuredToo
     )
 
 
-def build_tools(ledger: EvidenceLedger) -> list[StructuredTool]:
+def build_tools(
+    ledger: EvidenceLedger, visuals: "VisualBuffer | None" = None
+) -> list[StructuredTool]:
     """Bind every CP60 tool to one request's ledger.
 
     `tools/__init__.py`'s `TOOLS` registry exists precisely so this binding
@@ -167,10 +193,14 @@ def build_tools(ledger: EvidenceLedger) -> list[StructuredTool]:
     directly: "`TOOLS` is the registry CP61 binds." The tool layer stays
     importable and unit-testable without LangChain at all.
     """
-    return [_bind_tool(name, fn, ledger) for name, fn in TOOLS.items()]
+    return [_bind_tool(name, fn, ledger, visuals) for name, fn in TOOLS.items()]
 
 
-def build_tool_subset(ledger: EvidenceLedger, names: "tuple[str, ...] | list[str]") -> list[StructuredTool]:
+def build_tool_subset(
+    ledger: EvidenceLedger,
+    names: "tuple[str, ...] | list[str]",
+    visuals: "VisualBuffer | None" = None,
+) -> list[StructuredTool]:
     """Bind a named subset of `TOOLS` — CP63's subagents each see only theirs.
 
     A `KeyError` here means a subagent's tool list in `subagents.py` names a
@@ -179,10 +209,82 @@ def build_tool_subset(ledger: EvidenceLedger, names: "tuple[str, ...] | list[str
     `unavailable()` failures do at call time (`tools/base.py`'s contract is
     about *data* being unavailable, not about *code* being wrong).
     """
-    return [_bind_tool(name, TOOLS[name], ledger) for name in names]
+    return [_bind_tool(name, TOOLS[name], ledger, visuals) for name in names]
 
 
 # --- System prompt -----------------------------------------------------------
+
+_VISUAL_RULE = """
+Drawing a chart — the `render_visual` tool:
+
+You may draw ONE picture (at most two) per answer with `render_visual`. You
+write the drawing code; the backend attaches the numbers from the evidence
+bundle you name, so a chart can only ever show data you actually retrieved.
+
+Most answers should have NO chart. A sentence is better for a single number.
+A small Markdown table is better for a handful of rows, a ranking, or anything
+someone would want to read exact values off. Reach for a picture only when the
+shape of the data is the answer — a gap opening or closing over a season, a
+distribution, a comparison across many rounds, a trajectory. If you cannot say
+what the picture shows that the prose does not, do not draw it.
+
+Call it only AFTER the tool call whose data you want to draw, and pass that
+result's `evidence_id`. Never invent an id, and never put numbers in your code
+— read everything from the `data` argument. If you write a number as a literal
+it is not evidence-backed and it does not belong in the picture.
+
+`code` is an ES module with one default export:
+
+    export default function render({ data, apex, mount, width }) { ... }
+
+`data` is the evidence bundle's data, verbatim. `mount` is an empty <div>
+already on the page. `width` is the frame's content width in CSS pixels.
+`render` is called on load and again on every resize, so clear or rebuild
+`mount` each time.
+
+`apex` is a ready-made runtime — you have no imports and no network, so
+everything you need is on it:
+- `apex.tokens` — the site's colours and fonts (`primary`, `ember`, `flame`,
+  `warm100`…`warm600`, `veil`, `background`, `error`, radii, font stacks)
+- `apex.teamColor(name)` — `{hex, glow}` for an F1 team
+- `apex.scaleLinear({domain, range})`, `apex.scaleBand({domain, range, padding})`
+- `apex.ticks(min, max, count)` — nice tick values
+- `apex.el(tag, attrs, children)`, `apex.svg(tag, attrs, children)`
+- `apex.axis({...})`, `apex.gridlines({...})`
+- `apex.legend(items)`, `apex.tooltip(...)`
+- `apex.fmt.lapTime / gap / delta / ordinal / points / date`
+- `apex.animate(el, keyframes, opts)` — respects reduced-motion
+- `apex.panel(...)`, `apex.caption(...)` — the glass surface and caption chrome
+
+Rules your code must follow:
+- No `import` and no `require` — everything is on `apex`.
+- No network calls, no timer longer than 5 seconds, no `while (true)`.
+- Render something for EVERY shape `data` can take, including empty or
+  `available: false`. Guard before you index — a thrown error shows the reader
+  a failure box instead of a chart.
+- Respect `width` and reflow with it. No fixed pixel width above 640.
+- Use `apex.tokens` colours for all text, so it stays legible on a dark ground.
+
+The tool replies `{"ok": true, "visual_id": ...}` when it worked — that means
+the picture is on its way, so do not call it again for the same chart. If it
+replies `{"ok": false, "reason": ...}`, fix what the reason names or drop the
+chart and answer in prose. Never mention the tool, the chart or its absence in
+your answer text; the picture appears under the answer on its own.
+"""
+"""The `render_visual` half of the prompt — `CHAT-VISUALS-CONTRACT.md` §2/§3.
+
+Appended to both `SYSTEM_PROMPT` and `ORCHESTRATOR_SYSTEM_PROMPT` rather than
+written into each, for `subagents._NO_FILESYSTEM_RULE`'s reason: a rule that
+must be identical on two prompts drifts the moment it is stated twice.
+
+Two things in here are prompt-only and cannot be enforced in code, which is
+why they are stated so plainly. §7's second row is explicit that a model
+writing data *literals* instead of reading `data` "cannot be prevented" — the
+guarantee this feature offers is that anything read out of `data` is the
+ledger's, not that every pixel is. And "do not mention the chart in your
+answer" exists because the visual is placed below the prose (§5), so an answer
+that says "as the chart above shows" is wrong about its own layout — an
+inline-marker scheme is deliberately out of scope for this slice (§8)."""
 
 # Addresses taxonomy classes 1-7 (`CHAT-AGENT-PLAN.md` §2) — the ones CP61 is
 # scoped to answer. Classes 8-9 (web/news, rules-glossary) need CP62's web
@@ -250,7 +352,7 @@ Ground rules:
   answer. You are on a metered inference budget; looping between tools
   without converging on an answer is the single most expensive mistake you
   can make here.
-"""
+""" + _VISUAL_RULE
 
 # CP63's multi-agent orchestrator prompt — used only when `router.classify`
 # assigns tier 3 (`build_agent(use_subagents=True)`; see `router.Route`'s
@@ -268,7 +370,7 @@ ORCHESTRATOR_SYSTEM_PROMPT = """You are the orchestrator for F1 Hub's Pitwall As
 
 You do not answer F1 data questions yourself — you delegate to specialist
 subagents via the `task` tool, then synthesise their findings into one
-answer. You have exactly two direct tools of your own:
+answer. You have exactly two data tools of your own:
 
 - `resolve_context` — call this FIRST whenever the question has a vague
   reference ("the last race", "he", a nickname, "this season") to turn it
@@ -276,6 +378,9 @@ answer. You have exactly two direct tools of your own:
   resolve ambiguity you handed it unresolved.
 - `get_season_state` — call this when the question depends on today's date
   or "the next race" / "how the season stands".
+
+You also hold `render_visual` (below), because you are the one that writes
+the answer — a subagent returns findings, not prose to illustrate.
 
 For everything else, delegate via `task` to the subagent whose description
 best matches the question. Read each subagent's description before choosing
@@ -299,7 +404,22 @@ Ground rules, same as always:
   that could have been answered with one delegation should not fan out to
   three.
 - Answer in clear, concise Markdown.
-"""
+""" + _VISUAL_RULE
+
+ORCHESTRATOR_TOOLS = ("resolve_context", "get_season_state", "render_visual")
+"""The tier-3 orchestrator's own direct tools.
+
+The first two are CP63's; `render_visual` is the third and it belongs here
+rather than in a subagent's list. Drawing is a *presentation* decision about
+the finished answer, and on this path the orchestrator is the only thing that
+sees one — a subagent returns findings, not the answer. It works because the
+ledger is shared across the whole turn (`build_subagents(ledger)`), so an
+`[ev_N]` a subagent retrieved and quoted back is an id the orchestrator can
+hand straight to `render_visual` and have resolve.
+
+Named as a constant rather than written inline in `build_agent` so
+`test_agent_subagents.py`'s "every grouping names a real tool" check and any
+future audit can read it the same way they read the subagent groupings."""
 
 
 # --- Model + graph construction ----------------------------------------------
@@ -471,14 +591,20 @@ def _register_harness_profile() -> None:
     _harness_profile_registered = True
 
 
-def build_agent(ledger: EvidenceLedger, *, use_subagents: bool = False, checkpointer: Any | None = None):
+def build_agent(
+    ledger: EvidenceLedger,
+    *,
+    use_subagents: bool = False,
+    checkpointer: Any | None = None,
+    visuals: VisualBuffer | None = None,
+):
     """One `create_deep_agent` graph.
 
     `use_subagents=False` (the default) is CP61's exact proven flat graph —
     every CP60 tool bound directly, no subagents. `use_subagents=True` is
-    CP63's addition: a slim two-tool orchestrator (`resolve_context`,
-    `get_season_state`) that delegates everything else via `task()` to the
-    four subagents in `subagents.py`. `astream_answer` decides which shape to
+    CP63's addition: a slim orchestrator holding only `ORCHESTRATOR_TOOLS`
+    that delegates everything else via `task()` to the four subagents in
+    `subagents.py`. `astream_answer` decides which shape to
     build per turn from `router.classify` — this function itself stays
     agnostic to *why*, so it is testable without importing the router.
 
@@ -496,7 +622,7 @@ def build_agent(ledger: EvidenceLedger, *, use_subagents: bool = False, checkpoi
     if not use_subagents:
         return create_deep_agent(
             model=build_model(),
-            tools=build_tools(ledger),
+            tools=build_tools(ledger, visuals),
             system_prompt=SYSTEM_PROMPT,
             checkpointer=checkpointer,
         )
@@ -505,7 +631,7 @@ def build_agent(ledger: EvidenceLedger, *, use_subagents: bool = False, checkpoi
 
     return create_deep_agent(
         model=build_model(),
-        tools=build_tool_subset(ledger, ("resolve_context", "get_season_state")),
+        tools=build_tool_subset(ledger, ORCHESTRATOR_TOOLS, visuals),
         subagents=build_subagents(ledger),
         system_prompt=ORCHESTRATOR_SYSTEM_PROMPT,
         checkpointer=checkpointer,
@@ -540,6 +666,9 @@ AgentEvent = tuple[str, ...]
 plain 3-tuple `("activity", label, state)` for the system-level narrations
 `_run_turn` doesn't originate (queue waits, "Thinking…", the echo notice);
 `main.py`'s `_stream` accepts both shapes. Also `("token", text)`,
+`("visual", payload)` — one `sse.visual` payload, yielded after the last token
+and before the generator ends, so `main.py` puts it on the wire between the
+answer and `sources` exactly as `CHAT-VISUALS-CONTRACT.md` §4 requires —
 `("tier", int, reason)` or `("verification", passed, violation_count)` — what
 `main.py` turns into SSE frames / the `done` event's `tier` and
 `verification` fields. Kept as a plain tuple rather than a dataclass so this
@@ -702,7 +831,20 @@ async def astream_answer(
     route = router.classify(message)
     yield ("tier", route.tier, route.reason)
 
-    agent = build_agent(ledger, use_subagents=route.use_subagents, checkpointer=checkpointer)
+    # One buffer per turn, created here beside the ledger and for the same
+    # reason `main.py` creates the ledger per turn: two overlapping requests
+    # must never see each other's state, and a turn's visuals are as
+    # request-scoped as its evidence. Created here rather than in `main.py`
+    # because nothing outside this function needs to hold it — the frames go
+    # out as ordinary `AgentEvent`s below, so `main.py` learns about visuals
+    # the same way it learns about tokens.
+    visuals = VisualBuffer()
+    agent = build_agent(
+        ledger,
+        use_subagents=route.use_subagents,
+        checkpointer=checkpointer,
+        visuals=visuals,
+    )
     run_config = {
         "configurable": {"thread_id": thread_id or "anonymous"},
         # §4.2's cost-control rule made concrete: a super-step is roughly one
@@ -759,6 +901,22 @@ async def astream_answer(
             yield ("verification", result.passed, len(result.violations))
             for piece in _chunk_draft(draft):
                 yield ("token", piece)
+
+            # `CHAT-VISUALS-CONTRACT.md` §4: after the last `token`, before
+            # `sources`. Draining here rather than at the point of the tool
+            # call is what makes that ordering structural — `main.py` turns
+            # these into frames in the order it receives them, and `sources`
+            # is only assembled once this generator is exhausted, so there is
+            # no sequencing rule for a future edit to get wrong.
+            #
+            # Drained after the repair loop, so a visual survives a rewrite of
+            # the prose. That is the right call for this feature specifically:
+            # a visual is a function of `(code, data)` and never of the draft,
+            # so a redrafted answer does not invalidate a chart drawn from
+            # evidence the redraft still cites. The cap counts across both
+            # runs, so a repair cannot smuggle in a third.
+            for payload in visuals.frames():
+                yield ("visual", payload)
 
     except asyncio.TimeoutError as error:
         raise model_seam.ModelTimeout(

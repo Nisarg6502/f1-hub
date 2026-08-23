@@ -39,6 +39,11 @@ ACTIVITY_LABELS: dict[str, str] = {
     "web_search": "Searching the web",
     "web_extract": "Reading a web page",
     "wikipedia_summary": "Reading a Wikipedia summary",
+    # Present tense and about the picture, not about the code: the reader sees
+    # this in the activity timeline while the model is writing an ES module,
+    # and "Generating visualisation source" would describe the mechanism
+    # rather than the thing they are about to be shown.
+    "render_visual": "Drawing a chart",
 }
 
 SUBAGENT_ACTIVITY_LABELS: dict[str, str] = {

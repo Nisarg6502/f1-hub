@@ -23,6 +23,17 @@ Event types, in the order a normal answer produces them:
         started — always present.
     token      {"text": str}
         One delta of answer text. Many of these.
+    visual     {"visual_id": str, "evidence_id": str, "title": str,
+                 "caption": str, "as_of": str, "code": str, "data": any}
+        A generated visualisation — `CHAT-VISUALS-CONTRACT.md` §4. `code` is
+        an ES module the *model* wrote; `data` is the cited ledger entry's
+        payload, attached verbatim by the backend, which is what makes the
+        chart structurally incapable of showing a number the tools did not
+        retrieve. Emitted after the last `token` and before `sources`, zero to
+        two per answer, rendered in arrival order. Additive by construction:
+        `agent-api.ts`'s `dispatch` ignores unknown event types, so a client
+        built before this existed sees an answer with no picture rather than a
+        parse error.
     sources    {"sources": [{"id", "n", "kind", "label", "title", "url"|None,
                               "as_of", "snippet", "anchors": [...]}],
                  "anchors": [{"evidence_id", "text", "start", "end", "claim",
@@ -115,6 +126,48 @@ def activity(
 
 def token(text: str) -> str:
     return frame("token", {"text": text})
+
+
+def visual(
+    *,
+    visual_id: str,
+    evidence_id: str,
+    title: str,
+    code: str,
+    data: Any,
+    as_of: str,
+    caption: str = "",
+) -> str:
+    """One generated visualisation — `CHAT-VISUALS-CONTRACT.md` §4.
+
+    Keyword-only, and that is worth a sentence: seven fields of which five are
+    strings, three of which (`visual_id`, `evidence_id`, `title`) would swap
+    silently and produce a frame that renders a chart under the wrong caption
+    citing the wrong entry. There is no positional call of this that is easier
+    to read than the keyword one.
+
+    `caption` defaults to `""` rather than being optional, because §4's shape
+    always carries the key — the frontend reads it unconditionally, exactly as
+    it does `sources`' `anchors`.
+
+    `data` is passed through untouched. Anything that reshapes, rounds or
+    truncates it here would break the guarantee the whole feature rests on:
+    that every number in the picture is one the ledger actually holds. Size is
+    bounded upstream in `tools/visual.py` (§2.4), by rejecting an oversized
+    payload rather than trimming one.
+    """
+    return frame(
+        "visual",
+        {
+            "visual_id": visual_id,
+            "evidence_id": evidence_id,
+            "title": title,
+            "caption": caption,
+            "as_of": as_of,
+            "code": code,
+            "data": data,
+        },
+    )
 
 
 def sources(items: list[dict], anchors: list[dict] | None = None) -> str:

@@ -40,10 +40,12 @@ import {
   type AgentAnchor,
   type AgentDone,
   type AgentSource,
+  type AgentVisual,
 } from "@/lib/agent-api";
 import { buildAnchoredMarkdown } from "@/lib/answer-anchors";
 import AnchorMark, { AnchorContext } from "./anchor-mark";
 import SourceStrip from "./source-strip";
+import VisualFrame from "./visual-frame";
 import LocalDateTime from "./local-datetime";
 import FeedbackControls from "./feedback-controls";
 import { ActivityAccordion, type ActivityEntry } from "./activity-accordion";
@@ -60,6 +62,14 @@ type Message = {
   // inline marks read draft order directly — regrouping per record and then
   // re-sorting would be a second copy of an ordering the backend already made.
   anchors: AgentAnchor[];
+  // Generated visuals, in arrival order (CHAT-VISUALS-CONTRACT.md §4).
+  //
+  // A list, not a slot: the tool may emit two per answer, and the order they
+  // arrived in is the order the model chose to present them in. Kept on the
+  // message for the same reason `suggestions` is — an older answer keeps its
+  // own charts when the reader scrolls back, and a new turn cannot retroactively
+  // change what a settled answer showed.
+  visuals: AgentVisual[];
   done: AgentDone | null;
   // CP75: follow-up chips, arriving on their own SSE frame *after* `done`.
   // Stored on the message rather than in a single panel-level slot so an
@@ -406,6 +416,7 @@ export default function PitwallAssistantPanel({
         activity: [],
         sources: [],
         anchors: [],
+        visuals: [],
         done: null,
         suggestions: [],
         error: null,
@@ -422,6 +433,7 @@ export default function PitwallAssistantPanel({
         activity: [],
         sources: [],
         anchors: [],
+        visuals: [],
         done: null,
         suggestions: [],
         error: null,
@@ -459,6 +471,10 @@ export default function PitwallAssistantPanel({
             })),
           onToken: (text) => patch((m) => ({ ...m, text: m.text + text })),
           onSources: (sources, anchors) => patch((m) => ({ ...m, sources, anchors })),
+          // Appended, not assigned: contract §4 allows more than one visual
+          // per answer and they arrive as separate frames.
+          onVisual: (visual) =>
+            patch((m) => ({ ...m, visuals: [...m.visuals, visual] })),
           onDone: (done) => patch((m) => ({ ...m, done })),
           onSuggestions: (suggestions) => patch((m) => ({ ...m, suggestions })),
           onError: (code, message) =>
@@ -969,6 +985,20 @@ const MessageBubble = memo(function MessageBubble({
             account.
           </p>
         )}
+
+      {/* Contract §5: below the answer text, above the source strip.
+          Deliberately not inline in the prose — a `[vis_N]` marker scheme is
+          out of scope for this slice (§8), so a visual is a block that follows
+          what it illustrates rather than something the paragraph flows around.
+
+          Suppressed on a failed turn: a `visual` frame can only have arrived
+          before the failure, so what it would illustrate is an answer the
+          reader is being told not to trust. The numbers survive either way —
+          they are in the ledger and on the source strip. */}
+      {!message.error &&
+        message.visuals.map((visual, i) => (
+          <VisualFrame key={`${message.id}-${visual.visual_id || i}`} visual={visual} />
+        ))}
 
       <SourceStrip
         sources={message.sources}
