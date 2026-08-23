@@ -246,11 +246,21 @@ export default function TireStintsChart({
             Select at least one driver to view stints.
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer
+            width="100%"
+            // A fixed-height container divides its row space across however many
+            // drivers are selected, so 20 drivers each get a sliver too short for
+            // Recharts to lay out — its default `interval="preserveEnd"` then
+            // thins the YAxis ticks to whatever fits, dropping every other name.
+            // Growing the SVG with the selection keeps each row tall enough that
+            // no thinning is needed, and the card itself scrolls once it outgrows
+            // its `min-h`.
+            height={Math.max(500, activeDrivers.length * 34 + 60)}
+          >
             <BarChart
               data={chartData}
               layout="vertical"
-              margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
+              margin={{ top: 20, right: 30, left: 20, bottom: 36 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#2a231d" horizontal={false} />
               <XAxis
@@ -258,7 +268,7 @@ export default function TireStintsChart({
                 stroke="#5c554b"
                 tick={{ fill: "var(--color-warm-400)", fontSize: 12 }}
                 domain={[0, 'dataMax']}
-                label={{ value: 'Lap number', position: 'bottom', fill: '#6f665b', fontSize: 12, dy: 10 }}
+                label={{ value: 'Lap number', position: 'bottom', fill: '#6f665b', fontSize: 12, dy: 12 }}
               />
               <YAxis
                 type="category"
@@ -266,6 +276,7 @@ export default function TireStintsChart({
                 stroke="#5c554b"
                 tick={{ fill: "var(--color-warm-100)", fontSize: 14, fontWeight: "bold" }}
                 width={60}
+                interval={0}
               />
               <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} content={<StintTooltip />} />
               
