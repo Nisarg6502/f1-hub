@@ -47,6 +47,8 @@ import SourceStrip from "./source-strip";
 import LocalDateTime from "./local-datetime";
 import FeedbackControls from "./feedback-controls";
 import { ActivityAccordion, type ActivityEntry } from "./activity-accordion";
+import DictationButton from "./dictation-button";
+import { useDictation } from "@/lib/use-dictation";
 import { track } from "@/lib/analytics";
 
 type Message = {
@@ -311,6 +313,25 @@ export default function PitwallAssistantPanel({
     }
   }, []);
 
+  /**
+   * Dictation (CP77). Final phrases are APPENDED to whatever is already in the
+   * composer — a functional update, so a word typed while the recognizer was
+   * still thinking is never overwritten. The join is a single space, with any
+   * trailing whitespace on the existing value collapsed first so repeated
+   * phrases do not accumulate gaps.
+   *
+   * The interim (not-yet-final) phrase deliberately does NOT go into `input`:
+   * this is a controlled `<input>` the user can keep typing into mid-utterance,
+   * and rewriting `value` on every revision of the recognizer's guess would
+   * fight their caret. It is previewed under the composer instead — see the
+   * live region below.
+   */
+  const appendTranscript = useCallback((text: string) => {
+    setInput((prev) => (prev ? `${prev.replace(/\s+$/, "")} ${text}` : text));
+  }, []);
+  const dictation = useDictation({ onFinalTranscript: appendTranscript });
+  const stopDictation = dictation.stop;
+
   const handleMessageListScroll = useCallback(() => {
     const el = messageListRef.current;
     if (!el) return;
@@ -394,6 +415,12 @@ export default function PitwallAssistantPanel({
     (question: string) => {
       const trimmed = question.trim();
       if (!trimmed || running) return;
+      // Sending ends the utterance. Every send path funnels through `ask` —
+      // the button, Enter, the suggestion chips, Retry/Regenerate — so this is
+      // the one place that has to remember, and a recognizer left running past
+      // a send would keep the tab's microphone indicator lit and would dictate
+      // into a composer the user has moved on from.
+      stopDictation();
       setInput("");
       // A fresh question always implies "show me the answer" — resume
       // auto-follow even if the user had scrolled up during a prior turn.
@@ -485,7 +512,7 @@ export default function PitwallAssistantPanel({
           setRunning(false);
         });
     },
-    [running, patchMessage, stopElapsedTimer]
+    [running, patchMessage, stopElapsedTimer, stopDictation]
   );
 
   /**
@@ -533,6 +560,9 @@ export default function PitwallAssistantPanel({
   const startNewChat = useCallback(() => {
     abortRef.current?.abort();
     stopElapsedTimer();
+    // A wipe clears the composer, so anything still being dictated into it has
+    // nowhere to land.
+    stopDictation();
     setRunning(false);
     setElapsedSec(null);
     setMessages([]);
@@ -541,7 +571,7 @@ export default function PitwallAssistantPanel({
     threadId.current = crypto.randomUUID();
     isAtBottomRef.current = true;
     inputRef.current?.focus();
-  }, [stopElapsedTimer]);
+  }, [stopElapsedTimer, stopDictation]);
 
   const requestNewChat = useCallback(() => {
     if (messages.length === 0) {
@@ -715,7 +745,37 @@ export default function PitwallAssistantPanel({
           ))}
         </div>
 
-        <div className="flex gap-2 border-t border-white/10 p-3">
+        <div className="border-t border-white/10 p-3">
+          {/* Dictation's two visible outputs, above the composer row.
+
+              The live region is always mounted (an `aria-live` region injected
+              at the same moment its text appears is unreliably announced) and
+              simply carries "" when there is nothing to say. It doubles as the
+              visible status/error line, so sighted and screen-reader users are
+              told the same thing at the same time rather than one getting a
+              silent colour change.
+
+              Errors take precedence over the interim preview: if the recognizer
+              failed, whatever half-phrase it had is no longer meaningful. */}
+          <div
+            aria-live="polite"
+            className="px-1"
+          >
+            {dictation.error ? (
+              <p className="pb-2 text-[11px] text-[var(--color-error)]">
+                {dictation.error}
+              </p>
+            ) : dictation.interim ? (
+              <p className="truncate pb-2 text-[11px] italic text-[var(--color-on-surface-variant)]">
+                {dictation.interim}
+              </p>
+            ) : dictation.status ? (
+              <p className="pb-2 text-[11px] text-[var(--color-on-surface-variant)]">
+                {dictation.status}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex gap-2">
           <input
             ref={inputRef}
             value={input}
@@ -730,6 +790,16 @@ export default function PitwallAssistantPanel({
             className="flex-1 rounded-lg bg-transparent px-3 py-2 text-sm text-[var(--color-on-surface)] outline-none placeholder:text-[var(--color-on-surface-variant)]"
             placeholder="Ask about a race, a driver, a season…"
           />
+          {/* No mic button at all where the API does not exist (Firefox, and
+              any non-secure context) — a button that could only ever report
+              failure is worse than an absent one. */}
+          {dictation.supported && (
+            <DictationButton
+              listening={dictation.listening}
+              onToggle={dictation.toggle}
+              disabled={running}
+            />
+          )}
           <button
             onClick={running ? cancel : send}
             className="rounded-lg bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-[var(--color-on-primary)] transition-transform duration-150 active:scale-[0.97] disabled:opacity-50"
@@ -737,6 +807,7 @@ export default function PitwallAssistantPanel({
           >
             {running ? "Cancel" : "Ask"}
           </button>
+          </div>
         </div>
       </motion.div>
     </motion.div>,
