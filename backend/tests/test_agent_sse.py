@@ -94,6 +94,58 @@ class EventVocabularyTests(unittest.TestCase):
         payload = json.loads(sse.sources([]).split("data: ", 1)[1])
         self.assertEqual(payload["anchors"], [])
 
+    def test_visual_carries_the_contracts_seven_fields(self):
+        """`CHAT-VISUALS-CONTRACT.md` §4. The frontend reads all seven
+        unconditionally, so an absent key is a render failure, not a default."""
+        frame = sse.visual(
+            visual_id="vis_1",
+            evidence_id="ev_3",
+            title="Points gap to the leader",
+            code="export default function render({data}) {}",
+            data={"rows": [{"driver": "Norris", "points": 25}]},
+            as_of="2026-08-23T01:00:00Z",
+        )
+        self.assertTrue(frame.startswith("event: visual\n"))
+        payload = json.loads(frame.split("data: ", 1)[1].strip())
+        self.assertEqual(
+            payload,
+            {
+                "visual_id": "vis_1",
+                "evidence_id": "ev_3",
+                "title": "Points gap to the leader",
+                "caption": "",
+                "as_of": "2026-08-23T01:00:00Z",
+                "code": "export default function render({data}) {}",
+                "data": {"rows": [{"driver": "Norris", "points": 25}]},
+            },
+        )
+
+    def test_visual_code_with_newlines_stays_one_event(self):
+        """`code` is a multi-line ES module — the case `frame()`'s JSON
+        encoding exists for, reaching this event by a new route."""
+        frame = sse.visual(
+            visual_id="vis_1",
+            evidence_id="ev_1",
+            title="t",
+            code="export default function render() {\n  return 1;\n}",
+            data=None,
+            as_of="z",
+        )
+        body = frame.split("\n\n")[0]
+        self.assertEqual(len(body.splitlines()), 2, msg=f"frame split: {frame!r}")
+
+    def test_visual_data_is_not_reshaped(self):
+        """The guarantee the feature rests on: the numbers on the wire are the
+        ledger's, byte for byte."""
+        data = {"laps": [{"lap": 1, "time": 91.234}, {"lap": 2, "time": None}]}
+        payload = json.loads(
+            sse.visual(
+                visual_id="vis_1", evidence_id="ev_1", title="t",
+                code="x", data=data, as_of="z",
+            ).split("data: ", 1)[1].strip()
+        )
+        self.assertEqual(payload["data"], data)
+
     def test_suggestions_wraps_the_list(self):
         chips = ["Who won in Monaco?", "How did Norris qualify there?"]
         frame = sse.suggestions(chips)

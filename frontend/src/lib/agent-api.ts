@@ -144,6 +144,33 @@ export interface AgentSource {
   anchors?: AgentAnchor[] | null;
 }
 
+/**
+ * One generated visual (`CHAT-VISUALS-CONTRACT.md` §4).
+ *
+ * The split this carries is the whole design: `code` is **written by the
+ * model** and `data` is **copied verbatim by the backend** out of the evidence
+ * ledger entry named by `evidence_id`. The model never gets to put a number in
+ * the payload — it writes a function that draws whatever is in the bundle —
+ * which is the same guarantee `verifier.py` gives the prose, applied to the
+ * picture.
+ *
+ * `code` is therefore untrusted text and `data` is arbitrary JSON. Neither is
+ * inspected here: `VisualFrame` executes the code in an opaque-origin iframe,
+ * and that sandbox, not any parsing on this side, is what makes it safe.
+ *
+ * Arrives after the last `token` and before `sources`. Multiple frames may
+ * arrive; the tool caps them at two.
+ */
+export interface AgentVisual {
+  visual_id: string;
+  evidence_id: string;
+  title: string;
+  caption: string;
+  as_of: string | null;
+  code: string;
+  data: unknown;
+}
+
 export interface AgentDone {
   run_id: string | null;
   /** `"echo"` means inference was unavailable and the text is NOT an answer. */
@@ -176,6 +203,19 @@ export interface AgentHandlers {
    * so a caller never has to distinguish "none" from "old build".
    */
   onSources?: (sources: AgentSource[], anchors: AgentAnchor[]) => void;
+  /**
+   * A generated visual, arriving between the last `token` and `sources`.
+   *
+   * Called once per `visual` frame, in arrival order — the panel appends
+   * rather than replaces, because contract §4 allows more than one and their
+   * order is the order the model chose to present them in.
+   *
+   * Never called for a frame missing `code`: a visual with nothing to run is
+   * not a degraded visual, it is a frame that should not have been sent, and
+   * rendering an empty sandbox for it would show the reader a permanent
+   * skeleton. See `dispatch`.
+   */
+  onVisual?: (visual: AgentVisual) => void;
   onDone?: (done: AgentDone) => void;
   /**
    * CP75's follow-up chips — the one event that arrives **after** `done`.
@@ -568,6 +608,35 @@ function dispatch(event: string, data: unknown, handlers: AgentHandlers): void {
         (payload.anchors ?? []) as AgentAnchor[]
       );
       break;
+    case "visual": {
+      // Coerced field by field rather than cast, for the CP44 reason the
+      // `suggestions` case gives: a documented shape is not a guaranteed one,
+      // and this one is assembled around model output.
+      //
+      // `code` is the single hard requirement. Everything else has a sane
+      // empty value — a missing title renders as an untitled figure, a missing
+      // `data` renders as the model's code drawing nothing — but a missing or
+      // non-string `code` leaves a frame that can never report ready, i.e. a
+      // skeleton that turns into an error five seconds later for no reason the
+      // reader can see. Dropping it is the honest outcome.
+      //
+      // `data` is deliberately NOT validated beyond existing: it is the
+      // ledger's payload verbatim (contract §2.4, "no reshaping, no
+      // truncation") and any shape-guessing here would be this client
+      // second-guessing the record the answer is cited against.
+      const code = typeof payload.code === "string" ? payload.code : "";
+      if (!code) break;
+      handlers.onVisual?.({
+        visual_id: String(payload.visual_id ?? ""),
+        evidence_id: String(payload.evidence_id ?? ""),
+        title: typeof payload.title === "string" ? payload.title : "",
+        caption: typeof payload.caption === "string" ? payload.caption : "",
+        as_of: typeof payload.as_of === "string" ? payload.as_of : null,
+        code,
+        data: payload.data ?? null,
+      });
+      break;
+    }
     case "done":
       handlers.onDone?.(payload as unknown as AgentDone);
       break;

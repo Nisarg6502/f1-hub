@@ -85,6 +85,32 @@ const CSP = [
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
+  // Chat visuals (`components/visual-frame.tsx`) run model-written drawing
+  // code in a `srcdoc` iframe. Without this directive frames fall back to
+  // `default-src 'self'`, which already permits `srcdoc` — so this is not
+  // *enabling* anything, it is stating the intent so a later widening of
+  // `default-src` cannot widen what may be framed as a side effect.
+  //
+  // Note which way the inheritance runs, because it is the opposite of the
+  // instinct: a `srcdoc` frame inherits THIS policy, so inside the frame
+  // `script-src` is `'self' 'unsafe-inline'`. The inline bootstrap therefore
+  // runs — which is required, the frame has no other way to receive code —
+  // while `'self'` is evaluated against the frame's **opaque** origin and
+  // matches nothing for `script-src` or `connect-src`: verified from inside a
+  // live frame, `fetch` to this origin fails with a TypeError and `eval`
+  // throws an EvalError (`'unsafe-eval'` is absent). Contract §6 also claims
+  // no image host is reachable, and that part is NOT what Chrome does — an
+  // `<img>` pointed at this origin loads from inside the frame, because
+  // `img-src 'self'` is resolved against the inherited policy's origin rather
+  // than the frame's opaque one. It is a narrow channel (a credential-less GET
+  // to hosts we already allow, from a document whose only inputs are the
+  // ledger data it was handed) but the doc overstates the guarantee, so do not
+  // rely on that line.
+  //
+  // None of that is the security boundary. The missing `allow-same-origin` on
+  // the sandbox attribute is; see `visual-frame.tsx`. This is defence in
+  // depth.
+  "frame-src 'self'",
   "form-action 'self'",
   ["script-src 'self' 'unsafe-inline'", ...GA_SCRIPT].join(" "),
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",

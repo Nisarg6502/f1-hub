@@ -255,6 +255,9 @@ class ModelVisibleArgumentAuditTests(unittest.TestCase):
         "get_race_strategy": ("year", "round_number"),
         "get_season_calendar": ("year",),
         "get_season_state": (),
+        # `ledger` and `visuals` are both plumbing and both hidden; what the
+        # model sees is exactly CHAT-VISUALS-CONTRACT.md §2's signature.
+        "render_visual": ("evidence_id", "title", "code", "caption"),
         "get_session_result": ("year", "round_number", "session"),
         "get_standings": ("year", "kind", "after_round"),
         "get_weather": ("year", "round_number"),

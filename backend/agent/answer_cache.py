@@ -104,10 +104,19 @@ async def set_cached(
     tier: int | None,
     text: str,
     sources: list[dict],
+    visuals: list[dict] | None = None,
     db: Any = None,
 ) -> None:
     """Best-effort write. A failure here must never surface to the asker who
     already got their real, freshly-generated answer — see module docstring.
+
+    `visuals` is `CHAT-VISUALS-CONTRACT.md` §7's last row: a turn's `visual`
+    frames are stored with the answer and replayed, because they are pure
+    functions of `(code, data)` and so cannot go stale in any way the prose
+    beside them has not already. It defaults to `None` and is stored as `[]`,
+    which is what makes this additive: every row written before visuals existed
+    reads back as "no visuals" rather than as a missing key the replay path has
+    to special-case.
     """
     try:
         database = db if db is not None else get_db()
@@ -120,6 +129,7 @@ async def set_cached(
                     "tier": tier,
                     "text": text,
                     "sources": sources,
+                    "visuals": list(visuals or []),
                     "prompt_version": prompt_version,
                 }
             },
