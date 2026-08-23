@@ -10,9 +10,12 @@ import { getTeamColor } from "@/lib/team-colors";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { getFlagPath } from "@/lib/flags";
 import { driverPortraitFrameStyle, driverPortraitSizes } from "@/lib/driver-portrait";
-import type { DriverSeasonLog, TeammateBattle } from "@/lib/season-results";
+import type { DriverSeasonLog, TeammateBattle, ConstructorSeasonLog } from "@/lib/season-results";
 import { Stagger, StaggerItem } from "@/components/motion-primitives";
 import { AnimatedNumber } from "@/components/animated-number";
+import ChampionshipProgressionChart, {
+  type ProgressionEntity,
+} from "@/components/championship-progression-chart";
 import DriverModal from "@/components/driver-modal";
 import DriverSeasonLogPanel from "@/components/driver-season-log";
 import SeasonSelector from "@/components/season-selector";
@@ -27,6 +30,8 @@ interface StandingsViewProps {
   teammateBattles: TeammateBattle[];
   /** Round-by-round points, keyed by `driverId`. Also server-derived. */
   seasonLogs: Record<string, DriverSeasonLog>;
+  /** Round-by-round points, keyed by `constructorId`. Also server-derived. */
+  constructorLogs: Record<string, ConstructorSeasonLog>;
   year: number;
   maxYear: number;
   /**
@@ -57,6 +62,7 @@ export default function StandingsView({
   constructors,
   teammateBattles,
   seasonLogs,
+  constructorLogs,
   year,
   maxYear,
   renderedAtMs,
@@ -159,6 +165,32 @@ export default function StandingsView({
           constructors={constructors}
           year={year}
         />
+      )}
+
+      {tab === "drivers" && drivers.length > 1 && (
+        <div className="mb-6">
+          <ChampionshipProgressionChart
+            entities={drivers.map((d): ProgressionEntity => ({
+              id: d.Driver.driverId ?? "",
+              name: d.Driver.code || d.Driver.familyName || "—",
+              colorHex: getTeamColor(d.Constructors?.[0]?.name ?? "—").hex,
+            }))}
+            logsByEntityId={seasonLogs}
+          />
+        </div>
+      )}
+
+      {tab === "cons" && constructors.length > 1 && (
+        <div className="mb-6">
+          <ChampionshipProgressionChart
+            entities={constructors.map((c): ProgressionEntity => ({
+              id: c.Constructor.constructorId ?? "",
+              name: c.Constructor.name ?? "—",
+              colorHex: getTeamColor(c.Constructor.name).hex,
+            }))}
+            logsByEntityId={constructorLogs}
+          />
+        </div>
       )}
 
       {/* DRIVERS */}
