@@ -7,6 +7,7 @@ import {
   type Race,
   type RaceResult,
 } from "@/lib/api";
+import TeamCar from "@/components/team-car";
 import { getRaceWeek } from "@/lib/race-week";
 import type { RaceSessionField, SessionTimelineItem } from "@/lib/sessions";
 import { getTeamColor } from "@/lib/team-colors";
@@ -213,8 +214,30 @@ export default async function RaceWeekGlimpse({
               return (
                 <li
                   key={`${row.position}-${row.familyName}`}
-                  className="flex items-stretch gap-2.5 rounded-control bg-veil/4 px-3 py-2.5 min-w-0"
+                  className="relative isolate overflow-hidden flex items-stretch gap-2.5 rounded-control bg-veil/4 px-3 py-2.5 min-w-0"
                 >
+                  {/* The team's car in the tile's dead space. These rows carry
+                      a surname, a team and a time, and on a three-up grid the
+                      band between the team name and the time is empty at every
+                      width — the same gap the standings rows had, filled the
+                      same way.
+
+                      Stopped short of the right edge for that reason: anchored
+                      flush right the nose would sit directly behind the time,
+                      which is the one figure a glimpse exists to state. The
+                      inset clears the time column and its gutter, so the car
+                      occupies only the space nothing else wanted.
+
+                      Fainter than the standings' 0.22 — this strip is a third
+                      the height, so the same opacity reads as a smudge under
+                      the text rather than as a livery. */}
+                  <TeamCar
+                    team={row.constructor}
+                    variant="ghost-right"
+                    opacity={0.26}
+                    sizes="(min-width: 640px) 200px, 60vw"
+                    className="absolute -z-10 right-[76px] top-1 bottom-1 w-[55%]"
+                  />
                   <span
                     aria-hidden
                     className="w-[3px] rounded-full flex-none"

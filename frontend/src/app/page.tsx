@@ -15,6 +15,7 @@ import { AnimatedNumber } from "@/components/animated-number";
 import { AnimatedRing } from "@/components/animated-ring";
 import Tooltip from "@/components/tooltip";
 import RaceWeekGlimpse from "@/components/race-week-glimpse";
+import DiscoveryTips from "@/components/discovery-tips";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion-primitives";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { getCircuitImagePath } from "@/lib/circuit-images";
@@ -495,6 +496,16 @@ export default async function Home() {
             </StaggerItem>
           ))}
         </Stagger>
+        {/* One rotating pointer into the surfaces the four tiles above don't
+            reach — the 3D viewer, the Pitwall, the replay, the barcode. Seeded
+            from the round number so the server and client agree on tip #1. */}
+        <DiscoveryTips
+          seasonYear={seasonYear}
+          latestCompletedRound={
+            latestCompletedRace ? Number(latestCompletedRace.round) : null
+          }
+          seed={Number(nextRace?.round ?? 0) || 0}
+        />
       </section>
     </>
   );
