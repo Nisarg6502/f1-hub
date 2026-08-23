@@ -31,6 +31,7 @@ PAIRS = (
     "primary-container",
     "flame",
     "ember",
+    "error",
 )
 
 
