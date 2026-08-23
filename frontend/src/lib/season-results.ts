@@ -11,6 +11,8 @@ import {
 } from "./api";
 import { buildHeadToHead } from "./driver-compare";
 
+export type { SeasonRoundResults } from "./api";
+
 /**
  * Season-wide result loading for the head-to-head surfaces.
  *
