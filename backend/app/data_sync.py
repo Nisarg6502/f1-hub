@@ -735,6 +735,10 @@ def create_indexes(db) -> None:
     db.practice_results.create_index(
         [("season", 1), ("round", 1), ("session", 1)], unique=True
     )
+    # Populated lazily by /api/session_sectors on demand, not by this batch job.
+    db.session_sectors.create_index(
+        [("season", 1), ("round", 1), ("session", 1)], unique=True
+    )
     db.circuit_details.create_index([("season", 1), ("round", 1)], unique=True)
     db.race_stints.create_index([("season", 1), ("round", 1)], unique=True)
     db.pit_stops.create_index([("season", 1), ("round", 1)], unique=True)

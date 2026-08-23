@@ -3,12 +3,15 @@ import {
   getRaceResults,
   getSeasonRaces,
   getSprintResults,
+  type ConstructorStanding,
   type DriverStanding,
   type Race,
   type RaceResult,
   type SeasonRoundResults,
 } from "./api";
 import { buildHeadToHead } from "./driver-compare";
+
+export type { SeasonRoundResults } from "./api";
 
 /**
  * Season-wide result loading for the head-to-head surfaces.
@@ -331,6 +334,69 @@ export function buildDriverSeasonLogs(
       totalPoints,
       bestRound,
     };
+  }
+
+  return logs;
+}
+
+export interface ConstructorRoundEntry {
+  round: number;
+  raceName: string;
+  shortName: string;
+  points: number;
+}
+
+export interface ConstructorSeasonLog {
+  constructorId: string;
+  entries: ConstructorRoundEntry[];
+}
+
+/**
+ * Constructor points per round, summed across whichever drivers scored for
+ * them that round -- built from the same rounds/sprints `buildDriverSeasonLogs`
+ * already needs, so a mid-season driver swap still attributes points to the
+ * team correctly without tracking driver-to-team history separately.
+ */
+export function buildConstructorSeasonLogs(
+  constructors: ConstructorStanding[],
+  rounds: SeasonRoundResults[],
+  sprints: SeasonSprintResults[] = []
+): Record<string, ConstructorSeasonLog> {
+  const sprintByRound = new Map<string, RaceResult[]>();
+  for (const sprint of sprints) sprintByRound.set(String(sprint.round), sprint.results);
+
+  const ordered = [...rounds].sort((a, b) => Number(a.round) - Number(b.round));
+
+  const logs: Record<string, ConstructorSeasonLog> = {};
+
+  for (const constructor of constructors) {
+    const constructorId = constructor.Constructor?.constructorId;
+    if (!constructorId) continue;
+
+    const entries: ConstructorRoundEntry[] = [];
+    for (const round of ordered) {
+      const raceResults = round.results.filter(
+        (r) => r.Constructor?.constructorId === constructorId
+      );
+      const sprintResults = (sprintByRound.get(String(round.round)) ?? []).filter(
+        (r) => r.Constructor?.constructorId === constructorId
+      );
+
+      if (raceResults.length === 0 && sprintResults.length === 0) continue;
+
+      const points =
+        raceResults.reduce((sum, r) => sum + (toNumber(r.points) ?? 0), 0) +
+        sprintResults.reduce((sum, r) => sum + (toNumber(r.points) ?? 0), 0);
+
+      entries.push({
+        round: Number(round.round),
+        raceName: round.raceName,
+        shortName: shortRaceName(round.raceName),
+        points,
+      });
+    }
+
+    logs[constructorId] = { constructorId, entries };
   }
 
   return logs;

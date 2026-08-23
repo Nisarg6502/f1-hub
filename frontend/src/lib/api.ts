@@ -344,6 +344,44 @@ export async function getSessionClassification(
   });
 }
 
+export interface SectorTime {
+  seconds: number;
+  classification: "purple" | "green" | "yellow";
+}
+
+export interface SessionSectorRow {
+  driverNumber: number;
+  lapNumber: number;
+  lapDurationSeconds: number;
+  sectors: Record<"1" | "2" | "3", SectorTime>;
+}
+
+export async function getSessionSectors(
+  year: number,
+  round: number,
+  session: string
+): Promise<{ available: boolean; rows: SessionSectorRow[] }> {
+  const data = await fetchJson<{
+    available: boolean;
+    rows: Array<{
+      driver_number: number;
+      lap_number: number;
+      lap_duration_seconds: number;
+      sectors: Record<"1" | "2" | "3", SectorTime>;
+    }>;
+  }>("/api/session_sectors", { year, round, session });
+
+  return {
+    available: data.available,
+    rows: data.rows.map((r) => ({
+      driverNumber: r.driver_number,
+      lapNumber: r.lap_number,
+      lapDurationSeconds: r.lap_duration_seconds,
+      sectors: r.sectors,
+    })),
+  };
+}
+
 export interface DriverBio {
   driverId: string;
   givenName?: string | null;

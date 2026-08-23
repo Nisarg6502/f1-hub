@@ -8,10 +8,12 @@ import {
 import StandingsView from "@/components/standings-view";
 import {
   buildDriverSeasonLogs,
+  buildConstructorSeasonLogs,
   buildTeammateBattles,
   fetchSeasonResults,
   fetchSeasonSprints,
   type DriverSeasonLog,
+  type ConstructorSeasonLog,
   type TeammateBattle,
 } from "@/lib/season-results";
 import DegradedBeacon from "@/components/degraded-beacon";
@@ -65,6 +67,7 @@ export default async function StandingsPage({ searchParams }: PageProps) {
   // one additional fan-out (sprints only, on sprint weekends only) rather than
   // a second full season load — and nothing at all at expand time.
   let seasonLogs: Record<string, DriverSeasonLog> = {};
+  let constructorLogs: Record<string, ConstructorSeasonLog> = {};
   if ((drivers ?? []).length > 0) {
     try {
       const [rounds, sprints] = await Promise.all([
@@ -75,6 +78,7 @@ export default async function StandingsPage({ searchParams }: PageProps) {
       ]);
       teammateBattles = buildTeammateBattles(drivers ?? [], rounds);
       seasonLogs = buildDriverSeasonLogs(drivers ?? [], rounds, sprints);
+      constructorLogs = buildConstructorSeasonLogs(constructors ?? [], rounds, sprints);
     } catch {
       // Leave the panel empty rather than failing the page.
     }
@@ -93,6 +97,7 @@ export default async function StandingsPage({ searchParams }: PageProps) {
       constructors={constructors ?? []}
       teammateBattles={teammateBattles}
       seasonLogs={seasonLogs}
+      constructorLogs={constructorLogs}
       year={year}
       maxYear={getActiveSeasonYear()}
       renderedAtMs={Date.now()}
