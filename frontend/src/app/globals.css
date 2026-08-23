@@ -61,6 +61,13 @@
   --rgb-primary-container: 255 90 31;
   --rgb-flame: 255 122 61;
   --rgb-ember: 226 58 14;
+  /* `error` earns a triple for the same reason the others have one: the driver
+     season log needs it at several alphas at once (a wash, a stripe and a
+     border) inside one inline `style`, which no Tailwind opacity modifier can
+     reach. It was previously being drawn freehand as `rgba(255,68,68,…)` and
+     `#FF9B8F` — neither of which is `--color-error` (#ff9b8a) — which is
+     exactly the silent drift `test_design_tokens.py` exists to stop. */
+  --rgb-error: 255 155 138;
 
   /* --- Corner radii -------------------------------------------------------
 
