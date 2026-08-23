@@ -12,6 +12,7 @@ import { buildRaceSessionTimeline, type RaceSessionField } from "@/lib/sessions"
 import SessionRecapCard from "@/components/session-recap-card";
 import LocalDateTime from "@/components/local-datetime";
 import ConditionsTile from "@/components/conditions-tile";
+import SectorBattlePanel from "@/components/sector-battle-panel";
 
 interface SessionTabsProps {
   race: Race;
@@ -53,6 +54,14 @@ const SESSION_LABELS: Record<SessionKey, string> = {
   ThirdPractice: "FP3",
   SecondPractice: "FP2",
   FirstPractice: "FP1",
+};
+
+const SECTOR_SESSION_CODES: Partial<Record<SessionKey, "FP1" | "FP2" | "FP3" | "Q" | "SQ">> = {
+  FirstPractice: "FP1",
+  SecondPractice: "FP2",
+  ThirdPractice: "FP3",
+  Qualifying: "Q",
+  SprintQualifying: "SQ",
 };
 
 type RaceSessionData = { date?: string; time?: string };
@@ -203,6 +212,7 @@ export default function SessionTabs({
             race={race}
             sessionKey={activeSession}
             nowMs={nowMs}
+            seasonYear={seasonYear}
             sessionResults={
               activeSession === "Qualifying"
                 ? qualifyingResults
@@ -551,11 +561,13 @@ function SessionInfo({
   sessionKey,
   nowMs,
   sessionResults,
+  seasonYear,
 }: {
   race: Race;
   sessionKey: SessionKey;
   nowMs: number;
   sessionResults: RaceResult[];
+  seasonYear: number;
 }) {
   const raceSessions = race as Race &
     Partial<Record<SessionKey, RaceSessionData>>;
@@ -632,6 +644,17 @@ function SessionInfo({
           </p>
         </div>
       ) : null}
+
+      {sessionPast && sessionResults.length > 0 && Number.isFinite(seasonYear) && (
+        SECTOR_SESSION_CODES[sessionKey] ? (
+          <SectorBattlePanel
+            year={seasonYear}
+            round={Number(race.round)}
+            session={SECTOR_SESSION_CODES[sessionKey]!}
+            results={sessionResults}
+          />
+        ) : null
+      )}
     </div>
   );
 }
