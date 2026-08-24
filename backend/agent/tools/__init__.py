@@ -33,7 +33,12 @@ from __future__ import annotations
 from .circuit_scope import get_circuit_dossier
 from .circuits import get_circuit_history, get_circuit_profile
 from .context import get_season_state, resolve_context
-from .drivers import get_driver_profile, get_driver_season_summary, get_head_to_head
+from .drivers import (
+    get_driver_profile,
+    get_driver_season_summary,
+    get_head_to_head,
+    get_points_progression,
+)
 from .history import get_constructor_seasons, get_historical_race_index
 from .race import (
     get_lap_summary,
@@ -58,6 +63,7 @@ ALL_TOOLS = (
     get_driver_profile,
     get_driver_season_summary,
     get_head_to_head,
+    get_points_progression,
     get_race_narrative_facts,
     get_race_strategy,
     get_race_control,

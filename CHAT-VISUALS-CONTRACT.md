@@ -198,6 +198,43 @@ what a model actually reads before writing code, and it is why the very
 next question in the same conversation drew one correct `apex.bars` chart
 before hitting the second, previously-undiscovered gap.
 
+**Incident, 2026-08-24 (part 3):** the very next ask after part 2's fix
+deployed — no crash this time — drew a scatter/line chart using each
+driver's array INDEX (0, 1) as a fake continuous x-axis labelled "Driver".
+Two causes, one prompt-shaped and one a genuine tool gap:
+
+1. `_VISUAL_RULE` had comparison-shape guidance ("points: X vs Y" -> use
+   `apex.bars`/`hbars`) but nothing telling the model a named entity is
+   never a position on a number line — so `apex.lines`/`apex.dots` still
+   looked like an option when the totals comparison it had did not obviously
+   fit `apex.bars`'s shape in the model's read of it. Fixed with an explicit
+   rule in `_VISUAL_RULE`: `apex.lines`/`apex.dots`/`apex.area` are only for
+   a value against a REAL continuous axis in `data` (a round, a lap, a date)
+   — inventing one by counting entities is always wrong, even for two things.
+2. The deeper cause: **`get_head_to_head` was, and remains, the only tool
+   for a driver comparison, and it deliberately has no round-by-round
+   series** (§1's own reasoning: "a 24-row list per driver pair is a table").
+   A question shaped like "plot points by round" or "how did the gap change"
+   had no real series anywhere in evidence, so the model that tried to chart
+   it was choosing between "decline" and "improvise" and chose the latter.
+   Fixed with a new fact tool, `get_points_progression`
+   (`backend/agent/tools/drivers.py`) — round-by-round points, cumulative
+   points and finishing position for one or two drivers, race points only
+   (the same scope `get_driver_season_summary`'s `_season_shape` already
+   has; noted on the bundle's `completeness` field). `_VISUAL_RULE` and
+   `subagents.STATS_SCOUT_PROMPT` both now say when to reach for it instead
+   of `get_head_to_head`. `PROMPT_VERSION` bumped again — a version-8 answer
+   to a progression-shaped question was written by a model with neither
+   guardrail and must not replay as settled.
+
+This is the point worth generalizing past the specific bug: a chart request
+whose evidence genuinely does not contain what was asked for is not a
+render_visual failure to patch, it is a missing-tool signal. The first two
+incidents were "the model can't draw what it has correctly"; this one was
+"the model doesn't have what the question needs" — a different failure
+class that a runtime guard or a clearer primitives list cannot fix, only a
+new tool can.
+
 ### Rules the model must follow
 
 - No `import` / `require` — everything needed is on `apex`.

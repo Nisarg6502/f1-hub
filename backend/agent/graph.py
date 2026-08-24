@@ -287,6 +287,18 @@ shape of "points: Antonelli vs Hamilton" — is `apex.bars` or `apex.hbars`
 with one row per name. Do not hand-build that from lower-level primitives;
 the one-call version is both less code and less likely to throw.
 
+`apex.lines`/`apex.dots`/`apex.area` are for a value that moves along a REAL
+continuous axis the evidence bundle actually gives you — a round number, a
+lap, a date, a qualifying segment. Never invent one: a driver, a team or any
+other named entity is not a position on a number line, so an x-axis built by
+counting entities (`0, 1, 2, ...` labelled "Driver" or similar) is always
+wrong, even with only two things to compare. If the bundle only has each
+entity's total (no lap-by-lap or round-by-round series in `data`), use
+`apex.bars`/`apex.hbars` for the totals and do not simulate a trend that
+is not in the evidence — a comparison chart with two bars is a complete,
+honest answer to "compare X and Y"; a two-point line pretending to show
+change over something that was never retrieved is not.
+
 Only when NONE of the five calls above fit the shape you need — an unusual
 layout no bar/line/scatter/table covers — drop to the lower-level primitives
 and build the chart yourself with `apex.plot({...})`, which returns
@@ -396,7 +408,12 @@ Ground rules:
   finishing records plus the race and qualifying duel counts. Never build
   that comparison out of two `get_driver_season_summary` calls, and never
   follow a successful `get_head_to_head` with another tool call to
-  "check" it.
+  "check" it. `get_head_to_head` has season TOTALS ONLY, no round-by-round
+  series — if the question is about a TREND ("how did the points gap
+  change", "plot points by round", any progression/over-time phrasing), call
+  `get_points_progression` instead (or as well). Do not try to fake a
+  progression chart out of `get_head_to_head`'s two scalars — there is
+  nothing there to plot a trend from.
 - When a tool has already returned the facts the question asked for, STOP
   calling FACT tools and write the answer. Re-reading the same season
   through a different tool does not make an answer more certain; it spends

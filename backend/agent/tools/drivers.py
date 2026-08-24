@@ -32,6 +32,8 @@ the router, applied at the place the argument is actually consumed.
 
 from __future__ import annotations
 
+import re
+
 from app import driver_comparison_recap
 
 from ..ledger import EvidenceLedger
@@ -496,4 +498,152 @@ async def get_head_to_head(
         ledger=ledger,
         tool="get_head_to_head",
         args={"driver_a": first, "driver_b": second, "season": season},
+    )
+
+
+def _short_race_name(name: str) -> str:
+    """Trims the boilerplate off a race name so it fits a chart label.
+
+    Ports `frontend/src/lib/season-results.ts`'s `shortRaceName` so a chart
+    built from this tool's data uses the same round labels the standings
+    page's own progression chart does.
+    """
+    trimmed = re.sub(r"\s*Grand Prix\s*", " ", name or "", flags=re.IGNORECASE)
+    trimmed = re.sub(r"\s*\bGP\b\s*", " ", trimmed, flags=re.IGNORECASE)
+    trimmed = trimmed.strip()
+    return trimmed or (name or "")
+
+
+def _driver_progression(rounds: list[dict], driver_id: str) -> dict | None:
+    """Round-by-round points, name and team for one driver.
+
+    None if the driver has no classified round in `rounds` at all, so the
+    caller can tell "resolved to a real id but never raced" apart from a
+    driver who raced and simply scored zero every round.
+    """
+    series: list[dict] = []
+    running = 0.0
+    name = None
+    team = None
+
+    for rnd in rounds:
+        row = _find_row(rnd.get("results") or [], driver_id)
+        if not row:
+            continue
+        if name is None:
+            name = driver_name(row)
+        if team is None:
+            team = (row.get("Constructor") or {}).get("name")
+
+        points = as_float(row.get("points")) or 0.0
+        running += points
+        position_text = row.get("positionText") or row.get("position")
+
+        series.append({
+            "round": as_int(rnd.get("round")),
+            "race_name": rnd.get("raceName") or "",
+            "short_name": _short_race_name(rnd.get("raceName") or ""),
+            "points": round(points, 2),
+            "cumulative_points": round(running, 2),
+            "position": as_int(position_text),
+        })
+
+    if not series:
+        return None
+
+    return {
+        "driver_id": driver_id,
+        "name": name or driver_id,
+        "team": team,
+        "points_by_round": series,
+    }
+
+
+@fact_tool("get_points_progression")
+async def get_points_progression(
+    driver_a: str,
+    driver_b: str | None = None,
+    season: int | None = None,
+    *,
+    ledger: EvidenceLedger | None = None,
+    db=None,
+) -> dict:
+    """Round-by-round championship points for one or two drivers over a season — the series a progression/trend chart needs, which `get_head_to_head` does not carry. Takes driver names or ids; `season` defaults to the current one. Pass `driver_b` to get both drivers' series in one call for a head-to-head progression chart.
+
+    `get_head_to_head` answers "how do these two compare" with season totals
+    and duel counts, and deliberately does not carry a per-round series — its
+    own docstring explains why ("a 24-row list per driver pair is a table").
+    This tool exists for the different question that provoked its own
+    incident: a live `render_visual` call asked to compare two drivers' points
+    had only `get_head_to_head`'s two scalars to work with, and drew a
+    two-point line chart using each driver's array index as a fake x-axis —
+    there was no real series in evidence to plot, so the model invented one
+    that looked like there was. `get_points_progression` is the fix: when a
+    question is about a TREND over the season (a progression chart, "how did
+    the gap change", "who was ahead after round N") rather than a snapshot,
+    call this instead, and pass its `points_by_round` series straight into
+    `apex.lines`.
+
+    Race points only, same scope as `_season_shape` in this module — sprint
+    points are not in the rounds `driver_comparison_recap._build_rounds`
+    reads. The returned bundle's `completeness` field says so explicitly
+    rather than leaving `cumulative_points` looking authoritative when it can
+    trail the official standings slightly on a sprint weekend.
+    """
+    a = (driver_a or "").strip()
+    if not a:
+        return unavailable("at least one driver is required")
+    b = (driver_b or "").strip() if driver_b else None
+
+    db = resolve_db(db)
+
+    if season is None:
+        season = await _default_season(db)
+        if season is None:
+            return unavailable(
+                "no season given and no calendar is synced to infer one from"
+            )
+    season = as_int(season)
+    if season is None:
+        return unavailable("season must be a year, e.g. 2026")
+
+    resolved_a, reason_a = await _resolve_driver_id(db, a, season)
+    if not resolved_a:
+        return unavailable(reason_a or f"could not resolve '{a}'")
+
+    resolved_b = None
+    if b:
+        resolved_b, reason_b = await _resolve_driver_id(db, b, season)
+        if not resolved_b:
+            return unavailable(reason_b or f"could not resolve '{b}'")
+        if resolved_b == resolved_a:
+            return unavailable("a driver cannot be compared against themselves")
+
+    rounds = await driver_comparison_recap._build_rounds(db, season)
+    if not rounds:
+        return unavailable(f"no {season} results are synced")
+
+    driver_ids = [resolved_a] + ([resolved_b] if resolved_b else [])
+    drivers = []
+    for driver_id in driver_ids:
+        progression = _driver_progression(rounds, driver_id)
+        if progression is None:
+            return unavailable(f"'{driver_id}' has no classified {season} rounds")
+        drivers.append(progression)
+
+    return bundle(
+        data={
+            "season": season,
+            "drivers": drivers,
+            "completeness": (
+                "race points only; sprint points (if any this season) are not "
+                "included, so cumulative_points here can trail the official "
+                "standings slightly on a sprint weekend"
+            ),
+        },
+        source=mongo_source("race_results", season, "-".join(driver_ids)),
+        docs=[],
+        ledger=ledger,
+        tool="get_points_progression",
+        args={"driver_a": resolved_a, "driver_b": resolved_b, "season": season},
     )
