@@ -298,19 +298,22 @@ on it, or fully by hand with:
 - `apex.teamColor(name)` — `{hex, glow}` for an F1 team
 - `apex.scaleLinear({domain, range})`, `apex.scaleBand({domain, range, padding})`
 - `apex.ticks(min, max, count)` — nice tick values
-- `apex.el(tag, attrs, children)`, `apex.svg(tag, attrs, children)` — each
-  returns a plain DOM/SVG element, already built from `attrs` and `children`.
-  **Neither is chainable and neither has an `.attr()` method** — set
-  everything through the `attrs` object in the call, e.g.
-  `apex.svg('rect', {x: 0, y: 0, width: 40, height: 20, fill: apex.tokens.primary})`,
-  not `apex.svg('rect').attr('x', 0)`. There is no `apex.rect`, `apex.circle`,
-  `.line()` or any other per-shape shorthand — the tag name is the first
-  argument to `apex.el`/`apex.svg`.
+- `apex.el(tag, attrs, children)`, `apex.svg(tag, attrs, children)` — a plain
+  DOM/SVG element, already built from `attrs` and `children`. Prefer setting
+  everything through the `attrs` object up front, e.g.
+  `apex.svg('rect', {x: 0, y: 0, width: 40, height: 20, fill: apex.tokens.primary})`.
+  The returned element also has a `.attr(name, value)` method if you need to
+  set something after the fact, and `apex.rect/circle/ellipse/line/path/text/g`
+  exist as shorthands for `apex.svg(tag, ...)` with that tag name.
 - `apex.axis({...})`, `apex.gridlines({...})`
 - `apex.legend(items)`, `apex.tooltip(...)`
 - `apex.fmt.lapTime / gap / delta / ordinal / points / date`
 - `apex.animate(el, keyframes, opts)` — respects reduced-motion
-- `apex.panel(...)`, `apex.caption(...)` — the glass surface and caption chrome
+- `apex.panel(...)`, `apex.caption(text, opts)` — the glass surface and
+  caption chrome. `apex.caption`'s first argument and any `{text: ...}`
+  attrs value must be a STRING you built — a field you read off `data`, or
+  text you composed yourself. Passing the `data` object itself, or a row
+  object, throws rather than silently printing "[object Object]".
 
 Rules your code must follow:
 - No `import` and no `require` — everything is on `apex`.
@@ -320,6 +323,11 @@ Rules your code must follow:
   a failure box instead of a chart.
 - Respect `width` and reflow with it. No fixed pixel width above 640.
 - Use `apex.tokens` colours for all text, so it stays legible on a dark ground.
+- When you pass a field name to `x`/`y` on `apex.bars`/`hbars`/`lines`/`dots`,
+  it must be a key that is actually present on the rows in `data` — read the
+  bundle's actual shape before naming one. A wrong field name degrades to the
+  no-data state rather than a chart with axes and no marks, but a chart with
+  real data still beats an empty one.
 
 The tool replies `{"ok": true, "visual_id": ...}` when it worked — that means
 the picture is on its way, so do not call it again for the same chart. If it

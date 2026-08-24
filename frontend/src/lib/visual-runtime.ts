@@ -210,6 +210,33 @@ export const APEX_VISUAL_RUNTIME = String.raw`
     return k.replace(/[A-Z]/g, function (m) { return '-' + m.toLowerCase(); });
   }
 
+  /**
+   * Coerces a value meant to be displayed as text, and throws instead of
+   * silently producing "[object Object]" when it is a plain object or array.
+   *
+   * Production incident: a chat visual called apex.caption(data, {...}) --
+   * passing the whole evidence bundle where a caption STRING was expected --
+   * and got a caption reading "[OBJECT OBJECT]" because caption() used to do
+   * a bare String(text). That is worse than the runtime's other failure
+   * modes: a thrown error is caught by the frame's bootstrap and degrades to
+   * the "Chart unavailable, see the numbers" fallback, which is the correct,
+   * already-built safety net (see CHAT-VISUALS-CONTRACT.md section 7) -- a
+   * silently wrong caption is not caught by anything and just looks broken.
+   * Numbers, booleans, null/undefined and anything with its own toString
+   * (Date, etc.) still pass through unchanged; only bare objects/arrays,
+   * the unambiguous "the model read the wrong thing" case, throw.
+   */
+  function textOf(value, whereFrom) {
+    if (value == null) return '';
+    if (typeof value === 'object' && value.toString === Object.prototype.toString) {
+      throw new Error(
+        (whereFrom || 'apex') + ' expected a string but got an object -- ' +
+        'read a specific field off data instead of passing the whole bundle.'
+      );
+    }
+    return String(value);
+  }
+
   function applyStyle(node, style) {
     if (typeof style === 'string') { node.setAttribute('style', style); return; }
     for (var k in style) {
@@ -266,7 +293,7 @@ export const APEX_VISUAL_RUNTIME = String.raw`
       if (v == null || v === false) continue;
       if (k === 'style') { applyStyle(node, v); }
       else if (k === 'class' || k === 'className') { node.setAttribute('class', String(v)); }
-      else if (k === 'text') { node.textContent = String(v); }
+      else if (k === 'text') { node.textContent = textOf(v, 'attrs.text'); }
       else if (k === 'children') { appendChildren(node, v); }
       else if (k.indexOf('on') === 0 && typeof v === 'function') {
         node.addEventListener(k.slice(2).toLowerCase(), v);
@@ -285,7 +312,7 @@ export const APEX_VISUAL_RUNTIME = String.raw`
       var v = a[k];
       if (v == null || v === false) continue;
       if (k === 'style') { applyStyle(node, v); }
-      else if (k === 'text') { node.textContent = String(v); }
+      else if (k === 'text') { node.textContent = textOf(v, 'attrs.text'); }
       else if (k === 'children') { appendChildren(node, v); }
       else if (k.indexOf('on') === 0 && typeof v === 'function') {
         node.addEventListener(k.slice(2).toLowerCase(), v);
@@ -699,7 +726,7 @@ export const APEX_VISUAL_RUNTIME = String.raw`
   function caption(text, opts) {
     var o = opts || {};
     var node = el('div', {
-      text: text == null ? '' : String(text),
+      text: textOf(text, 'apex.caption()'),
       style: {
         marginTop: o.marginTop == null ? '10px' : o.marginTop + 'px',
         fontSize: '10px',
@@ -1901,6 +1928,14 @@ export const APEX_VISUAL_RUNTIME = String.raw`
     }
     var gx = accessor(c.x, 'x');
     var gy = accessor(c.y, 'y');
+    // Every row present but every y invalid (most often a wrong field name
+    // passed as y) used to still draw a labelled, empty-looking chart --
+    // axes and category ticks with zero bars, no error, indistinguishable
+    // from a real 0-point-everyone result. Treated the same as no rows at
+    // all, matching the guard lines() already has for the same failure.
+    if (!values(rows, gy).some(isNum)) {
+      return { root: emptyState(c.mount, c.emptyMessage, { height: c.height }), empty: true };
+    }
     var p = pick(c, PLOT_KEYS);
     p.x = Object.assign({ type: 'band', values: values(rows, gx), label: c.xLabel }, c.xAxis || {});
     p.y = Object.assign({ type: 'linear', values: values(rows, gy), label: c.yLabel,
@@ -1924,6 +1959,10 @@ export const APEX_VISUAL_RUNTIME = String.raw`
     }
     var gx = accessor(c.x, 'x');   /* value */
     var gy = accessor(c.y, 'y');   /* category */
+    // Same guard as bars() above -- see its comment.
+    if (!values(rows, gx).some(isNum)) {
+      return { root: emptyState(c.mount, c.emptyMessage, { height: c.height }), empty: true };
+    }
     var p = pick(c, PLOT_KEYS);
     if (p.height == null) p.height = Math.max(140, rows.length * 30 + 46);
     p.x = Object.assign({ type: 'linear', values: values(rows, gx), label: c.xLabel,
@@ -1998,6 +2037,11 @@ export const APEX_VISUAL_RUNTIME = String.raw`
     }
     var gx = accessor(c.x, 'x');
     var gy = accessor(c.y, 'y');
+    // Same guard as bars()/hbars() above -- a scatter point needs both
+    // coordinates valid, so the check is per-row rather than per-axis.
+    if (!rows.some(function (d) { return isNum(gx(d)) && isNum(gy(d)); })) {
+      return { root: emptyState(c.mount, c.emptyMessage, { height: c.height }), empty: true };
+    }
     var p = pick(c, PLOT_KEYS);
     p.x = Object.assign({ values: values(rows, gx), label: c.xLabel, format: c.xFormat,
                           zero: false, grid: true }, c.xAxis || {});
