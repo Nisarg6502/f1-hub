@@ -145,31 +145,58 @@ now says so explicitly, after the incident below).
 | `apex.teamColor(name)` | `{hex, glow}` via the same matching rules as `lib/team-colors.ts` |
 | `apex.scaleLinear({domain, range})` / `apex.scaleBand({domain, range, padding})` | scales, d3-free |
 | `apex.ticks(min, max, count)` | nice tick values |
-| `apex.el(tag, attrs, children)` / `apex.svg(tag, attrs, children)` | element helpers — **plain factory functions that return a built element, not a chainable builder.** There is no `.attr()` on the return value and no `apex.rect`/`apex.circle` shorthand; pass every attribute in `attrs` up front. |
+| `apex.el(tag, attrs, children)` / `apex.svg(tag, attrs, children)` | element helpers. Prefer passing every attribute in `attrs` up front. The returned element also has a `.attr(name, value)` method (chainable) and `apex.rect`/`circle`/`ellipse`/`line`/`path`/`text`/`g` exist as per-tag shorthands over `apex.svg`, added as defence in depth after the incident below — the model still generally should not need them if a mark builder fits. |
 | `apex.axis({...})`, `apex.gridlines({...})` | house-styled axes and grid |
 | `apex.legend(items)`, `apex.tooltip(...)` | house-styled legend and hover readout |
 | `apex.fmt.lapTime / gap / delta / ordinal / points / date` | formatting that matches the rest of the site |
 | `apex.animate(el, keyframes, opts)` | honours `prefers-reduced-motion`; a no-op reduced |
-| `apex.panel(...)`, `apex.caption(...)` | glass surface and caption chrome |
+| `apex.panel(...)`, `apex.caption(text, opts)` | glass surface and caption chrome. `caption`'s `text` (and any `{text: ...}` in `apex.el`/`apex.svg` attrs) must be a string — passing an object throws rather than rendering "[object Object]" |
 
 The runtime is a **single self-contained JS string** built at frontend build
 time and inlined into the frame — it must not be fetched, because the frame's
 opaque origin cannot fetch anything.
 
-**Incident, 2026-08-24:** a live answer comparing two drivers' points called
-`render_visual` with hand-built SVG that called `apex.rect(...)` (does not
-exist) and `apex.svg(...).attr(...)` (the return value is not chainable) —
-both errors trace to this section previously documenting only the primitives
-row and never mentioning `apex.bars`/`apex.hbars`, the calls actually built
-for exactly that comparison shape. The frame's error path degraded correctly
-(§7 — table fallback, no lost facts), but the chart the reader asked for
-never rendered. Root cause was documentation completeness, not a runtime bug
-or a model failing to follow instructions it was given — this table and the
-prompt in `backend/agent/graph.py` both omitted the marks layer entirely.
-Fixed by documenting it here and in the prompt, `PROMPT_VERSION` bumped
-(`backend/agent/config.py`) so cached pre-fix answers replay through the
-model again rather than keeping whatever chart-or-no-chart choice they made
-under the incomplete instructions.
+**Incident, 2026-08-24 (part 1):** a live answer comparing two drivers'
+points called `render_visual` with hand-built SVG that called `apex.rect(...)`
+(did not exist yet) and `apex.svg(...).attr(...)` (the return value was not
+chainable yet) — both errors traced to this section previously documenting
+only the primitives row and never mentioning `apex.bars`/`apex.hbars`, the
+calls actually built for exactly that comparison shape. The frame's error
+path degraded correctly (§7 — table fallback, no lost facts), but the chart
+the reader asked for never rendered. Root cause was documentation
+completeness, not a runtime bug or a model failing to follow instructions it
+was given — this table and the prompt in `backend/agent/graph.py` both
+omitted the marks layer entirely. Fixed by documenting it here and in the
+prompt, `PROMPT_VERSION` bumped (`backend/agent/config.py`).
+
+**Incident, 2026-08-24 (part 2):** immediately after that fix deployed, the
+same question (asked again, landing fresh due to the version bump) produced
+one working `apex.bars` chart and one broken one showing the literal text
+"[OBJECT OBJECT]" with axes but no bars. Root cause this time was two
+separate runtime gaps, not a prompt gap: (1) `apex.caption`/the `text` attrs
+key did a bare `String(value)`, so a call passing the `data` bundle itself
+(or a row) instead of a built string silently produced the literal string
+"object Object" rather than failing; (2) `apex.bars`/`hbars`/`dots` drew
+axes and category ticks even when every row's value accessor returned a
+non-numeric result (most likely a wrong field name guessed for `x`/`y`),
+which `apex.lines` already guarded against but the other three did not.
+Both are now defended in the runtime itself — a non-string `text` throws
+(caught by the frame, degrades to the table fallback, same as any other
+thrown error), and an all-invalid value column degrades to the same
+no-data empty state a genuinely empty `data` array gets, instead of a
+correctly-labelled chart with nothing drawn on it. `PROMPT_VERSION` bumped
+again so cached answers under either prior incident are not replayed as
+settled.
+
+Prompting alone cannot fully prevent a model from inventing plausible but
+wrong API calls or misreading a field name (§7 already says as much for
+data literals) — after two production incidents in the same session hit
+different instances of that same underlying risk, the runtime itself grew a
+second line of defence rather than continuing to patch the prompt one
+hallucination at a time. The prompt fix remains the primary control: it is
+what a model actually reads before writing code, and it is why the very
+next question in the same conversation drew one correct `apex.bars` chart
+before hitting the second, previously-undiscovered gap.
 
 ### Rules the model must follow
 

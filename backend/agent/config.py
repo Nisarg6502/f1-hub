@@ -305,7 +305,25 @@ def langsmith_configured() -> bool:
 # `.attr()` API. `code` is a pure function of the prompt the model that wrote
 # it saw; a cached version-6 answer for a comparison question may hold the
 # same failed-chart pattern and must not replay it as settled.
-PROMPT_VERSION = 7
+#
+# Bumped to 8 minutes later, same live conversation: the very next ask of an
+# equivalent question drew one correct `apex.bars` chart (proof version 7
+# worked) and one that rendered the literal text "[OBJECT OBJECT]" with axes
+# but no bars. Two NEW runtime gaps, not a further prompt gap this time:
+# `apex.caption`/the `text` attrs key did a bare `String(value)` instead of
+# rejecting a non-string, and `apex.bars`/`hbars`/`dots` drew empty-but-
+# labelled axes instead of the no-data state when every row's value accessor
+# came back non-numeric (a wrong field name guessed for x/y). Both fixed in
+# `frontend/src/lib/visual-runtime.ts`; `_VISUAL_RULE` below updated to match
+# (it previously said `apex.el`/`apex.svg` are not chainable and `apex.rect`
+# does not exist -- both became false the moment the runtime fix landed, so
+# leaving the prompt as version 7 would have described a genuinely wrong API
+# surface, worse than describing an incomplete one). See
+# `CHAT-VISUALS-CONTRACT.md`'s "Incident, 2026-08-24 (part 2)" for the full
+# writeup, including why this is runtime defence-in-depth rather than a
+# third prompt-only patch: a prompt can reduce a model inventing plausible
+# but wrong API surface, it cannot eliminate the risk entirely.
+PROMPT_VERSION = 8
 
 # Defaults to local dev origins, NOT "*". Starlette echoes the caller's origin
 # rather than emitting a literal `*`, so a wildcard default on a public,
