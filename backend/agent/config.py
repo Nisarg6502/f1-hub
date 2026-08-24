@@ -323,7 +323,25 @@ def langsmith_configured() -> bool:
 # writeup, including why this is runtime defence-in-depth rather than a
 # third prompt-only patch: a prompt can reduce a model inventing plausible
 # but wrong API surface, it cannot eliminate the risk entirely.
-PROMPT_VERSION = 8
+#
+# Bumped to 9, same conversation again: the very next ask (this time for a
+# clean comparison chart, no crash) drew a scatter/line chart that used each
+# driver's array INDEX (0, 1) as a fake continuous x-axis labelled "Driver".
+# Root cause was two-fold and genuinely new: (1) `_VISUAL_RULE` had no rule
+# against inventing a continuous axis for named entities, so the model
+# reached for `apex.lines`/`apex.dots` instead of `apex.bars` even with the
+# comparison-shape guidance version 7 already added; (2) `get_head_to_head`
+# -- the only comparison tool that existed -- carries season TOTALS only, by
+# deliberate design (its own docstring: "the per-round arrays are trimmed
+# off... a 24-row list per driver pair is a table"), so a model asked for
+# anything progression-shaped had no real series to plot and improvised one.
+# Fixed both: `_VISUAL_RULE` now explicitly forbids counting entities as an
+# axis, and a new tool `get_points_progression` (agent/tools/drivers.py)
+# gives the model an actual round-by-round series when a question calls for
+# one, so "plot points by round" is now answerable instead of only fake-able.
+# A cached version-8 answer to a progression-shaped question was written
+# under a model that had neither guardrail, so it must not replay as settled.
+PROMPT_VERSION = 9
 
 # Defaults to local dev origins, NOT "*". Starlette echoes the caller's origin
 # rather than emitting a literal `*`, so a wildcard default on a public,

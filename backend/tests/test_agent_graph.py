@@ -241,6 +241,7 @@ class ModelVisibleArgumentAuditTests(unittest.TestCase):
         "get_driver_profile": ("driver_id",),
         "get_driver_season_summary": ("driver_id", "year"),
         "get_head_to_head": ("driver_a", "driver_b", "season"),
+        "get_points_progression": ("driver_a", "driver_b", "season"),
         "get_historical_race_index": (
             "season_from",
             "season_to",

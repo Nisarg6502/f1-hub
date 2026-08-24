@@ -578,6 +578,7 @@ class ContractTests(BundleAssertions):
             "get_driver_profile": ("norris",),
             "get_driver_season_summary": ("norris", 2026),
             "get_head_to_head": ("norris", "max_verstappen", 2026),
+            "get_points_progression": ("norris", "max_verstappen", 2026),
             "get_race_narrative_facts": (2026, 13),
             "get_race_strategy": (2026, 13),
             "get_race_control": (2026, 13),
@@ -1185,6 +1186,104 @@ class HeadToHeadReachabilityTests(BundleAssertions):
 
         self.assertIn("compar", first_paragraph.lower())
         self.assertIn("get_driver_season_summary", first_paragraph)
+
+
+class PointsProgressionTests(BundleAssertions):
+    """`full_db()` has two rounds for these two drivers: round 6 (Miami,
+    norris 18pts/P2, max_verstappen 25pts/P1) and round 13 (Hungary, norris
+    25pts/P1, max_verstappen 18pts/P2) -- both finish tied at 43 after round
+    13, which is exactly the shape that makes a wrong cumulative sum or a
+    wrong round order visible in an assertion.
+    """
+
+    def test_two_drivers_each_get_their_own_round_ordered_series(self):
+        data = self.assertBundle(
+            run(drivers.get_points_progression("norris", "max_verstappen", 2026, db=full_db()))
+        )
+
+        self.assertEqual(len(data["drivers"]), 2)
+        by_id = {d["driver_id"]: d for d in data["drivers"]}
+
+        self.assertEqual(
+            [p["round"] for p in by_id["norris"]["points_by_round"]], [6, 13]
+        )
+        self.assertEqual(
+            [p["points"] for p in by_id["norris"]["points_by_round"]], [18, 25]
+        )
+        self.assertEqual(
+            [p["cumulative_points"] for p in by_id["norris"]["points_by_round"]],
+            [18, 43],
+        )
+        self.assertEqual(
+            [p["cumulative_points"] for p in by_id["max_verstappen"]["points_by_round"]],
+            [25, 43],
+        )
+
+    def test_a_single_driver_returns_one_series(self):
+        data = self.assertBundle(
+            run(drivers.get_points_progression("norris", season=2026, db=full_db()))
+        )
+
+        self.assertEqual(len(data["drivers"]), 1)
+        self.assertEqual(data["drivers"][0]["driver_id"], "norris")
+
+    def test_names_resolve_to_ids(self):
+        data = self.assertBundle(
+            run(drivers.get_points_progression("Norris", "Verstappen", 2026, db=full_db()))
+        )
+
+        ids = {d["driver_id"] for d in data["drivers"]}
+        self.assertEqual(ids, {"norris", "max_verstappen"})
+
+    def test_season_defaults_to_the_current_one(self):
+        defaulted = run(drivers.get_points_progression("Norris", "Verstappen", db=full_db()))
+        explicit = run(
+            drivers.get_points_progression("norris", "max_verstappen", 2026, db=full_db())
+        )
+
+        self.assertEqual(defaulted["data"], explicit["data"])
+
+    def test_comparing_a_driver_with_themselves_is_refused(self):
+        self.assertUnavailable(
+            run(drivers.get_points_progression("norris", "norris", 2026, db=full_db()))
+        )
+
+    def test_an_unknown_driver_says_so_rather_than_reporting_no_data(self):
+        result = run(
+            drivers.get_points_progression("Norris", "Nobody McNobody", 2026, db=full_db())
+        )
+
+        self.assertFalse(result["available"])
+        self.assertIn("nobody mcnobody", result["reason"].lower())
+
+    def test_a_driver_not_in_this_seasons_roster_is_unavailable(self):
+        # Mirrors HeadToHeadTests' equivalent case: hamilton is absent from
+        # every roster source full_db() populates (driver_standings and
+        # race_results), so resolution itself fails before rounds are read.
+        self.assertUnavailable(
+            run(drivers.get_points_progression("norris", "hamilton", 2026, db=full_db()))
+        )
+
+    def test_each_series_entry_carries_the_short_race_name(self):
+        data = self.assertBundle(
+            run(drivers.get_points_progression("norris", season=2026, db=full_db()))
+        )
+
+        short_names = [p["short_name"] for p in data["drivers"][0]["points_by_round"]]
+        self.assertEqual(short_names, ["Miami", "Hungarian"])
+
+    def test_completeness_notes_the_race_points_only_scope(self):
+        data = self.assertBundle(
+            run(drivers.get_points_progression("norris", season=2026, db=full_db()))
+        )
+
+        self.assertIn("sprint", data["completeness"].lower())
+
+    def test_the_model_facing_description_names_the_trend_case(self):
+        first_paragraph = drivers.get_points_progression.__doc__.strip().split("\n\n")[0]
+
+        self.assertIn("round-by-round", first_paragraph.lower())
+        self.assertIn("get_head_to_head", first_paragraph)
 
 
 class DriverSeasonSummaryNameResolutionTests(BundleAssertions):

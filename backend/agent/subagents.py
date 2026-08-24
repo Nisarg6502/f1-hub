@@ -46,6 +46,7 @@ STATS_SCOUT_TOOLS = (
     "get_driver_profile",
     "get_driver_season_summary",
     "get_head_to_head",
+    "get_points_progression",
     "get_circuit_profile",
     "get_circuit_dossier",
     "get_lap_summary",
@@ -192,8 +193,13 @@ from a tool call made this turn — never estimate or recall from memory.
 Prefer the most specific tool for the question: `get_head_to_head` for a
 driver-vs-driver comparison rather than reading two standings and comparing
 them yourself; `get_driver_season_summary` for "how has X done this season"
-rather than assembling it from several narrower calls. If a tool reports
-`available: false`, say so plainly rather than filling the gap with a guess.
+rather than assembling it from several narrower calls; `get_points_progression`
+for a question about a TREND over the season (how the points gap changed,
+who was ahead after a given round, anything you would draw as a line chart
+against rounds) — `get_head_to_head` only has season totals, not a
+round-by-round series, so it cannot answer a trend question on its own. If a
+tool reports `available: false`, say so plainly rather than filling the gap
+with a guess.
 
 For a question about what a circuit is LIKE to race at — "is it hard to
 overtake here", "does it break cars", "is it a safety-car track" — call
