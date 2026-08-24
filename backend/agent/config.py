@@ -290,7 +290,22 @@ def langsmith_configured() -> bool:
 # correct, chart-less answer that was wrong for a different reason than any
 # prior version, and would keep replaying as "working as intended" without
 # this bump.
-PROMPT_VERSION = 6
+#
+# Bumped to 7 after a live "points: Antonelli vs Hamilton" answer called
+# `render_visual` with hand-built SVG that invented `apex.rect(...)` and
+# `apex.svg(...).attr(...)`, neither of which exist on the runtime — the
+# frame threw, degraded to the table fallback (correctly — no facts lost),
+# but the chart the reader asked for never rendered. Root cause:
+# `_VISUAL_RULE` below documented only the low-level primitives
+# (`apex.el`/`apex.svg`, `apex.axis`, ...) and never mentioned
+# `apex.bars`/`apex.hbars` — the one-call mark builders `visual-runtime.ts`
+# was explicitly designed to make "the common chart five lines rather than
+# eighty of scale wiring" — so the model had to hand-assemble the chart from
+# primitives every time, which is exactly where it hallucinated a D3-style
+# `.attr()` API. `code` is a pure function of the prompt the model that wrote
+# it saw; a cached version-6 answer for a comparison question may hold the
+# same failed-chart pattern and must not replay it as settled.
+PROMPT_VERSION = 7
 
 # Defaults to local dev origins, NOT "*". Starlette echoes the caller's origin
 # rather than emitting a literal `*`, so a wildcard default on a public,
