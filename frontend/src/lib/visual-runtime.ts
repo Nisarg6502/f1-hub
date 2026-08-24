@@ -233,6 +233,29 @@ export const APEX_VISUAL_RUNTIME = String.raw`
     }
   }
 
+  /**
+   * .attr(name, value) on every element el/svgEl returns, mutating and
+   * returning the element itself.
+   *
+   * Not the intended way to use this runtime -- attrs up front is -- but the
+   * model has twice in production written D3-shaped code that assumed
+   * apex.svg(...) returns a chainable builder (apex.svg('rect').attr('x',
+   * 0)), which used to throw TypeError: ... .attr is not a function and
+   * cost the reader their chart. Adding the method costs nothing for code
+   * that never calls it and turns that whole failure class into a working
+   * chart instead of a table fallback. name is accepted in either
+   * camelCase or kebab-case, same as the attrs object itself.
+   */
+  function withAttrMethod(node) {
+    node.attr = function (name, value) {
+      if (value == null || value === false) { node.removeAttribute(name); return node; }
+      var key = node.namespaceURI === SVGNS ? kebab(name) : name;
+      node.setAttribute(key, value === true ? '' : String(value));
+      return node;
+    };
+    return node;
+  }
+
   /** apex.el(tag, attrs, children) — an HTML element. */
   function el(tag, attrs, children) {
     var node = document.createElement(tag || 'div');
@@ -250,7 +273,7 @@ export const APEX_VISUAL_RUNTIME = String.raw`
       } else { node.setAttribute(k, v === true ? '' : String(v)); }
     }
     appendChildren(node, children);
-    return node;
+    return withAttrMethod(node);
   }
 
   /** apex.svg(tag, attrs, children) — an SVG element, camelCase attrs allowed. */
@@ -269,7 +292,19 @@ export const APEX_VISUAL_RUNTIME = String.raw`
       } else { node.setAttribute(kebab(k), v === true ? '' : String(v)); }
     }
     appendChildren(node, children);
-    return node;
+    return withAttrMethod(node);
+  }
+
+  /**
+   * Per-tag shorthands for the SVG shapes a hand-built chart reaches for
+   * most, e.g. apex.rect({x, y, width, height, fill}) instead of
+   * apex.svg('rect', {...}). Same production incident as withAttrMethod:
+   * the model called a nonexistent apex.rect(...) expecting this. Pure
+   * sugar over svgEl -- apex.svg(tag, attrs, children) remains the
+   * general form for any tag not listed here.
+   */
+  function shapeShorthand(tag) {
+    return function (attrs, children) { return svgEl(tag, attrs, children); };
   }
 
   function clear(node) {
@@ -2071,6 +2106,13 @@ export const APEX_VISUAL_RUNTIME = String.raw`
 
     el: el,
     svg: svgEl,
+    rect: shapeShorthand('rect'),
+    circle: shapeShorthand('circle'),
+    ellipse: shapeShorthand('ellipse'),
+    line: shapeShorthand('line'),
+    path: shapeShorthand('path'),
+    text: shapeShorthand('text'),
+    g: shapeShorthand('g'),
     clear: clear,
     measureText: measureText,
     truncate: truncateToWidth,
