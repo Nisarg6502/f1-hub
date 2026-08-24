@@ -120,7 +120,24 @@ call repeatedly: clear `mount` or rebuild into it.
 
 ### The `apex` runtime surface
 
-Injected into the frame; no imports, no network, no build step.
+Injected into the frame; no imports, no network, no build step. Two layers —
+see `frontend/src/lib/visual-runtime.ts`'s own top-of-file docstring, which
+states this split explicitly: **marks** for the common chart, **primitives**
+for everything else. The model is told to prefer marks (§2's prompt summary
+now says so explicitly, after the incident below).
+
+**Marks — one call, house-styled, covers the common case:**
+
+| Member | Purpose |
+|---|---|
+| `apex.bars({mount, width, data, x, y, ...})` | vertical bar chart, one row per category |
+| `apex.hbars({...})` | horizontal bars — prefer this over `bars` when category names are long |
+| `apex.lines({mount, width, series, x, y, ...})` / `apex.area({...})` | one or more series over a continuous axis |
+| `apex.dots({mount, width, data, x, y, ...})` (alias `apex.scatter`) | scatter |
+| `apex.table({mount, data, columns, ...})` | styled data table |
+| `apex.plot({...})` | the primitive plot builder underneath all five above — returns scales, the `<svg>`, and `.bars/.hbars/.lines/.dots/.legend/.caption` methods, for a chart that is *almost* one of the marks above but needs a tweak |
+
+**Primitives — for a chart shape none of the marks above cover:**
 
 | Member | Purpose |
 |---|---|
@@ -128,7 +145,7 @@ Injected into the frame; no imports, no network, no build step.
 | `apex.teamColor(name)` | `{hex, glow}` via the same matching rules as `lib/team-colors.ts` |
 | `apex.scaleLinear({domain, range})` / `apex.scaleBand({domain, range, padding})` | scales, d3-free |
 | `apex.ticks(min, max, count)` | nice tick values |
-| `apex.el(tag, attrs, children)` / `apex.svg(tag, attrs, children)` | element helpers |
+| `apex.el(tag, attrs, children)` / `apex.svg(tag, attrs, children)` | element helpers — **plain factory functions that return a built element, not a chainable builder.** There is no `.attr()` on the return value and no `apex.rect`/`apex.circle` shorthand; pass every attribute in `attrs` up front. |
 | `apex.axis({...})`, `apex.gridlines({...})` | house-styled axes and grid |
 | `apex.legend(items)`, `apex.tooltip(...)` | house-styled legend and hover readout |
 | `apex.fmt.lapTime / gap / delta / ordinal / points / date` | formatting that matches the rest of the site |
@@ -138,6 +155,21 @@ Injected into the frame; no imports, no network, no build step.
 The runtime is a **single self-contained JS string** built at frontend build
 time and inlined into the frame — it must not be fetched, because the frame's
 opaque origin cannot fetch anything.
+
+**Incident, 2026-08-24:** a live answer comparing two drivers' points called
+`render_visual` with hand-built SVG that called `apex.rect(...)` (does not
+exist) and `apex.svg(...).attr(...)` (the return value is not chainable) —
+both errors trace to this section previously documenting only the primitives
+row and never mentioning `apex.bars`/`apex.hbars`, the calls actually built
+for exactly that comparison shape. The frame's error path degraded correctly
+(§7 — table fallback, no lost facts), but the chart the reader asked for
+never rendered. Root cause was documentation completeness, not a runtime bug
+or a model failing to follow instructions it was given — this table and the
+prompt in `backend/agent/graph.py` both omitted the marks layer entirely.
+Fixed by documenting it here and in the prompt, `PROMPT_VERSION` bumped
+(`backend/agent/config.py`) so cached pre-fix answers replay through the
+model again rather than keeping whatever chart-or-no-chart choice they made
+under the incomplete instructions.
 
 ### Rules the model must follow
 

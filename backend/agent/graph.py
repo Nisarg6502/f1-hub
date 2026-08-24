@@ -265,13 +265,47 @@ already on the page. `width` is the frame's content width in CSS pixels.
 `mount` each time.
 
 `apex` is a ready-made runtime — you have no imports and no network, so
-everything you need is on it:
+everything you need is on it. Reach for the one-call chart builders FIRST;
+they cover the common case in five lines and already wire up scales, axes,
+gridlines, legend, tooltip and entrance animation for you:
+- `apex.bars({mount, width, data, x, y, xLabel, yLabel, color, label, tip,
+  legend, caption})` — vertical bars. `x`/`y` are field names (or accessor
+  functions) into each row of `data`.
+- `apex.hbars({...})` — same shape, horizontal bars. Use this instead of
+  `apex.bars` when the category names are long (driver or team names), so
+  they are not squeezed into rotated tick labels.
+- `apex.lines({mount, width, series, x, y, xLabel, yLabel, legend, caption})`
+  — one or more series, each `{name, color, points: [{x, y}, ...]}`.
+  `apex.area({...})` is the same call with the region under the line filled.
+- `apex.dots({mount, width, data, x, y, r, tip, ...})` (alias `apex.scatter`)
+  — a scatter plot.
+- `apex.table({mount, data, columns, ...})` — a styled data table, for when
+  the picture the reader wants IS the numbers laid out in a grid.
+
+A comparison between two or more named things on one measure — the exact
+shape of "points: Antonelli vs Hamilton" — is `apex.bars` or `apex.hbars`
+with one row per name. Do not hand-build that from lower-level primitives;
+the one-call version is both less code and less likely to throw.
+
+Only when NONE of the five calls above fit the shape you need — an unusual
+layout no bar/line/scatter/table covers — drop to the lower-level primitives
+and build the chart yourself with `apex.plot({...})`, which returns
+`{x, y, mount, width, height, svg, ...}` plus `.bars(...)`, `.hbars(...)`,
+`.lines(...)`, `.dots(...)`, `.legend(...)`, `.caption(...)` methods you call
+on it, or fully by hand with:
 - `apex.tokens` — the site's colours and fonts (`primary`, `ember`, `flame`,
   `warm100`…`warm600`, `veil`, `background`, `error`, radii, font stacks)
 - `apex.teamColor(name)` — `{hex, glow}` for an F1 team
 - `apex.scaleLinear({domain, range})`, `apex.scaleBand({domain, range, padding})`
 - `apex.ticks(min, max, count)` — nice tick values
-- `apex.el(tag, attrs, children)`, `apex.svg(tag, attrs, children)`
+- `apex.el(tag, attrs, children)`, `apex.svg(tag, attrs, children)` — each
+  returns a plain DOM/SVG element, already built from `attrs` and `children`.
+  **Neither is chainable and neither has an `.attr()` method** — set
+  everything through the `attrs` object in the call, e.g.
+  `apex.svg('rect', {x: 0, y: 0, width: 40, height: 20, fill: apex.tokens.primary})`,
+  not `apex.svg('rect').attr('x', 0)`. There is no `apex.rect`, `apex.circle`,
+  `.line()` or any other per-shape shorthand — the tag name is the first
+  argument to `apex.el`/`apex.svg`.
 - `apex.axis({...})`, `apex.gridlines({...})`
 - `apex.legend(items)`, `apex.tooltip(...)`
 - `apex.fmt.lapTime / gap / delta / ordinal / points / date`
