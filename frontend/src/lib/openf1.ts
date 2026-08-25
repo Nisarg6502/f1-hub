@@ -37,15 +37,30 @@ export async function fetchOpenF1<T>(endpoint: string, params: Record<string, st
   }
 }
 
+/** Shape of OpenF1's `/sessions` rows, trimmed to the fields this file reads. */
+interface OpenF1Session {
+  session_key: number;
+  date_start: string;
+}
+
 export async function getSessionKeyByDate(year: number, dateStr: string, sessionType: string = "Race"): Promise<number | null> {
-  const sessions = await fetchOpenF1<any[]>("/sessions", { year, session_type: sessionType });
+  const sessions = await fetchOpenF1<OpenF1Session[]>("/sessions", { year, session_type: sessionType });
   // Match by date (ignoring time)
   const session = sessions.find(s => s.date_start?.startsWith(dateStr));
   return session?.session_key ?? null;
 }
 
-export async function getStints(sessionKey: number, driverNumbers: number[]) {
-  const stints = await fetchOpenF1<any[]>("/stints", { session_key: sessionKey });
+/** Shape of OpenF1's `/stints` rows, trimmed to the fields this file reads. */
+export interface OpenF1Stint {
+  driver_number: number;
+  stint_number: number;
+  compound: string;
+  lap_start: number;
+  lap_end: number;
+}
+
+export async function getStints(sessionKey: number, driverNumbers: number[]): Promise<OpenF1Stint[]> {
+  const stints = await fetchOpenF1<OpenF1Stint[]>("/stints", { session_key: sessionKey });
   return stints.filter(s => driverNumbers.includes(s.driver_number));
 }
 
@@ -67,8 +82,20 @@ export async function getRaceControl(sessionKey: number): Promise<RaceControlMes
   return fetchOpenF1<RaceControlMessage[]>("/race_control", { session_key: sessionKey });
 }
 
-export async function getWeather(sessionKey: number) {
-  const weatherList = await fetchOpenF1<any[]>("/weather", { session_key: sessionKey });
+/** Shape of OpenF1's `/weather` rows. */
+export interface OpenF1Weather {
+  date: string;
+  air_temperature: number;
+  track_temperature: number;
+  humidity: number;
+  pressure: number;
+  rainfall: number;
+  wind_direction: number;
+  wind_speed: number;
+}
+
+export async function getWeather(sessionKey: number): Promise<OpenF1Weather | null> {
+  const weatherList = await fetchOpenF1<OpenF1Weather[]>("/weather", { session_key: sessionKey });
   if (!weatherList || weatherList.length === 0) return null;
   // Return the middle of the session to get a representative weather
   const midIdx = Math.floor(weatherList.length / 2);

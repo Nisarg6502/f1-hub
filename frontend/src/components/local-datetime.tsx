@@ -59,6 +59,12 @@ const DEFAULT_OPTIONS: Intl.DateTimeFormatOptions = {
  */
 export default function LocalDateTime({ timestampMs, options }: LocalDateTimeProps) {
   const [local, setLocal] = useState(false);
+  // The hydration-flag pattern this whole component exists for (see the
+  // docstring above): there is no external system to subscribe to here, only
+  // "has the client mounted yet" — an effect is the one thing that only runs
+  // client-side, which is the entire point. One deliberate extra render, not
+  // an accidental cascade.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setLocal(true), []);
 
   const text = useMemo(() => {

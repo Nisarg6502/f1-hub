@@ -107,7 +107,6 @@ export default async function Home() {
   const secondPts = Number(second?.points ?? 0);
   const ptsGap = Math.max(leaderPts - secondPts, 0);
   const leaderWins = leader?.wins ?? "0";
-  const leaderColor = getTeamColor(leaderTeam);
 
   const total = races.length;
   const done = completed.length;
@@ -553,7 +552,7 @@ function BentoDriverArt({
           accent ? "text-[#7a5a45]" : "text-warm-500"
         }`}
       >
-        // DRIVER
+        {"// DRIVER"}
         <br />
         CUTOUT
       </span>

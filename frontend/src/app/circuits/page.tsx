@@ -37,6 +37,10 @@ export default async function CircuitsPage() {
   }
 
   // Feature the next upcoming round if we can find one, else the opener.
+  // A Server Component renders once per request with no re-render replay to
+  // make this unstable — the purity rule guards Client Component render
+  // bodies, which React Compiler can re-invoke; it has no such concern here.
+  // eslint-disable-next-line react-hooks/purity
   const nowMs = Date.now();
   const featured =
     races.find((r) => {

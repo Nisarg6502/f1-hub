@@ -152,6 +152,13 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <head>
+        {/* `no-page-custom-font` is a Pages Router rule warning about a font
+            that would only load on one page via `pages/_document.js` — this
+            is App Router, there is no `pages/_document.js`, and this is the
+            root layout, so this loads for every page. `next/font` doesn't
+            support this font's variable weight/fill axes via the Google
+            Fonts CSS API, so a stylesheet link is the correct approach here. */}
+        {/* eslint-disable-next-line @next/next/no-page-custom-font */}
         <link
           href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
           rel="stylesheet"

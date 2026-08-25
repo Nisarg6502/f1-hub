@@ -89,6 +89,12 @@ export default async function StandingsPage({ searchParams }: PageProps) {
   // healthy request; the beacon is the only way it gets counted.
   const degraded = (drivers ?? []).length === 0 && (constructors ?? []).length === 0;
 
+  // A Server Component renders once per request with no re-render replay to
+  // make this unstable — the purity rule guards Client Component render
+  // bodies, which React Compiler can re-invoke; it has no such concern here.
+  // eslint-disable-next-line react-hooks/purity
+  const renderedAtMs = Date.now();
+
   return (
     <>
       {degraded && <DegradedBeacon route="/standings" />}
@@ -100,7 +106,7 @@ export default async function StandingsPage({ searchParams }: PageProps) {
       constructorLogs={constructorLogs}
       year={year}
       maxYear={getActiveSeasonYear()}
-      renderedAtMs={Date.now()}
+      renderedAtMs={renderedAtMs}
     />
     </>
   );

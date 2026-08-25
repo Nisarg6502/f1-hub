@@ -279,7 +279,7 @@ function WinnerCard({ r }: { r: RaceResult }) {
           style={{ borderColor: color.hex }}
         >
           <span className="font-semibold text-[8px] text-warm-500">
-            // WINNER
+            {"// WINNER"}
           </span>
         </div>
       )}

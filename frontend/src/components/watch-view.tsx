@@ -611,6 +611,11 @@ export default function WatchView({
         const secondaryValue =
           timingMode === "interval" ? snapshot.gapToLeader : snapshot.interval;
         if (cell.primary) {
+          // Direct DOM writes are the point of `cellRefs` (see the docstring
+          // above `paintProgress`): routing this through state would
+          // re-render up to 22 rows at 60Hz, which is exactly what this
+          // imperative escape hatch exists to avoid.
+          // eslint-disable-next-line react-hooks/immutability
           cell.primary.textContent = formatTimingValue(primaryValue, isLeader);
         }
         if (cell.secondary) {

@@ -24,6 +24,11 @@ export default function SectorBattlePanel({ year, round, session, results }: Sec
 
   useEffect(() => {
     let cancelled = false;
+    // Resets to loading when the deps change (a session/round switch), not
+    // on first mount — without it, switching sessions would leave the PRIOR
+    // session's "ready"/"unavailable" state on screen while the new fetch is
+    // still in flight, which reads as stale data rather than a loading state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setState({ status: "loading" });
 
     getSessionSectors(year, round, session)

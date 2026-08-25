@@ -35,6 +35,10 @@ export default async function SchedulePage({ searchParams }: PageProps) {
     // Backend offline
   }
 
+  // A Server Component renders once per request with no re-render replay to
+  // make this unstable — the purity rule guards Client Component render
+  // bodies, which React Compiler can re-invoke; it has no such concern here.
+  // eslint-disable-next-line react-hooks/purity
   const nowMs = Date.now();
 
   const enriched = races.map((race) => {
