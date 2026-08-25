@@ -341,7 +341,27 @@ def langsmith_configured() -> bool:
 # one, so "plot points by round" is now answerable instead of only fake-able.
 # A cached version-8 answer to a progression-shaped question was written
 # under a model that had neither guardrail, so it must not replay as settled.
-PROMPT_VERSION = 9
+#
+# Bumped to 10 after a QA pass on a driver-comparison question intermittently
+# (not every run — sampling variance, same question came back clean the next
+# time) produced a correct `apex.bars` chart from `render_visual` AND, in the
+# same answer's prose, a Markdown image referencing a URL for it —
+# `/render_visual?evidence_id=...&title=...&caption=...` — that has never
+# existed; the tool has no HTTP endpoint, it returns drawing instructions the
+# frontend executes locally (`CHAT-VISUALS-CONTRACT.md` §4/§5). Rendered by
+# `react-markdown`, that is a real `<img src>` the reader's browser fetches
+# and 404s against this site's own origin, sitting right above the real
+# chart with a near-duplicate caption. `_VISUAL_RULE` already said "never
+# mention the tool [or] the chart... in your answer text" but did not name
+# this specific shape of violating it; the rule now says explicitly that no
+# URL for the chart exists and that Markdown image syntax must never appear
+# in the answer at all. Paired with a frontend fix (`pitwall-assistant-panel
+# .tsx` now renders nothing for any Markdown image, defense-in-depth for
+# exactly the case a prompt fix alone cannot fully close — same reasoning as
+# versions 7/8's runtime hardening). A cached version-9 answer to a
+# comparison-shaped question may hold this same stray-image pattern and must
+# not replay as settled.
+PROMPT_VERSION = 10
 
 # Defaults to local dev origins, NOT "*". Starlette echoes the caller's origin
 # rather than emitting a literal `*`, so a wildcard default on a public,

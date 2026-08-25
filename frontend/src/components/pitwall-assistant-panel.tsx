@@ -32,7 +32,7 @@ import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import {
   streamChat,
   postFeedback,
@@ -673,41 +673,51 @@ export default function PitwallAssistantPanel({
           </div>
         </div>
 
-        {/* Exit is animated too (and faster than the enter, 120ms vs 180ms):
-            the bar snapping out of existence on "Keep" reads as a glitch, and
-            once the user has decided the system should get out of the way. */}
-        <AnimatePresence initial={false}>
+        {/* Deliberately a plain conditional, not `AnimatePresence` — this bar
+            used to be an `AnimatePresence`-wrapped `motion.div`, which had a
+            real bug: nesting it inside the outer `AnimatePresence` that
+            mounts/unmounts the whole panel (`pitwall-assistant-launcher.tsx`)
+            meant clicking "Keep" or "New chat" here — dismissing only this
+            bar — also exited and closed the entire panel underneath it,
+            reproducibly, confirmed by removing exactly this nesting and
+            nothing else. A CSS-only enter/exit transition was considered as
+            a way to keep the polish, but the focus trap above finds
+            focusable elements by `offsetParent !== null`, which a
+            `max-height: 0`-collapsed-but-still-mounted bar would still
+            satisfy — a keyboard user could Tab into "Keep"/"New chat" while
+            they are invisible. Correct and instant beats animated and
+            broken (either the panel-closing bug or a focus trap). */}
+        <>
           {confirmingNewChat && (
-          <motion.div
-            key="confirm-new-chat"
-            initial={reduce ? { opacity: 0 } : { opacity: 0, height: 0 }}
-            animate={reduce ? { opacity: 1 } : { opacity: 1, height: "auto" }}
-            exit={
-              reduce
-                ? { opacity: 0 }
-                : { opacity: 0, height: 0, transition: { duration: 0.12, ease: [0.23, 1, 0.32, 1] } }
-            }
-            transition={{ duration: reduce ? 0.1 : 0.18, ease: [0.23, 1, 0.32, 1] }}
+          <div
             className="flex items-center gap-2 overflow-hidden border-b border-white/10 bg-surface-container-low/40 px-5 py-2.5"
           >
             <p className="flex-1 text-[11px] text-[var(--color-on-surface-variant)]">
               Start a new chat? This conversation will be discarded.
             </p>
             <button
-              onClick={() => setConfirmingNewChat(false)}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setConfirmingNewChat(false);
+              }}
               className="rounded-lg px-2.5 py-1 text-[11px] font-medium text-[var(--color-on-surface-variant)] transition-[color,transform] duration-150 hover:text-[var(--color-on-surface)] active:scale-[0.97]"
             >
               Keep
             </button>
             <button
-              onClick={startNewChat}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                startNewChat();
+              }}
               className="rounded-lg bg-[var(--color-primary)] px-2.5 py-1 text-[11px] font-semibold text-[var(--color-on-primary)] transition-transform duration-150 active:scale-[0.97]"
             >
               New chat
             </button>
-          </motion.div>
+          </div>
           )}
-        </AnimatePresence>
+        </>
 
         <div
           ref={messageListRef}
@@ -972,7 +982,7 @@ const MessageBubble = memo(function MessageBubble({
             <AnchorContext.Provider value={anchorContextValue}>
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
-                components={{ a: AnchorMark, table: MarkdownTable }}
+                components={{ a: AnchorMark, table: MarkdownTable, img: SuppressMarkdownImage }}
               >
                 {anchored.markdown}
               </ReactMarkdown>
@@ -1017,8 +1027,8 @@ const MessageBubble = memo(function MessageBubble({
               type="button"
               onClick={() => onAsk(message.question!)}
               disabled={running}
-              aria-label="Regenerate answer"
-              title="Regenerate"
+              aria-label="Ask again"
+              title="Ask again"
               className="relative before:absolute before:-inset-2 before:content-[''] flex h-6 w-6 items-center justify-center rounded-md text-[var(--color-on-surface-variant)] transition-[background-color,color,transform] duration-150 hover:bg-white/5 hover:text-[var(--color-on-surface)] active:scale-[0.94] disabled:pointer-events-none disabled:opacity-40"
             >
               <RetryIcon />
@@ -1173,6 +1183,24 @@ function FollowUpChips({
  * it belongs. `min-w-0` on the bubble is the other half of this: without it a
  * flex child refuses to shrink below its content and the clamp never applies.
  */
+/**
+ * Charts only ever reach the transcript through the `render_visual` tool and
+ * `VisualFrame` (contract §4/§5) — the model is never given a real image URL
+ * to reference, so a Markdown `![...](...)` in its prose is never a picture
+ * that exists. Observed in production: the model occasionally writes one
+ * anyway (e.g. inventing a `/render_visual?evidence_id=...` src as if the
+ * tool it just called produced a fetchable URL), which `react-markdown`
+ * otherwise renders as a real `<img>` — a guaranteed 404 against this site's
+ * own origin, a broken-image icon, and a caption that duplicates the real
+ * chart's, which renders separately right below via `VisualFrame`. Rendering
+ * nothing here is safe in every case: a hallucinated reference had nothing
+ * real behind it, and a coincidentally-legitimate one would only ever
+ * duplicate the chart already on screen.
+ */
+function SuppressMarkdownImage() {
+  return null;
+}
+
 function MarkdownTable({ children }: { children?: React.ReactNode }) {
   return (
     <div className="my-2 max-w-full overflow-x-auto rounded-lg border border-white/10">

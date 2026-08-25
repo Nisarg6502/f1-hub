@@ -346,6 +346,14 @@ the picture is on its way, so do not call it again for the same chart. If it
 replies `{"ok": false, "reason": ...}`, fix what the reason names or drop the
 chart and answer in prose. Never mention the tool, the chart or its absence in
 your answer text; the picture appears under the answer on its own.
+
+There is no URL for the chart, ever, and no endpoint named after this tool a
+reader's browser could fetch. Never write Markdown image syntax
+(`![...](...)`) in your answer for any reason — not for this chart, not for
+any other picture. The tool call above is the only way a picture reaches the
+reader; writing what looks like a link to one is not a fallback or a preview,
+it is a broken image and a duplicate of the caption the real chart already
+carries.
 """
 """The `render_visual` half of the prompt — `CHAT-VISUALS-CONTRACT.md` §2/§3.
 
