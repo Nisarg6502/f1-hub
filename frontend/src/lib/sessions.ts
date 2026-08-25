@@ -30,8 +30,8 @@ const SESSION_META: Array<{
   { field: "FirstPractice", label: "FP1", durationMinutes: 60 },
   { field: "SecondPractice", label: "FP2", durationMinutes: 60 },
   { field: "ThirdPractice", label: "FP3", durationMinutes: 60 },
-  { field: "SprintQualifying", label: "Sprint Shootout", durationMinutes: 45 },
-  { field: "Sprint", label: "Sprint", durationMinutes: 30 },
+  { field: "SprintQualifying", label: "Sprint Qualifying", durationMinutes: 45 },
+  { field: "Sprint", label: "Sprint", durationMinutes: 60 },
   { field: "Qualifying", label: "Qualifying", durationMinutes: 60 },
   { field: "Race", label: "Race", durationMinutes: 120 },
 ];
