@@ -7,6 +7,7 @@ import {
   getRaceReplay,
   getRaceResults,
   getRaceStints,
+  getRaceRadio,
   getSeasonRaces,
 } from "@/lib/api";
 import { getRaceControl, getSessionKeyByDate } from "@/lib/openf1";
@@ -15,6 +16,7 @@ import TireStintsChart from "@/components/tire-stints-chart";
 import PitStopsChart from "@/components/pit-stops-chart";
 import LapPositionChart from "@/components/lap-position-chart";
 import RaceControlPanel from "@/components/race-control-panel";
+import RadioPanel from "@/components/radio-panel";
 import RaceReplayView from "@/components/race-replay";
 import PitwallModules from "@/components/pitwall-modules";
 import StrategyCommentaryCard from "@/components/strategy-commentary-card";
@@ -102,14 +104,18 @@ export default async function PitwallPage({ params, searchParams }: PageProps) {
   // were re-sourced from OpenF1 to FastF1 back when OpenF1 returned 401 for the
   // whole current season (that paywall has since lifted, verified 2026-07-29).
   // Pit stops come from Ergast, which unlike FastF1 answers from Cloud Run.
-  const [racesRes, resultsRes, stintsRes, pitStopsRes, lapsRes, replayRes] = await Promise.all([
-    getSeasonRaces(seasonYear),
-    getRaceResults(seasonYear, roundNumber),
-    getRaceStints(seasonYear, roundNumber).catch(() => null),
-    getPitStops(seasonYear, roundNumber).catch(() => null),
-    getRaceLaps(seasonYear, roundNumber).catch(() => null),
-    getRaceReplay(seasonYear, roundNumber).catch(() => null),
-  ]);
+  const [racesRes, resultsRes, stintsRes, pitStopsRes, lapsRes, replayRes, radioRes] =
+    await Promise.all([
+      getSeasonRaces(seasonYear),
+      getRaceResults(seasonYear, roundNumber),
+      getRaceStints(seasonYear, roundNumber).catch(() => null),
+      getPitStops(seasonYear, roundNumber).catch(() => null),
+      getRaceLaps(seasonYear, roundNumber).catch(() => null),
+      getRaceReplay(seasonYear, roundNumber).catch(() => null),
+      // Empty is the common answer, not an error: F1 published no radio at all
+      // before the 2026 Canadian GP, and none for any session before 2023.
+      getRaceRadio(seasonYear, roundNumber).catch(() => null),
+    ]);
   const race = (racesRes.races ?? []).find((r) => r.round === String(roundNumber));
 
   if (!race || !race.date) {
@@ -141,6 +147,7 @@ export default async function PitwallPage({ params, searchParams }: PageProps) {
       teamColor: getTeamColor(r.Constructor?.name).hex,
     }));
 
+  const radioClips = radioRes?.clips ?? [];
   const stints = stintsRes?.stints ?? [];
   const stops = pitStopsRes?.stops ?? [];
   const laps = lapsRes?.laps ?? [];
@@ -271,6 +278,38 @@ export default async function PitwallPage({ params, searchParams }: PageProps) {
                 }
                 initialLap={initialLap}
               />
+            ),
+          },
+          {
+            id: "radio",
+            label: "Team Radio",
+            panel: radioClips.length ? (
+              <RadioPanel drivers={drivers} clips={radioClips} />
+            ) : (
+              <ModuleEmptyState
+                title={
+                  radioRes?.synced
+                    ? "F1 published no radio for this session"
+                    : "Team radio not processed yet"
+                }
+                season={season}
+                round={round}
+              >
+                {radioRes?.synced ? (
+                  <>
+                    Team radio is released at Formula 1&apos;s discretion, not on
+                    every session. Nothing was published for {race.raceName} —
+                    which is the case for every race before the 2026 Canadian
+                    Grand Prix, and for every session before 2023.
+                  </>
+                ) : (
+                  <>
+                    Radio for {race.raceName} hasn&apos;t been transcribed yet.
+                    Clips are fetched and captioned on a job after the session is
+                    archived, never on a page view — check back after the weekend.
+                  </>
+                )}
+              </ModuleEmptyState>
             ),
           },
           {
