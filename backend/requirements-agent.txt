@@ -50,4 +50,4 @@ langgraph-checkpoint-mongodb~=0.4.0
 # --- Observability ---------------------------------------------------------
 # LangGraph traces natively; this is here for the explicit CP59 spans and for
 # the run ids the CP65 feedback loop is keyed on.
-langsmith~=0.10.0
+langsmith~=0.11.1
