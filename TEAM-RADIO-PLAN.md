@@ -30,6 +30,13 @@ the transcription run itself, which is blocked on one free API key.
 | `components/radio-popup.tsx` | Verified in headless Chrome across seven states via `/radio-check`. |
 | `watch-view.tsx` / watch page wiring | Frame-loop hook, preference toggle, `Promise.allSettled` fetch. Typechecks and lints clean; full suite 1,360 backend + 55 frontend tests pass. |
 
+**Verified end to end on the real page, 2026-08-30.** The 2026 Dutch GP is
+transcribed, attributed and masked in Mongo — 31 clips, 88 utterances, 30 with
+captions — and the popup fires on the watch replay at the right instant. At
+clock 3:08, lap 2, with race control showing `RED FLAG - RACE SUSPENDED` on the
+same lap, Verstappen's actual radio appears: *"No, that's it." / "Oh, ***." /
+"Sorry."* Zero console errors.
+
 **Nothing is blocked, and no transcription key is needed.** Groq's free tier
 began asking for credits during the build, so the ASR provider is now local by
 default:
