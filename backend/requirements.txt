@@ -41,7 +41,7 @@ httpx~=0.28.1
 # dependency and the driver `data_sync.py` uses directly, since the sync job is
 # synchronous. `[srv]` is required for the `mongodb+srv://` Atlas URI.
 motor~=3.7.1
-pymongo[srv]~=4.16.0
+pymongo[srv]~=4.17.0
 
 # --- F1 data (read the note above before pinning any of this) ---------------
 fastf1

@@ -27,7 +27,7 @@ motor~=3.7.1
 # and that ceiling is invisible until the resolver runs. Raising this pin makes
 # the whole install unsatisfiable, so if a future bump is needed, check the
 # checkpointer's constraint first.
-pymongo[srv]~=4.16.0
+pymongo[srv]~=4.17.0
 
 # --- Agent stack -----------------------------------------------------------
 # deepagents 0.7.4 is the version CHAT-AGENT-PLAN.md was written against, and
