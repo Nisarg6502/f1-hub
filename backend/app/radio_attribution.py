@@ -41,7 +41,13 @@ import httpx
 
 # Bump when an approach, its prompt, or the confidence floor changes. Stored per
 # document so a change re-runs attribution without re-running ASR.
-ATTRIB_VERSION = 1
+#
+# 2 adds the discriminators in `_SYSTEM_A` below. Measured on the 2026 Dutch GP
+# (31 clips, 86 utterances), version 1 labelled 60 driver against 14 pit — a
+# skew real radio does not have — and got the post-race debriefs backwards at
+# maximum confidence: "Very well done. Gorgeous. Well executed." came back as
+# the *driver* at 1.00.
+ATTRIB_VERSION = 2
 
 DRIVER = "driver"
 PIT = "pit"
@@ -188,6 +194,22 @@ Rules you must follow:
 - The engineer gives instructions, reports gaps and times, and addresses the
   driver by their first name. The driver speaks in the first person about the
   car and about other drivers.
+
+Discriminators that decide most real cases:
+- PRAISE AND DEBRIEF ARE THE ENGINEER. "Well done", "great drive", "very well
+  executed", "that's P2", "brilliant job" are said BY the pit wall TO the
+  driver, almost never the other way round. Post-race congratulation is the
+  engineer's. Do not label it "driver" because it sounds pleased.
+- "We" about the team's decisions, strategy or data ("we thought", "we're
+  checking", "we lost time there") is the engineer. "I" about how the car feels
+  ("I've got no grip", "I can't hold him") is the driver.
+- The driver asks questions about strategy and gets answers containing numbers.
+  A question is not automatically the driver's — the engineer asks "how are the
+  tyres?" constantly.
+- Being addressed by name means the DRIVER is the listener, so that line is the
+  engineer's.
+- Do not assume the clip opens with the driver. Many transmissions are the pit
+  wall calling the driver.
 - Do not invent, correct, translate or tidy the text. Reproduce each utterance
   verbatim from the transcript, including profanity and disfluency.
 - Do not merge the whole clip into one utterance if two people speak.

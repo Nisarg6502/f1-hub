@@ -23,19 +23,25 @@ the transcription run itself, which is blocked on one free API key.
 | `app/radio_clips.py` + tests | 19 tests. Verified live: 31 clips for the 2026 Dutch GP, `source=openf1`; the 2026 Australian GP correctly resolves to "F1 published none" through *both* sources. |
 | `app/radio_profanity.py` + tests | 18 tests, including the Scunthorpe set and idempotence under a second pass. |
 | `app/race_radio.py` + `/api/race_radio` + tests | 28 tests. Serve-only, `text_raw` excluded at the query. |
-| `app/radio_transcribe.py` | Groq seam, glossary prompt budgeted to Whisper's 224-token cap. **Needs `GROQ_API_KEY`.** |
+| `app/radio_transcribe.py` | Two providers behind one seam — **local `faster-whisper` by default**, Groq optional. Glossary prompt budgeted to Whisper's 224-token cap. |
 | `app/radio_attribution.py` + tests | 21 tests. All three approaches. Verified against real transcripts — see below. |
 | `scripts/sync_race_radio.py` | Four independently-versioned stages. `--stage ingest` run for real. |
 | `lib/watch-radio.ts` + tests | 23 tests covering every scheduling rule. |
 | `components/radio-popup.tsx` | Verified in headless Chrome across seven states via `/radio-check`. |
 | `watch-view.tsx` / watch page wiring | Frame-loop hook, preference toggle, `Promise.allSettled` fetch. Typechecks and lints clean; full suite 1,360 backend + 55 frontend tests pass. |
 
-**Blocked on one key.** Transcription needs `GROQ_API_KEY` (free tier at
-console.groq.com covers a full backfill). Set it and run:
+**Nothing is blocked, and no transcription key is needed.** Groq's free tier
+began asking for credits during the build, so the ASR provider is now local by
+default:
 
 ```
+pip install -r backend/requirements-radio.txt
 python -m scripts.sync_race_radio --round 12 --stage asr,attrib,mask
 ```
+
+`RADIO_ASR_PROVIDER=groq` still switches to the hosted API for a machine that
+cannot spare the CPU. See §5.0 for why local is the right default rather than a
+consolation prize.
 
 **Two things the build found that the research did not.**
 
@@ -328,9 +334,41 @@ Two approaches get built and scored against a hand-labelled set. A third, a
 zero-AI keyword baseline, gets built too — cheap, and if the models cannot beat
 it we have learned something important about whether the LLM earns its cost.
 
+### 5.0 The transcription provider: local, not hosted
+
+**Measured on this machine 2026-08-30**, transcribing a real 16.0s Hamilton clip
+from the 2026 Dutch GP on 12 CPU threads at int8:
+
+| Model | Time | Language confidence | Output |
+|---|---|---|---|
+| `small` | 5.9s | 0.70 | "Check of gear turned and we are thinking something different. Happy to walk what you need to." |
+| `large-v3-turbo` | 16.4s | 0.93 | "Check off gear at turn 10. We are thinking something different. Happy to go to a new medium." |
+
+`large-v3-turbo` is the default. It runs at roughly **1x real time**, so a full
+race — 8.5 minutes of audio — is about nine minutes of compute after a ~2.5
+minute cold model load. All eleven published 2026 sessions is under two hours,
+once, for nothing.
+
+Three reasons this beats the hosted API rather than merely substituting for it:
+
+* **The work is finite.** This is a backfill of ~40 minutes of audio, plus ~31
+  clips a fortnight. It is not a workload that needs to scale.
+* **It never runs in production.** `/api/race_radio` serves from Mongo and does
+  not self-heal, so no request path ever transcribes. The dependency therefore
+  lives in `requirements-radio.txt` and never enters the deployed image — local
+  ASR costs the `f1-backend` service nothing at all.
+* **Free tiers are somebody else's decision.** Groq's became credit-gated
+  mid-build. A backfill that can be stopped by a pricing page is a backfill with
+  a dependency it does not need.
+
+The seam keeps Groq wired up (`RADIO_ASR_PROVIDER=groq`), and its handler treats
+HTTP 401/402/403 as `TranscriptionUnconfigured` rather than a retryable error,
+so a billing wall stops the run with an explanation instead of failing 31 times.
+
 ### 5.1 Approach A — transcript-only (LLM infers role from wording)
 
-1. Groq `whisper-large-v3-turbo`, `response_format=verbose_json`,
+1. Local `faster-whisper` `large-v3-turbo` (or Groq's hosted copy of the same
+   model), with word and segment timestamps, VAD filtering,
    `timestamp_granularities=["segment","word"]`, with a **domain prompt** listing
    the season's driver surnames, team names and F1 vocabulary (`box`, `undercut`,
    `delta`, `DRS`, `plank`, `graining`, compound names). Whisper's `prompt`
@@ -344,7 +382,8 @@ it we have learned something important about whether the LLM earns its cost.
    explicitly instructed that `unknown` is the correct answer when the wording is
    neutral ("copy", "understood", "okay").
 
-**Cost:** one ASR call + one small LLM call per clip. **Ops:** zero new services.
+**Cost:** local ASR plus one small LLM call per clip against the key this app
+already has. **Ops:** zero new services, zero new keys.
 
 ### 5.2 Approach B — acoustic diarization first, then role assignment
 

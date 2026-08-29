@@ -1,0 +1,21 @@
+# Dependencies for the team-radio transcription job ONLY.
+#
+# **Deliberately not in `requirements.txt`, and it must stay that way.**
+# `/api/race_radio` serves from Mongo and does not self-heal (see that module's
+# docstring: a rebuild would run speech-to-text on a page view), so nothing on a
+# request path ever transcribes. Adding CTranslate2 and a 1.6GB model to the
+# `f1-backend` image would pay for a capability the service never uses.
+#
+# Install locally when running the backfill:
+#
+#     pip install -r backend/requirements-radio.txt
+#     python -m scripts.sync_race_radio --round 12 --stage asr,attrib,mask
+#
+# The model itself is downloaded on first use and cached under
+# `~/.cache/huggingface`. `large-v3-turbo` is ~1.6GB.
+#
+# Not pinned tightly: this is a local batch tool, not a deployed surface, and
+# faster-whisper tracks CTranslate2's own compatible range more carefully than a
+# hand-picked pin would. If a future version breaks, pin then — with a note
+# saying which version and why, the way `requirements.txt` does.
+faster-whisper

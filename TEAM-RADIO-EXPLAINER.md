@@ -303,10 +303,18 @@ ingredient. Ranked by "worth it vs. effort":
 
 Almost nothing, which is the happy surprise.
 
-- **Transcription:** a race is 8½ minutes of audio. Groq's Whisper Turbo is about
-  4 cents an *hour*. Transcribing everything we have — 2026 plus a historical
-  backfill — comes to roughly **one dollar**, and Groq's free tier (2,000 clips a
-  day; a whole race is 31) may well cover it outright.
+- **Transcription: nothing at all.** The original plan was to pay Groq about four
+  cents an hour, which would have come to roughly a dollar for everything. Then
+  Groq's free tier started asking for credits — so transcription now runs the
+  same model, `whisper-large-v3-turbo`, **on your own machine**. No key, no
+  quota, no account.
+
+  This turned out to be the better answer anyway, not a consolation prize. The
+  job is a one-time backfill of about forty minutes of audio, and it never runs
+  on the live site — the website only ever reads finished transcripts out of the
+  database. So the model never goes anywhere near the deployed server. Measured
+  on your 12 cores: about nine minutes of computer time per race, and under two
+  hours for every 2026 race that has radio. Once, for free, forever.
 - **The "who's speaking" model:** one small call per clip against the AI service
   the app already pays for. Done once per clip, cached forever, exactly like the
   AI Recap already works.
@@ -328,7 +336,9 @@ the bake-off, and by the hard rule that low confidence shows as *unattributed*
 rather than as a guess.
 
 **Transcription mangles names and jargon.** Whisper will absolutely write
-"Verstappen" as "for stopping" on bad audio. A short glossary of driver names,
+"Verstappen" as "for stopping" on bad audio — the free corpus we checked is full
+of real examples ("Van der Waal" for Vandoorne, "SuperSalt" for supersoft,
+"virtual safeguard" for virtual safety car). A short glossary of driver names,
 team names and F1 vocabulary fed to the model fixes most of it, and the Hugging
 Face corpus lets us measure how much.
 

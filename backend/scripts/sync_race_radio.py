@@ -17,9 +17,13 @@ The stages are separable and independently versioned, which is the point of
 `--stage`:
 
     ingest     fetch the clip index and measure durations   (free, fast)
-    asr        transcribe                                   (needs GROQ_API_KEY)
+    asr        transcribe                                   (local model by default)
     attrib     split into utterances and label speakers      (needs OLLAMA_API_KEY)
     mask       apply `***` masking to the stored raw text   (free, fast)
+
+`asr` runs `faster-whisper` on this machine unless `RADIO_ASR_PROVIDER=groq`;
+see `app/radio_transcribe.py` for why local is the default. Install its
+dependency first: `pip install -r backend/requirements-radio.txt`.
 
 Re-running a later stage does not re-run an earlier one. A profanity word-list
 change re-masks from stored raw text without re-transcribing; an attribution
@@ -36,6 +40,7 @@ as "this race had no radio" is a wrong fact that never self-corrects.
 import argparse
 import os
 import sys
+import time
 import types
 from pathlib import Path
 
@@ -59,7 +64,7 @@ from pymongo import MongoClient
 
 from app.driver_directory import _driver_directory
 from app.race_radio import RADIO_VERSION, place_clips
-from app.race_stints import fetch_openf1_session_key
+from app.openf1_sessions import fetch_openf1_session_key, fetch_openf1_sprint_key
 from app.radio_attribution import ATTRIB_VERSION, DEFAULT_APPROACH, attribute
 from app.radio_clips import (
     RadioSourceUnavailable,
@@ -72,15 +77,13 @@ from app.radio_transcribe import (
     TranscriptionError,
     TranscriptionUnconfigured,
     build_prompt,
+    provider as asr_provider,
     transcribe,
 )
 
-try:
-    from dotenv import load_dotenv
+from app.local_env import load_local_env
 
-    load_dotenv()
-except ImportError:
-    pass
+load_local_env()
 
 MONGODB_URI = os.getenv("MONGODB_URI") or os.getenv("mongodburi") or "mongodb://localhost:27017"
 DB_NAME = os.getenv("MONGODB_DB_NAME") or os.getenv("mongodb_db_name") or "f1_scratch"
@@ -107,34 +110,8 @@ def _session_key_for(db, year: int, round_number: int, session_type: str) -> tup
     if not date:
         return None, None
     if session_type == "sprint":
-        # The sprint is the *other* `Race`-typed session in the same meeting,
-        # held the day before. Resolved by scanning rather than by arithmetic so
-        # a Saturday-race weekend does not silently produce the wrong key.
-        return _sprint_key_for(date), date
+        return fetch_openf1_sprint_key(date), date
     return fetch_openf1_session_key(date), date
-
-
-def _sprint_key_for(race_date: str) -> int | None:
-    from app.race_stints import OPENF1_BASE, _fetch_json
-
-    sessions = _fetch_json(f"{OPENF1_BASE}/sessions", {"year": race_date[:4]})
-    if not isinstance(sessions, list):
-        return None
-    meeting = next(
-        (s for s in sessions if str(s.get("date_start", "")).startswith(race_date)), None
-    )
-    if not meeting:
-        return None
-    sprint = next(
-        (
-            s
-            for s in sessions
-            if s.get("meeting_key") == meeting.get("meeting_key")
-            and str(s.get("session_name", "")).lower() == "sprint"
-        ),
-        None,
-    )
-    return sprint.get("session_key") if sprint else None
 
 
 def _anchor_for(db, year: int, round_number: int) -> tuple[str | None, list[int]]:
@@ -210,14 +187,35 @@ def _merge_previous(clips: list[dict], previous: dict | None) -> list[dict]:
 
 
 def _run_asr(clips: list[dict], directory: dict, force: bool) -> int:
+    """Transcribe every clip that does not already have a current transcript.
+
+    Sequential on purpose. The local model holds the CPU and loads once per
+    process (~2.5 minutes cold, then seconds per clip); running clips in
+    parallel would contend for the same threads and load nothing faster. A race
+    is ~8.5 minutes of audio, so a session takes roughly nine minutes of compute
+    after the model is warm.
+    """
     prompt = build_prompt(
         [entry.get("name") for entry in directory.values()],
         [entry.get("team") for entry in directory.values()],
     )
+    pending = [
+        clip
+        for clip in clips
+        if force or not clip.get("transcript") or clip.get("asr_version") != ASR_VERSION
+    ]
+    if not pending:
+        return 0
+
+    total_s = sum(clip.get("duration_s") or 0 for clip in pending)
+    _log(
+        f"    {len(pending)} clips, {total_s / 60:.1f} min of audio "
+        f"via {asr_provider()} — the first clip also loads the model"
+    )
+
     done = 0
-    for clip in clips:
-        if not force and clip.get("transcript") and clip.get("asr_version") == ASR_VERSION:
-            continue
+    for index, clip in enumerate(pending, start=1):
+        started = time.monotonic()
         try:
             clip["transcript"] = transcribe(clip["url"], prompt=prompt)
             clip["asr_version"] = ASR_VERSION
@@ -226,10 +224,21 @@ def _run_asr(clips: list[dict], directory: dict, force: bool) -> int:
             clip.pop("mask_version", None)
             done += 1
         except TranscriptionUnconfigured as error:
+            # The provider cannot run at all — every remaining clip would fail
+            # the same way. Stop the stage rather than emit 30 identical errors.
             _log(f"    ! {error}")
             return done
         except TranscriptionError as error:
             _log(f"    ! clip {clip['id']}: {error}")
+            continue
+        # Per clip, not per stage. Transcribing a race is ~9 minutes of compute,
+        # and a stage that prints one line when it is already finished gives no
+        # way to tell "working" from "hung".
+        preview = (clip["transcript"].get("text") or "")[:58]
+        _log(
+            f"    [{index}/{len(pending)}] #{clip['driver_number']:<3} "
+            f"{clip.get('duration_s') or 0:5.1f}s in {time.monotonic() - started:5.1f}s  {preview}"
+        )
     return done
 
 
@@ -327,12 +336,17 @@ def sync_session(
     if not clips:
         _log(f"  {label}: F1 published no radio for this session")
     else:
+        # Each header is logged BEFORE the stage runs. Interpolating the return
+        # value into the message instead means the line appears only once the
+        # stage is over, which for ASR is ten minutes of total silence.
         if "asr" in stages:
-            _log(f"  {label}: transcribing… ({_run_asr(clips, directory, force)} new)")
+            _log(f"  {label}: transcribing…")
+            _log(f"  {label}: transcribed {_run_asr(clips, directory, force)} new")
         if "attrib" in stages:
-            _log(f"  {label}: attributing… ({_run_attrib(clips, directory, approach, force)} new)")
+            _log(f"  {label}: attributing…")
+            _log(f"  {label}: attributed {_run_attrib(clips, directory, approach, force)} new")
         if "mask" in stages:
-            _log(f"  {label}: masking… ({_run_mask(clips, force)} new)")
+            _log(f"  {label}: masked {_run_mask(clips, force)} new")
 
     race_start, lap_ms = _anchor_for(db, year, round_number)
     if race_start is None and clips:
