@@ -94,7 +94,19 @@ def sync_round(db, year: int, round_number: int, force: bool) -> bool:
 
     db.race_timing.update_one(
         key,
-        {"$set": {**key, "drivers": drivers, "lap_ms": payload.get("lap_ms") or []}},
+        {
+            "$set": {
+                **key,
+                "drivers": drivers,
+                "lap_ms": payload.get("lap_ms") or [],
+                # Stored, not served: `race_radio` reads this collection directly
+                # to place a radio clip's wall-clock instant on the replay clock.
+                # Written here as well as in the endpoint so a round filled by
+                # this script is not missing the anchor the endpoint would have
+                # stored.
+                "race_start": payload.get("race_start"),
+            }
+        },
         upsert=True,
     )
     samples = sum(len(e["positions"]) for e in drivers.values())

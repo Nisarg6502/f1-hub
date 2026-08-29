@@ -420,6 +420,45 @@ input::placeholder {
   }
 }
 
+/* The watch-mode team-radio caption. Slides in from the left edge it is pinned
+   to, the way the broadcast graphic does, rather than rising like the toast —
+   the two overlays are different things and should not read as the same one. */
+@keyframes apex-radio-in {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* The reduced-motion path. Still a transition rather than a hard cut: an
+   overlay that simply materialises over a moving tower is harder to notice,
+   not gentler. */
+@keyframes apex-radio-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* The playing indicator's bars. Purely decorative — F1's CDN sends no CORS
+   header, so nothing in the browser can read the audio to drive a real
+   waveform; see `radio-popup.tsx`. */
+@keyframes apex-radio-bar {
+  0%,
+  100% {
+    height: 3px;
+  }
+  50% {
+    height: 12px;
+  }
+}
+
 .anim-rise {
   animation: riseIn 0.7s var(--ease-out-apex) both;
 }

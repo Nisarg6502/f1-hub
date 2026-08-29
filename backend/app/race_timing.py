@@ -673,7 +673,23 @@ def build_timing(
             entry["out_ms"] = out_ms[number]
         drivers[number] = entry
 
-    return {"drivers": drivers, "lap_ms": lap_ms}
+    # `race_start` is emitted so consumers that need to place a *wall-clock*
+    # instant on this timeline do not have to re-derive it. Team radio is the
+    # first: a clip's OpenF1 `date` becomes an elapsed-ms position through
+    # exactly the arithmetic `_elapsed_ms` does above, and rebuilding the anchor
+    # costs a paged archive fetch plus an OpenF1 `/laps` fetch — ~25,000 rows to
+    # recover one timestamp this function already holds.
+    #
+    # **Deliberately added without bumping `TIMING_VERSION`.** Retiring every
+    # cached ~490 KB payload to add one string would be a poor trade, and
+    # consumers have to tolerate its absence regardless: documents cached before
+    # this change simply do not carry it, the same situation `lap_time_seconds`
+    # documents on `ReplayRunner`. Absent means "fall back", never "no race".
+    return {
+        "drivers": drivers,
+        "lap_ms": lap_ms,
+        "race_start": race_start.isoformat() if race_start is not None else None,
+    }
 
 
 def _collapse_timing(samples: list[list]) -> list[list]:
@@ -897,7 +913,17 @@ async def get_race_timing(
     try:
         await db.race_timing.update_one(
             cache_key,
-            {"$set": {**cache_key, "drivers": drivers, "lap_ms": lap_ms}},
+            {
+                "$set": {
+                    **cache_key,
+                    "drivers": drivers,
+                    "lap_ms": lap_ms,
+                    # Stored but not served: the wire payload is read by the
+                    # watch tower, which has no use for a wall-clock anchor,
+                    # while `race_radio` reads this collection directly.
+                    "race_start": payload.get("race_start"),
+                }
+            },
             upsert=True,
         )
     except Exception as error:

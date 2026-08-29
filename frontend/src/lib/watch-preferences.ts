@@ -31,6 +31,8 @@ export type TimingMode = "interval" | "gap";
 
 export const DEFAULT_TIMING_MODE: TimingMode = "interval";
 
+export const DEFAULT_RADIO_CAPTIONS = true;
+
 /* ------------------------------ persistence ------------------------------ */
 
 /** Namespaced so nothing else in the app collides, and versioned in the value
@@ -39,6 +41,7 @@ export const DEFAULT_TIMING_MODE: TimingMode = "interval";
 const PINNED_KEY = "apex.watch.pinnedDrivers";
 const DENSITY_KEY = "apex.watch.density";
 const TIMING_MODE_KEY = "apex.watch.timingMode";
+const RADIO_KEY = "apex.watch.radio";
 
 /** There is no auth in this app, so there is nowhere server-side to put "my
  * driver". `localStorage` is the whole persistence story, and it is the right
@@ -107,6 +110,27 @@ export function saveTimingMode(mode: TimingMode): void {
   writeStorage(TIMING_MODE_KEY, mode);
 }
 
+/**
+ * Whether team-radio captions pop up over the tower. Default on.
+ *
+ * On by default because the captions are the point — a race with radio and
+ * radio switched off looks identical to a race with no radio, which is the one
+ * state this feature must never be confused with. Off is still a real setting:
+ * this mode's whole premise is a phone propped next to a broadcast that is
+ * already showing the same messages, and a second copy of them is noise.
+ *
+ * Stored as a string rather than JSON so a hand-edited value degrades to the
+ * default like every other preference here.
+ */
+export function loadRadioCaptions(): boolean {
+  const raw = readStorage(RADIO_KEY);
+  return raw === "off" ? false : DEFAULT_RADIO_CAPTIONS;
+}
+
+export function saveRadioCaptions(enabled: boolean): void {
+  writeStorage(RADIO_KEY, enabled ? "on" : "off");
+}
+
 /* ------------------------------ as a store ------------------------------ */
 
 /**
@@ -128,6 +152,7 @@ const listeners = new Set<Listener>();
 let densityCache: TowerDensity | null = null;
 let timingModeCache: TimingMode | null = null;
 let pinnedCache: string[] | null = null;
+let radioCache: boolean | null = null;
 
 /** One module-level array, so the server snapshot is the same reference on
  * every render — `useSyncExternalStore` compares snapshots by identity and a
@@ -187,6 +212,10 @@ function handleStorageEvent(event: StorageEvent): void {
     timingModeCache = null;
     changed = true;
   }
+  if (key === null || key === RADIO_KEY) {
+    radioCache = null;
+    changed = true;
+  }
   if (changed) emit();
 }
 
@@ -236,6 +265,15 @@ export function timingModeServerSnapshot(): TimingMode {
   return DEFAULT_TIMING_MODE;
 }
 
+export function radioCaptionsSnapshot(): boolean {
+  if (radioCache === null) radioCache = loadRadioCaptions();
+  return radioCache;
+}
+
+export function radioCaptionsServerSnapshot(): boolean {
+  return DEFAULT_RADIO_CAPTIONS;
+}
+
 export function pinnedSnapshot(): string[] {
   if (pinnedCache === null) pinnedCache = loadPinnedDrivers();
   return pinnedCache;
@@ -254,6 +292,12 @@ export function setDensityPreference(density: TowerDensity): void {
 export function setTimingModePreference(mode: TimingMode): void {
   timingModeCache = mode;
   saveTimingMode(mode);
+  emit();
+}
+
+export function setRadioCaptionsPreference(enabled: boolean): void {
+  radioCache = enabled;
+  saveRadioCaptions(enabled);
   emit();
 }
 
