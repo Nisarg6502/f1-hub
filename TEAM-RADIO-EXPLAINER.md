@@ -1,6 +1,14 @@
 # Team Radio — the plain-English version
 
-Written 2026-08-29. This is the "what are we actually doing and why" doc.
+Written 2026-08-29, updated 2026-08-30 once it was built.
+
+**Where it stands:** the feature works end to end. Radio pops up over the Watch
+replay at the right moment, there is a full Team Radio module on the Pitwall
+page, transcription runs free on your own machine, and swearing is masked. The
+2026 season is being transcribed now. The one open item is the speaker-labelling
+bake-off, which needs about forty minutes of your listening — see §4.
+
+This is the "what are we actually doing and why" doc.
 `TEAM-RADIO-PLAN.md` is the build instructions; this one is the reasoning.
 Everything factual below was measured against the live APIs on 2026-08-29, not
 assumed.
@@ -156,11 +164,39 @@ line by line.
 adds a real machine-learning service that we have to run and keep running, and
 race radio is horrible audio — compressed, clipped, engine noise, helmet muffle.
 
-### How we decide
+### How we decide — and the one thing that needs you
 
-We build both, hand-label about 150 real utterances as ground truth, and score
-them. If B doesn't clearly win, A ships — because A is dramatically simpler to
-operate and simplicity has real value.
+Both are now built and both run. What is missing is the answer sheet.
+
+**Someone has to listen.** Judging these from the written transcript is exactly
+what Approach A does, so a "correct answer" written from the text would be
+marking A's homework using A's own reasoning. It would look like a score and mean
+nothing. The only honest ground truth comes from a person with headphones on.
+
+So there's a tool for it: `backend/scripts/radio_label.html`. Double-click it,
+load the sample, play each clip and tap DRIVER / PIT / UNKNOWN for each line.
+About 120 lines, so roughly forty minutes. It deliberately does *not* show you
+what the machine guessed, because people agree with a guess they have been shown,
+and that bias would quietly flow into the score.
+
+The moment that file exists, `eval_radio_attribution.py` prints the full
+comparison and applies the rule we wrote down beforehand: B only wins if it beats
+A by a clear margin, otherwise A ships because it is far simpler to run.
+
+### What we already know without the answer sheet
+
+**Approach B found something A got wrong twice.** Norris's thirty-second
+post-race exchange came out as *all driver* on our first attempt and *all pit
+wall* on the second — both wrong, both confident. Listening to the voices instead
+of the words, B finds four turns alternating between two people, which is what a
+post-race exchange actually is.
+
+**But B had a surprise weakness.** Several clips with an obvious two-way
+conversation reached it as a single undivided block of audio, because the
+transcription model had not split them. You cannot separate two speakers in a
+span you have been handed as one piece. We fixed it by re-cutting each block
+wherever there is a pause longer than about half a second — on a radio channel
+only one person can talk at a time, so a handover always leaves a gap.
 
 **A useful reality check on difficulty:** F1 themselves built exactly this,
 running live during races. It reportedly took 75 model iterations and 7 hours of
