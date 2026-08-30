@@ -28,6 +28,9 @@ the transcription run itself, which is blocked on one free API key.
 | `scripts/sync_race_radio.py` | Four independently-versioned stages. `--stage ingest` run for real. |
 | `lib/watch-radio.ts` + tests | 23 tests covering every scheduling rule. |
 | `components/radio-popup.tsx` | Verified in headless Chrome across seven states via `/radio-check`. |
+| `app/radio_diarize.py` + tests | Approach B. ECAPA embeddings over word-gap-split segments, 17 tests, none of which load torch. |
+| `components/radio-panel.tsx` + Pitwall wiring | Phase 2's full feed, verified in headless Chrome. |
+| `scripts/export_radio_eval.py`, `radio_label.html`, `eval_radio_attribution.py` | The bake-off harness. Blocked only on a human listening pass. |
 | `watch-view.tsx` / watch page wiring | Frame-loop hook, preference toggle, `Promise.allSettled` fetch. Typechecks and lints clean; full suite 1,360 backend + 55 frontend tests pass. |
 
 **Verified end to end on the real page, 2026-08-30.** The 2026 Dutch GP is
