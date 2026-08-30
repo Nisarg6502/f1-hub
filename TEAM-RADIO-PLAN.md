@@ -33,6 +33,19 @@ the transcription run itself, which is blocked on one free API key.
 | `scripts/export_radio_eval.py`, `radio_label.html`, `eval_radio_attribution.py` | The bake-off harness. Blocked only on a human listening pass. |
 | `watch-view.tsx` / watch page wiring | Frame-loop hook, preference toggle, `Promise.allSettled` fetch. Typechecks and lints clean; full suite 1,360 backend + 55 frontend tests pass. |
 
+**The 2026 season is backfilled.** All 11 sessions F1 published radio for —
+eight races and three sprints — are transcribed, attributed and masked: **271
+clips, 271 transcribed, 261 captioned, 893 utterances.** The ten without a
+caption produced no speech at all (noise or an empty channel) and remain
+playable. Every race clip is placed on its replay clock; sprint clips are
+deliberately unplaced, because `race_timing` is race-only and borrowing the
+race's anchor put them 27 hours out.
+
+Speaker split across the season: **452 pit, 321 driver, 120 unknown (13%
+abstention)**. Prompt v1 was driver-heavy at 4:1, v2 is pit-heavy at 1.4:1, and
+the truth is somewhere between — which is what §5.4's eval set exists to settle.
+Seven clips carry strong language.
+
 **Verified end to end on the real page, 2026-08-30.** The 2026 Dutch GP is
 transcribed, attributed and masked in Mongo — 31 clips, 88 utterances, 30 with
 captions — and the popup fires on the watch replay at the right instant. At

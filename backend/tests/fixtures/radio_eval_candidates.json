@@ -1,0 +1,852 @@
+{
+  "version": 1,
+  "year": 2026,
+  "seed": 20260830,
+  "note": "Candidates for hand-labelling. Open backend/scripts/radio_label.html, load this file, listen to each clip and mark every line driver / pit / unknown, then save the result as radio_attribution_eval.json.",
+  "clips": [
+    {
+      "id": "11334-12-20260719T143343766",
+      "session": {
+        "year": 2026,
+        "round": "10",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-07-19_Belgian_Grand_Prix/2026-07-19_Race/TeamRadio/ANT_12_20260719_163325.mp3",
+      "driver_number": "12",
+      "driver_name": "Andrea Kimi Antonelli",
+      "driver_code": "ANT",
+      "team": "Mercedes",
+      "lap": 44,
+      "duration_s": 5.7,
+      "lines": [
+        "Run the mic.",
+        "Throw the mic.",
+        "Give me Bravo.",
+        "Bravo."
+      ]
+    },
+    {
+      "id": "11334-16-20260719T143240449",
+      "session": {
+        "year": 2026,
+        "round": "10",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-07-19_Belgian_Grand_Prix/2026-07-19_Race/TeamRadio/LEC_16_20260719_163216.mp3",
+      "driver_number": "16",
+      "driver_name": "Charles Leclerc",
+      "driver_code": "LEC",
+      "team": "Ferrari",
+      "lap": 44,
+      "duration_s": 0.6,
+      "lines": [
+        "Uh, we..."
+      ]
+    },
+    {
+      "id": "11334-3-20260719T143108454",
+      "session": {
+        "year": 2026,
+        "round": "10",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-07-19_Belgian_Grand_Prix/2026-07-19_Race/TeamRadio/VER_3_20260719_163033.mp3",
+      "driver_number": "3",
+      "driver_name": "Max Verstappen",
+      "driver_code": "VER",
+      "team": "Red Bull",
+      "lap": 44,
+      "duration_s": 28.9,
+      "lines": [
+        "Yeah, good job, guys. I mean, it's a nice podium. We're unlucky with that VSC, but similar result.",
+        "Well done, Max. The pace is getting better. You were very strong, as you say. Unlucky for P2, but it's close enough to the top and we have more coming. So, thanks for bearing with us.",
+        "Yeah, exactly that. It's a tiny bit unlucky, but it's still a happy podium."
+      ]
+    },
+    {
+      "id": "11334-55-20260719T125540626",
+      "session": {
+        "year": 2026,
+        "round": "10",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-07-19_Belgian_Grand_Prix/2026-07-19_Race/TeamRadio/SAI_55_20260719_145529.mp3",
+      "driver_number": "55",
+      "driver_name": "Carlos Sainz",
+      "driver_code": "SAI",
+      "team": "Williams",
+      "lap": null,
+      "duration_s": 2.1,
+      "lines": [
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window."
+      ]
+    },
+    {
+      "id": "11342-1-20260726T134538374",
+      "session": {
+        "year": 2026,
+        "round": "11",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-07-26_Hungarian_Grand_Prix/2026-07-26_Race/TeamRadio/NOR_1_20260726_154526.mp3",
+      "driver_number": "1",
+      "driver_name": "Lando Norris",
+      "driver_code": "NOR",
+      "team": "McLaren",
+      "lap": 30,
+      "duration_s": 8.9,
+      "lines": [
+        "Okay mate, let's get back to the rhythm.",
+        "Know what you've been trying to do and we see it.",
+        "Back to the rhythm please."
+      ]
+    },
+    {
+      "id": "11342-3-20260726T131843355",
+      "session": {
+        "year": 2026,
+        "round": "11",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-07-26_Hungarian_Grand_Prix/2026-07-26_Race/TeamRadio/VER_3_20260726_151824.mp3",
+      "driver_number": "3",
+      "driver_name": "Max Verstappen",
+      "driver_code": "VER",
+      "team": "Red Bull",
+      "lap": 11,
+      "duration_s": 10.0,
+      "lines": [
+        "Please do something about this shit and don't tell me it's the thing I turn.",
+        "Absolutely."
+      ]
+    },
+    {
+      "id": "11342-43-20260726T144618522",
+      "session": {
+        "year": 2026,
+        "round": "11",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-07-26_Hungarian_Grand_Prix/2026-07-26_Race/TeamRadio/COL_43_20260726_164802.mp3",
+      "driver_number": "43",
+      "driver_name": "Franco Colapinto",
+      "driver_code": "COL",
+      "team": "Alpine F1 Team",
+      "lap": 70,
+      "duration_s": 4.3,
+      "lines": [
+        "Choking pace.",
+        "Oh, so slow."
+      ]
+    },
+    {
+      "id": "11342-44-20260726T131913874",
+      "session": {
+        "year": 2026,
+        "round": "11",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-07-26_Hungarian_Grand_Prix/2026-07-26_Race/TeamRadio/HAM_44_20260726_151851.mp3",
+      "driver_number": "44",
+      "driver_name": "Lewis Hamilton",
+      "driver_code": "HAM",
+      "team": "Ferrari",
+      "lap": 12,
+      "duration_s": 4.5,
+      "lines": [
+        "Max is pretty slow."
+      ]
+    },
+    {
+      "id": "11342-81-20260726T140155886",
+      "session": {
+        "year": 2026,
+        "round": "11",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-07-26_Hungarian_Grand_Prix/2026-07-26_Race/TeamRadio/PIA_81_20260726_160114.mp3",
+      "driver_number": "81",
+      "driver_name": "Oscar Piastri",
+      "driver_code": "PIA",
+      "team": "McLaren",
+      "lap": 41,
+      "duration_s": 17.7,
+      "lines": [
+        "Off to that, Sainz, that's tough, plus that. Target is to get to the end on this tyre.",
+        "Aw, mate. It's better you don't f*** at all for me now. I'll send you guys to check the other one in, by the way. Thanks."
+      ]
+    },
+    {
+      "id": "11348-23-20260822T100042574",
+      "session": {
+        "year": 2026,
+        "round": "12",
+        "session_type": "sprint"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-08-23_Dutch_Grand_Prix/2026-08-22_Sprint/TeamRadio/ALB_23_20260822_120032.mp3",
+      "driver_number": "23",
+      "driver_name": "Alexander Albon",
+      "driver_code": "ALB",
+      "team": "Williams",
+      "lap": null,
+      "duration_s": 2.6,
+      "lines": [
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window.",
+        "Stint, out-lap, pit window."
+      ]
+    },
+    {
+      "id": "11353-63-20260823T133431961",
+      "session": {
+        "year": 2026,
+        "round": "12",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-08-23_Dutch_Grand_Prix/2026-08-23_Race/TeamRadio/RUS_63_20260823_153426.mp3",
+      "driver_number": "63",
+      "driver_name": "George Russell",
+      "driver_code": "RUS",
+      "team": "Mercedes",
+      "lap": 3,
+      "duration_s": 3.9,
+      "lines": [
+        "Can't make this joke how Colby Tide are again."
+      ]
+    },
+    {
+      "id": "11353-81-20260823T140029285",
+      "session": {
+        "year": 2026,
+        "round": "12",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-08-23_Dutch_Grand_Prix/2026-08-23_Race/TeamRadio/PIA_81_20260823_160002.mp3",
+      "driver_number": "81",
+      "driver_name": "Oscar Piastri",
+      "driver_code": "PIA",
+      "team": "McLaren",
+      "lap": 21,
+      "duration_s": 11.4,
+      "lines": [
+        "The Ferraris are doing 17 to 5.",
+        "We need to be better than that.",
+        "We're aiming to plan A top of that."
+      ]
+    },
+    {
+      "id": "11291-1-20260524T191121252",
+      "session": {
+        "year": 2026,
+        "round": "5",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-05-24_Canadian_Grand_Prix/2026-05-24_Race/TeamRadio/NOR_1_20260524_124627.mp3",
+      "driver_number": "1",
+      "driver_name": "Lando Norris",
+      "driver_code": "NOR",
+      "team": "McLaren",
+      "lap": null,
+      "duration_s": 7.5,
+      "lines": [
+        "Stand for the way, mate.",
+        "Stand for the way.",
+        "You now need to keep it cool.",
+        "Reset."
+      ]
+    },
+    {
+      "id": "11291-1-20260524T200312407",
+      "session": {
+        "year": 2026,
+        "round": "5",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-05-24_Canadian_Grand_Prix/2026-05-24_Race/TeamRadio/NOR_1_20260524_160301.mp3",
+      "driver_number": "1",
+      "driver_name": "Lando Norris",
+      "driver_code": "NOR",
+      "team": "McLaren",
+      "lap": null,
+      "duration_s": 5.4,
+      "lines": [
+        "Any comments on conditionals, Lando?",
+        "Yeah, I don't know.",
+        "We'll see."
+      ]
+    },
+    {
+      "id": "11291-12-20260524T210314264",
+      "session": {
+        "year": 2026,
+        "round": "5",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-05-24_Canadian_Grand_Prix/2026-05-24_Race/TeamRadio/ANT_12_20260524_170305.mp3",
+      "driver_number": "12",
+      "driver_name": "Andrea Kimi Antonelli",
+      "driver_code": "ANT",
+      "team": "Mercedes",
+      "lap": 41,
+      "duration_s": 4.6,
+      "lines": [
+        "What is this guy doing, man?"
+      ]
+    },
+    {
+      "id": "11291-12-20260524T213951148",
+      "session": {
+        "year": 2026,
+        "round": "5",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-05-24_Canadian_Grand_Prix/2026-05-24_Race/TeamRadio/ANT_12_20260524_173905.mp3",
+      "driver_number": "12",
+      "driver_name": "Andrea Kimi Antonelli",
+      "driver_code": "ANT",
+      "team": "Mercedes",
+      "lap": 68,
+      "duration_s": 16.2,
+      "lines": [
+        "Nice work, Kimi. It's been a very eventful day, but well done.",
+        "Yeah, thank you everyone. Not the way I wanted to win.",
+        "It was going to be a good fight with George, but yeah, we'll take it."
+      ]
+    },
+    {
+      "id": "11291-43-20260524T214356063",
+      "session": {
+        "year": 2026,
+        "round": "5",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-05-24_Canadian_Grand_Prix/2026-05-24_Race/TeamRadio/COL_43_20260524_174314.mp3",
+      "driver_number": "43",
+      "driver_name": "Franco Colapinto",
+      "driver_code": "COL",
+      "team": "Alpine F1 Team",
+      "lap": 68,
+      "duration_s": 22.4,
+      "lines": [
+        "Ah, vamoz, buddy. E6.",
+        "Well done, mate. Mate.",
+        "There we go. Sorry for the extra stress. I don't have much control.",
+        "Really sorry.",
+        "I'll, uh, I'll check the heart rate. I'll check the heart rate after the race, mate.",
+        "Mate, fantastic job this weekend. Really, really good driving."
+      ]
+    },
+    {
+      "id": "11291-43-20260524T214459267",
+      "session": {
+        "year": 2026,
+        "round": "5",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-05-24_Canadian_Grand_Prix/2026-05-24_Race/TeamRadio/COL_43_20260524_174426.mp3",
+      "driver_number": "43",
+      "driver_name": "Franco Colapinto",
+      "driver_code": "COL",
+      "team": "Alpine F1 Team",
+      "lap": 68,
+      "duration_s": 18.8,
+      "lines": [
+        "I've got the Pops on my shoulder here.",
+        "He's a very happy man.",
+        "So that is P6.",
+        "That's your best ever result in F1 now, mate.",
+        "Another week, another best."
+      ]
+    },
+    {
+      "id": "11291-44-20260524T214023499",
+      "session": {
+        "year": 2026,
+        "round": "5",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-05-24_Canadian_Grand_Prix/2026-05-24_Race/TeamRadio/HAM_44_20260524_173930.mp3",
+      "driver_number": "44",
+      "driver_name": "Lewis Hamilton",
+      "driver_code": "HAM",
+      "team": "Ferrari",
+      "lap": 68,
+      "duration_s": 24.5,
+      "lines": [
+        "And well done.",
+        "Pichu.",
+        "That was a great fight.",
+        "Good job, good gene.",
+        "Woo!",
+        "That was tough, guys.",
+        "Mega job this weekend.",
+        "Definitely the result we deserve.",
+        "Thank you so much to everyone back at the factory.",
+        "Gracias, tutti.",
+        "Let's keep pushing.",
+        "This is a good step.",
+        "Let's keep working to try and close that gap.",
+        "Thank you, Luis."
+      ]
+    },
+    {
+      "id": "11299-1-20260607T140136722",
+      "session": {
+        "year": 2026,
+        "round": "6",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-06-07_Monaco_Grand_Prix/2026-06-07_Race/TeamRadio/NOR_1_20260607_160057.mp3",
+      "driver_number": "1",
+      "driver_name": "Lando Norris",
+      "driver_code": "NOR",
+      "team": "McLaren",
+      "lap": 46,
+      "duration_s": 8.9,
+      "lines": [
+        "Glado, just, we're going to box this lap and retire the car.",
+        "We're going to box the lap and retire the car."
+      ]
+    },
+    {
+      "id": "11299-23-20260607T140309485",
+      "session": {
+        "year": 2026,
+        "round": "6",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-06-07_Monaco_Grand_Prix/2026-06-07_Race/TeamRadio/ALB_23_20260607_160244.mp3",
+      "driver_number": "23",
+      "driver_name": "Alexander Albon",
+      "driver_code": "ALB",
+      "team": "Williams",
+      "lap": 47,
+      "duration_s": 14.6,
+      "lines": [
+        "Is there a reason for this?",
+        "Because if I'm machine set, what should I do?",
+        "I mean, I'm happy to do it, but I just...",
+        "Are we just risking something for nothing, or...?"
+      ]
+    },
+    {
+      "id": "11299-23-20260607T153557868",
+      "session": {
+        "year": 2026,
+        "round": "6",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-06-07_Monaco_Grand_Prix/2026-06-07_Race/TeamRadio/ALB_23_20260607_173615.mp3",
+      "driver_number": "23",
+      "driver_name": "Alexander Albon",
+      "driver_code": "ALB",
+      "team": "Williams",
+      "lap": 78,
+      "duration_s": 27.7,
+      "lines": [
+        "Alex, it was a tough afternoon to walk away with.",
+        "V8 is a good result.",
+        "Well done to you.",
+        "I know it was tough out there with all the battery issues and the car.",
+        "We'll look into that, but well done.",
+        "V8, really good points.",
+        "We'll keep moving forward.",
+        "Yeah, thanks, James.",
+        "Yeah, it'll be interesting to see everyone watching this.",
+        "Hey, so who is it?",
+        "Straight by, speed.",
+        "Yeah, well done.",
+        "It's a better weekend, so thanks everyone.",
+        "Thanks for all the hard work."
+      ]
+    },
+    {
+      "id": "11299-55-20260607T140611311",
+      "session": {
+        "year": 2026,
+        "round": "6",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-06-07_Monaco_Grand_Prix/2026-06-07_Race/TeamRadio/SAI_55_20260607_160551.mp3",
+      "driver_number": "55",
+      "driver_name": "Carlos Sainz",
+      "driver_code": "SAI",
+      "team": "Williams",
+      "lap": 49,
+      "duration_s": 4.1,
+      "lines": [
+        "You're at the point now.",
+        "No, no mistake."
+      ]
+    },
+    {
+      "id": "11307-12-20260614T133303404",
+      "session": {
+        "year": 2026,
+        "round": "7",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-06-14_Barcelona_Grand_Prix/2026-06-14_Race/TeamRadio/ANT_12_20260614_153235.mp3",
+      "driver_number": "12",
+      "driver_name": "Andrea Kimi Antonelli",
+      "driver_code": "ANT",
+      "team": "Mercedes",
+      "lap": 22,
+      "duration_s": 7.9,
+      "lines": [
+        "Happy with launching.",
+        "Affirm, Kimi.",
+        "Good lap times."
+      ]
+    },
+    {
+      "id": "11307-12-20260614T141610831",
+      "session": {
+        "year": 2026,
+        "round": "7",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-06-14_Barcelona_Grand_Prix/2026-06-14_Race/TeamRadio/ANT_12_20260614_161533.mp3",
+      "driver_number": "12",
+      "driver_name": "Andrea Kimi Antonelli",
+      "driver_code": "ANT",
+      "team": "Mercedes",
+      "lap": 53,
+      "duration_s": 9.7,
+      "lines": [
+        "Gamut 0.9, 1.3 behind.",
+        "Try that floor on floor, please, front.",
+        "Copy that, Kimi."
+      ]
+    },
+    {
+      "id": "11307-16-20260614T132453779",
+      "session": {
+        "year": 2026,
+        "round": "7",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-06-14_Barcelona_Grand_Prix/2026-06-14_Race/TeamRadio/LEC_16_20260614_152415.mp3",
+      "driver_number": "16",
+      "driver_name": "Charles Leclerc",
+      "driver_code": "LEC",
+      "team": "Ferrari",
+      "lap": 16,
+      "duration_s": 13.1,
+      "lines": [
+        "And box, Charles, box.",
+        "We have the gap to tell the Piasco.",
+        "We don't care about Piasco.",
+        "Let's look for the head, for the face.",
+        "Okay, let me know on flat.",
+        "We stay out this lap then.",
+        "Stay out this lap."
+      ]
+    },
+    {
+      "id": "11307-44-20260614T135047337",
+      "session": {
+        "year": 2026,
+        "round": "7",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-06-14_Barcelona_Grand_Prix/2026-06-14_Race/TeamRadio/HAM_44_20260614_155019.mp3",
+      "driver_number": "44",
+      "driver_name": "Lewis Hamilton",
+      "driver_code": "HAM",
+      "team": "Ferrari",
+      "lap": 35,
+      "duration_s": 8.4,
+      "lines": [
+        "Can I catch it now?",
+        "You are catching really well.",
+        "Keep, keep pushing, keep pushing."
+      ]
+    },
+    {
+      "id": "11307-44-20260614T143902091",
+      "session": {
+        "year": 2026,
+        "round": "7",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-06-14_Barcelona_Grand_Prix/2026-06-14_Race/TeamRadio/HAM_44_20260614_163825.mp3",
+      "driver_number": "44",
+      "driver_name": "Lewis Hamilton",
+      "driver_code": "HAM",
+      "team": "Ferrari",
+      "lap": 66,
+      "duration_s": 13.6,
+      "lines": [
+        "Let's go!",
+        "For the Ferrari!",
+        "For the Ferrari!",
+        "Guys, thank you for those great pit stops as well.",
+        "Sorry I've been talking.",
+        "I'm so proud of you.",
+        "Thank you."
+      ]
+    },
+    {
+      "id": "11307-63-20260614T131948370",
+      "session": {
+        "year": 2026,
+        "round": "7",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-06-14_Barcelona_Grand_Prix/2026-06-14_Race/TeamRadio/RUS_63_20260614_151935.mp3",
+      "driver_number": "63",
+      "driver_name": "George Russell",
+      "driver_code": "RUS",
+      "team": "Mercedes",
+      "lap": 12,
+      "duration_s": 7.6,
+      "lines": [
+        "So Lewis in.",
+        "He's probably going for a three."
+      ]
+    },
+    {
+      "id": "11307-63-20260614T141611009",
+      "session": {
+        "year": 2026,
+        "round": "7",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-06-14_Barcelona_Grand_Prix/2026-06-14_Race/TeamRadio/RUS_63_20260614_161559.mp3",
+      "driver_number": "63",
+      "driver_name": "George Russell",
+      "driver_code": "RUS",
+      "team": "Mercedes",
+      "lap": 53,
+      "duration_s": 4.2,
+      "lines": [
+        "I'll take you pick up the pace here, George."
+      ]
+    },
+    {
+      "id": "11315-3-20260628T143224314",
+      "session": {
+        "year": 2026,
+        "round": "8",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-06-28_Austrian_Grand_Prix/2026-06-28_Race/TeamRadio/VER_3_20260628_163139.mp3",
+      "driver_number": "3",
+      "driver_name": "Max Verstappen",
+      "driver_code": "VER",
+      "team": "Red Bull",
+      "lap": 71,
+      "duration_s": 12.5,
+      "lines": [
+        "Ah, good deal, folks. Well done. Throw, er, throw the wheels off it. That's all.",
+        "That's the podium.",
+        "Oh."
+      ]
+    },
+    {
+      "id": "11315-44-20260628T131848577",
+      "session": {
+        "year": 2026,
+        "round": "8",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-06-28_Austrian_Grand_Prix/2026-06-28_Race/TeamRadio/HAM_44_20260628_151833.mp3",
+      "driver_number": "44",
+      "driver_name": "Lewis Hamilton",
+      "driver_code": "HAM",
+      "team": "Ferrari",
+      "lap": 13,
+      "duration_s": 6.6,
+      "lines": [
+        "Out-lap, critical.",
+        "Out-lap, critical.",
+        "Let's push."
+      ]
+    },
+    {
+      "id": "11315-44-20260628T135118443",
+      "session": {
+        "year": 2026,
+        "round": "8",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-06-28_Austrian_Grand_Prix/2026-06-28_Race/TeamRadio/HAM_44_20260628_155100.mp3",
+      "driver_number": "44",
+      "driver_name": "Lewis Hamilton",
+      "driver_code": "HAM",
+      "team": "Ferrari",
+      "lap": 39,
+      "duration_s": 6.9,
+      "lines": [
+        "We need to get the Piastri.",
+        "I know you are dying."
+      ]
+    },
+    {
+      "id": "11315-63-20260628T131516424",
+      "session": {
+        "year": 2026,
+        "round": "8",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-06-28_Austrian_Grand_Prix/2026-06-28_Race/TeamRadio/RUS_63_20260628_151458.mp3",
+      "driver_number": "63",
+      "driver_name": "George Russell",
+      "driver_code": "RUS",
+      "team": "Mercedes",
+      "lap": 10,
+      "duration_s": 13.4,
+      "lines": [
+        "So, the staff could trigger this early.",
+        "He is very close to Lewis.",
+        "Every, every extra second we can get."
+      ]
+    },
+    {
+      "id": "11315-63-20260628T135928152",
+      "session": {
+        "year": 2026,
+        "round": "8",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-06-28_Austrian_Grand_Prix/2026-06-28_Race/TeamRadio/RUS_63_20260628_155900.mp3",
+      "driver_number": "63",
+      "driver_name": "George Russell",
+      "driver_code": "RUS",
+      "team": "Mercedes",
+      "lap": 46,
+      "duration_s": 7.7,
+      "lines": [
+        "Long end, Kimi keeps extended.",
+        "But Dappen is going to keep right extended.",
+        "And Pumid is in the race."
+      ]
+    },
+    {
+      "id": "11326-12-20260705T151031151",
+      "session": {
+        "year": 2026,
+        "round": "9",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/TeamRadio/ANT_12_20260705_161020.mp3",
+      "driver_number": "12",
+      "driver_name": "Andrea Kimi Antonelli",
+      "driver_code": "ANT",
+      "team": "Mercedes",
+      "lap": 42,
+      "duration_s": 6.5,
+      "lines": [
+        "No, Vader. Suspension is broken.",
+        "Okay, copy. Copy."
+      ]
+    },
+    {
+      "id": "11326-12-20260705T152416187",
+      "session": {
+        "year": 2026,
+        "round": "9",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/TeamRadio/ANT_12_20260705_162333.mp3",
+      "driver_number": "12",
+      "driver_name": "Andrea Kimi Antonelli",
+      "driver_code": "ANT",
+      "team": "Mercedes",
+      "lap": 50,
+      "duration_s": 18.9,
+      "lines": [
+        "We do have a five-second penalty for track limits.",
+        "Yeah, but that's a joke, mate.",
+        "I didn't do it on purpose.",
+        "Like, the car was broken.",
+        "Yeah, understood.",
+        "Like, I wasn't even getting time.",
+        "Yeah, I know, mate.",
+        "I know, mate."
+      ]
+    },
+    {
+      "id": "11326-6-20260705T154029372",
+      "session": {
+        "year": 2026,
+        "round": "9",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/TeamRadio/HAD_6_20260705_163932.mp3",
+      "driver_number": "6",
+      "driver_name": "Isack Hadjar",
+      "driver_code": "HAD",
+      "team": "Red Bull",
+      "lap": 52,
+      "duration_s": 38.2,
+      "lines": [
+        "That's P5 up to me, P5. I don't know what the hell that was. I mean, obviously I was on new tyre again, but you don't get that much time. That was just, yeah. Big loss. Big loss of road.",
+        "Don't be that. Oh yeah, yeah, yeah. And well, say the points. Yeah, but I wanted to go to the front, not like... Buy it back, I know, mate, I know. Yeah. Still stuff to work on. We'll work on it together."
+      ]
+    },
+    {
+      "id": "11326-63-20260705T145922607",
+      "session": {
+        "year": 2026,
+        "round": "9",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/TeamRadio/RUS_63_20260705_155847.mp3",
+      "driver_number": "63",
+      "driver_name": "George Russell",
+      "driver_code": "RUS",
+      "team": "Mercedes",
+      "lap": 36,
+      "duration_s": 3.2,
+      "lines": [
+        "Oh my god."
+      ]
+    },
+    {
+      "id": "11326-63-20260705T153322733",
+      "session": {
+        "year": 2026,
+        "round": "9",
+        "session_type": "race"
+      },
+      "url": "https://livetiming.formula1.com/static/2026/2026-07-05_British_Grand_Prix/2026-07-05_Race/TeamRadio/RUS_63_20260705_163250.mp3",
+      "driver_number": "63",
+      "driver_name": "George Russell",
+      "driver_code": "RUS",
+      "team": "Mercedes",
+      "lap": 52,
+      "duration_s": 17.4,
+      "lines": [
+        "Pardon for sticking in there.",
+        "But let's really try and get on top of this straight line speed.",
+        "So that was a very frustrating weekend.",
+        "Otherwise, we got lucky with the road to do.",
+        "Yeah, George, I think straight line was okay in the race."
+      ]
+    }
+  ]
+}
