@@ -63,6 +63,33 @@ consolation prize.
   The output shape now lives in the system prompt, the schema is sent but not
   depended on, and `_chat` tolerates a bare array.
 
+**Approach B is built and running** (`app/radio_diarize.py`, `--stage diarize`),
+on `speechbrain/spkrec-ecapa-voxceleb` — Apache-2.0 and ungated, chosen because
+every hosted diarizer is another signup and `pyannote` is gated behind an HF
+account. Three things it taught us:
+
+* **Whisper's segmentation is the binding constraint, not the voices.** Several
+  clips carrying an obvious two-way exchange arrived as a *single* ASR segment,
+  and a single segment gives diarization nothing to separate — approach B scored
+  "single voice" on clips approach A split correctly, for reasons unrelated to
+  audio. Re-splitting each segment at word gaps >= 0.45s (radio is half-duplex,
+  so a handover always leaves one) fixed it.
+* **The split threshold is now measured, not guessed.** Clips plainly containing
+  an exchange sit at 0.97-1.11 cosine distance; ambiguous ones at 0.70-0.79.
+  `SPLIT_DISTANCE` is 0.85, and remains a calibration target for the eval sweep.
+* **It gets the clip approach A got wrong in both directions.** Norris's 30s
+  post-race exchange was all-driver under prompt v1 and all-pit under v2;
+  diarization finds four alternating turns and B labels them
+  driver / pit / driver / pit.
+
+**Neither arm can be scored yet, and that is the honest state.** Ground truth
+requires someone to listen — labelling from the transcript is precisely what
+approach A does, so a text-derived "truth" would score A against its own
+reasoning. `scripts/export_radio_eval.py` draws a stratified sample,
+`scripts/radio_label.html` is the listening tool, and
+`scripts/eval_radio_attribution.py` applies §5.5's rule mechanically the moment
+labels exist.
+
 **The attribution approaches, measured on real transcripts** (12 utterances
 from the CC BY 4.0 corpus, run through the real Ollama key — indicative, not the
 eval set of §5.4):

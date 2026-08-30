@@ -1,21 +1,45 @@
-# Dependencies for the team-radio transcription job ONLY.
+# Dependencies for the team-radio transcription and diarization job ONLY.
 #
 # **Deliberately not in `requirements.txt`, and it must stay that way.**
 # `/api/race_radio` serves from Mongo and does not self-heal (see that module's
 # docstring: a rebuild would run speech-to-text on a page view), so nothing on a
-# request path ever transcribes. Adding CTranslate2 and a 1.6GB model to the
-# `f1-backend` image would pay for a capability the service never uses.
+# request path ever transcribes. Adding CTranslate2, torch and a 1.6GB model to
+# the `f1-backend` image would pay for a capability the service never uses.
 #
 # Install locally when running the backfill:
 #
 #     pip install -r backend/requirements-radio.txt
-#     python -m scripts.sync_race_radio --round 12 --stage asr,attrib,mask
+#     python -m scripts.sync_race_radio --round 12 --stage ingest,asr,attrib,mask
+#     python -m scripts.sync_race_radio --round 12 --stage diarize
 #
-# The model itself is downloaded on first use and cached under
-# `~/.cache/huggingface`. `large-v3-turbo` is ~1.6GB.
+# **`asr` and `diarize` are two commands, not one.** faster-whisper (CTranslate2)
+# and speechbrain (torch) each load their own OpenMP runtime, and two in one
+# Windows process is a hard segfault -- the job refuses the combination rather
+# than crashing. See `app/openf1_sessions.py` for the measured repro.
 #
-# Not pinned tightly: this is a local batch tool, not a deployed surface, and
-# faster-whisper tracks CTranslate2's own compatible range more carefully than a
-# hand-picked pin would. If a future version breaks, pin then — with a note
-# saying which version and why, the way `requirements.txt` does.
+# Models download on first use into `~/.cache/huggingface`: whisper
+# `large-v3-turbo` is ~1.6GB, the ECAPA speaker encoder ~80MB.
+
+# --- transcription ---------------------------------------------------------
+# Not pinned tightly: a local batch tool, not a deployed surface, and
+# faster-whisper tracks CTranslate2's compatible range more carefully than a
+# hand-picked pin would.
 faster-whisper
+
+# --- diarization (approach B in TEAM-RADIO-PLAN.md §5.2) --------------------
+# PINNED TOGETHER, and the reason is a real failure rather than caution.
+# speechbrain 1.1.x calls `torch.amp.custom_fwd`, which does not exist before
+# torch ~2.2; installing speechbrain alone against this machine's torch 2.1.2
+# produced `AttributeError: module 'torch.amp' has no attribute 'custom_fwd'`
+# on some clips and silently degraded others to "single voice". pip resolved
+# neither, because the incompatibility is an attribute lookup at call time.
+#
+# torchaudio must match torch exactly -- a mismatched pair fails at import with
+# `OSError: [WinError 127] The specified procedure could not be found`, which
+# names nothing useful.
+#
+# The CPU wheels come from PyTorch's own index, not PyPI:
+#     pip install --index-url https://download.pytorch.org/whl/cpu torch torchaudio
+torch==2.6.0
+torchaudio==2.6.0
+speechbrain==1.1.1

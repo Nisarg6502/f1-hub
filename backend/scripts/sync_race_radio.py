@@ -18,8 +18,14 @@ The stages are separable and independently versioned, which is the point of
 
     ingest     fetch the clip index and measure durations   (free, fast)
     asr        transcribe                                   (local model by default)
+    diarize    group segments by voice, for approach B      (optional, own process)
     attrib     split into utterances and label speakers      (needs OLLAMA_API_KEY)
     mask       apply `***` masking to the stored raw text   (free, fast)
+
+**`asr` and `diarize` must not be run in one invocation.** Both load a numerical
+stack with its own OpenMP runtime, and two in one Windows process is a hard
+segfault — see `openf1_sessions.py`. The job refuses the combination rather than
+crashing halfway through a round.
 
 `asr` runs `faster-whisper` on this machine unless `RADIO_ASR_PROVIDER=groq`;
 see `app/radio_transcribe.py` for why local is the default. Install its
@@ -72,6 +78,7 @@ from app.radio_clips import (
     fetch_clips,
     livetiming_session_base,
 )
+from app.radio_diarize import DIARIZE_VERSION, DiarizationUnavailable, diarize, summarise
 from app.radio_profanity import MASK_VERSION, mask_utterances
 from app.radio_transcribe import (
     TranscriptionError,
@@ -90,7 +97,12 @@ DB_NAME = os.getenv("MONGODB_DB_NAME") or os.getenv("mongodb_db_name") or "f1_sc
 
 ASR_VERSION = 1
 
-STAGES = ("ingest", "asr", "attrib", "mask")
+STAGES = ("ingest", "asr", "diarize", "attrib", "mask")
+
+# How often the transcription stage writes what it has. Every clip would be a
+# Mongo round trip per ~17 seconds of CPU for no real gain; every eight bounds
+# the loss from an interruption to a couple of minutes.
+_ASR_CHECKPOINT_EVERY = 8
 
 
 def _log(message: str) -> None:
@@ -186,7 +198,7 @@ def _merge_previous(clips: list[dict], previous: dict | None) -> list[dict]:
     return merged
 
 
-def _run_asr(clips: list[dict], directory: dict, force: bool) -> int:
+def _run_asr(clips: list[dict], directory: dict, force: bool, on_progress=None) -> int:
     """Transcribe every clip that does not already have a current transcript.
 
     Sequential on purpose. The local model holds the CPU and loads once per
@@ -194,6 +206,10 @@ def _run_asr(clips: list[dict], directory: dict, force: bool) -> int:
     parallel would contend for the same threads and load nothing faster. A race
     is ~8.5 minutes of audio, so a session takes roughly nine minutes of compute
     after the model is warm.
+
+    `on_progress` is called every `_ASR_CHECKPOINT_EVERY` clips so an interrupted
+    run keeps the work it has already paid for. Checkpointing only once the whole
+    stage finished would still throw away up to nine minutes of CPU to a Ctrl-C.
     """
     prompt = build_prompt(
         [entry.get("name") for entry in directory.values()],
@@ -239,6 +255,44 @@ def _run_asr(clips: list[dict], directory: dict, force: bool) -> int:
             f"    [{index}/{len(pending)}] #{clip['driver_number']:<3} "
             f"{clip.get('duration_s') or 0:5.1f}s in {time.monotonic() - started:5.1f}s  {preview}"
         )
+        if on_progress and index % _ASR_CHECKPOINT_EVERY == 0:
+            on_progress()
+    return done
+
+
+def _run_diarize(clips: list[dict], force: bool) -> int:
+    """Attach acoustic `turns` to each transcript, for approach B.
+
+    Failure is per clip and never fatal: a clip that cannot be diarized keeps its
+    transcript and is attributed by approach A, which is the honest degradation
+    rather than a hole in the data.
+    """
+    pending = [
+        clip
+        for clip in clips
+        if clip.get("transcript")
+        and (force or clip.get("diarize_version") != DIARIZE_VERSION)
+    ]
+    if not pending:
+        return 0
+    _log(f"    {len(pending)} clips to diarize")
+
+    done = 0
+    for index, clip in enumerate(pending, start=1):
+        try:
+            turns = diarize(clip["url"], clip["transcript"])
+        except DiarizationUnavailable as error:
+            # The model or its dependency is missing — every remaining clip
+            # fails identically, so stop rather than repeat the message.
+            _log(f"    ! {error}")
+            return done
+        except Exception as error:  # noqa: BLE001 - one clip must not stop a session
+            _log(f"    ! clip {clip['id']}: diarization failed: {error}")
+            continue
+        clip["transcript"]["turns"] = turns
+        clip["diarize_version"] = DIARIZE_VERSION
+        done += 1
+        _log(f"    [{index}/{len(pending)}] #{clip['driver_number']:<3} {summarise(turns)}")
     return done
 
 
@@ -287,6 +341,61 @@ def _run_mask(clips: list[dict], force: bool) -> int:
         clip["mask_version"] = MASK_VERSION
         done += 1
     return done
+
+
+def _checkpoint(
+    db,
+    year: int,
+    round_number: int,
+    session_type: str,
+    clips: list[dict],
+    source: str | None,
+    label: str,
+    *,
+    announce: bool = False,
+) -> None:
+    """Write what exists so far.
+
+    Called after **every** stage rather than once at the end, and that is not
+    tidiness. Transcribing a race is ~9 minutes of CPU; writing only at the end
+    means a Ctrl-C, a laptop lid, or an OOM anywhere in that window throws all of
+    it away and the next run starts from nothing. Each stage is independently
+    version-keyed, so a partial document is a perfectly valid resume point — the
+    next run picks up exactly the clips that are missing their stage.
+
+    Placement is redone on every checkpoint because it is pure arithmetic over
+    data already in hand, and doing it once at the end would leave an
+    interrupted round's clips stored without a `t_ms`.
+    """
+    race_start, lap_ms = _anchor_for(db, year, round_number)
+    if announce and race_start is None and clips:
+        _log(f"  {label}: no timing anchor — clips stored unplaced (run sync_race_timing)")
+    placed = place_clips(clips, race_start, lap_ms)
+
+    db.race_radio.update_one(
+        {
+            "season": year,
+            "round": str(round_number),
+            "session_type": session_type,
+            "version": RADIO_VERSION,
+        },
+        {
+            "$set": {
+                "season": year,
+                "round": str(round_number),
+                "session_type": session_type,
+                "version": RADIO_VERSION,
+                "race_start": race_start,
+                "source": source,
+                "synced": True,
+                "clips": placed,
+            }
+        },
+        upsert=True,
+    )
+    if announce:
+        transcribed = sum(1 for clip in placed if clip.get("transcript"))
+        _log(f"  {label}: stored {len(placed)} clips ({transcribed} transcribed), source={source}")
 
 
 def sync_session(
@@ -341,42 +450,23 @@ def sync_session(
         # stage is over, which for ASR is ten minutes of total silence.
         if "asr" in stages:
             _log(f"  {label}: transcribing…")
-            _log(f"  {label}: transcribed {_run_asr(clips, directory, force)} new")
+            _log(
+                f"  {label}: transcribed "
+                f"{_run_asr(clips, directory, force, on_progress=lambda: _checkpoint(db, year, round_number, session_type, clips, source, label))} new"
+            )
+            _checkpoint(db, year, round_number, session_type, clips, source, label)
+        if "diarize" in stages:
+            _log(f"  {label}: diarizing…")
+            _log(f"  {label}: diarized {_run_diarize(clips, force)} new")
+            _checkpoint(db, year, round_number, session_type, clips, source, label)
         if "attrib" in stages:
             _log(f"  {label}: attributing…")
             _log(f"  {label}: attributed {_run_attrib(clips, directory, approach, force)} new")
+            _checkpoint(db, year, round_number, session_type, clips, source, label)
         if "mask" in stages:
             _log(f"  {label}: masked {_run_mask(clips, force)} new")
 
-    race_start, lap_ms = _anchor_for(db, year, round_number)
-    if race_start is None and clips:
-        _log(f"  {label}: no timing anchor — clips stored unplaced (run sync_race_timing)")
-    placed = place_clips(clips, race_start, lap_ms)
-
-    db.race_radio.update_one(
-        {
-            "season": year,
-            "round": str(round_number),
-            "session_type": session_type,
-            "version": RADIO_VERSION,
-        },
-        {
-            "$set": {
-                "season": year,
-                "round": str(round_number),
-                "session_type": session_type,
-                "version": RADIO_VERSION,
-                "session_key": session_key,
-                "race_start": race_start,
-                "source": source,
-                "synced": True,
-                "clips": placed,
-            }
-        },
-        upsert=True,
-    )
-    transcribed = sum(1 for clip in placed if clip.get("transcript"))
-    _log(f"  {label}: stored {len(placed)} clips ({transcribed} transcribed), source={source}")
+    _checkpoint(db, year, round_number, session_type, clips, source, label, announce=True)
 
 
 def main() -> None:
@@ -398,6 +488,17 @@ def main() -> None:
     )
     if not stages:
         parser.error(f"--stage must name at least one of {STAGES}")
+    if "asr" in stages and "diarize" in stages:
+        # Not a style preference. Transcription and diarization each load a
+        # numerical stack carrying its own OpenMP runtime, and two of those in
+        # one Windows process segfaults the interpreter with no traceback — the
+        # failure `openf1_sessions.py` documents. Refusing here turns a mystery
+        # crash halfway through a round into a sentence.
+        parser.error(
+            "--stage cannot combine `asr` and `diarize`: they load conflicting "
+            "OpenMP runtimes and the process segfaults. Run them separately -- "
+            "`--stage asr` first, then `--stage diarize`."
+        )
 
     client = MongoClient(MONGODB_URI)
     db = client[DB_NAME]
