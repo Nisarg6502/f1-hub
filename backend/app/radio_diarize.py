@@ -46,7 +46,6 @@ two commands.
 """
 
 import io
-import math
 import os
 
 import httpx
