@@ -144,6 +144,38 @@ class LapResolutionTests(unittest.TestCase):
         self.assertNotIn("lap", placed[0])
 
 
+class SprintAnchorTests(unittest.TestCase):
+    """A sprint must not be placed against the race's lights-out.
+
+    `race_timing` is race-only, so a lookup keyed on the round alone hands a
+    sprint the anchor of a session held the day before. Measured on the 2026
+    Dutch GP sprint before the fix: every clip landed at about minus 27 hours.
+    Watch mode hid them (it drops negative times), but the Pitwall module
+    labelled real sprint radio "Before lights out" — true of the wrong session.
+    """
+
+    def test_the_job_refuses_to_hand_a_sprint_the_races_anchor(self):
+        from scripts.sync_race_radio import _anchor_for
+
+        class Timing:
+            def find_one(self, *args, **kwargs):
+                return {"race_start": RACE_START, "lap_ms": [90000]}
+
+        class Db:
+            race_timing = Timing()
+
+        self.assertEqual(_anchor_for(Db(), 2026, 12, "race"), (RACE_START, [90000]))
+        self.assertEqual(_anchor_for(Db(), 2026, 12, "sprint"), (None, []))
+
+    def test_an_unanchored_session_keeps_its_clips(self):
+        """Unplaced is a degraded session, not a hidden one."""
+        placed = place_clips([clip("2026-08-22T12:00:00+00:00")], None)
+
+        self.assertEqual(len(placed), 1)
+        self.assertIsNone(placed[0]["t_ms"])
+        self.assertNotIn("lap", placed[0])
+
+
 class OrderingTests(unittest.TestCase):
     def test_clips_sort_by_elapsed_time_with_nulls_last(self):
         clips = [

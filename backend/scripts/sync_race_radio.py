@@ -126,18 +126,29 @@ def _session_key_for(db, year: int, round_number: int, session_type: str) -> tup
     return fetch_openf1_session_key(date), date
 
 
-def _anchor_for(db, year: int, round_number: int) -> tuple[str | None, list[int]]:
+def _anchor_for(db, year: int, round_number: int, session_type: str) -> tuple[str | None, list[int]]:
     """The lights-out instant and lap boundaries, from the cached timing payload.
 
     `race_timing` measures this anchor to place OpenF1's own samples; a radio
     clip is the same kind of timestamp from the same feed, so reusing it is what
     keeps a caption and the tower underneath it describing the same instant.
 
-    A round cached before `race_start` was persisted simply has no anchor here.
-    That is a degraded session, not a broken one — clips still store with
-    `t_ms: None`, the Pitwall module lists them by wall-clock, and running
-    `sync_race_timing` for that round fills the anchor in.
+    **A sprint gets no anchor, and must not borrow the race's.** `race_timing` is
+    race-only — there is no sprint document — so a lookup keyed on the round
+    alone silently returns the *race's* lights-out for a session held the day
+    before. Measured on the 2026 Dutch GP sprint: every clip placed at about
+    minus 27 hours. Watch mode never showed them (it drops negative times), but
+    the Pitwall module labelled real sprint radio "Before lights out", which is
+    true of the wrong session. `t_ms: None` is the correct answer here, and the
+    module already renders it honestly as "Off the race clock".
+
+    A round cached before `race_start` was persisted also has no anchor. That is
+    a degraded session, not a broken one — clips still store, the Pitwall module
+    lists them by wall-clock, and running `sync_race_timing` fills it in.
     """
+    if session_type != "race":
+        return None, []
+
     doc = db.race_timing.find_one(
         {"season": year, "round": str(round_number)},
         {"_id": 0, "race_start": 1, "lap_ms": 1},
@@ -367,9 +378,17 @@ def _checkpoint(
     data already in hand, and doing it once at the end would leave an
     interrupted round's clips stored without a `t_ms`.
     """
-    race_start, lap_ms = _anchor_for(db, year, round_number)
+    race_start, lap_ms = _anchor_for(db, year, round_number, session_type)
     if announce and race_start is None and clips:
-        _log(f"  {label}: no timing anchor — clips stored unplaced (run sync_race_timing)")
+        # Session-aware, because the two causes need different actions — and
+        # telling someone to run a race-only job for a sprint sends them after a
+        # fix that does not exist.
+        why = (
+            "sprints have no timing document, so this is expected"
+            if session_type != "race"
+            else "run sync_race_timing for this round"
+        )
+        _log(f"  {label}: no timing anchor — clips stored unplaced ({why})")
     placed = place_clips(clips, race_start, lap_ms)
 
     db.race_radio.update_one(
