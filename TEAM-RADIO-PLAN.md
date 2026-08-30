@@ -811,6 +811,32 @@ race detail page; revisit audio bleeping only if demand is real.
 
 ---
 
+## 13a. Known quality issues, measured
+
+**Whisper repeats itself on quiet or noisy stretches.** Seen twice in the
+backfill: a 192s open channel transcribed as "Harder. Harder. Harder." and a
+Barcelona clip that emitted the same sentence twice in a row. This is Whisper's
+classic hallucination-on-silence behaviour, not a pipeline fault.
+
+`faster-whisper` exposes `hallucination_silence_threshold`, which suppresses it
+when word timestamps are on — which they already are. It was **deliberately not
+enabled mid-backfill**: changing ASR parameters partway through would leave some
+rounds transcribed under different settings than others, and comparing them later
+would be meaningless. The fix is a one-line change plus an `ASR_VERSION` bump and
+a full re-transcribe (~2 hours unattended), which is exactly what the version key
+exists to make safe. Worth doing before any work that treats the transcripts as a
+corpus rather than as captions.
+
+**ASR quality on the worst audio is poor and should not be oversold.** Alongside
+clean results like "Lando, how are the tyres, how's the pace?" the same race
+produced "Clown-buck, tailspot" and "Can't make this joke how Colby Tide are
+again". This is genuinely hard audio — band-limited, clipped, engine noise over a
+helmet mic — and `large-v3-turbo` is already the strong model. The Pitwall module
+carries a standing note that transcripts are machine-generated and not an
+official record; that note is load-bearing and should not be removed.
+
+---
+
 ## 14. Open decisions
 
 1. **Diarization provider for B1** — Deepgram vs AssemblyAI. Pick on free-credit
