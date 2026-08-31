@@ -28,9 +28,12 @@ import {
   Smartphone,
   RefreshCw,
   Check,
+  Radio,
+  RadioOff,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { RaceReplay, RaceTiming, ReplayLap, ReplayRunner } from "@/lib/api";
+import type { RaceRadio, RaceReplay, RaceTiming, ReplayLap, ReplayRunner } from "@/lib/api";
+import RadioPopup from "./radio-popup";
 import { getTeamColor } from "@/lib/team-colors";
 import {
   RealTimeLapClock,
@@ -55,13 +58,22 @@ import {
   type WatchPosition,
 } from "@/lib/watch-session";
 import {
+  advanceRadio,
+  createRadioState,
+  schedulableClips,
+  type RadioCue,
+} from "@/lib/watch-radio";
+import {
   densityServerSnapshot,
   densitySnapshot,
   orderRunners,
   pinnedServerSnapshot,
   pinnedSnapshot,
+  radioCaptionsServerSnapshot,
+  radioCaptionsSnapshot,
   setDensityPreference,
   setPinnedPreference,
+  setRadioCaptionsPreference,
   setTimingModePreference,
   subscribePreferences,
   timingModeServerSnapshot,
@@ -334,12 +346,19 @@ function PairedToast({
 export default function WatchView({
   replay,
   timing = null,
+  radio = null,
 }: {
   replay: RaceReplay;
   /** The per-second track. Optional and nullable on purpose: a pre-2023 round,
    * or one OpenF1 does not cover, has none, and the tower falls back to the
    * lap-stepped behaviour it had before CP79 rather than failing. */
   timing?: RaceTiming | null;
+  /** Team radio for this session. Nullable on the same terms as `timing`, and
+   * empty far more often than it is populated: F1 published no radio at all for
+   * the first eight race and sprint sessions of 2026, and none for any session
+   * before 2023. Absent means the captions never appear — never an error state,
+   * and never an empty box. */
+  radio?: RaceRadio | null;
 }) {
   const reduce = useReducedMotion();
   const laps = replay.laps;
@@ -437,6 +456,44 @@ export default function WatchView({
     timingModeSnapshot,
     timingModeServerSnapshot
   );
+  const radioCaptions = useSyncExternalStore(
+    subscribePreferences,
+    radioCaptionsSnapshot,
+    radioCaptionsServerSnapshot
+  );
+
+  /* ----------------------------- team radio ----------------------------- */
+
+  /** Placed, in-race, transcribed clips, sorted once per race rather than per
+   * frame. A session with none of those leaves this empty and the whole feature
+   * costs one array read per frame. */
+  const radioClips = useMemo(() => schedulableClips(radio?.clips), [radio]);
+
+  /** The scheduler's state is a ref, not state: `advanceRadio` is called from
+   * inside the frame loop, where allocating a new object sixty times a second
+   * would be the expensive part of this feature. React only hears about it when
+   * the cue's *identity* changes — the same discipline `orderRef` applies to the
+   * running order. */
+  const radioStateRef = useRef(createRadioState());
+  const radioCueIdRef = useRef<string | null>(null);
+  const [radioCue, setRadioCue] = useState<RadioCue | null>(null);
+
+  // Read inside the frame loop through refs so `paintProgress` does not gain
+  // dependencies that rebuild it — and, through `paintRef`, the clock — every
+  // time the viewer flips a switch. Toggling a caption preference must not
+  // restart the race, which is the bug `paintRef` exists to prevent.
+  const radioClipsRef = useRef(radioClips);
+  const radioEnabledRef = useRef(radioCaptions);
+  useEffect(() => {
+    radioClipsRef.current = radioClips;
+  }, [radioClips]);
+  useEffect(() => {
+    radioEnabledRef.current = radioCaptions;
+    if (!radioCaptions) {
+      radioCueIdRef.current = null;
+      setRadioCue(null);
+    }
+  }, [radioCaptions]);
 
   const togglePinned = useCallback(
     (number: string) => {
@@ -568,9 +625,32 @@ export default function WatchView({
         raceClockRef.current.textContent = formatRaceClock(raceMs);
       }
 
-      // Above the `perSecond` gate on purpose: pit windows come from the replay
-      // and the lap clock, both of which exist on every round. A round OpenF1
-      // does not cover has no per-second track and still has pit stops.
+      // Above the `perSecond` gate on purpose, and for the same reason pit
+      // windows are: a radio clip is placed against the measured race start,
+      // not against the per-second feed, so a round with no per-second track
+      // still gets its captions at the right moment.
+      //
+      // `playing` is read off the clock rather than from React state because
+      // this callback also runs once while paused (to repaint after a jump),
+      // and a caption must not fire on a stopped clock.
+      const cue = advanceRadio(
+        radioStateRef.current,
+        radioClipsRef.current,
+        raceMs,
+        {
+          playing: clockRef.current?.playing ?? false,
+          enabled: radioEnabledRef.current,
+        }
+      );
+      const cueId = cue?.clip.id ?? null;
+      if (cueId !== radioCueIdRef.current) {
+        // Identity, not value: `advanceRadio` returns the same cue object for
+        // every frame a caption is on screen, and comparing objects here would
+        // re-render the whole view at 60Hz for the six seconds it is up.
+        radioCueIdRef.current = cueId;
+        setRadioCue(cue);
+      }
+
       const pits = pitSetAt(pitWindows, raceMs);
       if (!samePitSet(pits, pitRef.current)) {
         pitRef.current = pits;
@@ -1168,6 +1248,22 @@ export default function WatchView({
       {/* Both halves of a successful pairing, announced on the screen that
           experienced it. See `WatchPairEvent`. */}
       <PairedToast event={party.pairEvent} onDone={party.clearPairEvent} />
+
+      {/* Rendered unconditionally with a nullable clip rather than behind a
+          guard: keeping one instance mounted for the life of the view means the
+          `<audio>` element survives between clips, so a second message arriving
+          mid-playback stops the first rather than orphaning it. */}
+      <RadioPopup
+        clip={radioCue?.clip ?? null}
+        driver={
+          radioCue ? replay.drivers[radioCue.clip.driver_number] ?? null : null
+        }
+        onDismiss={() => {
+          radioCueIdRef.current = null;
+          radioStateRef.current.current = null;
+          setRadioCue(null);
+        }}
+      />
 
       {/* ------------------------------ header ------------------------------ */}
       <header
@@ -2322,6 +2418,26 @@ export default function WatchView({
               document.body
             )}
         </div>
+
+        {/* Only offered when there is radio to switch off. A dead toggle on a
+            session F1 published nothing for would read as "the feature is
+            broken" rather than "there is nothing to show". */}
+        {radioClips.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setRadioCaptionsPreference(!radioCaptions)}
+            aria-pressed={radioCaptions}
+            title={
+              radioCaptions
+                ? `Team radio captions on — ${radioClips.length} in this race`
+                : "Team radio captions off"
+            }
+            className="flex items-center justify-center w-11 h-11 [@media(max-height:520px)]:w-9 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft transition-[color,transform] duration-150 active:scale-[0.97] flex-none"
+            style={{ color: radioCaptions ? "var(--color-primary)" : "var(--color-warm-400)" }}
+          >
+            {radioCaptions ? <Radio size={17} /> : <RadioOff size={17} />}
+          </button>
+        )}
 
         <button
           type="button"

@@ -20,7 +20,7 @@ if "motor.motor_asyncio" not in sys.modules:
     sys.modules["motor"] = motor_module
     sys.modules["motor.motor_asyncio"] = motor_asyncio_module
 
-from app import race_stints
+from app import openf1_sessions, race_stints
 
 
 class FakeCollection:
@@ -197,53 +197,86 @@ class StintsFromOpenF1Tests(unittest.TestCase):
 
 
 class BuildRaceStintsOpenF1Tests(unittest.TestCase):
+    """Two fetch seams, not one, since the session lookup moved out.
+
+    `fetch_openf1_session_key` now lives in `openf1_sessions`, which has no
+    scientific-stack imports — the transcription job cannot import fastf1
+    without segfaulting CTranslate2 (see that module's docstring). So the
+    sessions call goes through `openf1_sessions.fetch_json` and the stints call
+    through `race_stints._fetch_json`, and a test that patches only one of them
+    lets the other reach the real network.
+    """
+
+    def _patch_both(self, sessions_result, stints_result):
+        session_calls, stint_calls = [], []
+
+        def fake_sessions(url, params=None, timeout=20.0):
+            session_calls.append((url, params))
+            return sessions_result
+
+        def fake_stints(url, params=None, timeout=20.0):
+            stint_calls.append((url, params))
+            return stints_result
+
+        return (
+            patch.object(openf1_sessions, "fetch_json", side_effect=fake_sessions),
+            patch.object(race_stints, "_fetch_json", side_effect=fake_stints),
+            session_calls,
+            stint_calls,
+        )
+
     def test_looks_up_the_session_by_date_then_fetches_its_stints(self):
-        calls = []
+        sessions, stints_patch, session_calls, stint_calls = self._patch_both(
+            [
+                {"session_key": 11334, "date_start": "2026-07-19T13:00:00+00:00"},
+                {"session_key": 11342, "date_start": "2026-07-26T13:00:00+00:00"},
+            ],
+            [openf1_stint(1, 1, 1, 17)],
+        )
 
-        def fake_fetch(url, params=None, timeout=20.0):
-            calls.append((url, params))
-            if url.endswith("/sessions"):
-                return [
-                    {"session_key": 11334, "date_start": "2026-07-19T13:00:00+00:00"},
-                    {"session_key": 11342, "date_start": "2026-07-26T13:00:00+00:00"},
-                ]
-            return [openf1_stint(1, 1, 1, 17)]
-
-        with patch.object(race_stints, "_fetch_json", side_effect=fake_fetch):
+        with sessions, stints_patch:
             stints = race_stints.build_race_stints_openf1("2026-07-26")
 
-        self.assertEqual(calls[0][1], {"year": "2026", "session_type": "Race"})
-        self.assertEqual(calls[1][1], {"session_key": 11342})
+        self.assertEqual(session_calls[0][1], {"year": "2026", "session_type": "Race"})
+        self.assertEqual(stint_calls[0][1], {"session_key": 11342})
         self.assertEqual(len(stints), 1)
 
     def test_a_date_with_no_matching_session_returns_none(self):
-        with patch.object(race_stints, "_fetch_json", return_value=[
-            {"session_key": 11342, "date_start": "2026-07-26T13:00:00+00:00"},
-        ]):
+        sessions, stints_patch, _, stint_calls = self._patch_both(
+            [{"session_key": 11342, "date_start": "2026-07-26T13:00:00+00:00"}], []
+        )
+
+        with sessions, stints_patch:
             self.assertIsNone(race_stints.build_race_stints_openf1("2026-08-23"))
 
+        # And it gave up before asking for stints, rather than fetching
+        # somebody else's session.
+        self.assertEqual(stint_calls, [])
+
     def test_a_season_openf1_does_not_cover_returns_none(self):
-        # OpenF1 404s (-> None from `_fetch_json`) for anything before 2023,
+        # OpenF1 404s (-> None from the fetch helper) for anything before 2023,
         # which is exactly what has to hand off to the FastF1 fallback.
-        with patch.object(race_stints, "_fetch_json", return_value=None):
+        with patch.object(openf1_sessions, "fetch_json", return_value=None):
             self.assertIsNone(race_stints.build_race_stints_openf1("2018-07-26"))
 
     def test_an_empty_stint_feed_returns_none_rather_than_an_empty_list(self):
         # None/empty both have to read as "OpenF1 has nothing" so the caller
         # falls through to FastF1 instead of caching an empty document.
-        def fake_fetch(url, params=None, timeout=20.0):
-            if url.endswith("/sessions"):
-                return [{"session_key": 11342, "date_start": "2026-07-26T13:00:00+00:00"}]
-            return []
+        sessions, stints_patch, _, _ = self._patch_both(
+            [{"session_key": 11342, "date_start": "2026-07-26T13:00:00+00:00"}], []
+        )
 
-        with patch.object(race_stints, "_fetch_json", side_effect=fake_fetch):
+        with sessions, stints_patch:
             self.assertIsNone(race_stints.build_race_stints_openf1("2026-07-26"))
 
     def test_no_race_date_returns_none_without_calling_openf1(self):
-        with patch.object(race_stints, "_fetch_json") as fetch:
+        with patch.object(openf1_sessions, "fetch_json") as sessions_fetch, patch.object(
+            race_stints, "_fetch_json"
+        ) as stints_fetch:
             self.assertIsNone(race_stints.build_race_stints_openf1(""))
 
-        fetch.assert_not_called()
+        sessions_fetch.assert_not_called()
+        stints_fetch.assert_not_called()
 
 
 class RaceStintsSourceOrderTests(unittest.TestCase):

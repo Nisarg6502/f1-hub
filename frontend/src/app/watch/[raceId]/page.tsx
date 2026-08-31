@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getRaceReplay, getRaceTiming, getSeasonRaces } from "@/lib/api";
+import { getRaceRadio, getRaceReplay, getRaceTiming, getSeasonRaces } from "@/lib/api";
 import { findWatchableFallback, parseRaceId, toRaceId } from "@/lib/watch-races";
 import WatchView from "@/components/watch-view";
 
@@ -52,13 +52,20 @@ export default async function WatchRacePage({ params }: PageProps) {
     // `synced: false`, which `buildTimingIndex` reads as "no track" — the same
     // outcome as this catch, by design, so there is only one degraded path to
     // reason about rather than two.
-    let timing = null;
-    try {
-      timing = await getRaceTiming(season, round);
-    } catch {
-      timing = null;
-    }
-    return <WatchView replay={replay} timing={timing} />;
+    // Fetched together rather than in sequence: they are independent, both are
+    // optional, and a round that has neither should not pay for two round trips
+    // to find that out. `allSettled` rather than `all` because one rejecting
+    // must not deny the other — the whole point of both being enhancements.
+    const [timingResult, radioResult] = await Promise.allSettled([
+      getRaceTiming(season, round),
+      // Team radio exists for roughly half of 2026 and nothing before 2023, so
+      // the common answer here is an empty payload. That is not a failure and
+      // is not surfaced as one: no clips means no captions, silently.
+      getRaceRadio(season, round),
+    ]);
+    const timing = timingResult.status === "fulfilled" ? timingResult.value : null;
+    const radio = radioResult.status === "fulfilled" ? radioResult.value : null;
+    return <WatchView replay={replay} timing={timing} radio={radio} />;
   }
 
   /* ------------------------- nothing to replay ------------------------- */

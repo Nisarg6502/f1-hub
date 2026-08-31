@@ -34,12 +34,11 @@ from .f1_results import (
 )
 from .historical_index import normalize_races
 
-try:
-    from dotenv import load_dotenv
+from .local_env import load_local_env
 
-    load_dotenv()
-except ImportError:
-    pass
+# See `local_env`: the repo has two `.env` files and the nearer one lacks the
+# database URI. A no-op in the deployed job, where there is no `.env` at all.
+load_local_env()
 
 MONGODB_URI = os.getenv("MONGODB_URI") or os.getenv("mongodburi") or "mongodb://localhost:27017"
 DB_NAME = os.getenv("MONGODB_DB_NAME") or os.getenv("mongodb_db_name") or "f1_scratch"

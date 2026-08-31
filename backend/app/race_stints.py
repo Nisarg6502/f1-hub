@@ -35,7 +35,16 @@ from .f1_results import enable_cache
 
 router = APIRouter(prefix="/api")
 
-OPENF1_BASE = "https://api.openf1.org/v1"
+# Re-exported: these live in their own module so the team-radio transcription
+# job can reach the session lookup without importing this one (and therefore
+# fastf1, and therefore NumPy's OpenMP runtime, which segfaults CTranslate2 on
+# Windows — see `openf1_sessions.py`'s docstring). Callers of
+# `race_stints.fetch_openf1_session_key` are unaffected.
+from .openf1_sessions import (  # noqa: F401
+    OPENF1_BASE,
+    fetch_openf1_session_key,
+    fetch_openf1_sprint_key,
+)
 
 # Columns of `session.laps` this endpoint reads. Anything else on the frame is
 # lap timing detail the stint chart has no use for.
@@ -122,28 +131,6 @@ def _fetch_json(url: str, params: dict | None = None, timeout: float = 20.0):
         return None
 
 
-def fetch_openf1_session_key(race_date: str) -> int | None:
-    """OpenF1's `session_key` for the race held on `race_date` (YYYY-MM-DD).
-
-    Sessions are matched on the `date_start` date prefix rather than by index,
-    because `session_type=Race` also returns sprint races — a sprint weekend
-    contributes two entries for one round, so positional indexing would drift.
-    """
-    if not race_date:
-        return None
-
-    sessions = _fetch_json(
-        f"{OPENF1_BASE}/sessions", {"year": race_date[:4], "session_type": "Race"}
-    )
-    if not isinstance(sessions, list):
-        return None
-
-    session = next(
-        (s for s in sessions if str(s.get("date_start", "")).startswith(race_date)), None
-    )
-    if not session:
-        return None
-    return _as_int(session.get("session_key"))
 
 
 def stints_from_openf1(rows: list[dict]) -> list[dict]:

@@ -693,6 +693,71 @@ export async function getRaceTiming(year: number, round: number) {
   });
 }
 
+/** One labelled line inside a radio clip.
+ *
+ * `speaker` is `"unknown"` far more often than you might expect, and that is
+ * the design working rather than failing: no free source labels who is speaking
+ * on a team-radio clip, so the label is inferred, and an inferred label below
+ * the confidence floor is served as an abstention rather than a guess. Render
+ * `unknown` neutrally — never as a driver line by default. */
+export interface RadioUtterance {
+  speaker: "driver" | "pit" | "unknown";
+  /** Already profanity-masked server-side. The raw text is never served. */
+  text: string;
+  /** Seconds into the clip. Null when the transcript could not be aligned. */
+  start: number | null;
+  end: number | null;
+  confidence: number | null;
+}
+
+export interface RadioClip {
+  id: string;
+  /** Car number as a string — the same key `RaceReplay.drivers` uses. */
+  driver_number: string;
+  date: string;
+  /**
+   * Elapsed race milliseconds, the same quantity watch mode's clock reports.
+   *
+   * **Null and negative are both routine.** F1 publishes radio from the grid
+   * before lights out (negative) and from sessions this app could not anchor to
+   * a measured race start (null). Watch mode skips both; a list view shows them
+   * by wall-clock. Neither is an error.
+   */
+  t_ms: number | null;
+  lap?: number | null;
+  /** Derived from the file's byte length — the MP3s are 128kbps CBR. */
+  duration_s: number | null;
+  /** F1's own CDN. Plays in an `<audio>` element; cannot be read by Web Audio,
+   * which sends no CORS header — a real waveform would need a proxy. */
+  url: string;
+  utterances: RadioUtterance[];
+  strong_language: boolean;
+  notability: number | null;
+}
+
+export interface RaceRadio {
+  year: number;
+  round: number;
+  session: string;
+  /** Ascending by `t_ms`, nulls last. */
+  clips: RadioClip[];
+  /** `false` = not processed yet. `true` with no clips = F1 published none,
+   * which is the honest answer for eight 2026 sessions and is not a bug. */
+  synced: boolean;
+  source: "openf1" | "livetiming" | null;
+}
+
+export async function getRaceRadio(year: number, round: number, session = "race") {
+  return fetchJson<RaceRadio>("/api/race_radio", {
+    year,
+    round,
+    session,
+  }, {
+    // A finished session's radio never changes once the job has processed it.
+    next: { revalidate: 3600 },
+  });
+}
+
 export async function getCircuitInfo(year: number, eventName: string) {
   return fetchJson<CircuitInfo>("/api/circuit_info", {
     year,

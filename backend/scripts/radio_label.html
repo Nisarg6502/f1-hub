@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Team radio — speaker labelling</title>
+<!--
+  Ground truth for the attribution bake-off, produced by a person listening.
+
+  This is a local file, opened with a double-click. It is not part of the app and
+  is not served by it: it exists because the one thing the pipeline cannot
+  produce for itself is a correct answer to check against. Labelling from the
+  transcript alone is exactly what approach A does, so a text-derived "ground
+  truth" would score approach A against its own reasoning.
+
+  Two deliberate properties:
+
+  * The machine's speaker guess is NOT shown, and is not even in the input file.
+    A labeller shown a guess agrees with it far more often than one who is not,
+    and that bias would flow straight into the score.
+  * Audio is streamed from F1's CDN. That works from a `file://` page because a
+    media element plays cross-origin without CORS — the same reason the app can
+    play these clips at all, and the same reason it cannot draw a real waveform.
+-->
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 28px clamp(16px, 4vw, 48px) 96px;
+    background: #14100e; color: #f6f1ea;
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #a89e90; font-size: 13px; margin: 0 0 22px; }
+  .bar {
+    position: sticky; top: 0; z-index: 5; margin: -28px -48px 20px; padding: 14px 48px;
+    background: #14100ef2; border-bottom: 1px solid #ffffff14;
+    display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+  }
+  button, label.file {
+    font: 600 13px/1 inherit; color: #f6f1ea; background: #ffffff0f;
+    border: 1px solid #ffffff1f; border-radius: 10px; padding: 9px 14px; cursor: pointer;
+  }
+  button:hover, label.file:hover { border-color: #ff8a3d80; }
+  button.primary { background: #ff5a1f; border-color: #ff5a1f; color: #1a1210; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .progress { color: #a89e90; font-size: 13px; margin-left: auto; }
+  .clip {
+    border: 1px solid #ffffff14; border-left-width: 4px; border-radius: 14px;
+    padding: 14px 16px; margin-bottom: 12px; background: #ffffff08;
+  }
+  .clip.done { border-left-color: #5ed88f; }
+  .meta { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+          font: 700 11px/1 inherit; letter-spacing: .08em; text-transform: uppercase; color: #6f665b; }
+  .who { color: #ff8a3d; }
+  .line { display: flex; gap: 10px; align-items: flex-start; margin-top: 10px; }
+  .line .text { flex: 1; min-width: 0; font-size: 14px; color: #e8e0d4; }
+  .choices { display: flex; gap: 4px; flex: none; }
+  .choices button { padding: 5px 9px; font-size: 11px; border-radius: 8px; }
+  .choices button[aria-pressed="true"][data-v="driver"] { background: #ff5a1f; border-color: #ff5a1f; color: #1a1210; }
+  .choices button[aria-pressed="true"][data-v="pit"] { background: #6ab6ff; border-color: #6ab6ff; color: #101820; }
+  .choices button[aria-pressed="true"][data-v="unknown"] { background: #6f665b; border-color: #6f665b; color: #14100e; }
+  audio { height: 30px; }
+  .hint { color: #6f665b; font-size: 12px; margin-top: 10px; }
+  .empty { color: #a89e90; padding: 40px 0; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <label class="file">Load candidates<input id="file" type="file" accept="application/json" hidden /></label>
+  <button id="save" class="primary" disabled>Save labelled fixture</button>
+  <span class="progress" id="progress">no file loaded</span>
+</div>
+
+<h1>Team radio — speaker labelling</h1>
+<p class="sub">
+  Play each clip, then mark every line <strong>DRIVER</strong>, <strong>PIT</strong>, or
+  <strong>UNKNOWN</strong>. Choose UNKNOWN when the audio genuinely does not tell you —
+  that is a real answer and the scorer treats it as one. The machine's own guess is
+  deliberately not shown.
+</p>
+
+<div id="list"><p class="empty">Load <code>radio_eval_candidates.json</code> to begin.</p></div>
+
+<script>
+const VALUES = ["driver", "pit", "unknown"];
+let data = null;
+const labels = new Map(); // `${clipId}#${lineIndex}` -> value
+
+function progress() {
+  if (!data) return;
+  const total = data.clips.reduce((n, c) => n + c.lines.length, 0);
+  const done = labels.size;
+  document.getElementById("progress").textContent = `${done} / ${total} lines labelled`;
+  document.getElementById("save").disabled = done === 0;
+  for (const clip of data.clips) {
+    const el = document.querySelector(`[data-clip="${CSS.escape(clip.id)}"]`);
+    if (!el) continue;
+    const complete = clip.lines.every((_, i) => labels.has(`${clip.id}#${i}`));
+    el.classList.toggle("done", complete);
+  }
+}
+
+function render() {
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  for (const clip of data.clips) {
+    const box = document.createElement("div");
+    box.className = "clip";
+    box.dataset.clip = clip.id;
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const when = clip.lap != null ? `Lap ${clip.lap}` : "off the race clock";
+    meta.innerHTML =
+      `<span class="who">${clip.driver_code || "#" + clip.driver_number}</span>` +
+      `<span>${clip.team || ""}</span><span>R${clip.session.round} ${clip.session.session_type}</span>` +
+      `<span>${when}</span><span>${clip.duration_s ?? "?"}s</span>`;
+    const audio = document.createElement("audio");
+    audio.controls = true;
+    audio.preload = "none";
+    audio.src = clip.url;
+    meta.appendChild(audio);
+    box.appendChild(meta);
+
+    clip.lines.forEach((text, index) => {
+      const row = document.createElement("div");
+      row.className = "line";
+      const choices = document.createElement("div");
+      choices.className = "choices";
+      for (const value of VALUES) {
+        const button = document.createElement("button");
+        button.dataset.v = value;
+        button.textContent = value === "driver" ? "DRIVER" : value === "pit" ? "PIT" : "?";
+        button.setAttribute("aria-pressed", "false");
+        button.onclick = () => {
+          labels.set(`${clip.id}#${index}`, value);
+          [...choices.children].forEach((b) =>
+            b.setAttribute("aria-pressed", String(b.dataset.v === value))
+          );
+          progress();
+        };
+        choices.appendChild(button);
+      }
+      const span = document.createElement("span");
+      span.className = "text";
+      span.textContent = "“" + text + "”";
+      row.appendChild(choices);
+      row.appendChild(span);
+      box.appendChild(row);
+    });
+
+    list.appendChild(box);
+  }
+  progress();
+}
+
+document.getElementById("file").onchange = async (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
+  data = JSON.parse(await file.text());
+  labels.clear();
+  render();
+};
+
+document.getElementById("save").onclick = () => {
+  const out = {
+    version: 1,
+    year: data.year,
+    // Stamped by the browser, not by the pipeline: this file is evidence about
+    // when a person made these judgements.
+    labelled_at: new Date().toISOString(),
+    clips: data.clips.map((clip) => ({
+      id: clip.id,
+      session: clip.session,
+      url: clip.url,
+      driver_number: clip.driver_number,
+      driver_name: clip.driver_name,
+      driver_code: clip.driver_code,
+      team: clip.team,
+      lap: clip.lap,
+      duration_s: clip.duration_s,
+      utterances: clip.lines.map((text, index) => ({
+        text,
+        speaker: labels.get(`${clip.id}#${index}`) || null,
+      })),
+    })),
+  };
+  // Unlabelled clips are dropped rather than saved with nulls: a partially
+  // labelled clip would silently count as ground truth for the lines that were
+  // done and skew the clip-level exact-match metric.
+  out.clips = out.clips.filter((c) => c.utterances.every((u) => u.speaker));
+  const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "radio_attribution_eval.json";
+  a.click();
+};
+</script>
+</body>
+</html>
