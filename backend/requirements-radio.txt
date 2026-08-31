@@ -40,6 +40,6 @@ faster-whisper
 #
 # The CPU wheels come from PyTorch's own index, not PyPI:
 #     pip install --index-url https://download.pytorch.org/whl/cpu torch torchaudio
-torch==2.6.0
+torch==2.13.0
 torchaudio==2.6.0
 speechbrain==1.1.1
