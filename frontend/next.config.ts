@@ -115,6 +115,41 @@ const CSP = [
   ["script-src 'self' 'unsafe-inline'", ...GA_SCRIPT].join(" "),
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
+  /**
+   * Team-radio audio. **This directive is the feature**, not housekeeping.
+   *
+   * There is no `media-src` fallback chain worth relying on: `<audio>` falls
+   * straight through to `default-src 'self'`, so team radio shipped blocked.
+   * Both players were affected — the Pitwall feed (`radio-panel.tsx`) and the
+   * watch-mode popup (`radio-popup.tsx`) — because the block is at the
+   * document policy, not in either component.
+   *
+   * What it looks like when it is missing, measured in headless Chrome against
+   * this page, because none of it says "CSP" anywhere the reader would look:
+   *   - `.play()` rejects with `NotSupportedError: Failed to load because no
+   *     supported source was found` — which reads as a bad URL or a codec
+   *     problem, and sent the first investigation after `preload`, the shared
+   *     element, and the `onPause` handler instead.
+   *   - the element lands on `networkState = 3` (NETWORK_NO_SOURCE) and
+   *     `error.code = 4` (MEDIA_ERR_SRC_NOT_SUPPORTED).
+   *   - **no request is made at all.** The network panel is empty, so the CDN
+   *     looks unreachable when it is in fact never asked. `curl` on the same
+   *     URL returns 200 `audio/mpeg`, which makes the two observations look
+   *     contradictory until you catch the `securitypolicyviolation` event.
+   * The only honest signal is that event's `effectiveDirective: "media-src"`.
+   *
+   * The host is spelled out rather than derived: unlike the `connect-src`
+   * origins above it comes from no `NEXT_PUBLIC_*` value — the clip URLs are
+   * built server-side in `backend/app/radio_clips.py` (`LIVETIMING_BASE`), so
+   * that constant and this line have to move together.
+   *
+   * Note this is also why the audio can only ever be played, never analysed:
+   * F1's CDN sends no `Access-Control-Allow-Origin`, so `crossOrigin`, Web
+   * Audio and `fetch()` all fail on these files. Allowing the origin here does
+   * not change that, and adding `crossOrigin` to either player would break
+   * playback outright.
+   */
+  "media-src 'self' https://livetiming.formula1.com",
   // `data:` and `blob:` are needed for canvas-derived and generated imagery
   // (the track renderer, the OG image route, chart exports).
   [
