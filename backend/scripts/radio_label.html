@@ -12,7 +12,7 @@
   transcript alone is exactly what approach A does, so a text-derived "ground
   truth" would score approach A against its own reasoning.
 
-  Two deliberate properties:
+  Three deliberate properties:
 
   * The machine's speaker guess is NOT shown, and is not even in the input file.
     A labeller shown a guess agrees with it far more often than one who is not,
@@ -20,20 +20,26 @@
   * Audio is streamed from F1's CDN. That works from a `file://` page because a
     media element plays cross-origin without CORS — the same reason the app can
     play these clips at all, and the same reason it cannot draw a real waveform.
+  * It is keyboard-first. 164 lines of mouse work is what turns a fifteen-minute
+    job into a forty-minute one, and a labelling pass that feels long is one that
+    gets abandoned halfway or rushed at the end — which shows up as noise in the
+    very measurement it exists to produce.
 -->
 <style>
   :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 28px clamp(16px, 4vw, 48px) 96px;
+    margin: 0; padding: 24px clamp(16px, 4vw, 48px) 120px;
     background: #14100e; color: #f6f1ea;
     font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
   }
-  h1 { font-size: 22px; margin: 0 0 4px; }
-  .sub { color: #a89e90; font-size: 13px; margin: 0 0 22px; }
+  h1 { font-size: 21px; margin: 0 0 4px; }
+  .sub { color: #a89e90; font-size: 13px; margin: 0 0 20px; max-width: 70ch; }
   .bar {
-    position: sticky; top: 0; z-index: 5; margin: -28px -48px 20px; padding: 14px 48px;
-    background: #14100ef2; border-bottom: 1px solid #ffffff14;
-    display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+    position: sticky; top: 0; z-index: 5; margin: -24px -48px 18px; padding: 12px 48px;
+    background: #14100ef5; border-bottom: 1px solid #ffffff14;
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    backdrop-filter: blur(8px);
   }
   button, label.file {
     font: 600 13px/1 inherit; color: #f6f1ea; background: #ffffff0f;
@@ -42,16 +48,30 @@
   button:hover, label.file:hover { border-color: #ff8a3d80; }
   button.primary { background: #ff5a1f; border-color: #ff5a1f; color: #1a1210; }
   button:disabled { opacity: .45; cursor: not-allowed; }
-  .progress { color: #a89e90; font-size: 13px; margin-left: auto; }
+  .keys { display: flex; gap: 10px; align-items: center; color: #a89e90; font-size: 12px; flex-wrap: wrap; }
+  kbd {
+    display: inline-block; min-width: 20px; text-align: center;
+    background: #ffffff14; border: 1px solid #ffffff26; border-bottom-width: 2px;
+    border-radius: 5px; padding: 2px 5px; font: 600 11px/1.3 ui-monospace, monospace; color: #f6f1ea;
+  }
+  .progress { color: #a89e90; font-size: 13px; margin-left: auto; font-variant-numeric: tabular-nums; }
+  .progress b { color: #ff8a3d; }
   .clip {
-    border: 1px solid #ffffff14; border-left-width: 4px; border-radius: 14px;
-    padding: 14px 16px; margin-bottom: 12px; background: #ffffff08;
+    border: 1px solid #ffffff14; border-left: 4px solid #ffffff14; border-radius: 14px;
+    padding: 12px 14px; margin-bottom: 10px; background: #ffffff08;
   }
   .clip.done { border-left-color: #5ed88f; }
+  .clip.active { background: #ffffff0e; border-color: #ff8a3d4d; }
   .meta { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
           font: 700 11px/1 inherit; letter-spacing: .08em; text-transform: uppercase; color: #6f665b; }
   .who { color: #ff8a3d; }
-  .line { display: flex; gap: 10px; align-items: flex-start; margin-top: 10px; }
+  .line {
+    display: flex; gap: 10px; align-items: flex-start; margin-top: 8px;
+    padding: 4px 6px; border-radius: 8px; border: 1px solid transparent;
+  }
+  /* The cursor. Without an unmistakable one, keyboard marking becomes guesswork
+     about which line you are actually answering for. */
+  .line.current { border-color: #ff8a3d; background: #ff5a1f14; }
   .line .text { flex: 1; min-width: 0; font-size: 14px; color: #e8e0d4; }
   .choices { display: flex; gap: 4px; flex: none; }
   .choices button { padding: 5px 9px; font-size: 11px; border-radius: 8px; }
@@ -59,23 +79,31 @@
   .choices button[aria-pressed="true"][data-v="pit"] { background: #6ab6ff; border-color: #6ab6ff; color: #101820; }
   .choices button[aria-pressed="true"][data-v="unknown"] { background: #6f665b; border-color: #6f665b; color: #14100e; }
   audio { height: 30px; }
-  .hint { color: #6f665b; font-size: 12px; margin-top: 10px; }
   .empty { color: #a89e90; padding: 40px 0; }
+  .done-banner { color: #5ed88f; font-weight: 700; font-size: 13px; }
 </style>
 </head>
 <body>
 <div class="bar">
   <label class="file">Load candidates<input id="file" type="file" accept="application/json" hidden /></label>
   <button id="save" class="primary" disabled>Save labelled fixture</button>
+  <div class="keys">
+    <span><kbd>1</kbd> driver</span>
+    <span><kbd>2</kbd> pit</span>
+    <span><kbd>3</kbd> not sure</span>
+    <span><kbd>space</kbd> replay</span>
+    <span><kbd>&larr;</kbd> back</span>
+  </div>
   <span class="progress" id="progress">no file loaded</span>
 </div>
 
 <h1>Team radio — speaker labelling</h1>
 <p class="sub">
-  Play each clip, then mark every line <strong>DRIVER</strong>, <strong>PIT</strong>, or
-  <strong>UNKNOWN</strong>. Choose UNKNOWN when the audio genuinely does not tell you —
-  that is a real answer and the scorer treats it as one. The machine's own guess is
-  deliberately not shown.
+  Listen to each clip, then mark every line. The highlighted line is the one you
+  are answering for; marking it moves to the next automatically, and a new clip
+  starts playing on its own. Choose <strong>not sure</strong> whenever the audio
+  genuinely does not tell you — that is a real answer and the scorer treats it as
+  one. The machine's own guess is deliberately not shown.
 </p>
 
 <div id="list"><p class="empty">Load <code>radio_eval_candidates.json</code> to begin.</p></div>
@@ -83,20 +111,103 @@
 <script>
 const VALUES = ["driver", "pit", "unknown"];
 let data = null;
-const labels = new Map(); // `${clipId}#${lineIndex}` -> value
+const labels = new Map();   // `${clipId}#${lineIndex}` -> value
+let cursor = 0;             // index into `slots`
+let slots = [];             // flat [{clipIndex, lineIndex, clipId}]
+
+const key = (clipId, i) => `${clipId}#${i}`;
+
+function buildSlots() {
+  slots = [];
+  data.clips.forEach((clip, clipIndex) => {
+    clip.lines.forEach((_, lineIndex) => slots.push({ clipIndex, lineIndex, clipId: clip.id }));
+  });
+}
 
 function progress() {
   if (!data) return;
-  const total = data.clips.reduce((n, c) => n + c.lines.length, 0);
   const done = labels.size;
-  document.getElementById("progress").textContent = `${done} / ${total} lines labelled`;
-  document.getElementById("save").disabled = done === 0;
-  for (const clip of data.clips) {
-    const el = document.querySelector(`[data-clip="${CSS.escape(clip.id)}"]`);
-    if (!el) continue;
-    const complete = clip.lines.every((_, i) => labels.has(`${clip.id}#${i}`));
-    el.classList.toggle("done", complete);
+  const total = slots.length;
+  const clipsDone = data.clips.filter((c) => c.lines.every((_, i) => labels.has(key(c.id, i)))).length;
+  document.getElementById("progress").innerHTML =
+    done === total && total > 0
+      ? `<span class="done-banner">all ${total} lines done — save it</span>`
+      : `<b>${done}</b> / ${total} lines · ${clipsDone}/${data.clips.length} clips`;
+  document.getElementById("save").disabled = clipsDone === 0;
+}
+
+/** Repaint marks, completion and the cursor without rebuilding the DOM.
+ *  Rebuilding on every keystroke would restart the audio element mid-clip. */
+function paint() {
+  data.clips.forEach((clip) => {
+    const box = document.querySelector(`[data-clip="${CSS.escape(clip.id)}"]`);
+    if (!box) return;
+    box.classList.toggle("done", clip.lines.every((_, i) => labels.has(key(clip.id, i))));
+    box.querySelectorAll(".line").forEach((row, i) => {
+      const value = labels.get(key(clip.id, i));
+      row.querySelectorAll(".choices button").forEach((b) =>
+        b.setAttribute("aria-pressed", String(b.dataset.v === value))
+      );
+    });
+  });
+
+  document.querySelectorAll(".line.current").forEach((n) => n.classList.remove("current"));
+  document.querySelectorAll(".clip.active").forEach((n) => n.classList.remove("active"));
+  const slot = slots[cursor];
+  if (slot) {
+    const clip = data.clips[slot.clipIndex];
+    const box = document.querySelector(`[data-clip="${CSS.escape(clip.id)}"]`);
+    if (box) {
+      box.classList.add("active");
+      const row = box.querySelectorAll(".line")[slot.lineIndex];
+      if (row) {
+        row.classList.add("current");
+        row.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+    }
   }
+  progress();
+}
+
+function audioFor(clipId) {
+  const box = document.querySelector(`[data-clip="${CSS.escape(clipId)}"]`);
+  return box ? box.querySelector("audio") : null;
+}
+
+function play(clipId) {
+  // Only one clip audible at a time: two overlapping voices make the thing you
+  // are being asked to judge impossible to judge.
+  document.querySelectorAll("audio").forEach((a) => {
+    if (a !== audioFor(clipId)) a.pause();
+  });
+  const audio = audioFor(clipId);
+  if (!audio) return;
+  audio.currentTime = 0;
+  // Rejected when the browser declines (no interaction yet). Swallowed: the
+  // clip is still one keypress away, and an unhandled rejection helps nobody.
+  audio.play().catch(() => {});
+}
+
+function moveTo(index, { autoplay = true } = {}) {
+  const previous = slots[cursor];
+  cursor = Math.max(0, Math.min(slots.length - 1, index));
+  const slot = slots[cursor];
+  paint();
+  // Play only when the cursor lands on a *different* clip. Restarting the audio
+  // between two lines of one exchange would make it impossible to hear the
+  // second half.
+  if (autoplay && slot && (!previous || previous.clipId !== slot.clipId)) play(slot.clipId);
+}
+
+function mark(value) {
+  const slot = slots[cursor];
+  if (!slot) return;
+  labels.set(key(slot.clipId, slot.lineIndex), value);
+  if (cursor >= slots.length - 1) {
+    paint();
+    return;
+  }
+  moveTo(cursor + 1);
 }
 
 function render() {
@@ -131,12 +242,11 @@ function render() {
         button.dataset.v = value;
         button.textContent = value === "driver" ? "DRIVER" : value === "pit" ? "PIT" : "?";
         button.setAttribute("aria-pressed", "false");
+        // The mouse still works. Clicking a line also moves the cursor there, so
+        // the two input methods cannot disagree about where you are.
         button.onclick = () => {
-          labels.set(`${clip.id}#${index}`, value);
-          [...choices.children].forEach((b) =>
-            b.setAttribute("aria-pressed", String(b.dataset.v === value))
-          );
-          progress();
+          cursor = slots.findIndex((s) => s.clipId === clip.id && s.lineIndex === index);
+          mark(value);
         };
         choices.appendChild(button);
       }
@@ -150,8 +260,35 @@ function render() {
 
     list.appendChild(box);
   }
-  progress();
+  buildSlots();
+  cursor = 0;
+  paint();
 }
+
+document.addEventListener("keydown", (event) => {
+  if (!data || event.metaKey || event.ctrlKey || event.altKey) return;
+  const tag = (event.target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea") return;
+
+  if (event.key === "1") { event.preventDefault(); mark("driver"); }
+  else if (event.key === "2") { event.preventDefault(); mark("pit"); }
+  else if (event.key === "3" || event.key === "0") { event.preventDefault(); mark("unknown"); }
+  else if (event.key === " ") {
+    // Replay, not play/pause. When you are trying to catch one word, hearing it
+    // again from the top is almost always what you want.
+    event.preventDefault();
+    const slot = slots[cursor];
+    if (slot) play(slot.clipId);
+  }
+  else if (event.key === "ArrowLeft" || event.key === "Backspace") {
+    event.preventDefault();
+    moveTo(cursor - 1, { autoplay: false });
+  }
+  else if (event.key === "ArrowRight") {
+    event.preventDefault();
+    moveTo(cursor + 1, { autoplay: false });
+  }
+});
 
 document.getElementById("file").onchange = async (event) => {
   const file = event.target.files[0];
@@ -180,13 +317,14 @@ document.getElementById("save").onclick = () => {
       duration_s: clip.duration_s,
       utterances: clip.lines.map((text, index) => ({
         text,
-        speaker: labels.get(`${clip.id}#${index}`) || null,
+        speaker: labels.get(key(clip.id, index)) || null,
       })),
     })),
   };
-  // Unlabelled clips are dropped rather than saved with nulls: a partially
-  // labelled clip would silently count as ground truth for the lines that were
-  // done and skew the clip-level exact-match metric.
+  // Partly-labelled clips are dropped rather than saved with blanks. Keeping
+  // them would let the finished lines count as ground truth while the clip is
+  // scored as a failure on the clip-level metric — a quiet way to make every
+  // approach look worse than it is.
   out.clips = out.clips.filter((c) => c.utterances.every((u) => u.speaker));
   const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
