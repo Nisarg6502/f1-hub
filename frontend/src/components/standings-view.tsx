@@ -18,6 +18,7 @@ import ChampionshipProgressionChart, {
 } from "@/components/championship-progression-chart";
 import DriverModal from "@/components/driver-modal";
 import DriverSeasonLogPanel from "@/components/driver-season-log";
+import ConstructorSeasonLogPanel from "@/components/constructor-season-log";
 import SeasonSelector from "@/components/season-selector";
 import TeammateBattlePanel from "@/components/teammate-battle-panel";
 import TitleDeciderPanel from "@/components/title-decider-panel";
@@ -84,6 +85,17 @@ export default function StandingsView({
    * the kind of control that teaches people not to click rows at all.
    */
   const [expanded, setExpanded] = useState<string | null>(null);
+  /**
+   * The same disclosure on the Constructors tab, in its own state rather than
+   * sharing `expanded`.
+   *
+   * Two ids from two different namespaces in one slot would collide the moment
+   * a constructorId matched a driverId (`sauber`/`sauber` is not hypothetical
+   * in this feed), and even without a collision one shared slot means opening
+   * a team silently closes whichever driver was open on the other tab — a
+   * change the reader cannot see happening.
+   */
+  const [expandedCons, setExpandedCons] = useState<string | null>(null);
 
   const selectedId = selected?.Driver.driverId ?? null;
   const selectedColor = selected
@@ -450,95 +462,192 @@ export default function StandingsView({
             const color = getTeamColor(name);
             const leader = i === 0;
             const pct = (Number(c.points) / maxConsPts) * 100;
+            const constructorId = c.Constructor.constructorId ?? "";
+            const log = constructorLogs[constructorId];
+            const isOpen = Boolean(constructorId) && expandedCons === constructorId;
+            const panelId = `constructor-log-${constructorId || i}`;
+            const toggle = () => {
+              if (!constructorId) return;
+              setExpandedCons((current) =>
+                current === constructorId ? null : constructorId
+              );
+            };
             return (
               <StaggerItem
                 key={name || i}
-                className="relative px-5 sm:px-6 py-5 rounded-2xl overflow-hidden border isolate"
+                className="relative rounded-2xl overflow-hidden border isolate transition-colors"
                 style={{
                   background: leader
                     ? "rgb(var(--rgb-primary-container) / 0.1)"
                     : "rgba(40,32,26,0.3)",
-                  borderColor: leader
-                    ? "rgb(var(--rgb-primary-container) / 0.35)"
-                    : "rgba(255,255,255,0.07)",
+                  borderColor: isOpen
+                    ? "rgb(var(--rgb-flame-bright) / 0.5)"
+                    : leader
+                      ? "rgb(var(--rgb-primary-container) / 0.35)"
+                      : "rgba(255,255,255,0.07)",
                 }}
               >
-                {/* The car, dissolving in from the right.
-                    This tab was the plainest surface in the app — eleven
-                    near-identical bars whose only distinguishing feature was a
-                    colour. The livery is what people actually recognise a team
-                    by, so it now does that job, from the right where the row
-                    has nothing but a points figure.
+                <div
+                  // `role="button"` on the header rather than a real `<button>`
+                  // wrapping it, for the same reason as the driver rows above:
+                  // this is a grid plus an absolutely-positioned car, and
+                  // nesting that in a button would fight the layout for no gain.
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isOpen}
+                  aria-controls={panelId}
+                  aria-label={`${name} — show race-by-race season`}
+                  onClick={toggle}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      toggle();
+                    }
+                  }}
+                  // The padding moved off the card and onto this header so the
+                  // panel's top border can span the full card width instead of
+                  // being inset by 24px, which read as a floating line.
+                  className="relative px-5 sm:px-6 py-5 cursor-pointer hover:bg-white/[0.03] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-flame-bright/60 focus-visible:ring-inset"
+                >
+                  {/* The car, dissolving in from the right.
+                      This tab was the plainest surface in the app — eleven
+                      near-identical bars whose only distinguishing feature was a
+                      colour. The livery is what people actually recognise a team
+                      by, so it now does that job, from the right where the row
+                      has nothing but a points figure.
 
-                    Hidden below `sm`: at phone width the car would run under
-                    the points, which is the one number the row exists to
-                    state.
+                      Hidden below `sm`: at phone width the car would run under
+                      the points, which is the one number the row exists to
+                      state.
 
-                    `right-[212px]` for the same reason at desktop width. The
-                    wins and points columns are 80px + 100px with a 16px gutter
-                    and 24px of padding beyond them; anchored flush right the
-                    car's rear wing sat directly behind the win count. Stopping
-                    it short of that band keeps every figure on plain
-                    background and leaves the car in the dead space the row
-                    always had between the team name and its numbers. */}
-                <TeamCar
-                  team={name}
-                  variant="ghost-right"
-                  opacity={0.22}
-                  sizes="(min-width: 1024px) 460px, 50vw"
-                  className="hidden sm:block absolute -z-10 right-[232px] top-1 bottom-1 w-[40%]"
-                />
-                <div className="grid grid-cols-[40px_1fr_auto] sm:grid-cols-[44px_1fr_80px_100px] gap-3 sm:gap-4 items-center">
-                  <span
-                    className="font-extrabold text-lg tabular-nums"
-                    style={{ color: leader ? "var(--color-primary)" : "var(--color-warm-400)" }}
-                  >
-                    {String(i + 1).padStart(2, "0")}
-                  </span>
-                  <div className="flex items-center gap-[14px] min-w-0">
+                      Inside the header rather than on the card, now that the
+                      card can expand: anchored to the card it would have
+                      stretched the livery down the full height of an open
+                      panel.
+
+                      `right-[272px]`, up from 232px. The wins and points
+                      columns are 80px + 100px with a 16px gutter and 24px of
+                      padding beyond them, and the disclosure added a further
+                      ~24px column plus its gutter; anchored any closer the
+                      car's rear wing sits behind the win count. Stopping it
+                      short of that band keeps every figure on plain background
+                      and leaves the car in the dead space the row always had
+                      between the team name and its numbers. */}
+                  <TeamCar
+                    team={name}
+                    variant="ghost-right"
+                    opacity={0.22}
+                    sizes="(min-width: 1024px) 460px, 50vw"
+                    className="hidden sm:block absolute -z-10 right-[272px] top-1 bottom-1 w-[40%]"
+                  />
+                  <div className="grid grid-cols-[40px_1fr_auto_auto] sm:grid-cols-[44px_1fr_80px_100px_auto] gap-3 sm:gap-4 items-center">
                     <span
-                      className="w-1.5 h-8 rounded-hairline flex-none"
-                      style={{
-                        background: color.hex,
-                        boxShadow: `0 0 10px ${color.glow}`,
-                      }}
-                    />
-                    <div className="min-w-0">
-                      <div className="font-bold text-[18px] truncate">{name}</div>
-                      <div className="font-semibold text-[11px] tracking-[0.04em] uppercase text-warm-400 truncate">
-                        {c.Constructor.nationality}
+                      className="font-extrabold text-lg tabular-nums"
+                      style={{ color: leader ? "var(--color-primary)" : "var(--color-warm-400)" }}
+                    >
+                      {String(i + 1).padStart(2, "0")}
+                    </span>
+                    <div className="flex items-center gap-[14px] min-w-0">
+                      <span
+                        className="w-1.5 h-8 rounded-hairline flex-none"
+                        style={{
+                          background: color.hex,
+                          boxShadow: `0 0 10px ${color.glow}`,
+                        }}
+                      />
+                      <div className="min-w-0">
+                        <div className="font-bold text-[18px] truncate">{name}</div>
+                        <div className="font-semibold text-[11px] tracking-[0.04em] uppercase text-warm-400 truncate">
+                          {c.Constructor.nationality}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="hidden sm:block text-center">
-                    <div className="font-bold text-[15px] tabular-nums">
-                      {c.wins}
+                    <div className="hidden sm:block text-center">
+                      <div className="font-bold text-[15px] tabular-nums">
+                        {c.wins}
+                      </div>
+                      <div className="font-semibold text-[9px] tracking-[0.1em] uppercase text-warm-500">
+                        wins
+                      </div>
                     </div>
-                    <div className="font-semibold text-[9px] tracking-[0.1em] uppercase text-warm-500">
-                      wins
+                    <div className="text-right flex items-baseline gap-[5px] justify-end">
+                      <AnimatedNumber
+                        value={Number(c.points) || 0}
+                        className={`font-extrabold text-2xl tabular-nums ${
+                          leader ? "text-primary" : "text-warm-100"
+                        }`}
+                      />
+                      <span className="font-semibold text-[9px] text-warm-500">
+                        PTS
+                      </span>
+                    </div>
+                    {/* `aria-hidden`: the whole header is one control and
+                        already announces its expanded state, so this must not
+                        be read out as a second thing to press. */}
+                    <div
+                      aria-hidden
+                      className="flex items-center gap-1.5 justify-end text-warm-500"
+                    >
+                      {log && log.entries.length > 0 && (
+                        <span className="hidden md:inline font-semibold text-[9px] tracking-[0.1em] uppercase whitespace-nowrap">
+                          {log.entries.length} rounds
+                        </span>
+                      )}
+                      <motion.span
+                        className="flex items-center justify-center w-6 h-6 rounded-md bg-white/[0.05]"
+                        animate={{ rotate: isOpen ? 90 : 0 }}
+                        transition={{ duration: reduce ? 0 : 0.22, ease: ACCORDION_EASE }}
+                        style={{ color: isOpen ? "var(--color-primary)" : undefined }}
+                      >
+                        <ChevronRight size={15} />
+                      </motion.span>
                     </div>
                   </div>
-                  <div className="text-right flex items-baseline gap-[5px] justify-end">
-                    <AnimatedNumber
-                      value={Number(c.points) || 0}
-                      className={`font-extrabold text-2xl tabular-nums ${
-                        leader ? "text-primary" : "text-warm-100"
-                      }`}
+                  <div className="mt-[14px] h-1.5 bg-white/[0.05] rounded overflow-hidden">
+                    <div
+                      className="h-full rounded anim-bar"
+                      style={{
+                        width: `${pct}%`,
+                        background: `linear-gradient(90deg, ${color.hex}, ${color.hex}88)`,
+                      }}
                     />
-                    <span className="font-semibold text-[9px] text-warm-500">
-                      PTS
-                    </span>
                   </div>
                 </div>
-                <div className="mt-[14px] h-1.5 bg-white/[0.05] rounded overflow-hidden">
-                  <div
-                    className="h-full rounded anim-bar"
-                    style={{
-                      width: `${pct}%`,
-                      background: `linear-gradient(90deg, ${color.hex}, ${color.hex}88)`,
-                    }}
-                  />
-                </div>
+
+                <AnimatePresence initial={false}>
+                  {isOpen && (
+                    <motion.div
+                      id={panelId}
+                      key="log"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{
+                        height: 0,
+                        opacity: 0,
+                        // On the variant, not the shared `transition` prop: an
+                        // exiting element keeps the props it had while visible,
+                        // so a ternary up there resolves to the enter duration.
+                        transition: {
+                          height: { duration: reduce ? 0 : 0.18, ease: ACCORDION_EASE },
+                          opacity: { duration: reduce ? 0 : 0.1, ease: ACCORDION_EASE },
+                        },
+                      }}
+                      transition={{
+                        height: { duration: reduce ? 0 : 0.26, ease: ACCORDION_EASE },
+                        opacity: { duration: reduce ? 0 : 0.16, ease: ACCORDION_EASE },
+                      }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-4 sm:px-5 pb-3 border-t border-white/[0.07]">
+                        <ConstructorSeasonLogPanel
+                          log={log}
+                          color={color}
+                          championshipPoints={Number(c.points) || 0}
+                        />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </StaggerItem>
             );
           })}
