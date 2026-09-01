@@ -228,15 +228,38 @@ function toNumber(value: string | undefined): number | null {
  * classified and a letter (`R` retired, `D` disqualified, `W` withdrawn, `N`
  * not classified) for everyone else. `status` is the tiebreak, because a car
  * can be *classified* having stopped near the end, in which case the position
- * is a number but the status says why it stopped. `Finished` and `+n Lap(s)`
- * are the only two statuses that mean the car was running at the end.
+ * is a number but the status says why it stopped.
+ *
+ * ---
+ *
+ * `Lapped` is in the finished set because **this backend does not speak
+ * Ergast's status vocabulary**. Measured over all 24 rounds of 2024 on
+ * 2026-09-01, `/api/race_results` emits exactly five values:
+ *
+ *     Finished 287 · Lapped 138 · Retired 49 · Did not start 3 · Disqualified 2
+ *
+ * There is no `+1 Lap` string anywhere in the feed, so the `+n Lap(s)` branch
+ * below never once matched — and every lapped-but-classified car, 138 of the
+ * 479 classified results in that season (29%), was being reported as a
+ * retirement. On the driver panel that painted a P13 as a striped DNF tile
+ * tagged `RET`; on the constructor panel it striped whole rounds where both
+ * cars saw the flag. The `+n Lap(s)` branch is kept anyway: it costs nothing
+ * and this module is also reachable with genuinely Ergast-shaped data.
+ *
+ * `Retired` stays a non-finish even when the car is classified — that is the
+ * real retired-but-classified case (a car that stops late having covered 90%
+ * of the distance), and the panels tag it `RET` deliberately.
  */
 function didFinish(result: RaceResult): boolean {
   const text = (result.positionText ?? result.position ?? "").trim();
   if (!/^\d+$/.test(text)) return false;
   const status = (result.status ?? "").trim();
   if (!status) return true;
-  return /^finished$/i.test(status) || /^\+\d+\s+laps?$/i.test(status);
+  return (
+    /^finished$/i.test(status) ||
+    /^lapped$/i.test(status) ||
+    /^\+\d+\s+laps?$/i.test(status)
+  );
 }
 
 /**
@@ -339,23 +362,113 @@ export function buildDriverSeasonLogs(
   return logs;
 }
 
+/**
+ * One car's contribution to its constructor in one round.
+ *
+ * This is the field the constructor log exists for. A driver log never has to
+ * express it — a driver is one car — whereas a constructor's round is only
+ * meaningful once you can see *which* of the two cars produced the number, and
+ * whether the other one produced anything at all. "43 points in Bahrain" is a
+ * P1 and a P2 or it is a P1 and a P16, and those are different weekends.
+ *
+ * Deliberately the same field set as `DriverRoundEntry` minus the round
+ * identity, because the two are the same measurement of the same result row and
+ * a second, subtly different vocabulary for it would be a trap for whoever
+ * touches this next.
+ */
+export interface ConstructorDriverRound {
+  driverId: string;
+  /** Family name when the feed carries one, else the id. Tiles are narrow. */
+  name: string;
+  /** Three-letter code (`VER`) when present, else `""`. */
+  code: string;
+  position: number | null;
+  positionText: string;
+  grid: number | null;
+  racePoints: number;
+  sprintPosition: number | null;
+  sprintPoints: number;
+  points: number;
+  status: string | null;
+  finished: boolean;
+}
+
 export interface ConstructorRoundEntry {
   round: number;
   raceName: string;
   shortName: string;
+  /** Race + sprint across every car the team ran. */
   points: number;
+  racePoints: number;
+  sprintPoints: number;
+  /**
+   * Every car the team ran that round, best haul first. Almost always two, but
+   * this is an array rather than an `a`/`b` pair on purpose: a team that swaps a
+   * driver *mid-weekend* (Sunday stand-in after a Saturday crash) legitimately
+   * has three rows against one round, and a pair type would have silently
+   * dropped one of them.
+   */
+  drivers: ConstructorDriverRound[];
+  /** Best classified finish across the team's cars; null if neither was. */
+  bestPosition: number | null;
+  /** How many of the team's cars scored. 0, 1 or 2 — the double-points read. */
+  scorers: number;
+}
+
+/**
+ * One driver's whole season *for this team*.
+ *
+ * Derived from the round entries rather than from the driver standings,
+ * because the standings say which team a driver is with **now**. A driver who
+ * moved teams mid-season, or a stand-in who did two rounds and went back to
+ * reserve, is only attributable to the team they actually scored for by reading
+ * the result sheets — which is exactly what the entries already are.
+ */
+export interface ConstructorLineupDriver {
+  driverId: string;
+  name: string;
+  code: string;
+  /** Rounds appeared in for this team. A one-off stand-in has 1. */
+  rounds: number;
+  /** Bounds of their run, so a mid-season change is visible as a range. */
+  firstRound: number;
+  lastRound: number;
+  points: number;
+  /** Share of the team's logged points, 0-100. Zero when the team has none. */
+  share: number;
 }
 
 export interface ConstructorSeasonLog {
   constructorId: string;
   entries: ConstructorRoundEntry[];
+  /** Everyone who raced for the team, most points first. */
+  lineup: ConstructorLineupDriver[];
+  /** Summed from `entries`; see the drift note on the driver panel. */
+  totalPoints: number;
+  /** Rounds a team car won. A team cannot win a round twice. */
+  wins: number;
+  /** Podium *finishes*, not rounds: a 1-2 is two podiums, as F1 counts them. */
+  podiums: number;
+  /** Rounds where both cars scored. The stat a driver view cannot have. */
+  doubleScores: number;
+  /** Rounds the team left with nothing at all. */
+  blanks: number;
+  bestRound: ConstructorRoundEntry | null;
+}
+
+/** Family name is what fits a tile; the id is a readable last resort because
+ * every id in this feed is `lastname` or `lastname_initial`. */
+function driverLabel(result: RaceResult | undefined, driverId: string): string {
+  return result?.Driver?.familyName?.trim() || driverId;
 }
 
 /**
- * Constructor points per round, summed across whichever drivers scored for
- * them that round -- built from the same rounds/sprints `buildDriverSeasonLogs`
- * already needs, so a mid-season driver swap still attributes points to the
- * team correctly without tracking driver-to-team history separately.
+ * Constructor points per round, split by the car that scored them.
+ *
+ * Built from the same rounds/sprints `buildDriverSeasonLogs` already needs, so
+ * a mid-season driver swap still attributes points to the team correctly
+ * without tracking driver-to-team history separately: the result sheet already
+ * says which constructor each car was entered under that weekend.
  */
 export function buildConstructorSeasonLogs(
   constructors: ConstructorStanding[],
@@ -384,19 +497,136 @@ export function buildConstructorSeasonLogs(
 
       if (raceResults.length === 0 && sprintResults.length === 0) continue;
 
-      const points =
-        raceResults.reduce((sum, r) => sum + (toNumber(r.points) ?? 0), 0) +
-        sprintResults.reduce((sum, r) => sum + (toNumber(r.points) ?? 0), 0);
+      // Union of the two classifications, not just the race one. A car can
+      // appear in the sprint and not the race (Sunday-morning withdrawal after
+      // scoring on Saturday), and those sprint points are real championship
+      // points — dropping the row would make the team's total disagree with the
+      // standings figure printed directly above the panel.
+      const byDriver = new Map<
+        string,
+        { race?: RaceResult; sprint?: RaceResult }
+      >();
+      for (const r of raceResults) {
+        const id = r.Driver?.driverId;
+        if (!id) continue;
+        byDriver.set(id, { ...(byDriver.get(id) ?? {}), race: r });
+      }
+      for (const r of sprintResults) {
+        const id = r.Driver?.driverId;
+        if (!id) continue;
+        byDriver.set(id, { ...(byDriver.get(id) ?? {}), sprint: r });
+      }
+
+      const drivers: ConstructorDriverRound[] = [];
+      for (const [driverId, { race, sprint }] of byDriver) {
+        const racePoints = toNumber(race?.points) ?? 0;
+        const sprintPoints = toNumber(sprint?.points) ?? 0;
+        const positionText = (race?.positionText ?? race?.position ?? "—").trim();
+        drivers.push({
+          driverId,
+          name: driverLabel(race ?? sprint, driverId),
+          code: (race?.Driver?.code ?? sprint?.Driver?.code ?? "").trim(),
+          position: /^\d+$/.test(positionText) ? Number(positionText) : null,
+          positionText,
+          grid: toNumber(race?.grid),
+          racePoints,
+          sprintPosition: toNumber(sprint?.position),
+          sprintPoints,
+          points: racePoints + sprintPoints,
+          status: race?.status ?? null,
+          finished: race ? didFinish(race) : false,
+        });
+      }
+
+      // Best haul first, then by finishing position, then by name. The tile
+      // shows two rows and the top one should be the car that carried the
+      // round; ties broken by position rather than left to Map order, so the
+      // panel does not reorder itself between two renders of the same data.
+      drivers.sort(
+        (a, b) =>
+          b.points - a.points ||
+          (a.position ?? Infinity) - (b.position ?? Infinity) ||
+          a.name.localeCompare(b.name)
+      );
+
+      const racePoints = drivers.reduce((sum, d) => sum + d.racePoints, 0);
+      const sprintPoints = drivers.reduce((sum, d) => sum + d.sprintPoints, 0);
+      const classified = drivers
+        .map((d) => d.position)
+        .filter((p): p is number => p !== null);
 
       entries.push({
         round: Number(round.round),
         raceName: round.raceName,
         shortName: shortRaceName(round.raceName),
-        points,
+        points: racePoints + sprintPoints,
+        racePoints,
+        sprintPoints,
+        drivers,
+        bestPosition: classified.length ? Math.min(...classified) : null,
+        scorers: drivers.filter((d) => d.points > 0).length,
       });
     }
 
-    logs[constructorId] = { constructorId, entries };
+    let totalPoints = 0;
+    let wins = 0;
+    let podiums = 0;
+    let doubleScores = 0;
+    let blanks = 0;
+    let bestRound: ConstructorRoundEntry | null = null;
+    const lineup = new Map<string, ConstructorLineupDriver>();
+
+    for (const entry of entries) {
+      totalPoints += entry.points;
+      if (entry.bestPosition === 1) wins += 1;
+      for (const d of entry.drivers) {
+        if (d.position !== null && d.position <= 3) podiums += 1;
+        const existing = lineup.get(d.driverId);
+        if (existing) {
+          existing.rounds += 1;
+          existing.points += d.points;
+          existing.lastRound = entry.round;
+        } else {
+          lineup.set(d.driverId, {
+            driverId: d.driverId,
+            name: d.name,
+            code: d.code,
+            rounds: 1,
+            firstRound: entry.round,
+            lastRound: entry.round,
+            points: d.points,
+            share: 0,
+          });
+        }
+      }
+      // `>= 2`, not `=== 2`: see the three-cars-in-one-round note on `drivers`.
+      if (entry.scorers >= 2) doubleScores += 1;
+      if (entry.points === 0) blanks += 1;
+      if (entry.points > 0 && (!bestRound || entry.points > bestRound.points)) {
+        bestRound = entry;
+      }
+    }
+
+    const orderedLineup = [...lineup.values()].sort(
+      (a, b) => b.points - a.points || a.firstRound - b.firstRound
+    );
+    for (const d of orderedLineup) {
+      // Guarded: a team that has scored nothing all season would otherwise
+      // divide by zero and render every share as `NaN%` wide.
+      d.share = totalPoints > 0 ? (d.points / totalPoints) * 100 : 0;
+    }
+
+    logs[constructorId] = {
+      constructorId,
+      entries,
+      lineup: orderedLineup,
+      totalPoints,
+      wins,
+      podiums,
+      doubleScores,
+      blanks,
+      bestRound,
+    };
   }
 
   return logs;
