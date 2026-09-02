@@ -89,6 +89,55 @@ class KeywordBaselineTests(unittest.TestCase):
         self.assertEqual(attribute_keyword(transcript("")), [])
 
 
+class VocativeTests(unittest.TestCase):
+    """Being addressed by name means the pit wall is talking.
+
+    TEAM-RADIO-PLAN.md 5.3 named this the baseline's strongest deterministic
+    cue. It was specified and never implemented — attribute_keyword swallowed
+    driver_name in **_ — so the bake-off was judging the one free approach with
+    its best signal switched off.
+    """
+
+    def _label(self, name, line):
+        doc = transcript(line, segments=[segment(0.0, 2.0, line)])
+        return attribute_keyword(doc, driver_name=name)[0]["speaker"]
+
+    def test_the_driver_being_named_marks_the_line_as_the_pit_wall(self):
+        for line in (
+            "Lando, how are the tyres?",
+            "Okay Lando, box this lap.",
+            "Box this lap, Lando.",
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(self._label("Lando Norris", line), PIT)
+
+    def test_it_still_fires_when_the_asr_drops_the_comma(self):
+        """Punctuation is unreliable on clipped radio, so it cannot be required."""
+        self.assertEqual(self._label("Lando Norris", "Lando how are the tyres"), PIT)
+
+    def test_reference_is_not_address(self):
+        """The failure this rule could most easily cause, if written loosely.
+
+        A copula straight after the name turns address into reference. Scoring
+        "Carlos is closing on us" as the pit wall would invert exactly the lines
+        the cue exists to fix.
+        """
+        for line in (
+            "Carlos is closing on us.",
+            "Carlos was quicker there.",
+            "I think Carlos is quicker.",
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(self._label("Carlos Sainz", line), UNKNOWN)
+
+    def test_another_drivers_surname_is_not_a_vocative(self):
+        """Surnames are how drivers refer to rivals; only the forename counts."""
+        self.assertEqual(self._label("Lando Norris", "Verstappen is on the softs."), UNKNOWN)
+
+    def test_no_driver_name_leaves_the_baseline_as_it_was(self):
+        self.assertEqual(self._label(None, "Lando, how are the tyres?"), UNKNOWN)
+
+
 class ConfidenceFloorTests(unittest.TestCase):
     """A weak decision must become an abstention, not a coin flip on screen."""
 

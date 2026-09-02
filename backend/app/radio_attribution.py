@@ -39,6 +39,8 @@ import re
 
 import httpx
 
+from .radio_segments import split_segments
+
 # Bump when an approach, its prompt, or the confidence floor changes. Stored per
 # document so a change re-runs attribution without re-running ASR.
 #
@@ -47,7 +49,15 @@ import httpx
 # skew real radio does not have — and got the post-race debriefs backwards at
 # maximum confidence: "Very well done. Gorgeous. Well executed." came back as
 # the *driver* at 1.00.
-ATTRIB_VERSION = 2
+#
+# 3 makes the bake-off a fair test, and both halves were defects rather than
+# choices. `keyword` never received the driver's name, so §5.3's strongest
+# deterministic cue — being addressed by name means the pit wall is talking —
+# was specified and never implemented; the baseline was being judged with its
+# best signal switched off. And approach A read Whisper's raw segments while
+# approach B read the word-gap re-split, so any margin between them mixed
+# "reasons better" with "was given better input".
+ATTRIB_VERSION = 3
 
 DRIVER = "driver"
 PIT = "pit"
@@ -124,9 +134,53 @@ _DRIVER_CUES = (
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
 
-def _score(text: str) -> float:
+# Being addressed by name means the DRIVER is the listener, so the line is the
+# engineer's. `TEAM-RADIO-PLAN.md` §5.3 named this as the baseline's strongest
+# deterministic cue and it was never implemented, which made the §5.5 comparison
+# unfair to the one approach that costs nothing to run.
+#
+# Weighted above every other cue because it is close to categorical on this
+# material: "Okay Carlos, you're 7 tenths quicker" and "Lando, how are the
+# tyres" are the pit wall, and a driver saying his own first name to his own
+# engineer is vanishingly rare.
+_VOCATIVE_WEIGHT = 3.5
+
+
+def _vocative(text: str, driver_name) -> float:
+    """Score the driver's own forename appearing as address, not as reference.
+
+    Only the FORENAME counts. Surnames are how drivers refer to *other* drivers —
+    "Verstappen is on the softs" is a driver talking about a rival, and scoring
+    that as the pit wall would invert exactly the lines the cue exists to fix.
+
+    Requires a comma, sentence edge or clause boundary around it, for the same
+    reason: "Carlos is closing" is reference, "Okay Carlos, box" is address.
+    """
+    first = (driver_name or "").strip().split(" ")[0].lower()
+    if len(first) < 3:
+        return 0.0
+    name = re.escape(first)
+    # A copula or auxiliary straight after the name is what turns address into
+    # reference: "Carlos, box this lap" is the pit wall, "Carlos is closing on
+    # us" is somebody talking *about* a Carlos. Excluding it is what stops the
+    # rule inverting the very lines it exists to fix.
+    #
+    # A comma is the cleanest evidence of address, but it is not required at the
+    # start of a line — ASR punctuation is unreliable on clipped radio, and
+    # "Lando how are the tyres" with the comma dropped is a common real output.
+    not_reference = r"(?!\s+(?:is|was|are|were|has|had|have|will|would|'s)\b)"
+    patterns = (
+        rf"^\s*{name}\b{not_reference}",   # opens the line, as address
+        rf"\b{name}\s*,",                  # "Carlos, box this lap"
+        rf",\s*{name}\b\s*[.,!?]?$",       # "...box this lap, Carlos"
+        rf"\b(?:okay|ok|so|right|and)\s+{name}\b{not_reference}",  # "Okay Carlos, ..."
+    )
+    return _VOCATIVE_WEIGHT if any(re.search(p, text) for p in patterns) else 0.0
+
+
+def _score(text: str, driver_name=None) -> float:
     lowered = (text or "").lower()
-    total = 0.0
+    total = _vocative(lowered, driver_name)
     for pattern, weight in _PIT_CUES + _DRIVER_CUES:
         if re.search(pattern, lowered):
             total += weight
@@ -140,7 +194,10 @@ def _split_sentences(transcript: dict) -> list[dict]:
     are already close to turn boundaries. Falls back to punctuation over the flat
     text, which is what a provider returning no segments leaves us with.
     """
-    segments = transcript.get("segments") or []
+    # The SAME spans approach B gets. Reading raw ASR segments here while B read
+    # the word-gap re-split made the comparison measure two things at once — see
+    # `radio_segments` and ATTRIB_VERSION 3.
+    segments = split_segments(transcript)
     if segments:
         return [
             {"start": segment.get("start"), "end": segment.get("end"), "text_raw": segment["text"]}
@@ -157,11 +214,16 @@ def _split_sentences(transcript: dict) -> list[dict]:
     ]
 
 
-def attribute_keyword(transcript: dict, **_) -> list[dict]:
-    """Approach C. Deterministic, free, and the bar the models have to clear."""
+def attribute_keyword(transcript: dict, *, driver_name=None, **_) -> list[dict]:
+    """Approach C. Deterministic, free, and the bar the models have to clear.
+
+    `driver_name` is now actually consumed. It used to be swallowed by `**_`,
+    which silently disabled §5.3's vocative rule — the baseline's single
+    strongest signal — while the plan claimed it was in use.
+    """
     utterances = []
     for span in _split_sentences(transcript):
-        score = _score(span["text_raw"])
+        score = _score(span["text_raw"], driver_name)
         magnitude = min(abs(score) / 4.0, 1.0)
         if magnitude < 0.25:
             speaker, confidence = UNKNOWN, 0.0
