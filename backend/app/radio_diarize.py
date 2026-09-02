@@ -50,6 +50,13 @@ import os
 
 import httpx
 
+# Re-exported: the splitter lives in its own dependency-light module so
+# `radio_attribution` can be handed the SAME spans without importing this file
+# (which pulls torch, and which the job refuses to load alongside CTranslate2).
+# Until both approaches shared it, the bake-off was comparing reasoning quality
+# and input quality at once. See `radio_segments`.
+from .radio_segments import WORD_GAP_S, split_segments as _segments_for_diarization  # noqa: F401
+
 # Bump when the embedding model, the segmentation source, or the split rule
 # changes. Stored per document so a change re-runs diarization without re-running
 # transcription.
@@ -72,11 +79,6 @@ SPLIT_DISTANCE = 0.85
 # with it. Short segments inherit their neighbour's speaker instead.
 MIN_SEGMENT_S = 0.6
 
-# A pause inside one ASR segment long enough to be a handover. Radio is
-# half-duplex — one party releases the button before the other speaks — so a real
-# turn change always leaves a gap. Below ~0.4s the gaps are breaths and
-# hesitations within one person's speech.
-WORD_GAP_S = 0.45
 
 _TIMEOUT = 120.0
 
@@ -126,56 +128,6 @@ def _decode(audio: bytes):
     from faster_whisper.audio import decode_audio
 
     return decode_audio(io.BytesIO(audio), sampling_rate=16000)
-
-
-def _segments_for_diarization(transcript: dict) -> list[dict]:
-    """ASR segments, re-split at internal pauses long enough to be a handover.
-
-    Diarization can only assign a speaker to a span it is given, so the spans it
-    is given set a ceiling on what it can find. Whisper's own segmentation puts
-    that ceiling too low — see the module docstring for the measurement.
-
-    Falls back to the raw segments when the transcript carries no word timings
-    (a provider that does not return them, or a clip transcribed before they were
-    requested), which is a lower ceiling rather than a failure.
-    """
-    segments = transcript.get("segments") or []
-    words = transcript.get("words") or []
-    if not words:
-        return segments
-
-    out: list[dict] = []
-    for segment in segments:
-        start, end = segment.get("start"), segment.get("end")
-        if start is None or end is None:
-            out.append(segment)
-            continue
-        inside = [
-            word
-            for word in words
-            if word.get("start") is not None and start - 0.01 <= word["start"] <= end + 0.01
-        ]
-        if len(inside) < 2:
-            out.append(segment)
-            continue
-
-        # Seeded with the FIRST word, because the pairwise walk below starts at
-        # the second. Without this the opening word of every turn is silently
-        # dropped — and on this material that is the word that decides the label:
-        # "Lando, how are the tyres" without the vocative, or "I don't
-        # understand" without the first person, is a different sentence to a
-        # model reasoning about who is speaking.
-        piece = {"start": start, "end": end, "text": (inside[0].get("word") or "").strip()}
-        pieces = [piece]
-        for previous, word in zip(inside, inside[1:]):
-            gap = (word.get("start") or 0) - (previous.get("end") or 0)
-            if gap >= WORD_GAP_S:
-                piece["end"] = previous.get("end")
-                piece = {"start": word.get("start"), "end": end, "text": ""}
-                pieces.append(piece)
-            piece["text"] = (piece["text"] + (word.get("word") or "")).strip()
-        out.extend(p for p in pieces if (p.get("text") or "").strip())
-    return out or segments
 
 
 def _embed(model, waveform, segments, sample_rate=16000):
