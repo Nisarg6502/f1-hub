@@ -70,7 +70,11 @@ export const APEX_VISUAL_RUNTIME = String.raw`
     warm200: '#c9c0b4',
     warm300: '#a89e90',
     warm400: '#8f867a',
-    warm500: '#6f665b',
+    // Tracks --color-warm-500 in globals.css: chart axis labels drawn from
+    // this palette have the same AA obligation the DOM ones do.
+    // (No backticks in this file below line 32 -- it is one String.raw
+    // template literal, and a backtick here ends it mid-object.)
+    warm500: '#877e72',
     warm600: '#5c554b',
     warm700: '#4a4239',
 

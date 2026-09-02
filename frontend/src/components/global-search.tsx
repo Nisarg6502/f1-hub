@@ -56,7 +56,36 @@ function driverName(d: DriverStanding): string {
   return `${d.Driver.givenName ?? ""} ${d.Driver.familyName ?? ""}`.trim();
 }
 
-export default function GlobalSearch() {
+/**
+ * `"nav"` is the desktop bar: a fixed-width pill that hides itself below `lg`
+ * and drops its results right-aligned beneath the field.
+ *
+ * `"sheet"` is the phone's More sheet (`mobile-more-sheet.tsx`), which is the
+ * only place search exists below `lg`. It differs in presentation ONLY — full
+ * width, no `hidden lg:block`, results aligned left and sized to the field —
+ * because the search behaviour, its ARIA and its result modals are exactly
+ * what a phone should get too.
+ */
+type SearchVariant = "nav" | "sheet";
+
+export default function GlobalSearch({
+  variant = "nav",
+  onDetailOpenChange,
+}: {
+  variant?: SearchVariant;
+  /**
+   * Fires when a result's own modal opens or closes.
+   *
+   * Only the sheet variant needs this, and it needs it for a specific reason:
+   * `useModalDialog` binds Escape and its Tab trap to `window` with no
+   * stacking, so a dialog opened from inside another dialog leaves two live
+   * traps. Escape would close both at once, and the outer trap would keep
+   * yanking focus back out of the inner modal. The sheet uses this to stand
+   * down while a driver or circuit modal is on top of it.
+   */
+  onDetailOpenChange?: (open: boolean) => void;
+} = {}) {
+  const isSheet = variant === "sheet";
   const router = useRouter();
   const reduce = useReducedMotion();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -88,9 +117,31 @@ export default function GlobalSearch() {
   const [constructors, setConstructors] = useState<ConstructorStanding[]>([]);
   const [races, setRaces] = useState<Race[]>([]);
   const [circuitDetails, setCircuitDetails] = useState<CircuitDetail[]>([]);
+  /**
+   * Whether the four season fetches below have settled.
+   *
+   * Without this the popup renders `No results for "hamilton"` while the data
+   * is still in flight — a confident wrong answer, and the worst thing a
+   * search box can say. It was invisible in the nav, which mounts at page load
+   * and is warm long before anyone reaches for it; the More sheet mounts this
+   * component only when the sheet opens, so the very first search a phone user
+   * ever runs is the one that raced.
+   */
+  const [loaded, setLoaded] = useState(false);
 
   const [selectedDriver, setSelectedDriver] = useState<DriverResult | null>(null);
   const [selectedCircuit, setSelectedCircuit] = useState<CircuitResult | null>(null);
+
+  // Reported from an effect rather than from `handleSelect`/`onClose`, so the
+  // two ways a modal can close (its own button, Escape) cannot disagree.
+  const detailOpen = selectedDriver !== null || selectedCircuit !== null;
+  const onDetailOpenChangeRef = useRef(onDetailOpenChange);
+  useEffect(() => {
+    onDetailOpenChangeRef.current = onDetailOpenChange;
+  });
+  useEffect(() => {
+    onDetailOpenChangeRef.current?.(detailOpen);
+  }, [detailOpen]);
 
   // Fetch once — the root layout persists across client-side navigations, so
   // this only runs a single time per page load, reusing the same season data
@@ -111,6 +162,7 @@ export default function GlobalSearch() {
       setConstructors(cs.status === "fulfilled" ? cs.value.constructor_standings ?? [] : []);
       setRaces(rc.status === "fulfilled" ? rc.value.races ?? [] : []);
       setCircuitDetails(cd.status === "fulfilled" ? cd.value : []);
+      setLoaded(true);
     });
 
     return () => {
@@ -301,8 +353,17 @@ export default function GlobalSearch() {
     : null;
 
   return (
-    <div className="relative hidden lg:block" ref={rootRef}>
-      <div className="flex items-center gap-[9px] bg-veil/6 backdrop-blur-[10px] border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] rounded-xl px-[14px] py-[9px] w-[208px] focus-within:border-flame-bright/50 transition-colors duration-150">
+    <div
+      className={isSheet ? "relative" : "relative hidden lg:block"}
+      ref={rootRef}
+    >
+      <div
+        className={`flex items-center gap-[9px] bg-veil/6 backdrop-blur-[10px] border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] rounded-xl px-[14px] focus-within:border-flame-bright/50 transition-colors duration-150 ${
+          /* 44px tall in the sheet: this is the one search field people will
+             hit with a thumb, and the nav's 9px padding leaves it at 33. */
+          isSheet ? "py-3 w-full" : "py-[9px] w-[208px]"
+        }`}
+      >
         <Search className="w-3 h-3 text-warm-400 flex-none" strokeWidth={2} />
         <input
           ref={inputRef}
@@ -342,7 +403,13 @@ export default function GlobalSearch() {
             exit={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.96, y: -4 }}
             transition={{ duration: reduce ? 0.1 : 0.16, ease: EASE_OUT }}
             style={{ transformOrigin: "top" }}
-            className="absolute top-full right-0 mt-1.5 w-[280px] rounded-xl bg-surface-container/98 border border-white/10 shadow-2xl z-50 max-h-80 overflow-y-auto p-1"
+            className={`absolute top-full mt-1.5 rounded-xl bg-surface-container/98 border border-white/10 shadow-2xl z-50 max-h-80 overflow-y-auto p-1 ${
+              /* Right-aligned in the nav because the field sits at the right
+                 edge of a 1440px bar; left-aligned and field-width in the
+                 sheet, where a 280px popup pinned right would hang off-centre
+                 over a 358px row. */
+              isSheet ? "left-0 right-0" : "right-0 w-[280px]"
+            }`}
           >
             {/* The listbox is rendered even when empty and the "no results"
                 line sits outside it. An empty listbox is valid; a listbox whose
@@ -388,7 +455,11 @@ export default function GlobalSearch() {
                 role="status"
                 className="px-3 py-4 text-center font-medium text-xs text-warm-500"
               >
-                No results for &ldquo;{query.trim()}&rdquo;
+                {loaded ? (
+                  <>No results for &ldquo;{query.trim()}&rdquo;</>
+                ) : (
+                  <>Loading the season&hellip;</>
+                )}
               </div>
             )}
           </motion.div>

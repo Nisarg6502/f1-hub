@@ -109,7 +109,17 @@
   --color-warm-200: #c9c0b4;
   --color-warm-300: #a89e90;
   --color-warm-400: #8f867a;
-  --color-warm-500: #6f665b;
+  /* 4.76:1 on the darkest ground this ramp is used against (#14100e), 4.89:1
+     on the footer's #0a0908 — i.e. WCAG AA for normal text, which the old
+     #6f665b was not at 3.35:1. axe-core flagged this ONE token on all 13
+     routes: it dresses every small uppercase label in the app (table headers,
+     "Also in here", the replay control-bar explainer, footer body copy), so it
+     was single-handedly the app's entire contrast debt. Kept deliberately
+     darker than `warm-400` (5.30:1) so the ramp still reads as a ramp — there
+     is not much room between "passes AA on near-black" and "is warm-400", and
+     this sits in it. Changing it here is enough; nothing hardcodes the old
+     hex any more (see `input::placeholder` below). */
+  --color-warm-500: #877e72;
   --color-warm-600: #5c554b;
   --color-warm-700: #4a4239;
 
@@ -198,7 +208,9 @@ body {
 }
 
 input::placeholder {
-  color: #6f665b;
+  /* The token, not a copy of its value — this hardcoded hex was the reason a
+     contrast fix had to be made in two places instead of one. */
+  color: var(--color-warm-500);
 }
 
 /* ============================================================

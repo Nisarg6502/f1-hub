@@ -7,7 +7,7 @@ import type { DriverStanding } from "@/lib/api";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { driverPortraitFrameStyle, driverPortraitSizes } from "@/lib/driver-portrait";
 import { getFlagPath } from "@/lib/flags";
-import { getTeamColor, type TeamColor } from "@/lib/team-colors";
+import { getInkOn, getTeamColor, type TeamColor } from "@/lib/team-colors";
 import { getTeamAbbreviation, getTeamLogoPath } from "@/lib/team-images";
 import TiltCard from "@/components/tilt-card";
 import FlagImg from "@/components/flag-img";
@@ -86,7 +86,7 @@ function TeamMark({
   return (
     <span
       className="w-[58px] h-[30px] rounded-control flex-none flex items-center justify-center font-[family-name:var(--font-headline)] font-extrabold text-[13px] tracking-[0.06em] shadow-[0_2px_10px_rgba(0,0,0,0.35)]"
-      style={{ background: color.hex, color: "#0a0908" }}
+      style={{ background: color.hex, color: getInkOn(color.hex) }}
       aria-label={`${team} logo`}
     >
       {getTeamAbbreviation(team)}
