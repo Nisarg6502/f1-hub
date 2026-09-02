@@ -32,9 +32,13 @@ interface PageProps {
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
   const { season } = await searchParams;
   const year = resolveSeasonYear(season);
+  const title = `${year} F1 Championship Standings · APEX`;
+  const description = `Drivers' and constructors' standings for the ${year} Formula 1 season, with the title fight and every teammate head-to-head.`;
   return {
-    title: `APEX | ${year} F1 Season Hub`,
-    description: `APEX — a warm, high-clarity home for the ${year} Formula 1 season: schedule, standings, drivers, teams and circuits.`,
+    title,
+    description,
+    openGraph: { title, description, url: `/standings` },
+    twitter: { title, description },
   };
 }
 

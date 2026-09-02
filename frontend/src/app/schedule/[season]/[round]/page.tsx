@@ -51,10 +51,48 @@ type RaceWithSessions = Partial<
 // The [season] path segment is the season being viewed, verbatim — no need
 // to re-derive it via resolveSeasonYear the way the query-param routes do.
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
-  const { season } = await params;
+  const { season, round } = await params;
+
+  /* Named after the actual grand prix, because this is the page people share.
+     A result link that previews as "APEX | 2026 F1 Season Hub" — the same card
+     as the homepage and every other route — tells the person receiving it
+     nothing about what they have been sent.
+
+     `getSeasonRaces` is the same call the page body makes a moment later, so
+     on the happy path this costs nothing: Next dedupes identical fetches
+     within one render pass. The `try` is not optional — `generateMetadata`
+     throwing takes the whole route down, and this one reaches a backend that
+     is allowed to be offline (the page body tolerates exactly that, and so
+     must this). The fallback is the old generic title, which is a worse
+     preview but a working page. */
+  let raceName: string | null = null;
+  let circuit: string | null = null;
+  try {
+    const { races } = await getSeasonRaces(Number(season));
+    const race = (races ?? []).find((r) => r.round === String(Number(round)));
+    raceName = race?.raceName ?? null;
+    circuit = race?.Circuit?.circuitName ?? null;
+  } catch {
+    // Backend offline — fall through to the generic title below.
+  }
+
+  if (!raceName) {
+    return {
+      title: `Round ${round} · ${season} F1 Season · APEX`,
+      description: `Session results, weather and circuit detail for round ${round} of the ${season} Formula 1 season.`,
+    };
+  }
+
+  const title = `${raceName} ${season} · Results · APEX`;
+  const description = circuit
+    ? `Every session of the ${season} ${raceName} at ${circuit} — practice, qualifying and race classification, weather, and an AI recap grounded in the results.`
+    : `Every session of the ${season} ${raceName} — practice, qualifying and race classification, weather, and an AI recap grounded in the results.`;
+
   return {
-    title: `APEX | ${season} F1 Season Hub`,
-    description: `APEX — a warm, high-clarity home for the ${season} Formula 1 season: schedule, standings, drivers, teams and circuits.`,
+    title,
+    description,
+    openGraph: { title, description, url: `/schedule/${season}/${round}` },
+    twitter: { title, description },
   };
 }
 
