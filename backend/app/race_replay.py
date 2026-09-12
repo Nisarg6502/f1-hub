@@ -211,9 +211,11 @@ def build_replay(
             # Present-but-null rather than omitted, so the frontend can treat
             # "no stop this lap" and "no pit data at all" the same way.
             "pit": stop,
-            # True only on a carried-forward row for a driver who has
-            # actually retired (see below) — never on a row built from a
-            # real `race_laps` entry, since the car was still racing then.
+            # Set below, for a driver who actually retired: on every
+            # carried-forward row after their last one, and on that last row
+            # itself when it is the lap they stopped on (no gap and no lap
+            # time — see the retirement block below for why that test is the
+            # one that separates stopping from finishing a lap down).
             "retired": False,
         }
         by_lap.setdefault(lap, []).append(runner)
@@ -245,6 +247,37 @@ def build_replay(
         entry = directory.get(number) or {}
         status = str(entry.get("finish_status") or "").strip().lower()
         retired = not status.startswith(_FINISHER_STATUSES)
+
+        # The lap a car retired ON is not a lap it completed, and its row for
+        # that lap is not a live one — it holds whatever position the car was
+        # running in when it stopped, mid-lap.
+        #
+        # Left unmarked, that stale position DUPLICATES a live one. Measured on
+        # 2026 round 12: Verstappen crashed on lap 1 and his row froze at P7,
+        # so the tower rendered two cars in seventh and nobody in P22 — with
+        # Verstappen at the bottom of the screen still labelled 7, because the
+        # sort put him last (no gap) while the label came from the frozen
+        # field. Bearman did the same to P20 on lap 3, and Stroll, Ocon,
+        # Bottas and Albon each do it later in the same race.
+        #
+        # `gap_seconds is None AND lap_time_seconds is None` is what separates
+        # this from a lapped finisher, whose final row also has no lap time but
+        # DOES carry a real gap because it genuinely completed that lap and
+        # took the flag. Across every DNF in round 12 the split is exact, and
+        # it is a property of the data rather than of any one race: a car that
+        # completed the lap has a measured gap at the line, and a car that
+        # stopped on it has neither measurement.
+        #
+        # This is the one case where `retired: True` sits on a row built from a
+        # real `race_laps` entry (see the field's note above). The car was not
+        # still racing at the end of it, and the sort key below then moves it
+        # out of the live order instead of colliding inside it.
+        if (
+            retired
+            and last_row.get("gap_seconds") is None
+            and last_row.get("lap_time_seconds") is None
+        ):
+            last_row["retired"] = True
         for lap in range(last_seen + 1, last_lap + 1):
             # `lap_time_seconds` is nulled on a carried row for the same reason
             # `pit` is: it describes something that happened on one specific

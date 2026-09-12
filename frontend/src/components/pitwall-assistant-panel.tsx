@@ -957,7 +957,15 @@ const MessageBubble = memo(function MessageBubble({
               ERROR_COPY[message.error.code as keyof typeof ERROR_COPY] ||
               "Something went wrong reaching the assistant."}
           </p>
-          {message.question && (
+          {/* No Retry on a refusal.
+              A guardrail verdict is a decision about the text that was sent,
+              so re-sending the identical text refuses identically — offering
+              the button invites the user to press it until they give up, and
+              made a deliberate refusal look like a transient fault. `refused`
+              is the guardrail codes (scope, injection, PII); every other code
+              here IS retryable — a queue timeout, a rate limit, a dropped
+              connection — and keeps its button. */}
+          {message.question && message.error.code !== "refused" && (
             <button
               type="button"
               onClick={() => onAsk(message.question!)}

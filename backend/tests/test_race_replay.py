@@ -304,3 +304,77 @@ class CarryForwardFinisherTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RetirementLapTests(unittest.TestCase):
+    """The lap a car retires ON is not a lap it completed.
+
+    Regression for a tower that rendered two cars in seventh and nobody last:
+    a retiring driver's final row keeps the position it was running in when it
+    stopped, and left unmarked that stale number collides with whoever really
+    holds it. Measured on 2026 round 12, where Verstappen crashed on lap 1
+    holding P7 and Lawson finished the lap in P7.
+    """
+
+    RESULTS = [
+        result_row("12", "antonelli", "Kimi", "Antonelli", position="1", grid="1"),
+        result_row("23", "albon", "Alexander", "Albon", team="Williams", position="2", grid="2"),
+        result_row("3", "max_verstappen", "Max", "Verstappen", team="Red Bull",
+                   position="3", grid="3", status="Retired"),
+        result_row("5", "bortoleto", "Gabriel", "Bortoleto", team="Sauber",
+                   position="4", grid="4", status="Lapped"),
+    ]
+
+    def _replay(self):
+        laps = [
+            {"driver_number": 12, "lap_number": 1, "position": 1, "gap_seconds": 0.0, "lap_time_seconds": 92.5},
+            {"driver_number": 23, "lap_number": 1, "position": 2, "gap_seconds": 1.5, "lap_time_seconds": 94.0},
+            # Stopped ON lap 1: no gap at the line and no duration, because it
+            # never reached the line. Its position collides with Albon's.
+            {"driver_number": 3, "lap_number": 1, "position": 2, "gap_seconds": None, "lap_time_seconds": None},
+            # Finished a lap down. Also has no lap duration on its final lap,
+            # but DOES carry a real gap — it completed the lap and took the
+            # flag. Must NOT be treated as a retirement.
+            {"driver_number": 5, "lap_number": 1, "position": 3, "gap_seconds": 40.2, "lap_time_seconds": None},
+            {"driver_number": 12, "lap_number": 2, "position": 1, "gap_seconds": 0.0, "lap_time_seconds": 91.8},
+            {"driver_number": 23, "lap_number": 2, "position": 2, "gap_seconds": 2.1, "lap_time_seconds": 95.6},
+        ]
+        return race_replay.build_replay(self.RACE_META, self.RESULTS, laps, [], [], {"events": []})
+
+    RACE_META = RACE
+
+    def test_the_lap_a_car_retires_on_is_marked_retired(self):
+        lap1 = {r["number"]: r for r in self._replay()["laps"][0]["runners"]}
+
+        self.assertTrue(lap1["3"]["retired"])
+
+    def test_no_two_live_runners_share_a_position(self):
+        for lap in self._replay()["laps"]:
+            live = [r["position"] for r in lap["runners"] if not r["retired"]]
+            self.assertEqual(len(live), len(set(live)), f"duplicate position on lap {lap['lap']}")
+
+    def test_a_retired_car_sorts_below_every_running_one(self):
+        order = [r["number"] for r in self._replay()["laps"][0]["runners"]]
+
+        self.assertEqual(order[-1], "3")
+
+    def test_a_lapped_finisher_is_not_treated_as_a_retirement(self):
+        """The null lap duration it shares with a retirement is not enough.
+
+        Both have no `lap_time_seconds` on their final row; only the car that
+        actually stopped is also missing a gap.
+        """
+        lap1 = {r["number"]: r for r in self._replay()["laps"][0]["runners"]}
+
+        self.assertFalse(lap1["5"]["retired"])
+
+    def test_later_laps_still_carry_the_retired_car_forward(self):
+        """Marking the stopping lap must not remove the car from the field."""
+        lap2 = {r["number"]: r for r in self._replay()["laps"][1]["runners"]}
+
+        self.assertIn("3", lap2)
+        self.assertTrue(lap2["3"]["retired"])
+
+
+if __name__ == "__main__":
+    unittest.main()

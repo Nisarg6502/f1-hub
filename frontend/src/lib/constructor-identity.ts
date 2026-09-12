@@ -122,6 +122,14 @@ const DISPLAY_NAME_OVERRIDES: Record<string, string> = {
   "red bull": "Red Bull",
   "racing bulls": "Racing Bulls",
   "aston martin": "Aston Martin",
+  // Internal capitals, which the `\b\w` pass below cannot produce: it upper-
+  // cases the first letter of each word and lower-cases nothing, so "mclaren"
+  // came out "Mclaren" in the /history legend — a team name misspelt in the
+  // legend of a chart about that team's 204 wins. Every value in
+  // ACTIVE_KEY_TO_TEAM_COLOR_NAME that is not a plain lowercase word now has
+  // an entry here, so the regex only ever handles names it can get right.
+  mclaren: "McLaren",
+  sauber: "Sauber",
 };
 
 function toDisplayName(lookupKey: string): string {
