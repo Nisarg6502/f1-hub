@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRef } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from "react";
+import { useDeviceTilt } from "@/hooks/use-device-tilt";
 
 interface TiltCardProps {
   href?: string;
@@ -36,6 +38,17 @@ export default function TiltCard({
   style: styleProp,
   onClick,
 }: TiltCardProps) {
+  // Same `strength` the cursor uses drives the phone's tilt too, so the two
+  // input methods feel like one interaction rather than two different
+  // effects that happen to share a component. On desktop `deviceorientation`
+  // never fires (no sensor) even though the browser exposes the event
+  // constructor, so this hook is inert there and the mouse handlers below
+  // keep sole ownership of `transform`. On a touch phone the reverse is
+  // true — `onMove`/`onLeave` never fire without a real cursor — so the two
+  // codepaths write to the same element without ever actually colliding.
+  const cardRef = useRef<HTMLAnchorElement | HTMLDivElement | null>(null);
+  useDeviceTilt(cardRef, { maxTilt: strength });
+
   // Asymmetric timing, not a single uniform easing: while the cursor is
   // moving, the tilt should feel tightly coupled to it (fast, linear). On
   // leave, it settles back to flat with a slower, strong ease-out — the
@@ -82,6 +95,9 @@ export default function TiltCard({
     return (
       <Link
         href={href}
+        ref={(node) => {
+          cardRef.current = node;
+        }}
         aria-label={ariaLabel}
         onMouseMove={onMove}
         onMouseLeave={onLeave}
@@ -105,6 +121,9 @@ export default function TiltCard({
 
   return (
     <div
+      ref={(node) => {
+        cardRef.current = node;
+      }}
       onMouseMove={onMove}
       onMouseLeave={onLeave}
       onClick={onClick}
