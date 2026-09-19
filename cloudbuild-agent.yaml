@@ -74,7 +74,7 @@ steps:
       # comma-separated origin list, which a `,`-delimited --set-env-vars
       # parses as extra bare (non-KEY=VALUE) tokens and rejects outright.
       - '--set-env-vars'
-      - '^;^AGENT_MODEL=${_AGENT_MODEL};LANGSMITH_TRACING=${_LANGSMITH_TRACING};LANGSMITH_PROJECT=${_LANGSMITH_PROJECT};AGENT_ALLOWED_ORIGINS=${_AGENT_ALLOWED_ORIGINS};AGENT_RATE_LIMIT_ENABLED=${_AGENT_RATE_LIMIT_ENABLED};AGENT_DAILY_COST_BUDGET=${_AGENT_DAILY_COST_BUDGET};AGENT_TRUSTED_PROXY_HOPS=${_AGENT_TRUSTED_PROXY_HOPS}'
+      - '^;^AGENT_MODEL=${_AGENT_MODEL};AGENT_MODEL_FAST=${_AGENT_MODEL_FAST};LANGSMITH_TRACING=${_LANGSMITH_TRACING};LANGSMITH_PROJECT=${_LANGSMITH_PROJECT};AGENT_ALLOWED_ORIGINS=${_AGENT_ALLOWED_ORIGINS};AGENT_RATE_LIMIT_ENABLED=${_AGENT_RATE_LIMIT_ENABLED};AGENT_DAILY_COST_BUDGET=${_AGENT_DAILY_COST_BUDGET};AGENT_TRUSTED_PROXY_HOPS=${_AGENT_TRUSTED_PROXY_HOPS}'
       - '--allow-unauthenticated'
       - '--quiet'
 
@@ -86,7 +86,27 @@ substitutions:
   # scored every level-1/2 model Ollama Cloud actually offers; this is the one
   # that both converges on a multi-hop dispatch loop and stays cheapest in GPU
   # time. Note `qwen3.5:35b` from the plan does not exist on the platform.
+  #
+  # As of the tier-based model split, this is the TIER-3 model only —
+  # `graph.py`'s multi-agent orchestrator, the one graph shape that actually
+  # exercises the multi-hop dispatch loop this was chosen for. See
+  # `_AGENT_MODEL_FAST` below and `backend/agent/config.py`'s `DEFAULT_MODEL`/
+  # `FAST_MODEL` docstrings for why tiers 1 and 2 no longer read this value.
   _AGENT_MODEL: 'nemotron-3-nano:30b'
+  # Tiers 1 and 2 — `graph.py`'s flat CP61 graph, which never builds a
+  # subagent and never calls `task()`, so `_AGENT_MODEL` above's whole reason
+  # for being the nemotron model (surviving the nested dispatch loop) does not
+  # apply here. `gemma4:31b` scored the same perfect 6/6 on every other
+  # one-shot tool-calling test in the CP59 spike, at roughly half the GPU time
+  # (12.6s vs 27.7s across the six-question battery), and re-verified live
+  # against Ollama Cloud on 2026-09-19 as still ~3-4x faster per call on
+  # simple prompts. Tier 1 is the router's default for anything its rules do
+  # not recognise as needing more, so this is the model most real questions
+  # actually get. Two substitutions rather than one env-driven split because
+  # this deploy config has no per-tier concept to hang a single value off —
+  # see `backend/agent/config.py`'s `FAST_MODEL` docstring for the full
+  # reasoning, and `graph.model_for`/`model_for_tier` for where it is applied.
+  _AGENT_MODEL_FAST: 'gemma4:31b'
   _LANGSMITH_TRACING: 'true'
   _LANGSMITH_PROJECT: 'f1-agent'
   # Cloud Run gives every service BOTH a `<service>-<project-number>.<region>.run.app`

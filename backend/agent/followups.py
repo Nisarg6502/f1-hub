@@ -331,7 +331,20 @@ async def suggest(question: str, answer: str, *, limit: int = MAX_SUGGESTIONS) -
                             f"Answer given:\n{draft[:_ANSWER_EXCERPT_CHARS]}"
                         ),
                     },
-                ]
+                ],
+                # Deliberately `config.FAST_MODEL`, not the default this
+                # module used to inherit silently. This call binds no tools
+                # and dispatches to no subagent — it is one buffered
+                # completion producing four short lines — so `FAST_MODEL`'s
+                # only disqualifying flaw (`config.py`'s docstring: failing
+                # nested `task()` dispatch) cannot occur here, and the
+                # one-shot battery it topped (`agent/spikes/README.md` §2) is
+                # exactly this call's shape. Speed also isn't free here the
+                # way it is elsewhere: this module's own docstring says the
+                # run gate stays held for the whole call, so a slower model
+                # would make the *next* asker in the queue wait longer for a
+                # feature they didn't ask for.
+                model=config.FAST_MODEL,
             )
     except asyncio.CancelledError:
         raise

@@ -38,17 +38,50 @@ def _int(name: str, default: int) -> int:
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL") or "https://ollama.com"
 
-# The workhorse. CHAT-AGENT-PLAN.md §4.2 named `qwen3.5:35b`, which does not
-# exist on Ollama Cloud — the catalogue was probed live on 2026-08-05 and the
-# only Qwen offered is `qwen3.5:397b`, a level-4 model the plan's own budget
-# logic excludes.
+# The tier-3 workhorse — the only tier that builds `graph.py`'s multi-agent
+# orchestrator graph (`router.Route.use_subagents`, i.e. nested `task()`
+# dispatch to `subagents.py`'s specialists). CHAT-AGENT-PLAN.md §4.2 named
+# `qwen3.5:35b`, which does not exist on Ollama Cloud — the catalogue was
+# probed live on 2026-08-05 and the only Qwen offered is `qwen3.5:397b`, a
+# level-4 model the plan's own budget logic excludes.
 #
 # `nemotron-3-nano:30b` is the CP59 spike's measured winner among the models
 # that do exist: 6/6 on the one-shot battery and 3/3 on the multi-hop dispatch
 # loop. Notably NOT `gemma4:31b`, which also scored 6/6 one-shot and then
 # failed the multi-hop loop 2 times in 3 by re-dispatching to a subagent it had
 # already heard back from. Full scores in `agent/spikes/README.md`.
+#
+# This used to be the one global model for every tier. It no longer is — see
+# `FAST_MODEL` below for why tiers 1 and 2 moved off it, and `graph.py`'s
+# `model_for_tier` for where that split is actually applied. What is unchanged
+# is tier 3's reason for keeping this one: it is the only tier where the
+# multi-hop dispatch loop above is ever exercised, so it is the only tier that
+# needs the reliability this model was chosen for.
 DEFAULT_MODEL = os.getenv("AGENT_MODEL") or "nemotron-3-nano:30b"
+
+# The tier-1/2 workhorse — `graph.py`'s flat CP61 graph, which `router.py`'s
+# own docstring is explicit never builds subagents and never calls `task()`
+# for either tier ("Tier 1 and 2 both use CP61's flat graph"; tier 2 was
+# downgraded from the multi-agent path after a live measurement, see
+# `router.classify`'s docstring).
+#
+# `gemma4:31b`'s only disqualifying flaw — recorded on `DEFAULT_MODEL` above —
+# is specific to the nested subagent dispatch loop: it scored a perfect 6/6 on
+# every other one-shot tool-calling test in the same battery, at roughly half
+# the GPU time of `nemotron-3-nano:30b` (12.6s vs 27.7s across the six-question
+# battery, `agent/spikes/README.md` §2). That flaw is unreachable on the path
+# tier 1 and tier 2 actually run — there is no `task()` tool bound, no
+# subagent to re-dispatch to — so disqualifying `gemma4:31b` from being the
+# one GLOBAL model does not mean disqualifying it from a job it was never
+# going to be asked to do. Tier 1 is this router's default for anything the
+# rules do not recognise as needing more, so this model change reaches the
+# majority of real questions.
+#
+# Re-verified live against Ollama Cloud on 2026-09-19 (the model spike's
+# result was seven weeks old at that point): `gemma4:31b` is still in the
+# catalogue and still dramatically faster per call — 0.6-0.8s vs 2.4-3.0s on a
+# simple single-tool-call prompt and on an out-of-domain-restraint prompt.
+FAST_MODEL = os.getenv("AGENT_MODEL_FAST") or "gemma4:31b"
 
 # Near-greedy. This system narrates retrieved evidence; sampling variance is
 # exactly what produced CP38's invented teammate relationship.

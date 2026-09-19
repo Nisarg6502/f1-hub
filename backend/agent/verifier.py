@@ -6,6 +6,12 @@ deliberately the deterministic core the plan describes ("citation presence,
 `evidence_id` existence and number-matching against the ledger are string
 and set operations — no model needed"), not the full five-stage pipeline
 (§7 also names an LLM claim-extraction call and an LLM entailment pass).
+Worth stating plainly now that `graph.py` splits models by tier
+(`config.FAST_MODEL` for tiers 1/2, `config.DEFAULT_MODEL` for tier 3): this
+module has no model call to route, on any tier, so that split has nothing to
+say about it — the repair loop in `graph.astream_answer` re-invokes whichever
+model answered the turn in the first place, and `check` below runs
+identically against either one's output.
 Those are left for a future checkpoint once this deterministic core has
 production data to show whether it is enough on its own — the same
 "measure before adding the expensive part" discipline CP63 just re-learned

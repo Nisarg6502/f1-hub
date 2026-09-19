@@ -188,6 +188,58 @@ class ClassifyOllamaErrorTests(unittest.TestCase):
         self.assertNotIsInstance(classified, model.ModelAtCapacity)
 
 
+class ModelForTierTests(unittest.TestCase):
+    """The tier-based model split — `config.FAST_MODEL` for tiers 1/2,
+    `config.DEFAULT_MODEL` (the one proven on the multi-hop subagent dispatch
+    loop) for tier 3, because tier 3 is the only tier that ever builds the
+    multi-agent graph. See `graph.model_for`'s docstring and
+    `config.FAST_MODEL`'s for the full reasoning; this only pins the behaviour
+    down so a future edit that flips the boundary fails loudly here first.
+    """
+
+    def test_use_subagents_false_gets_the_fast_model(self):
+        self.assertEqual(graph.model_for(False), graph.config.FAST_MODEL)
+
+    def test_use_subagents_true_gets_the_proven_dispatch_model(self):
+        self.assertEqual(graph.model_for(True), graph.config.DEFAULT_MODEL)
+
+    def test_tier_1_and_2_get_the_fast_model(self):
+        self.assertEqual(graph.model_for_tier(1), graph.config.FAST_MODEL)
+        self.assertEqual(graph.model_for_tier(2), graph.config.FAST_MODEL)
+
+    def test_tier_3_gets_the_proven_dispatch_model(self):
+        self.assertEqual(graph.model_for_tier(3), graph.config.DEFAULT_MODEL)
+
+    def test_missing_tier_defaults_like_an_unmatched_question_does(self):
+        """`router.classify` defaults an unmatched question to tier 1, not
+        tier 2 — `model_for_tier(None)` (a pre-tiering cache row, or the echo
+        fallback that never routed at all) mirrors that same default rather
+        than raising on a comparison against `None`.
+        """
+        self.assertEqual(graph.model_for_tier(None), graph.config.FAST_MODEL)
+
+    def test_build_agent_binds_the_tier_appropriate_model(self):
+        """`build_agent` itself wires `model_for(use_subagents)` into
+        `build_model`, not just the two helper functions in isolation —
+        proven the same way `GeneralPurposeSubagentTests` proves the tool
+        list, by recording what `ChatOllama` subclass the graph actually
+        receives.
+        """
+        seen: list[str] = []
+
+        def _capture(model):
+            seen.append(model)
+            return _recording_model(model)
+
+        from unittest.mock import patch
+
+        with patch.object(graph, "build_model", _capture):
+            graph.build_agent(EvidenceLedger(), use_subagents=False)
+            graph.build_agent(EvidenceLedger(), use_subagents=True)
+
+        self.assertEqual(seen, [graph.config.FAST_MODEL, graph.config.DEFAULT_MODEL])
+
+
 class ModelVisibleArgumentAuditTests(unittest.TestCase):
     """The audit `ROADMAP.md`'s Batch 20 findings asked for and nobody ran.
 
@@ -503,13 +555,18 @@ _RECORDED_TOOL_LISTS: list = []
 _MODEL_SCRIPT: list = []
 
 
-def _recording_model():
+def _recording_model(model=None):
     """A `ChatOllama` that records what it is bound and never leaves the process.
 
     Subclasses the real thing rather than a generic fake so the model the graph
     sees is byte-for-byte the class `build_model` returns; only `bind_tools` and
     the two generate hooks are overridden. State lives at module level because
     `ChatOllama` is a pydantic model and will not take stray instance attributes.
+
+    Takes the same `model` string `build_model` now requires (the tier-based
+    split added a real argument where there used to be none) but the tool-list
+    assertions this stub exists for don't care which one was passed, so it
+    just falls back to `config.DEFAULT_MODEL` when a test calls it bare.
     """
     from langchain_core.messages import AIMessage
     from langchain_core.outputs import ChatGeneration, ChatResult
@@ -538,7 +595,7 @@ def _recording_model():
             return self._generate(messages)
 
     return _Recorder(
-        model=graph.config.DEFAULT_MODEL,
+        model=model or graph.config.DEFAULT_MODEL,
         base_url=graph.config.OLLAMA_BASE_URL,
         temperature=graph.config.TEMPERATURE,
     )

@@ -179,7 +179,12 @@ async def health() -> dict:
     return {
         "status": "ok",
         "service": "f1-agent",
-        "model": config.DEFAULT_MODEL,
+        # No longer one model: `graph.model_for` splits by tier (see its
+        # docstring and `config.FAST_MODEL`'s). Reported as a mapping rather
+        # than picking one name to avoid implying either tier is the "real"
+        # answer to "which model is actually loaded" — this endpoint exists
+        # precisely so that question doesn't have to be guessed at.
+        "model": {"tier1_2": config.FAST_MODEL, "tier3": config.DEFAULT_MODEL},
         "inference_configured": bool(config.api_key()),
         "langsmith_tracing": _TRACING_LIVE,
         "thread_memory": checkpointer.current() is not None,
@@ -353,7 +358,14 @@ async def _stream(
         yield sse.done(
             run_id=None,
             mode="model",
-            model=config.DEFAULT_MODEL,
+            # The model that actually produced this row when it was written,
+            # not a global constant — `graph.py` splits models by tier, so a
+            # cached tier-1/2 answer replaying `config.DEFAULT_MODEL` here
+            # would misreport which model this specific answer came from.
+            # `model_for_tier` treats a missing/`None` tier (a row cached
+            # before tiering existed) as tier 1, matching `router.classify`'s
+            # own "no signal fired at all" default.
+            model=graph.model_for_tier(cached.get("tier")),
             prompt_version=config.PROMPT_VERSION,
             tier=cached.get("tier"),
             verification="passed",
@@ -366,6 +378,11 @@ async def _stream(
         "chat",
         {"message": text},
         thread_id=thread_id,
+        # Best-effort only: the tier — and therefore the real model
+        # (`graph.model_for_tier`) — is not classified until inside the run
+        # this context manager wraps, so this open-time tag cannot be exact
+        # for a tier-1/2 turn. `tracing.end` below records the actual model
+        # once the tier is known, which is the value worth trusting.
         model=config.DEFAULT_MODEL,
         prompt_version=config.PROMPT_VERSION,
     ) as run:
@@ -589,7 +606,14 @@ async def _stream(
             yield sse.done(
                 run_id=rid,
                 mode=mode,
-                model=config.DEFAULT_MODEL,
+                # The tier-appropriate model, now that the tier is known —
+                # not the open-time guess `tracing.traced_run` above had to
+                # make. `mode == "echo"` never ran a model at all, but
+                # `model_for_tier` still returns a defensible answer for it
+                # (`tier` is `None` there too, so this reports the tier-1/2
+                # model rather than a fictional "no model" sentinel the
+                # `done` event's schema does not have room for).
+                model=graph.model_for_tier(tier),
                 prompt_version=config.PROMPT_VERSION,
                 tier=tier,
                 verification=verification_status,
@@ -599,6 +623,7 @@ async def _stream(
                 run,
                 {
                     "mode": mode,
+                    "model": graph.model_for_tier(tier),
                     "chars": chars,
                     "evidence": len(ledger),
                     "tier": tier,

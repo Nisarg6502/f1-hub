@@ -335,9 +335,17 @@ class HappyPathTests(unittest.TestCase):
     @patch.object(main.graph, "astream_answer", _fake_agent_stream)
     @patch.object(main.config, "api_key", lambda: "test-key")
     def test_done_reports_mode_model_and_the_model_name(self):
+        # `_fake_agent_stream` never yields a `("tier", ...)` event, so `tier`
+        # stays `None` for this turn — the same "no signal fired" shape as an
+        # unmatched question — and `graph.model_for_tier` reports the tier-1/2
+        # model for it. Asserting `graph.model_for_tier(None)` rather than a
+        # hardcoded model string is deliberate: this test is about the `done`
+        # event carrying *the model that actually applies*, not about which
+        # one that happens to be today (`config.FAST_MODEL` vs
+        # `config.DEFAULT_MODEL` is `graph.py`'s decision to make).
         done = post().payload_of("done")
         self.assertEqual(done["mode"], "model")
-        self.assertEqual(done["model"], main.config.DEFAULT_MODEL)
+        self.assertEqual(done["model"], main.graph.model_for_tier(None))
         self.assertIn("elapsed_ms", done)
         self.assertIn("run_id", done)
 
