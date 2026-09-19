@@ -28,12 +28,6 @@ steps:
       - 'asia-south1'
       - '--platform'
       - 'managed'
-      # Was 0 (scale-to-zero). The frontend's SSR pages call this API at
-      # request time (force-dynamic), so a cold backend delayed page loads
-      # even with the frontend warm. Same idle-instance cost tradeoff as
-      # cloudbuild-frontend.yaml's --min-instances.
-      - '--min-instances'
-      - '1'
       # `--update-env-vars`, NOT `--set-env-vars`. This service's other
       # variables (MONGODB_URI among them) were set directly on the service and
       # do not appear in this file; `--set-env-vars` REPLACES the whole
