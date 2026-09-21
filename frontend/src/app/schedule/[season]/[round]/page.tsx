@@ -222,7 +222,12 @@ export default async function RaceDetailPage({ params }: PageProps) {
   return (
     <div className="px-6 md:px-10 pt-8 pb-16">
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-7 gap-6">
+      {/* `md:flex-wrap` matters at the 768-900px band: the four controls to
+          the right (season, race, watch, back) plus the title block are
+          together wider than a lot of `md` viewports allow on one row —
+          without it, the row overflowed the page instead of wrapping (see
+          `nav-links.tsx` for the same band biting the top nav). */}
+      <div className="flex flex-col md:flex-row md:flex-wrap justify-between items-start md:items-end mb-7 gap-6">
         <div>
           <div className="flex items-center gap-3 mb-3">
             <span
@@ -246,7 +251,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
               : ""}
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3">
           <SeasonSelector
             currentYear={seasonYear}
             maxYear={getActiveSeasonYear()}

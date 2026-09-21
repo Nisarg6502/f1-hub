@@ -42,7 +42,16 @@ export default function PitwallModules({
         <h3 className="font-bold text-[11px] tracking-[0.18em] uppercase text-warm-500 mb-4">
           Analysis modules
         </h3>
-        <nav className="flex flex-col gap-2.5">
+        {/* Below `lg` this is a horizontally-scrolling row of compact chips
+            rather than the desktop sidebar's stack of full-width cards. Seven
+            stacked 64px-tall cards pushed every chart below the fold on a
+            phone or tablet — a scroll-past-the-nav-before-you-see-data
+            problem, not an overflow one, which is the "pitwall is cramped on
+            mobile" complaint this whole pass exists to fix. The horizontal
+            scroll here is the same contained, intentional kind the wide
+            tables elsewhere in the app use (see e.g. `sector-battle-panel`'s
+            `overflow-x-auto`), not scroll leaking onto the page. */}
+        <nav className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 lg:mx-0 lg:px-0 lg:pb-0 lg:flex-col lg:gap-2.5 lg:overflow-visible">
           {modules.map((module) => {
             const isActive = module.id === active?.id;
             return (
@@ -50,19 +59,30 @@ export default function PitwallModules({
                 key={module.id}
                 onClick={() => setActiveId(module.id)}
                 aria-current={isActive ? "page" : undefined}
-                className={`flex items-center justify-between px-5 py-4 rounded-2xl w-full text-left transition-[background-color,border-color,transform] duration-150 active:scale-[0.98] ${
+                className={`flex items-center justify-between gap-2 shrink-0 lg:shrink lg:w-full whitespace-nowrap text-left px-4 py-2.5 rounded-full lg:px-5 lg:py-4 lg:rounded-2xl transition-[background-color,border-color,transform] duration-150 active:scale-[0.98] ${
                   isActive
                     ? "border border-primary-container/35 bg-primary-container/10 text-primary"
                     : "apex-glass-soft hover:border-flame-bright/50"
                 }`}
               >
-                <span className="font-bold text-[15px]">{module.label}</span>
-                <span
-                  className={`material-symbols-outlined text-lg transition-opacity ${
-                    isActive ? "opacity-100" : "opacity-0"
-                  }`}
-                >
-                  chevron_right
+                <span className="font-bold text-[13px] lg:text-[15px]">{module.label}</span>
+                {/* The chevron is wrapped rather than given `hidden` directly:
+                    the Material Symbols Google Fonts stylesheet loads AFTER
+                    Tailwind's compiled CSS and defines its own `display` for
+                    `.material-symbols-outlined` at equal specificity, so it
+                    silently wins the cascade over a `hidden`/`lg:inline-block`
+                    utility placed on that same class — confirmed by hand, the
+                    icon stayed visible below `lg` with `display: block` in
+                    computed styles even though `.hidden` was in the class
+                    list. Hiding the wrapper instead sidesteps that clash. */}
+                <span className="hidden lg:inline-block">
+                  <span
+                    className={`material-symbols-outlined text-lg transition-opacity ${
+                      isActive ? "opacity-100" : "opacity-0"
+                    }`}
+                  >
+                    chevron_right
+                  </span>
                 </span>
               </button>
             );
@@ -72,9 +92,9 @@ export default function PitwallModules({
             <button
               key={label}
               disabled
-              className="flex items-center justify-between px-5 py-4 rounded-2xl apex-glass-soft opacity-50 cursor-not-allowed w-full text-left"
+              className="flex items-center justify-between gap-2 shrink-0 lg:shrink lg:w-full whitespace-nowrap text-left px-4 py-2.5 rounded-full lg:px-5 lg:py-4 lg:rounded-2xl apex-glass-soft opacity-50 cursor-not-allowed"
             >
-              <span className="font-bold text-[15px]">{label}</span>
+              <span className="font-bold text-[13px] lg:text-[15px]">{label}</span>
               <span className="text-[10px] uppercase tracking-[0.1em] text-warm-500 font-bold rounded-md bg-veil/6 px-2 py-1">
                 Soon
               </span>
