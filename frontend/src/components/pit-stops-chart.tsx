@@ -34,6 +34,12 @@ interface PitStopsChartProps {
  * chart, so they're kept out of the aggregates and marked in the table. */
 const RED_FLAG_SECONDS = 120;
 
+/** Four columns on mobile ("vs best" hidden, see below), the full five from
+ * `sm` up — five fixed-px columns alongside a driver name otherwise force
+ * the whole page wider than a phone viewport, which is real horizontal
+ * overflow rather than the contained, scrollable kind. */
+const STOP_ROW_COLS = "grid-cols-[1fr_40px_40px_76px] sm:grid-cols-[1fr_56px_56px_100px_84px]";
+
 function formatDuration(seconds: number): string {
   if (seconds < 60) return `${seconds.toFixed(3)}s`;
   const minutes = Math.floor(seconds / 60);
@@ -425,7 +431,12 @@ export default function PitStopsChart({ drivers, stops }: PitStopsChartProps) {
           )}
         </div>
 
-        <div className="grid grid-cols-[1fr_56px_56px_100px_84px] gap-3 px-4 pb-2.5 border-b border-white/10">
+        {/* Narrower on mobile: "vs best" drops out below `sm` (the delta is a
+            nice-to-have next to Driver/Stop/Lap/Duration, and at phone widths
+            five fixed-px columns plus a driver name don't fit — the same
+            "hide the least essential column, don't shrink text past
+            legibility" idiom `FullResultsTable` in session-tabs.tsx uses). */}
+        <div className={`grid ${STOP_ROW_COLS} gap-2 sm:gap-3 px-4 pb-2.5 border-b border-white/10`}>
           <SortHeader label="Driver" sortBy="driver" {...sortProps} />
           <SortHeader label="Stop" sortBy="stop" className="justify-end" {...sortProps} />
           <SortHeader label="Lap" sortBy="lap" className="justify-end" {...sortProps} />
@@ -435,7 +446,7 @@ export default function PitStopsChart({ drivers, stops }: PitStopsChartProps) {
             className="justify-end"
             {...sortProps}
           />
-          <span className="text-right uppercase tracking-[0.12em] font-bold text-[10px] text-warm-500">
+          <span className="hidden sm:block text-right uppercase tracking-[0.12em] font-bold text-[10px] text-warm-500">
             vs best
           </span>
         </div>
@@ -452,7 +463,7 @@ export default function PitStopsChart({ drivers, stops }: PitStopsChartProps) {
             return (
               <div
                 key={`${stop.driver_id}-${stop.stop}`}
-                className="grid grid-cols-[1fr_56px_56px_100px_84px] gap-3 items-center px-4 py-2.5 border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors"
+                className={`grid ${STOP_ROW_COLS} gap-2 sm:gap-3 items-center px-4 py-2.5 border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <div
@@ -482,7 +493,7 @@ export default function PitStopsChart({ drivers, stops }: PitStopsChartProps) {
                 >
                   {formatDuration(stop.duration_seconds)}
                 </span>
-                <span className="text-right font-semibold text-xs tabular-nums text-warm-500">
+                <span className="hidden sm:block text-right font-semibold text-xs tabular-nums text-warm-500">
                   {isRedFlag ? (
                     <Flag className="w-3.5 h-3.5 text-flame inline" />
                   ) : delta === 0 ? (
