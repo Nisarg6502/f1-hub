@@ -55,6 +55,7 @@ from langgraph.errors import GraphRecursionError
 from pydantic import create_model
 
 from . import config
+from . import fast_path
 from . import model as model_seam
 from . import router
 from . import verifier
@@ -978,6 +979,38 @@ async def astream_answer(
 
     route = router.classify(message)
     yield ("tier", route.tier, route.reason)
+
+    # `fast_path` handles a small, conservative set of tier-1 intents
+    # ("who won the last race", "who's leading the drivers' championship",
+    # "when is the next race") with plain Python tool calls and exactly one
+    # model call to phrase the answer, instead of a full ReAct loop deciding
+    # which tool to call. `fast_path.detect` re-derives tier 1 itself via
+    # `router.classify` (see its own docstring), so the `route.tier == 1`
+    # check here is belt-and-braces, not the real gate — cheap to keep since
+    # `detect` is pure regex, and it means a future edit to this function
+    # cannot accidentally offer tier 2/3 questions to a module whose whole
+    # design assumes they were already excluded.
+    #
+    # This branch sits deliberately outside the `try` block below rather than
+    # falling into its `except Exception -> ModelError` catch-all: `model
+    # .stream_chat` (what `fast_path.run` calls) already raises the same
+    # typed `ModelUnavailable`/`ModelAtCapacity`/`ModelTimeout`/`ModelError`
+    # `main.py`'s except chain branches on, and routing it through that
+    # catch-all would re-wrap an already-specific error (e.g. `ModelAtCapacity`)
+    # into a generic `ModelError`, losing the distinction `main.py` uses to
+    # pick the right user-facing message.
+    if route.tier == 1:
+        fast_intent = fast_path.detect(message)
+        if fast_intent is not None:
+            try:
+                async with asyncio.timeout(config.REQUEST_TIMEOUT_SECONDS):
+                    async for event in fast_path.run(message, fast_intent, ledger):
+                        yield event
+            except asyncio.TimeoutError as error:
+                raise model_seam.ModelTimeout(
+                    f"fast-path turn exceeded {config.REQUEST_TIMEOUT_SECONDS:.0f}s"
+                ) from error
+            return
 
     # One buffer per turn, created here beside the ledger and for the same
     # reason `main.py` creates the ledger per turn: two overlapping requests
