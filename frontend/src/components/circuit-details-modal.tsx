@@ -286,8 +286,15 @@ export default function CircuitDetailsModal({
               )}
             </div>
           ) : (
+            /* "No track data recorded for this circuit yet" read as missing
+               data for a circuit that plainly has plenty — Monza showed it
+               while the same modal listed its 1950 debut underneath and
+               /circuits/monza rendered a full 3D model of it. What is actually
+               absent is this SEASON's session data, because the round has not
+               run. Say that instead, and say when it arrives. */
             <p className="font-medium text-sm text-warm-400">
-              No track data recorded for this circuit yet.
+              No session data for this circuit yet this season — lap and sector
+              times appear once a session has run.
             </p>
           )}
 

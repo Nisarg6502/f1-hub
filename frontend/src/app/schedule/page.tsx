@@ -18,9 +18,16 @@ interface PageProps {
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
   const { season } = await searchParams;
   const year = resolveSeasonYear(season);
+  const title = `${year} F1 Race Calendar · APEX`;
+  const description = `Every round of the ${year} Formula 1 season — dates, circuits and sprint weekends, split into upcoming and completed.`;
   return {
-    title: `APEX | ${year} F1 Season Hub`,
-    description: `APEX — a warm, high-clarity home for the ${year} Formula 1 season: schedule, standings, drivers, teams and circuits.`,
+    title,
+    description,
+    // Without an explicit `openGraph` block a page inherits the root layout's,
+    // so every shared link previewed as the same generic card no matter which
+    // page it pointed at. The title is the whole value of a preview.
+    openGraph: { title, description, url: `/schedule` },
+    twitter: { title, description },
   };
 }
 

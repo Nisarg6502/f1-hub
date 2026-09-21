@@ -77,7 +77,19 @@ interface Edit {
  * carries `lastIndex` between uses, and one shared instance driving both a
  * `.replace` and an `.exec` loop is a stateful-global bug waiting to happen.
  */
-const markerRe = () => new RegExp(`[ \\t]*${CITATION_MARKER_SOURCE}`, "g");
+const markerRe = () =>
+  new RegExp(
+    // Trailing whitespace is eaten too, but ONLY when closing punctuation
+    // follows. Models sometimes write `"...for the McLaren team [ev_3] ."`,
+    // and stripping just the marker left `"the McLaren team ."` — a space
+    // before a full stop, visible in production and in `textContent`, not an
+    // artefact of how the mark is styled. The lookahead is what keeps this
+    // narrow: `"won [ev_1] and"` must still leave the space that separates the
+    // two words, so only a run of spaces standing between a removed marker and
+    // punctuation is removed.
+    `[ \\t]*${CITATION_MARKER_SOURCE}(?:[ \\t]+(?=[.,;:!?)\\]]))?`,
+    "g"
+  );
 
 /** Letters and digits in any script — Räikkönen and 4.812 both count. */
 const WORDISH = /[\p{L}\p{N}]/u;

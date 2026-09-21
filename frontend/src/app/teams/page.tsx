@@ -19,7 +19,7 @@ import {
   type ConstructorTitlesResponse,
 } from "@/lib/constructor-profiles";
 import { getEngineForTeam } from "@/lib/engines";
-import { getTeamColor } from "@/lib/team-colors";
+import { getInkOn, getTeamColor } from "@/lib/team-colors";
 import { getTeamAbbreviation, getTeamCarPath, getTeamLogoPath } from "@/lib/team-images";
 import TiltCard from "@/components/tilt-card";
 import { Stagger, StaggerItem } from "@/components/motion-primitives";
@@ -110,9 +110,13 @@ async function fetchSeasonsWithRetry(id: string) {
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
   const { season } = await searchParams;
   const year = resolveSeasonYear(season);
+  const title = `${year} F1 Teams & Constructors · APEX`;
+  const description = `Every ${year} Formula 1 constructor: where it is based, what it has won, and the chain of teams it grew out of.`;
   return {
-    title: `APEX | ${year} F1 Season Hub`,
-    description: `APEX — every ${year} Formula 1 constructor: where it is based, what it has won, and the chain of teams it grew out of.`,
+    title,
+    description,
+    openGraph: { title, description, url: `/teams` },
+    twitter: { title, description },
   };
 }
 
@@ -302,7 +306,7 @@ export default async function TeamsPage({ searchParams }: PageProps) {
                 ) : (
                   <div
                     className="w-[54px] h-[54px] rounded-tile flex items-center justify-center font-[family-name:var(--font-headline)] font-extrabold text-xl flex-none"
-                    style={{ background: color.hex, color: "#0a0908" }}
+                    style={{ background: color.hex, color: getInkOn(color.hex) }}
                   >
                     {mono}
                   </div>

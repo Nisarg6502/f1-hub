@@ -4,7 +4,21 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, useReducedMotion } from "motion/react";
+import MobileMoreSheet from "./mobile-more-sheet";
 
+/**
+ * `/telemetry` is deliberately NOT here.
+ *
+ * It was the only word in this row promising something happening right now,
+ * and the page behind it cannot deliver that: the paid timing feed it was
+ * built against was never provisioned, so it renders two small cards and a
+ * screenful of empty space. A first-time visitor reads that as "this site is
+ * half-built" and carries the impression into every page after it — an
+ * expensive thing to pay for a nav item that is honest but empty.
+ *
+ * The route still exists and is still linked from the footer, so nothing is
+ * orphaned and no URL breaks. Put it back in this list the day it has a feed.
+ */
 const navItems = [
   { href: "/", label: "Home" },
   { href: "/schedule", label: "Schedule" },
@@ -13,7 +27,6 @@ const navItems = [
   { href: "/drivers", label: "Drivers" },
   { href: "/teams", label: "Teams" },
   { href: "/circuits", label: "Circuits" },
-  { href: "/telemetry", label: "Live" },
   { href: "/history", label: "History" },
 ];
 
@@ -132,8 +145,11 @@ export default function NavLinks() {
      * The row lives here rather than in `layout.tsx` because the indicator has
      * to be measured against it and drawn inside it.
      *
-     * `lg`, not `md`, and the difference is two unreachable destinations. Nine
-     * links plus the logo, search, launcher and season badge need about 900px;
+     * `lg`, not `md`, and the difference is two unreachable destinations. The
+     * links plus the logo, search, launcher and season badge need about 900px
+     * (measured when this row still carried nine of them; dropping "Live" to
+     * eight buys ~45px, nowhere near enough to move the breakpoint down a
+     * step, so it stays where it was);
      * at `md` the bar overflowed its own container — measured at 768x1024 the
      * page scrollWidth was 880 against a clientWidth of 768, "History"
      * rendered as "Histor" and the season badge was off-screen entirely. At
@@ -224,21 +240,26 @@ export default function NavLinks() {
 export function MobileNav() {
   const pathname = usePathname();
 
+  const [moreOpen, setMoreOpen] = useState(false);
+
   /**
-   * Six, and the sixth is Watch on purpose.
+   * Still six columns — the width budget below has not changed — but the sixth
+   * is now a door rather than a destination.
    *
-   * This bar is the *only* navigation below 1024px, so anything missing from
-   * it is unreachable on a phone. Watch mode is the app's second-screen
-   * feature — it is designed for a phone propped against a television — and it
-   * had no way to be reached from one, which is close to the definition of a
-   * feature that does not ship.
+   * The old sixth was Tracks, which meant Teams, Circuits' siblings, History
+   * and search were reachable on a phone only by scrolling to the footer.
+   * Three whole sections of the app, two of them (Teams' constructor lineage
+   * and the 77-season History barcode) the most distinctive pages here, were
+   * effectively invisible to every phone visitor.
    *
-   * It stops at six because the labels have to stay legible: at 390px the row
-   * has ~342px to divide, and a seventh column puts "Standings" under 48px.
-   * Teams, Live and History remain desktop-only here; they are reachable from
-   * in-page links, and a bottom bar that has to scroll is worse than a short
-   * one. Labels are shortened rather than dropped — an unlabelled icon row is
-   * a guessing game.
+   * A seventh column is still not the answer, for the reason measured
+   * originally: at 390px the row has ~342px to divide and a seventh puts
+   * "Drivers" under 48px. A "More" sheet costs one column and returns four
+   * destinations plus the search field, which below `lg` has no other home at
+   * all (`global-search.tsx` is `hidden lg:block`).
+   *
+   * Labels stay shortened rather than dropped — an unlabelled icon row is a
+   * guessing game.
    */
   const mobileItems = [
     { href: "/", icon: "home", label: "Home" },
@@ -246,8 +267,32 @@ export function MobileNav() {
     { href: "/watch", icon: "smart_display", label: "Watch" },
     { href: "/standings", icon: "leaderboard", label: "Table" },
     { href: "/drivers", icon: "groups", label: "Drivers" },
-    { href: "/circuits", icon: "route", label: "Tracks" },
   ];
+
+  /*
+   * Every link inside the sheet closes it in its own `onClick`, which is where
+   * React wants that handled and what keeps the common path effect-free — the
+   * bottom bar's own links are behind the sheet's overlay while it is open, so
+   * sheet links are the only in-app navigation available from that state.
+   *
+   * The one route change that is NOT a click is browser back/forward, which
+   * would otherwise leave the sheet hanging over a page the visitor navigated
+   * away from. `popstate` is an external system to subscribe to rather than a
+   * render to react to, so this stays on the right side of
+   * `react-hooks/set-state-in-effect` (a `useEffect` keyed on `pathname` that
+   * calls `setMoreOpen` in its body does not, and is what this replaced).
+   */
+  useEffect(() => {
+    const close = () => setMoreOpen(false);
+    window.addEventListener("popstate", close);
+    return () => window.removeEventListener("popstate", close);
+  }, []);
+
+  const moreActive =
+    pathname.startsWith("/circuits") ||
+    pathname.startsWith("/teams") ||
+    pathname.startsWith("/history") ||
+    pathname.startsWith("/telemetry");
 
   return (
     <>
@@ -280,6 +325,25 @@ export function MobileNav() {
           </Link>
         );
       })}
+
+      <button
+        type="button"
+        onClick={() => setMoreOpen(true)}
+        aria-haspopup="dialog"
+        aria-expanded={moreOpen}
+        className={`flex flex-col items-center gap-1 flex-1 min-w-0 transition-colors ${
+          moreActive || moreOpen ? "text-primary" : "text-warm-500"
+        }`}
+      >
+        <span className="material-symbols-outlined text-[22px]" aria-hidden="true">
+          more_horiz
+        </span>
+        <span className="text-[9px] font-semibold tracking-[0.1em] uppercase">
+          More
+        </span>
+      </button>
+
+      <MobileMoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} />
     </>
   );
 }

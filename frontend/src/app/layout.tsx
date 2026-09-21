@@ -112,7 +112,12 @@ function FooterGroup({
 
   return (
     <div className={`flex flex-col gap-3 ${wide ? "col-span-2" : ""}`}>
-      <span className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-600">
+      {/* `warm-400`, not `warm-600`. These four words ("Explore", "Project",
+          "Data", "Legal") are how anyone finds the About page, the data
+          sources or the bug report link, and at 2.7:1 they were the dimmest
+          readable text in the app. `warm-600` is the ramp's decorative rung —
+          separators and inactive glyphs — and should not dress a heading. */}
+      <span className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-400">
         {heading}
       </span>
       <div
@@ -394,7 +399,9 @@ export default function RootLayout({
                 description -- a stale year in a footer is the kind of thing
                 nobody notices until January. */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-6 border-t border-white/[0.05]">
-              <p className="font-medium text-[11px] leading-relaxed text-warm-600">
+              {/* The attribution line is a licence obligation (CC BY-SA), so
+                  it has to be legible, not merely present. */}
+              <p className="font-medium text-[11px] leading-relaxed text-warm-500">
                 Season {getActiveSeasonYear()} · Timing and results from{" "}
                 <Link
                   href="/data-sources"
@@ -407,7 +414,7 @@ export default function RootLayout({
               </p>
               <a
                 href="/sitemap.xml"
-                className="relative font-medium text-[11px] text-warm-600 hover:text-warm-300 transition-colors whitespace-nowrap before:absolute before:-top-3 before:-bottom-3 before:-left-1 before:-right-1 before:content-['']"
+                className="relative font-medium text-[11px] text-warm-500 hover:text-warm-300 transition-colors whitespace-nowrap before:absolute before:-top-3 before:-bottom-3 before:-left-1 before:-right-1 before:content-['']"
               >
                 Sitemap
               </a>

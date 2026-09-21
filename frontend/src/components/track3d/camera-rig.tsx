@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { Spherical, Vector3 } from "three";
+import { Spherical, Vector3, type PerspectiveCamera } from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 import type { TrackFrames } from "./build-ribbon";
@@ -101,25 +101,114 @@ function flyPose(
   look.y += 1.5;
 }
 
+/**
+ * How far back the camera has to sit for a sphere of `radius` to fit the frame.
+ *
+ * The presets used to place the camera at a fixed multiple of `frames.diagonal`
+ * — `reach * 1.15`, `reach * 0.52`, and so on — which quietly assumes both a
+ * particular field of view and a particular viewport shape. Neither holds:
+ * Monza is a long, narrow circuit whose diagonal is dominated by its straights,
+ * and at a wide desktop aspect it opened with the track running off the bottom
+ * edge and half the canvas empty. On a portrait phone the same numbers err the
+ * other way.
+ *
+ * This solves it from the frustum, and does so per AXIS. A bounding sphere
+ * (or a single projected radius) is the easy answer and a poor one: Monza's
+ * silhouette from the three-quarter angle is roughly three times wider than it
+ * is tall, and fitting its long axis against the tighter, vertical field of
+ * view left the circuit marooned in the middle of a mostly-empty canvas. So
+ * the box's eight corners are projected onto the camera's own right and up
+ * vectors, and each screen axis is fitted against its own half-angle. The
+ * larger of the two distances is the one that fits both.
+ */
+function fitDistance(
+  frames: TrackFrames,
+  exaggeration: number,
+  dir: Vector3,
+  camera: PerspectiveCamera,
+  margin: number,
+): number {
+  const halfX = (frames.max.x - frames.min.x) / 2;
+  const halfZ = (frames.max.z - frames.min.z) / 2;
+  const halfY = ((frames.max.y - frames.min.y) * exaggeration) / 2;
+
+  // Camera basis for a camera at `dir` looking back at the origin with world
+  // +Y as up — the convention OrbitControls settles into. A near-vertical
+  // `dir` (the overhead preset) makes `right` degenerate against +Y, so fall
+  // back to +X as the reference there.
+  const up = Math.abs(dir.y) > 0.98 ? new Vector3(1, 0, 0) : new Vector3(0, 1, 0);
+  const right = new Vector3().crossVectors(up, dir).normalize();
+  const trueUp = new Vector3().crossVectors(dir, right).normalize();
+
+  const vFov = (camera.fov * Math.PI) / 180;
+  const hFov = 2 * Math.atan(Math.tan(vFov / 2) * Math.max(camera.aspect, 0.001));
+  const tanV = Math.tan(vFov / 2);
+  const tanH = Math.tan(hFov / 2);
+
+  // Each corner is fitted at ITS OWN depth, not at the target's. From the
+  // low three-quarter angle the near end of a 1.5 km-deep circuit is a good
+  // deal closer than its centre, so it subtends more than a flat projection at
+  // the target plane predicts — the first cut of this fit was measured
+  // running the Parabolica off the bottom of the canvas for exactly that
+  // reason. With the camera at `target + dir * d` a corner `c` (relative to
+  // the target) sits at depth `d - c·dir`, and staying inside the frustum
+  // needs `|c·right| <= (d - c·dir)·tan(hFov/2)`, i.e.
+  // `d >= c·dir + |c·right| / tan(hFov/2)` — and likewise vertically. The
+  // largest such `d` over all eight corners is the exact perspective fit.
+  let needed = 0;
+  const corner = new Vector3();
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        corner.set(sx * halfX, sy * halfY, sz * halfZ);
+        const towards = corner.dot(dir);
+        needed = Math.max(
+          needed,
+          towards + (Math.abs(corner.dot(right)) * margin) / tanH,
+          towards + (Math.abs(corner.dot(trueUp)) * margin) / tanV,
+        );
+      }
+    }
+  }
+  return needed;
+}
+
 function presetTarget(
   preset: CameraPresetId,
   frames: TrackFrames,
   exaggeration: number,
   out: { position: Vector3; target: Vector3 },
+  camera: PerspectiveCamera,
 ) {
   const centre = frames.center2d;
-  const reach = frames.diagonal;
   const midY = centre.y * exaggeration;
+
+  /* Each preset is a DIRECTION; the distance along it is solved, rather than
+     being its own hand-tuned multiple of the diagonal. The angles are the ones
+     these presets always had. */
+  const dir = new Vector3();
+  const place = (dx: number, dy: number, dz: number) => {
+    dir.set(dx, dy, dz).normalize();
+    // 1.08 leaves a hair of breathing room around the circuit without floating
+    // it in the middle of a mostly-empty frame.
+    const reach = fitDistance(frames, exaggeration, dir, camera, 1.08);
+    out.position.set(
+      centre.x + dir.x * reach,
+      midY + dir.y * reach,
+      centre.z + dir.z * reach,
+    );
+    out.target.set(centre.x, midY, centre.z);
+  };
 
   switch (preset) {
     case "overhead":
-      out.position.set(centre.x, midY + reach * 1.15, centre.z + 0.01);
-      out.target.set(centre.x, midY, centre.z);
+      // The nudge on z keeps the view vector off exactly straight-down, where
+      // an orbit control's up-vector is degenerate.
+      place(0, 1, 0.01);
       break;
     case "profile":
       // Side-on and low: the view that makes elevation impossible to miss.
-      out.position.set(centre.x + reach * 1.05, midY + reach * 0.12, centre.z);
-      out.target.set(centre.x, midY, centre.z);
+      place(1, 0.114, 0);
       break;
     case "driver":
       out.position.set(
@@ -135,12 +224,7 @@ function presetTarget(
       break;
     case "three-quarter":
     default:
-      out.position.set(
-        centre.x - reach * 0.52,
-        midY + reach * 0.46,
-        centre.z + reach * 0.62,
-      );
-      out.target.set(centre.x, midY, centre.z);
+      place(-0.52, 0.46, 0.62);
       break;
   }
 }
@@ -202,7 +286,7 @@ export default function CameraRig({
       const controls = controlsRef.current;
       if (!controls) return;
       cancelMotion();
-      presetTarget(preset, frames, exaggeration, slot.current);
+      presetTarget(preset, frames, exaggeration, slot.current, camera as PerspectiveCamera);
       onPresetChange?.(preset);
 
       if (instant || reducedMotion) {
@@ -304,7 +388,7 @@ export default function CameraRig({
     if (!controls || introRef.current) return;
     introRef.current = true;
 
-    presetTarget("three-quarter", frames, exaggeration, slot.current);
+    presetTarget("three-quarter", frames, exaggeration, slot.current, camera as PerspectiveCamera);
     controls.target.copy(slot.current.target);
 
     if (reducedMotion) {
@@ -320,7 +404,14 @@ export default function CameraRig({
       .sub(slot.current.target)
       .multiplyScalar(1.85)
       .add(slot.current.target);
-    wide.y = slot.current.target.y + frames.diagonal * 0.95;
+    /* Lifted relative to the FITTED distance, not `frames.diagonal`. The two
+       used to be interchangeable because the presets were themselves multiples
+       of the diagonal; now that the resting pose is solved from the frustum,
+       a diagonal-derived start height would drift away from it — badly on a
+       long, narrow circuit, which is exactly where the framing was wrong. */
+    wide.y =
+      slot.current.target.y +
+      slot.current.position.distanceTo(slot.current.target) * 0.95;
     camera.position.copy(wide);
     controls.update();
 

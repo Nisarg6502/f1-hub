@@ -45,7 +45,14 @@ def check_input(text: str) -> GuardVerdict:
         return GuardVerdict(
             allowed=False,
             code="injection",
-            reason="That message could not be processed.",
+            # "That message could not be processed" described a fault, not a
+            # decision, and the panel pairs a refusal with a Retry button — so
+            # it read as a transient error and invited the user to press Retry
+            # until they gave up. Name what happened instead: this is a refusal
+            # and retrying the same text will refuse again. Deliberately says
+            # nothing about WHICH pattern matched; that is a detector hint.
+            reason="I can't act on that request. Ask me about Formula 1 "
+            "instead — a race, a driver, a season, or its history.",
         )
     if not pii_guard(text):
         return GuardVerdict(

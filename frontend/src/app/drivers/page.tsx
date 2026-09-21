@@ -18,9 +18,13 @@ interface PageProps {
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
   const { season } = await searchParams;
   const year = resolveSeasonYear(season);
+  const title = `${year} F1 Driver Grid · APEX`;
+  const description = `Every driver on the ${year} Formula 1 grid — this season's points, wins and position, plus a career bio for each.`;
   return {
-    title: `APEX | ${year} F1 Season Hub`,
-    description: `APEX — a warm, high-clarity home for the ${year} Formula 1 season: schedule, standings, drivers, teams and circuits.`,
+    title,
+    description,
+    openGraph: { title, description, url: `/drivers` },
+    twitter: { title, description },
   };
 }
 

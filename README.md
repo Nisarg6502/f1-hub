@@ -5,7 +5,7 @@ constructor, circuit history back to 1950, a lap-accurate race replay, a 3D
 track viewer, and a grounded chat assistant that answers questions about all of
 it and cites where each answer came from.
 
-**Live:** https://f1-frontend-1076575666662.asia-south1.run.app/?utm_source=github&utm_medium=readme
+**Live:** https://f1-frontend-2w5wydk2ca-el.a.run.app/?utm_source=github&utm_medium=readme
 
 > The `utm_*` suffix is deliberate and should be kept. Without it every arrival
 > from every channel lands in Analytics as "Direct" and becomes

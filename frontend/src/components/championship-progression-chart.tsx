@@ -99,6 +99,31 @@ export default function ChampionshipProgressionChart({
     [rows, entities]
   );
 
+  /**
+   * Which entities are the SECOND to use their colour.
+   *
+   * In the drivers view a team's two drivers get the same team colour, so both
+   * their lines and both their legend dots were identical — on a 390px screen
+   * the legend showed four indistinguishable grey dots, and no amount of
+   * squinting told you which line was Bottas and which was Pérez. The second
+   * of each pair is drawn dashed, and its legend swatch becomes a ring, so the
+   * key still reads as "these two are the same team" while naming which is
+   * which.
+   *
+   * `entities` arrives in standings order, so the solid line is always the
+   * higher-placed driver — a stable rule rather than an arbitrary one. In the
+   * constructors view no colour repeats, so nothing here fires.
+   */
+  const secondOfColour = useMemo(() => {
+    const seen = new Set<string>();
+    const second = new Set<string>();
+    for (const entity of entities) {
+      if (seen.has(entity.colorHex)) second.add(entity.id);
+      else seen.add(entity.colorHex);
+    }
+    return second;
+  }, [entities]);
+
   const toggle = (id: string) => {
     setHighlighted((prev) => {
       const next = new Set(prev);
@@ -128,7 +153,16 @@ export default function ChampionshipProgressionChart({
             dataKey="shortName"
             stroke="#5c554b"
             tick={{ fill: "var(--color-warm-400)", fontSize: 11 }}
-            interval={0}
+            /* `interval={0}` forced every round's name to render no matter how
+               little room there was. At 390px that ran twelve of them together
+               into one unbroken strip — "AustralianChineseJapaneseMiami…" —
+               which is worse than showing fewer. `preserveStartEnd` keeps the
+               first and last round anchored (the two that orient the axis)
+               and `minTickGap` lets Recharts drop whatever else will not fit,
+               so the axis stays legible from 390px to 1440px without a
+               breakpoint. */
+            interval="preserveStartEnd"
+            minTickGap={24}
           />
           <YAxis
             stroke="#5c554b"
@@ -149,6 +183,7 @@ export default function ChampionshipProgressionChart({
                 stroke={entity.colorHex}
                 strokeWidth={2}
                 strokeOpacity={dimmed ? 0.15 : 1}
+                strokeDasharray={secondOfColour.has(entity.id) ? "6 4" : undefined}
                 dot={dimmed ? false : { r: 2, fill: entity.colorHex }}
                 isAnimationActive={false}
               />
@@ -168,9 +203,16 @@ export default function ChampionshipProgressionChart({
                 dimmed ? "opacity-40" : "opacity-100"
               }`}
             >
+              {/* A ring for the dashed line, a disc for the solid one — the
+                  legend has to carry the same distinction the chart does, or
+                  it only tells you the team, which the name already did. */}
               <div
                 className="w-2.5 h-2.5 rounded-full flex-none"
-                style={{ backgroundColor: entity.colorHex }}
+                style={
+                  secondOfColour.has(entity.id)
+                    ? { border: `2px solid ${entity.colorHex}` }
+                    : { backgroundColor: entity.colorHex }
+                }
               />
               {entity.name}
             </button>
