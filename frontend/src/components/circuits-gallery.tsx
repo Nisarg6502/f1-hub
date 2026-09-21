@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { type Race, type CircuitDetail } from "@/lib/api";
 import { getCountryFlagPath } from "@/lib/flags";
@@ -9,6 +9,26 @@ import { Stagger, revealItem } from "./motion-primitives";
 import CircuitDetailsModal from "./circuit-details-modal";
 import TrackMap from "./track-map";
 import FlagImg from "./flag-img";
+import { useDeviceTilt } from "@/hooks/use-device-tilt";
+
+/**
+ * Wraps one circuit card so the gyro tilt lands on a plain element instead of
+ * the `motion.button` it contains. Framer Motion owns that button's own
+ * `transform` (for `whileHover`/`whileTap`), and would fight over it with the
+ * imperative writes `useDeviceTilt` makes every frame — a fresh, otherwise
+ * inert wrapper avoids the conflict entirely, per the same "transform the
+ * wrapper, not the interactive element" rule the click target already needs
+ * for taps to stay reliable.
+ */
+function GyroTilt({ children }: { children: ReactNode }) {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  useDeviceTilt(wrapRef, { maxTilt: 6 });
+  return (
+    <div ref={wrapRef} className="h-full">
+      {children}
+    </div>
+  );
+}
 
 interface CircuitsGalleryProps {
   races: Race[];
@@ -66,8 +86,8 @@ export default function CircuitsGallery({
           );
 
           return (
+            <GyroTilt key={`${race.round}-${race.raceName}`}>
             <motion.button
-              key={`${race.round}-${race.raceName}`}
               type="button"
               disabled={!detail}
               variants={revealItem}
@@ -83,7 +103,7 @@ export default function CircuitsGallery({
               whileHover={detail && !reduce ? { y: -6 } : undefined}
               whileTap={detail && !reduce ? { scale: 0.97 } : undefined}
               transition={{ type: "spring", stiffness: 400, damping: 28 }}
-              className={`text-left rounded-2xl overflow-hidden apex-glass-soft transition-[border-color] duration-200 ${
+              className={`w-full h-full text-left rounded-2xl overflow-hidden apex-glass-soft transition-[border-color] duration-200 ${
                 detail
                   ? "cursor-pointer hover:border-flame-bright/40"
                   : "cursor-default"
@@ -137,6 +157,7 @@ export default function CircuitsGallery({
                 </div>
               </div>
             </motion.button>
+            </GyroTilt>
           );
         })}
       </Stagger>
