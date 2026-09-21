@@ -58,6 +58,7 @@ import json
 import re
 from typing import Any, AsyncIterator
 
+from . import config
 from . import model as model_seam
 from . import router
 from . import verifier
@@ -204,9 +205,16 @@ async def _phrase(messages: list[dict]) -> str:
     """One buffered model call — see `model.stream_chat`'s own docstring for
     why streaming and reassembling is still correct here: this module never
     forwards a token before `verifier.check` has seen the whole thing, same
-    as every other tier (`graph._run_turn`'s docstring)."""
+    as every other tier (`graph._run_turn`'s docstring).
+
+    Explicit `model=config.FAST_MODEL`: this path only ever runs for tier-1
+    intents (`fast_path.detect` re-derives tier 1 itself), and leaving `model`
+    unset would silently fall back to `config.DEFAULT_MODEL` — which, since
+    the tier split landed, means the slow tier-3 model on the one call this
+    whole module exists to make fast. See `graph.model_for`'s docstring for
+    which model belongs to which tier."""
     parts: list[str] = []
-    async for delta in model_seam.stream_chat(messages):
+    async for delta in model_seam.stream_chat(messages, model=config.FAST_MODEL):
         parts.append(delta)
     return "".join(parts)
 
