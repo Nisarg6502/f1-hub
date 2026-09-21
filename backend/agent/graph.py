@@ -518,8 +518,47 @@ future audit can read it the same way they read the subagent groupings."""
 # --- Model + graph construction ----------------------------------------------
 
 
-def build_model():
+def model_for(use_subagents: bool) -> str:
+    """The single source of truth for which model a turn's graph is built with.
+
+    Keyed on the same boolean `build_agent` itself takes, not on a tier
+    number — `use_subagents` (whether this turn builds CP63's multi-agent
+    orchestrator and dispatches `task()` to a subagent) is the actual
+    condition `config.FAST_MODEL`'s docstring is about, and `router.Route`
+    already exposes it directly. `model_for_tier` below exists only for the
+    one caller (`main.py`) that has a bare tier int on hand instead of a
+    `Route` — it is not a second boundary to keep in sync with this one.
+    """
+    return config.DEFAULT_MODEL if use_subagents else config.FAST_MODEL
+
+
+def model_for_tier(tier: "int | None") -> str:
+    """`model_for`, from a tier int instead of `Route.use_subagents`.
+
+    `main.py` only has the tier that went out on the wire in its `("tier",
+    ...)` event — the cache-hit path reads it back from a stored row, the
+    live path from the same event `astream_answer` yields — never the `Route`
+    that produced it, so it re-derives `Route.use_subagents`'s own `tier >= 3`
+    threshold here rather than importing `router` into a function that has no
+    other reason to. Kept a two-line wrapper specifically so that threshold is
+    written once in this module (`model_for` above) even though it is read
+    from two different shapes of input.
+
+    `tier=None` is accepted and treated as tier 1 — a cache row written before
+    tiering existed, or a turn that never reached routing (the echo
+    fallback) — matching `router.classify`'s own documented default for "no
+    signal fired at all" rather than raising on a comparison against `None`.
+    """
+    return model_for(tier is not None and tier >= 3)
+
+
+def build_model(model: str):
     """The workhorse `ChatOllama`, pointed at Ollama Cloud.
+
+    `model` is a plain string, not a tier or a `Route` — `build_agent` is the
+    one call site that knows *why* a particular model was picked
+    (`model_for_tier`), and this function stays agnostic to that reasoning the
+    same way it stays agnostic to tiers and routing generally.
 
     No explicit auth wiring here: the `ollama` Python client this wraps reads
     `OLLAMA_API_KEY` from the environment itself when no `Authorization`
@@ -532,7 +571,7 @@ def build_model():
     from langchain_ollama import ChatOllama
 
     return ChatOllama(
-        model=config.DEFAULT_MODEL,
+        model=model,
         base_url=config.OLLAMA_BASE_URL,
         temperature=config.TEMPERATURE,
     )
@@ -623,6 +662,14 @@ def _register_harness_profile() -> None:
     a provider-level one field-wise rather than replacing it, so this stays in
     force unless something explicitly sets `enabled=True`.
 
+    The same reasoning now covers two model identifiers instead of one:
+    `config.FAST_MODEL`'s `gemma4:31b` also contains a colon and would suffer
+    the identical misparse if registered by name. Nothing about that changes
+    the argument above — it strengthens it. A provider-level key was already
+    the only registration that survives `AGENT_MODEL` being repointed; it is
+    now also the only one that covers both of `model_for_tier`'s outputs
+    without a second `register_harness_profile` call.
+
     **What this does and does not remove.** On the flat path (no subagents) the
     `task` tool disappears entirely — deepagents drops it when no synchronous
     subagent remains. On the tier-3 path the four subagents in `subagents.py`
@@ -701,6 +748,13 @@ def build_agent(
     build per turn from `router.classify` — this function itself stays
     agnostic to *why*, so it is testable without importing the router.
 
+    The same boolean also picks the model, via `model_for`: the flat graph
+    (tiers 1/2) gets `config.FAST_MODEL`, the subagent graph (tier 3) gets
+    `config.DEFAULT_MODEL`. One flag driving both decisions is deliberate —
+    they are not independent settings that happen to agree today, they are
+    the same decision (can this turn's model get away with the model that
+    fails nested `task()` dispatch) read twice.
+
     `_register_harness_profile` runs first on both paths — it is what removes
     the default `general-purpose` subagent and withholds the filesystem
     built-ins from every model request, on the orchestrator and on all four
@@ -711,10 +765,11 @@ def build_agent(
     from deepagents import create_deep_agent
 
     _register_harness_profile()
+    model = model_for(use_subagents)
 
     if not use_subagents:
         return create_deep_agent(
-            model=build_model(),
+            model=build_model(model),
             tools=build_tools(ledger, visuals),
             system_prompt=SYSTEM_PROMPT,
             checkpointer=checkpointer,
@@ -723,7 +778,7 @@ def build_agent(
     from .subagents import build_subagents
 
     return create_deep_agent(
-        model=build_model(),
+        model=build_model(model),
         tools=build_tool_subset(ledger, ORCHESTRATOR_TOOLS, visuals),
         subagents=build_subagents(ledger),
         system_prompt=ORCHESTRATOR_SYSTEM_PROMPT,
