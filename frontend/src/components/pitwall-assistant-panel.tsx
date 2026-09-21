@@ -25,6 +25,21 @@
  *   that this specific answer could not be fully checked, which is more
  *   useful than hiding it and identical in spirit to the `mode === "echo"`
  *   warning the dev page already showed.
+ *
+ * **Minimize (this pass).** `onClose` used to be the only way out, and it
+ * unmounted this whole component — which meant "not fully open" and "not
+ * mounted" were the same thing, and an in-flight turn was always aborted the
+ * instant the reader looked away. `visibility` (`"open" | "minimized"`) is
+ * now a prop the launcher controls: the launcher keeps this component
+ * mounted across an open↔minimized cycle (only a real Close removes it), so
+ * every `useState`/`useRef` below — `messages`, `threadId`, `abortRef`, the
+ * running turn — survives a minimize untouched. What changes is only which
+ * chrome this component renders: the full backdrop+drawer while `"open"`, or
+ * a small fixed bubble while `"minimized"` — see the two `createPortal` calls
+ * at the bottom. The focus trap, the Escape listener and the body-scroll lock
+ * all gate on `visibility === "open"` for the same reason: none of them
+ * should apply while the user is meant to be free to use the rest of the
+ * page.
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -32,7 +47,7 @@ import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   streamChat,
   postFeedback,
@@ -252,9 +267,37 @@ function suggestionsForPath(pathname: string): string[] {
 }
 
 export default function PitwallAssistantPanel({
+  visibility,
+  hasUnread,
   onClose,
+  onMinimize,
+  onRestore,
+  onAnswerReady,
 }: {
+  /** `"open"` renders the full backdrop+drawer; `"minimized"` renders the
+   *  small fixed bubble instead. Never `"closed"` — the launcher only
+   *  mounts this component once a conversation has started. */
+  visibility: "open" | "minimized";
+  /**
+   * The visual-ping flag for the minimized bubble. Owned by the launcher,
+   * not this component — it has to survive independently of `visibility`
+   * (a completed-while-minimized answer should still show a ping if the
+   * reader re-minimizes without ever having restored), and every path that
+   * clears it (button, FAB, bubble click, Cmd/Ctrl+K) is a real event
+   * handler in the launcher already. Keeping it there means clearing it
+   * never needs an effect or a during-render ref read in THIS component —
+   * both of which React Compiler's stricter lint rules reject (see the
+   * history of this prop in git blame if that reasoning looks over-cautious;
+   * it replaced exactly those two rejected approaches).
+   */
+  hasUnread: boolean;
   onClose: () => void;
+  onMinimize: () => void;
+  onRestore: () => void;
+  /** Called once, from `ask`'s `finally`, when a turn completes (via
+   *  `onDone`, never Cancel) while minimized. Lets the launcher set
+   *  `hasUnread` without this component needing to own that state. */
+  onAnswerReady: () => void;
 }) {
   const reduce = useReducedMotion();
   // CP70: suggested prompts vary by the page the panel was opened from —
@@ -316,6 +359,23 @@ export default function PitwallAssistantPanel({
   const [confirmingNewChat, setConfirmingNewChat] = useState(false);
   const elapsedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Minimize (this pass). `visibilityRef` mirrors the `visibility` prop into
+  // a ref so `ask`'s `onDone`/`finally` handlers — created once per turn,
+  // long-lived closures — can read the CURRENT visibility rather than
+  // whatever it was when the turn started (the reader may minimize mid-turn).
+  // Mutating a ref inside an effect (not during render) is the ordinary,
+  // lint-clean "latest value for an async callback" pattern.
+  const visibilityRef = useRef(visibility);
+  useEffect(() => {
+    visibilityRef.current = visibility;
+  }, [visibility]);
+  // True only between a turn's `done` frame and `ask`'s `finally` — the
+  // window in which "this turn ended because it finished" is knowable.
+  // Aborting (Cancel, or the real-unmount effect below) skips `onDone`
+  // entirely via the `AbortError` catch, so this stays `false` for a
+  // cancelled turn and the bubble never pings for one.
+  const turnCompletedRef = useRef(false);
+
   const stopElapsedTimer = useCallback(() => {
     if (elapsedIntervalRef.current !== null) {
       clearInterval(elapsedIntervalRef.current);
@@ -350,12 +410,22 @@ export default function PitwallAssistantPanel({
       el.scrollTop + el.clientHeight >= el.scrollHeight - THRESHOLD;
   }, []);
 
+  // Focus trap, Escape-to-close and the body-scroll lock — all gated on
+  // `visibility === "open"` (this pass) rather than running for this
+  // component's whole mounted lifetime. The component now stays mounted
+  // through a minimize, and none of these three should apply while
+  // minimized: the reader is meant to Tab and scroll around the rest of the
+  // page freely. Depending on `visibility` means this effect's cleanup also
+  // reruns on every "open" → "minimized" transition, which is exactly what
+  // restores body scroll and hands focus back without needing a separate
+  // code path for minimize vs. close.
   useEffect(() => {
+    if (visibility !== "open") return;
     // Capture whatever had focus before this panel opened (the launcher
-    // button, in the normal flow) so it can be restored on close — a plain
-    // dialog close that leaves focus nowhere (or resets it to `<body>`)
-    // strands keyboard/screen-reader users at the top of the page instead of
-    // back where they were.
+    // button or the minimized bubble, in the normal flow) so it can be
+    // restored when it stops being open — a plain dialog close that leaves
+    // focus nowhere (or resets it to `<body>`) strands keyboard/screen-reader
+    // users at the top of the page instead of back where they were.
     previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
 
     const FOCUSABLE_SELECTOR =
@@ -396,14 +466,25 @@ export default function PitwallAssistantPanel({
     return () => {
       document.body.style.overflow = "auto";
       window.removeEventListener("keydown", handleKeyDown);
-      // A closed panel must not keep burning quota for a question nobody
-      // is watching anymore — the same reasoning `agent-api.ts`'s own
-      // docstring gives for supporting `signal` at all.
-      abortRef.current?.abort();
-      stopElapsedTimer();
       previouslyFocusedRef.current?.focus();
     };
-  }, [onClose, stopElapsedTimer]);
+  }, [visibility, onClose]);
+
+  // The turn's abort is intentionally NOT in the effect above anymore.
+  // Aborting has to survive exactly as long as this component is actually
+  // mounted — which now spans open↔minimized — and only fire on a genuine
+  // unmount (a real Close from the launcher). A minimize reruns the effect
+  // above's cleanup (leaving "open") without this one firing, which is the
+  // whole point: the in-flight request keeps running in the background.
+  useEffect(() => {
+    return () => {
+      // An actually-closed panel must not keep burning quota for a question
+      // nobody can see the answer to anymore — the same reasoning
+      // `agent-api.ts`'s own docstring gives for supporting `signal` at all.
+      abortRef.current?.abort();
+      stopElapsedTimer();
+    };
+  }, [stopElapsedTimer]);
 
   // Shared by `ask`'s stream handlers and `FeedbackControls`' `onVote` — one
   // state-update mechanism for "patch the message with this id", not two.
@@ -485,6 +566,9 @@ export default function PitwallAssistantPanel({
 
       const controller = new AbortController();
       abortRef.current = controller;
+      // Reset for this turn — see the ref's own doc comment for what it
+      // tracks and why `onDone` (not `finally`) is what sets it.
+      turnCompletedRef.current = false;
 
       const patch = (fn: (m: Message) => Message) => patchMessage(assistantId, fn);
 
@@ -502,7 +586,13 @@ export default function PitwallAssistantPanel({
           // per answer and they arrive as separate frames.
           onVisual: (visual) =>
             patch((m) => ({ ...m, visuals: [...m.visuals, visual] })),
-          onDone: (done) => patch((m) => ({ ...m, done })),
+          onDone: (done) => {
+            patch((m) => ({ ...m, done }));
+            // A turn only reaches `onDone` by actually finishing — Cancel
+            // aborts the fetch, which resolves the stream via the
+            // `AbortError` catch below instead, never this callback.
+            turnCompletedRef.current = true;
+          },
           onSuggestions: (suggestions) => patch((m) => ({ ...m, suggestions })),
           onError: (code, message) =>
             patch((m) => ({ ...m, error: { code, message } })),
@@ -526,9 +616,19 @@ export default function PitwallAssistantPanel({
           stopElapsedTimer();
           runningMessageId.current = null;
           setRunning(false);
+          // The visual ping (this pass): a turn that genuinely finished
+          // while the reader had minimized the panel gets a signal on the
+          // bubble, since they have no other way to notice. Reads
+          // `visibilityRef` rather than the `visibility` prop closed over at
+          // call time — this `finally` can fire long after `ask` was
+          // called, and the reader may have minimized only partway through.
+          if (turnCompletedRef.current && visibilityRef.current === "minimized") {
+            onAnswerReady();
+          }
+          turnCompletedRef.current = false;
         });
     },
-    [running, patchMessage, stopElapsedTimer, stopDictation]
+    [running, patchMessage, stopElapsedTimer, stopDictation, onAnswerReady]
   );
 
   /**
@@ -617,31 +717,55 @@ export default function PitwallAssistantPanel({
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [streamingSignature]);
 
-  return createPortal(
-    <motion.div
-      onClick={onClose}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.2 }}
-      className="fixed inset-0 z-[80] bg-surface-container-lowest/65 backdrop-blur-[8px]"
-    >
-      <motion.div
-        ref={dialogRef}
-        onClick={(e) => e.stopPropagation()}
-        initial={reduce ? { opacity: 0 } : { opacity: 0, x: "100%" }}
-        animate={reduce ? { opacity: 1 } : { opacity: 1, x: 0 }}
-        exit={reduce ? { opacity: 0 } : { opacity: 0, x: "100%" }}
-        transition={
-          reduce
-            ? { duration: 0.15 }
-            : { type: "spring", stiffness: 340, damping: 34 }
-        }
-        role="dialog"
-        aria-modal="true"
-        aria-label="Pitwall Assistant"
-        className="absolute right-0 top-0 flex h-full w-full max-w-[480px] flex-col apex-glass-strong apex-sheen border-l border-white/10"
-      >
+  // Two independent portals, both always mounted (React just renders `null`
+  // content for whichever one `visibility` doesn't select this render): the
+  // full modal (backdrop + drawer) and the minimized bubble. Each carries its
+  // own `AnimatePresence` so switching between "open" and "minimized" plays
+  // an exit/enter transition, exactly like the old open↔closed toggle did —
+  // it's just that neither transition unmounts THIS component anymore, only
+  // the JSX each portal is showing.
+  return (
+    <>
+      {createPortal(
+        <AnimatePresence>
+          {visibility === "open" && (
+            <motion.div
+              onClick={onClose}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-[80] bg-surface-container-lowest/65 backdrop-blur-[8px]"
+            >
+              <motion.div
+                ref={dialogRef}
+                onClick={(e) => e.stopPropagation()}
+                initial={reduce ? { opacity: 0 } : { opacity: 0, x: "100%" }}
+                animate={reduce ? { opacity: 1 } : { opacity: 1, x: 0 }}
+                exit={reduce ? { opacity: 0 } : { opacity: 0, x: "100%" }}
+                transition={
+                  reduce
+                    ? { duration: 0.15 }
+                    : { type: "spring", stiffness: 340, damping: 34 }
+                }
+                role="dialog"
+                aria-modal="true"
+                aria-label="Pitwall Assistant"
+                /* `position: absolute` set INLINE, not just via the `absolute`
+                   utility class: `.apex-glass-strong` (globals.css) declares
+                   `position: relative` unlayered, which unconditionally beats
+                   any layered Tailwind utility on the same element regardless
+                   of specificity or source order (see that file's own long
+                   comment on this — it's bitten this codebase three times
+                   already). Without this override the drawer computed as
+                   `position: relative` and rendered pinned to the LEFT edge
+                   of its `fixed inset-0` backdrop instead of the right one,
+                   since `right-0`/`top-0` are no-ops without `absolute`.
+                   Caught while adding the minimize bubble below, which had
+                   the identical bug with `fixed`. */
+                style={{ position: "absolute" }}
+                className="right-0 top-0 flex h-full w-full max-w-[480px] flex-col apex-glass-strong apex-sheen border-l border-white/10"
+              >
         <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
           <div>
             <h2 className="font-[family-name:var(--font-headline)] text-[15px] font-bold text-[var(--color-on-background)]">
@@ -662,6 +786,18 @@ export default function PitwallAssistantPanel({
               className="flex h-[34px] w-[34px] items-center justify-center rounded-control bg-surface-container-low/50 text-warm-200 transition-[background-color,transform] duration-150 hover:bg-surface-container-low/70 active:scale-90"
             >
               <NewChatIcon />
+            </button>
+            {/* Minimize (this pass) — the explicit, discoverable way to step
+                down to the bubble without losing the conversation or
+                aborting a running turn. Distinct from both the backdrop
+                click and Escape, which still fully close (and abort). */}
+            <button
+              onClick={onMinimize}
+              aria-label="Minimize"
+              title="Minimize"
+              className="flex h-[34px] w-[34px] items-center justify-center rounded-control bg-surface-container-low/50 text-warm-200 transition-[background-color,transform] duration-150 hover:bg-surface-container-low/70 active:scale-90"
+            >
+              <MinimizeIcon />
             </button>
             <button
               onClick={onClose}
@@ -835,9 +971,100 @@ export default function PitwallAssistantPanel({
           </button>
           </div>
         </div>
-      </motion.div>
-    </motion.div>,
-    document.body
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+      {createPortal(
+        <AnimatePresence>
+          {visibility === "minimized" && (
+            <motion.div
+              role="button"
+              tabIndex={0}
+              onClick={onRestore}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onRestore();
+                }
+              }}
+              aria-label={
+                hasUnread
+                  ? "Pitwall Assistant — answer ready, reopen to view it"
+                  : "Reopen the Pitwall Assistant"
+              }
+              initial={reduce ? { opacity: 0 } : { opacity: 0, y: 16, scale: 0.9 }}
+              animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+              exit={reduce ? { opacity: 0 } : { opacity: 0, y: 16, scale: 0.9 }}
+              transition={
+                reduce
+                  ? { duration: 0.15 }
+                  : { type: "spring", stiffness: 380, damping: 28 }
+              }
+              /* Same fixed spot the mobile discoverability FAB uses
+                 (`pitwall-assistant-launcher.tsx`) — the two never coexist,
+                 since the launcher hides its FAB once a conversation has
+                 started, so this bubble simply continues occupying it.
+                 `position: fixed` is set INLINE below — see the drawer's own
+                 comment above on why `apex-glass-strong` silently defeats a
+                 `fixed`/`absolute` utility class on the same element. Caught
+                 here first: without the inline override this rendered with
+                 `position: relative` deep in document flow, off-screen
+                 below the footer, not floating over the page at all. */
+              style={{ position: "fixed" }}
+              className="z-[70] bottom-20 right-4 lg:bottom-6 lg:right-6 flex cursor-pointer items-center gap-2 rounded-full border border-white/10 apex-glass-strong apex-sheen px-4 py-3 text-sm font-semibold text-[var(--color-on-surface)] shadow-[0_10px_30px_rgba(0,0,0,0.45)] transition-transform duration-150 active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-primary)]"
+            >
+              <span className="relative flex h-2.5 w-2.5 shrink-0">
+                {hasUnread && !reduce && (
+                  <motion.span
+                    aria-hidden="true"
+                    className="absolute inline-flex h-full w-full rounded-full bg-[var(--color-primary)]"
+                    animate={{ scale: [1, 2.4], opacity: [0.7, 0] }}
+                    transition={{ duration: 1.3, repeat: Infinity, ease: "easeOut" }}
+                  />
+                )}
+                <span
+                  aria-hidden="true"
+                  className={`relative inline-flex h-2.5 w-2.5 rounded-full ${
+                    hasUnread
+                      ? "bg-[var(--color-primary)]"
+                      : running
+                        ? "bg-warm-400"
+                        : "bg-white/25"
+                  }`}
+                />
+              </span>
+              <span className="max-w-[150px] truncate">
+                {hasUnread
+                  ? "Answer ready"
+                  : running
+                    ? `Thinking… ${elapsedSec ?? 0}s`
+                    : "Pitwall Assistant"}
+              </span>
+              {/* A real `<button>`, not nested inside the bubble's own
+                  `role="button"` div — two nested interactive roles would be
+                  invalid HTML and ambiguous to a screen reader. Closing from
+                  here is a genuine Close (abort + unmount), same as the
+                  header's, which is why it's `onClose` and not `onMinimize`. */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClose();
+                }}
+                aria-label="Close"
+                className="relative -mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[13px] leading-none text-[var(--color-on-surface-variant)] transition-colors hover:text-[var(--color-on-surface)]"
+              >
+                ×
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
+    </>
   );
 }
 
@@ -1242,6 +1469,16 @@ const ANSWER_PROSE = [
   "[&_td]:whitespace-nowrap [&_td]:border-b [&_td]:border-white/[0.06] [&_td]:px-2.5 [&_td]:py-1.5",
   "[&_tr:last-child_td]:border-b-0",
 ].join(" ");
+
+/** Header affordance for minimize (this pass) — the universal
+ *  window-minimize glyph, a single bottom-aligned line. */
+function MinimizeIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <line x1="5" y1="19" x2="19" y2="19" />
+    </svg>
+  );
+}
 
 /** Header affordance for 5c — a speech bubble with a "+". */
 function NewChatIcon() {
