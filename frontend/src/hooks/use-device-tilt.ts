@@ -75,11 +75,19 @@ function requestPermissionOnce(): Promise<PermissionState> {
  *  the "necessary first interaction" the task calls for, with no separate
  *  "enable tilt" button cluttering the UI. Capture phase + `once` so it
  *  never interferes with the tap's own handler (card navigation, a modal
- *  opening, etc.) and cleans itself up automatically. */
+ *  opening, etc.) and cleans itself up automatically.
+ *
+ *  Must be `click`, not `pointerdown`/`touchstart`. WebKit only counts a
+ *  call to `requestPermission()` as originating from a genuine user gesture
+ *  when it happens inside a `click` handler — `pointerdown` fires on raw
+ *  touch-start, before iOS Safari's "user activation" for this specific API
+ *  kicks in, so the call silently no-ops: no dialog, no error, the promise
+ *  just resolves as if denied. Confirmed live: no prompt ever appeared on
+ *  iOS Safari with `pointerdown` here. */
 function attachGestureListenerOnce() {
   if (gestureListenerAttached || typeof document === "undefined") return;
   gestureListenerAttached = true;
-  document.addEventListener("pointerdown", () => requestPermissionOnce(), {
+  document.addEventListener("click", () => requestPermissionOnce(), {
     capture: true,
     once: true,
   });
