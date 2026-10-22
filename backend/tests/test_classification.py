@@ -67,6 +67,21 @@ class MarkLappedFinishersTests(unittest.TestCase):
         ]
         self.assertEqual(mark_lapped_finishers(rows), rows)
 
+    def test_an_unclassified_car_marked_lapped_is_not_made_a_finisher(self):
+        # Real Jolpica row, 2026 R1: Stroll, positionText "R", status "Lapped".
+        rows = [
+            {"position": "1", "positionText": "1", "laps": "58", "status": "Finished", "Time": {"time": "1:23:06.801"}},
+            {"position": "20", "positionText": "R", "laps": "43", "status": "Lapped", "Time": {"time": ""}},
+        ]
+        self.assertEqual(mark_lapped_finishers(rows)[1]["status"], "Lapped")
+
+    def test_a_winner_without_a_lap_count_changes_nothing(self):
+        rows = [
+            {"position": "1", "status": "Finished", "Time": {"time": "1:30:00.000"}},
+            {"position": "2", "laps": "50", "status": "Lapped", "Time": {"time": "+2.0"}},
+        ]
+        self.assertEqual(mark_lapped_finishers(rows), rows)
+
     def test_rows_without_laps_are_left_alone(self):
         qualifying = [{"position": "1", "Q3": "1:29.1"}, {"position": "2", "Q3": "1:29.2"}]
         self.assertEqual(mark_lapped_finishers(qualifying), qualifying)

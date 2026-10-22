@@ -49,6 +49,11 @@ def mark_lapped_finishers(results: list[dict]) -> list[dict]:
         status = _text(row.get("status")).lower()
         if not status.startswith(_FLAG_STATUSES):
             continue
+        # Only a classified car took the flag. Jolpica has a few rows that
+        # are "Lapped" yet unclassified (positionText "R": 2026 R1 Stroll on
+        # 43 of 58 laps); "+15 Laps" would present that as a finish.
+        if not _text(row.get("positionText") or row.get("position")).isdigit():
+            continue
         try:
             down = winner_laps - int(_text(row.get("laps")))
         except ValueError:

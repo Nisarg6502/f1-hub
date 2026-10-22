@@ -74,7 +74,11 @@ DEFAULT_MODEL = "gpt-oss:120b"
 #    into reciting every driver's time and gap in turn, blowing the word
 #    limit and reading like the classification table it sits above. Rule 16
 #    ("select, do not enumerate") restores prose without loosening 14.
-PROMPT_VERSION = 6
+# 7: a lapped finisher's `gap_to_leader` is now "+N Lap(s)"
+#    (`classification.mark_lapped_finishers`). Jolpica fills a lapped car's
+#    `Time.time` with its crossing after the winner, so v6 recaps were told
+#    e.g. that Gasly finished "+2.171" behind in 2026 Singapore, a lap down.
+PROMPT_VERSION = 7
 
 # The eight rules below are shared verbatim by every session type. They are the
 # distilled output of CP38's hallucination post-mortem — each one names a
