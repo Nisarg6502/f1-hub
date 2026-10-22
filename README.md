@@ -254,7 +254,8 @@ skipped, so the hourly job ran a 2026-07-17 image while every later
 `$BUILD_ID` tag. To check what the job is actually running:
 
 ```bash
-gcloud run jobs describe f1-data-sync --region asia-south1   --format="value(spec.template.spec.template.spec.containers[0].image)"
+gcloud run jobs describe f1-data-sync --region asia-south1 \
+  --format="value(spec.template.spec.template.spec.containers[0].image)"
 ```
 
 **The frontend bakes its config in at build time.** Every `NEXT_PUBLIC_*` value

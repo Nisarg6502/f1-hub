@@ -1,6 +1,7 @@
 # Builds, pushes, and redeploys the track-geometry Cloud Run Job image.
 #
-# Unlike `cloudbuild-sync.yaml`, this includes a `jobs update` step, added
+# This includes a `jobs update` step (as `cloudbuild-sync.yaml` now does too),
+# added
 # after a real incident where two pushed fixes rebuilt the image but the job
 # kept running the old one until it was explicitly redeployed by hand. See
 # "Do not assume a push alone is enough to redeploy" in scripts/README.md for
