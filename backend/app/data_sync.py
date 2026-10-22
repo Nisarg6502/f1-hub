@@ -342,11 +342,48 @@ def fetch_season_table(year: int, path: str, key: str) -> dict[str, dict] | None
             })
             entry["results"].extend(page_results)
         offset += page_size
-        time.sleep(0.5)
+        if offset < total:
+            time.sleep(0.5)
     if rows != total:
         print(f"    {path}: read {rows} of {total} rows, not trusting a partial table")
         return None
+    for round_number, entry in by_round.items():
+        ordered = _classification_order(entry["results"])
+        if ordered is None:
+            print(f"    {path}: round {round_number} is not a clean classification, not trusting the table")
+            return None
+        entry["results"] = ordered
     return by_round
+
+
+def _classification_order(results: list[dict]) -> list[dict] | None:
+    """`results` sorted by classified position, or None if they cannot be trusted.
+
+    **The season endpoint does not return a round's rows in classification
+    order.** Measured 2026-10-23: `/2026/qualifying/` returns round 5 as
+    P1-P13, P15, P16, P14, P17-P22 and round 10 as P1, P2, P3, P5, P10, P4, ...,
+    while `/2026/5/qualifying/` returns both in order. The disorder sits at a
+    page boundary and is stable between requests. Stored as-is it would render
+    in that order (the results tables draw rows in array order), and it made
+    two unchanged qualifying sessions look revised on every run.
+
+    Every row must carry a distinct driver and a numeric position. Offset
+    paging over a table that changes mid-read can return one row twice and
+    skip another while the row count still adds up; a repeated driver is what
+    catches that, instead of storing it. Positions are deliberately NOT
+    required to be exactly 1..n: real Ergast tables are not (2024 Monaco
+    qualifying has two P14s and two P15s, 2025 Imola has no P19), and a check
+    that rejected them would freeze those seasons out for good. The sort is
+    stable, so tied rows keep the order Ergast gave them.
+    """
+    try:
+        ordered = sorted(results, key=lambda row: int(row.get("position")))
+    except (TypeError, ValueError):
+        return None
+    drivers = [(row.get("Driver") or {}).get("driverId") for row in ordered]
+    if None in drivers or len(set(drivers)) != len(drivers):
+        return None
+    return ordered
 
 
 def sync_session_results(db, year: int, races: list[dict]) -> None:
@@ -413,6 +450,16 @@ def sync_session_results(db, year: int, races: list[dict]) -> None:
             stored_results = stored.get("results") or []
             from_ergast = stored.get("source") == "ergast"
             if from_ergast and stored_results == fetched["results"]:
+                continue
+            # A classification is never revised by removing cars: a penalty
+            # moves a row, a disqualification relabels it. Fewer rows than are
+            # stored is an upstream regression, and this job mirrors Ergast, so
+            # without this it would copy the loss over good data.
+            if from_ergast and len(fetched["results"]) < len(stored_results):
+                print(
+                    f"    {label} round {round_number}: Ergast now has "
+                    f"{len(fetched['results'])} rows, {len(stored_results)} stored; kept stored"
+                )
                 continue
 
             update = {

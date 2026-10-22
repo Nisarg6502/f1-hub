@@ -941,7 +941,7 @@ class WritableSyncCollection(SyncCollection):
 
 
 def _row(code, position, grid="1"):
-    return {"position": str(position), "grid": grid, "Driver": {"code": code}}
+    return {"position": str(position), "grid": grid, "Driver": {"code": code, "driverId": code.lower()}}
 
 
 class SessionResultsReconcileTests(unittest.TestCase):
@@ -979,8 +979,8 @@ class SessionResultsReconcileTests(unittest.TestCase):
             data_sync.sync_session_results(db, 2026, races)
 
     def test_a_revised_classification_replaces_the_stored_one(self):
-        provisional = [_row("ANT", 1), _row("GAS", 3), _row("HAD", 4)]
-        final = [_row("ANT", 1), _row("HAD", 3), _row("GAS", 7)]
+        provisional = [_row("ANT", 1), _row("GAS", 2), _row("HAD", 3)]
+        final = [_row("ANT", 1), _row("HAD", 2), _row("GAS", 3)]
         db = self._db([{"season": 2026, "round": "6", "results": provisional, "source": "ergast"}])
 
         self._sync(db, [self._race(6)], {"results": {"6": {"race": {}, "results": final}}})
@@ -1030,8 +1030,16 @@ class SessionResultsReconcileTests(unittest.TestCase):
         self.assertEqual(db.race_results.find_one({"round": "17"})["results"], rows)
         self.assertEqual(db.race_results.writes, [])
 
+    def test_a_revision_that_drops_cars_is_refused(self):
+        stored = [_row("VER", 1), _row("LEC", 2)]
+        db = self._db([{"season": 2026, "round": "17", "results": stored, "source": "ergast"}])
+
+        self._sync(db, [self._race(17)], {"results": {"17": {"race": {}, "results": [_row("VER", 1)]}}})
+
+        self.assertEqual(db.race_results.find_one({"round": "17"})["results"], stored)
+
     def test_a_failed_season_read_writes_nothing(self):
-        db = self._db([{"season": 2026, "round": "6", "results": [_row("GAS", 3)], "source": "ergast"}])
+        db = self._db([{"season": 2026, "round": "6", "results": [_row("GAS", 1)], "source": "ergast"}])
 
         self._sync(db, [self._race(6)], {})
 
@@ -1048,27 +1056,58 @@ class FetchSeasonTableTests(unittest.TestCase):
         with patch.object(data_sync, "fetch_json", side_effect=lambda url: next(responses)),                 patch.object(data_sync.time, "sleep"):
             return data_sync.fetch_season_table(2026, "results", "Results")
 
+    @staticmethod
+    def _rows(positions):
+        return [{"position": str(p), "Driver": {"driverId": f"d{p}"}} for p in positions]
+
     def test_a_race_split_across_pages_is_merged(self):
         # Jolpica pages by result row: 2026 round 5 really is 12 rows on one
         # page and 10 on the next.
-        first = [{"round": "5", "raceName": "Canadian Grand Prix", "Results": [{"position": str(i)} for i in range(1, 101)]}]
-        second = [{"round": "5", "raceName": "Canadian Grand Prix", "Results": [{"position": "101"}]}]
+        first = [{"round": "5", "raceName": "Canadian Grand Prix", "Results": self._rows(range(1, 101))}]
+        second = [{"round": "5", "raceName": "Canadian Grand Prix", "Results": self._rows([101])}]
 
         table = self._fetch([self._page(101, first), self._page(101, second)])
 
         self.assertEqual(len(table["5"]["results"]), 101)
         self.assertEqual(table["5"]["race"], {"round": "5", "raceName": "Canadian Grand Prix"})
 
+    def test_rows_are_returned_in_classification_order(self):
+        # The real shape of 2026 qualifying round 5 from the season endpoint.
+        page = [{"round": "5", "QualifyingResults": self._rows(
+            [*range(1, 14), 15, 16, 14, *range(17, 23)]
+        )}]
+        responses = iter([self._page(22, page)])
+        with patch.object(data_sync, "fetch_json", side_effect=lambda url: next(responses)), \
+                patch.object(data_sync.time, "sleep"):
+            table = data_sync.fetch_season_table(2026, "qualifying", "QualifyingResults")
+
+        self.assertEqual([r["position"] for r in table["5"]["results"]], [str(p) for p in range(1, 23)])
+
+    def test_a_driver_read_twice_fails_the_read(self):
+        # Offset paging over a table that changed mid-read: one row repeated,
+        # another skipped, and the count still adds up.
+        rows = self._rows([1, 2, 3])
+        rows[2]["Driver"]["driverId"] = "d2"
+        self.assertIsNone(self._fetch([self._page(3, [{"round": "1", "Results": rows}])]))
+
+    def test_tied_and_missing_positions_are_real_data_not_corruption(self):
+        # 2024 Monaco qualifying really has two P14s; 2025 Imola has no P19.
+        rows = self._rows([1, 2, 2, 4])
+        rows[2]["Driver"]["driverId"] = "tied"
+
+        table = self._fetch([self._page(4, [{"round": "1", "Results": rows}])])
+
+        self.assertEqual([r["Driver"]["driverId"] for r in table["1"]["results"]], ["d1", "d2", "tied", "d4"])
+
     def test_a_failed_page_fails_the_whole_read(self):
-        first = [{"round": "1", "Results": [{"position": "1"}] * 100}]
+        first = [{"round": "1", "Results": self._rows(range(1, 101))}]
 
         self.assertIsNone(self._fetch([self._page(150, first), None]))
 
     def test_a_short_read_is_not_trusted(self):
-        page = [{"round": "1", "Results": [{"position": "1"}] * 20}]
+        page = [{"round": "1", "Results": self._rows(range(1, 21))}]
 
         self.assertIsNone(self._fetch([self._page(22, page)]))
-
 
 if __name__ == "__main__":
     unittest.main()
