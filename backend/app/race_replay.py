@@ -52,7 +52,13 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from .db import get_db
-from .derived_cache import code_fingerprint, input_fingerprint, is_current, store_derived
+from .derived_cache import (
+    OPENF1_FIRST_SEASON,
+    code_fingerprint,
+    input_fingerprint,
+    is_current,
+    store_derived,
+)
 # Re-exported: these two live in their own module so `strategy_commentary` can
 # reach them without importing this one (and therefore FastF1) — see
 # `driver_directory.py`'s docstring. Callers of `race_replay._driver_directory`
@@ -410,6 +416,21 @@ async def get_race_replay(
         stops_payload.get("stops") or [],
         race_control,
     )
+
+    # `fetch_race_control` answers [] on any failure, and race control is not
+    # part of the input fingerprint (it is fetched live). Cached, a failed fetch
+    # would become this round's replay until the code next changes: no flags,
+    # no safety cars, for the replay and for every reader of its events (the
+    # agent, `circuit_character`). Every OpenF1-era race has race control, so
+    # an empty answer is a failure; serve this build, cache the next one.
+    if not messages and year >= OPENF1_FIRST_SEASON:
+        print(f"race_replay: no race control for {year} R{round_number}, not caching this build")
+        return JSONResponse(content={
+            "year": year,
+            "round": round_number,
+            **replay,
+            "synced": True,
+        })
 
     try:
         # Re-read rather than reusing `inputs` from above: building can itself

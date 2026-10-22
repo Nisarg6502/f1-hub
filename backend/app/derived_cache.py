@@ -34,8 +34,10 @@ source hash cannot make. They do take an input fingerprint, because a recap
 written from a classification that has since changed is simply wrong.
 """
 
+import ast
 import datetime
 import hashlib
+import importlib
 import inspect
 import json
 import sys
@@ -59,8 +61,59 @@ def input_fingerprint(*documents) -> str:
     return _digest(json.dumps(documents, sort_keys=True, default=str))
 
 
+def _in_package(name) -> bool:
+    return isinstance(name, str) and name.startswith(_PACKAGE + ".")
+
+
+def _statically_imported(module: types.ModuleType) -> set[str]:
+    """Package modules named by any import statement in `module`'s source.
+
+    Read from the syntax tree rather than the module's namespace because an
+    import inside a function body never appears in the namespace:
+    `race_timing.fetch_openf1_feeds` imports the OpenF1 session lookup locally,
+    and a namespace-only walk missed `openf1_sessions` and `race_stints`
+    entirely, so editing how a session is chosen would not have retired a
+    single cached timing payload.
+    """
+    try:
+        tree = ast.parse(inspect.getsource(module))
+    except (OSError, TypeError, SyntaxError):
+        return set()
+    package = module.__name__.rsplit(".", 1)[0]
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                base = package.rsplit(".", node.level - 1)[0] if node.level > 1 else package
+                target = f"{base}.{node.module}" if node.module else base
+            else:
+                target = node.module or ""
+            names.add(target)
+            # `from . import x` / `from .pkg import mod` name modules too.
+            names.update(f"{target}.{alias.name}" for alias in node.names)
+    return {name for name in names if _in_package(name)}
+
+
+def _module(name: str) -> types.ModuleType | None:
+    module = sys.modules.get(name)
+    if module is not None:
+        return module
+    try:
+        return importlib.import_module(name)
+    except ImportError:
+        # `from .x import y` where `y` is a function, not a submodule.
+        return None
+
+
 def _app_modules_reached_from(module: types.ModuleType) -> list[types.ModuleType]:
-    """`module` plus every module of this package it references, transitively."""
+    """`module` plus every module of this package it can reach, transitively.
+
+    Two sources, unioned: what the module's namespace refers to (names bound
+    by `from .x import f` carry `f.__module__`), and every import statement in
+    its source, wherever it sits (see `_statically_imported`).
+    """
     seen: dict[str, types.ModuleType] = {}
     pending = [module]
     while pending:
@@ -68,18 +121,17 @@ def _app_modules_reached_from(module: types.ModuleType) -> list[types.ModuleType
         if current.__name__ in seen:
             continue
         seen[current.__name__] = current
+        names = set(_statically_imported(current))
         for value in vars(current).values():
             if isinstance(value, types.ModuleType):
-                name = value.__name__
+                names.add(value.__name__)
             else:
-                name = getattr(value, "__module__", None)
-            if not isinstance(name, str):
-                continue
-            if name != _PACKAGE and not name.startswith(_PACKAGE + "."):
-                continue
-            target = sys.modules.get(name)
-            if target is not None and target.__name__ not in seen:
-                pending.append(target)
+                names.add(getattr(value, "__module__", None))
+        for name in names:
+            if _in_package(name) and name not in seen:
+                target = _module(name)
+                if target is not None:
+                    pending.append(target)
     return [seen[name] for name in sorted(seen)]
 
 
@@ -110,6 +162,11 @@ def is_current(doc: dict | None, code: str, inputs: str) -> bool:
     return bool(doc) and doc.get("code") == code and doc.get("inputs") == inputs
 
 
+# First season OpenF1 covers. From here on every race has race-control
+# messages and live feeds, so an empty answer for one means the fetch failed.
+OPENF1_FIRST_SEASON = 2023
+
+
 # Readers that want "the" cached document for a round without validating it
 # (the agent, the what-if endpoint, the radio sync) sort on this. A document
 # written before `built_at` existed sorts last, so a rebuilt one always wins.
@@ -127,23 +184,49 @@ def _derived_document(year: int, round_number, code: str, inputs: str, payload: 
     }
 
 
-async def store_derived(collection, year: int, round_number, code: str, inputs: str, payload: dict) -> None:
-    """Write the one cached document for a round, replacing whatever was there.
+# Builds kept per round. One per code would be the minimum, but two code
+# versions are routinely live against the same database at once: a Cloud Run
+# rollout overlaps the old and new revisions, and `scripts/sync_race_timing`
+# exists to build and verify a branch's payloads against production BEFORE it
+# ships. With one, each side would delete the other's document on every write
+# and the two would rebuild each other forever. Two bounds storage at 2x a
+# round instead of the unbounded growth versioned keys produced (59 of 70
+# `race_timing` documents were dead, 80% of a 512 MB database, until
+# `scripts/reap_stale_caches` was written to clean up after them).
+KEEP_BUILDS = 2
 
-    One document per round, not one per code or version: the key carries
-    neither, so an edit rebuilds in place instead of leaving the previous
-    document behind. Versioned keys left 59 of 70 `race_timing` documents dead
-    (80% of the database, on a 512 MB tier) until `scripts/reap_stale_caches`
-    was written to clean up after them. The `delete_many` also clears documents
-    written under the old `version` scheme the first time a round rebuilds.
+
+def _doomed(docs: list[dict], code: str) -> list:
+    """`_id`s to delete: anything without a `code` (the old `version` scheme),
+    and every build older than the newest `KEEP_BUILDS` distinct codes."""
+    keep: list[str] = [code]
+    for doc in sorted(docs, key=lambda d: d.get("built_at") or "", reverse=True):
+        doc_code = doc.get("code")
+        if doc_code and doc_code not in keep and len(keep) < KEEP_BUILDS:
+            keep.append(doc_code)
+    return [doc["_id"] for doc in docs if doc.get("code") not in keep]
+
+
+async def store_derived(collection, year: int, round_number, code: str, inputs: str, payload: dict) -> None:
+    """Write this code's cached document for a round, replacing its previous one.
+
+    The key carries no version, so an edit rebuilds in place instead of
+    leaving a document per version behind; older builds beyond `KEEP_BUILDS`
+    and every document from the old `version` scheme are deleted here.
     """
     base, document = _derived_document(year, round_number, code, inputs, payload)
-    await collection.delete_many({**base, "code": {"$ne": code}})
     await collection.replace_one({**base, "code": code}, document, upsert=True)
+    docs = await collection.find(base, {"_id": 1, "code": 1, "built_at": 1}).to_list(length=None)
+    doomed = _doomed(docs, code)
+    if doomed:
+        await collection.delete_many({"_id": {"$in": doomed}})
 
 
 def store_derived_sync(collection, year: int, round_number, code: str, inputs: str, payload: dict) -> None:
     """`store_derived` for a synchronous pymongo collection (the scripts)."""
     base, document = _derived_document(year, round_number, code, inputs, payload)
-    collection.delete_many({**base, "code": {"$ne": code}})
     collection.replace_one({**base, "code": code}, document, upsert=True)
+    docs = list(collection.find(base, {"_id": 1, "code": 1, "built_at": 1}))
+    doomed = _doomed(docs, code)
+    if doomed:
+        collection.delete_many({"_id": {"$in": doomed}})

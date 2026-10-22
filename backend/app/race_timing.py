@@ -73,7 +73,13 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from .db import get_db
-from .derived_cache import code_fingerprint, input_fingerprint, is_current, store_derived
+from .derived_cache import (
+    OPENF1_FIRST_SEASON,
+    code_fingerprint,
+    input_fingerprint,
+    is_current,
+    store_derived,
+)
 from .official_laps import OFFICIAL_VERSION, official_laps_for
 from .race_laps import (
     OPENF1_BASE,
@@ -879,6 +885,7 @@ async def get_race_timing(
         })
 
     payload: dict = {}
+    openf1_rows = 0
     try:
         official_rows = await official_laps_for(year, round_number)
         if official_rows:
@@ -899,6 +906,7 @@ async def get_race_timing(
                     fetch_openf1_feeds, race_date
                 )
 
+            openf1_rows = len(lap_rows) + len(interval_rows) + len(position_rows)
             payload = build_timing(
                 official_rows, numbers, lap_rows, interval_rows, position_rows, grid
             )
@@ -917,6 +925,18 @@ async def get_race_timing(
         })
 
     lap_ms = payload.get("lap_ms") or []
+    # The OpenF1 feeds are fetched live and are not in the input fingerprint.
+    # An OpenF1-era race with none of them is a failed fetch, and cached it
+    # would pin an official-only payload until the code next changes.
+    if not openf1_rows and year >= OPENF1_FIRST_SEASON:
+        print(f"race_timing: no OpenF1 feeds for {year} R{round_number}, not caching this build")
+        return JSONResponse(content={
+            "year": year,
+            "round": round_number,
+            "drivers": drivers,
+            "lap_ms": lap_ms,
+            "synced": True,
+        })
     try:
         # Re-read: the rebuild above can itself have written `official_laps`
         # (`official_laps_for` caches on the way through), and the payload
