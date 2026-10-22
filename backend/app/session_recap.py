@@ -38,6 +38,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
 from .db import get_db
+from .classification import mark_lapped_finishers
 from .race_control_facts import summarize_race_control
 
 router = APIRouter(prefix="/api")
@@ -73,7 +74,11 @@ DEFAULT_MODEL = "gpt-oss:120b"
 #    into reciting every driver's time and gap in turn, blowing the word
 #    limit and reading like the classification table it sits above. Rule 16
 #    ("select, do not enumerate") restores prose without loosening 14.
-PROMPT_VERSION = 6
+# 7: a lapped finisher's `gap_to_leader` is now "+N Lap(s)"
+#    (`classification.mark_lapped_finishers`). Jolpica fills a lapped car's
+#    `Time.time` with its crossing after the winner, so v6 recaps were told
+#    e.g. that Gasly finished "+2.171" behind in 2026 Singapore, a lap down.
+PROMPT_VERSION = 7
 
 # The eight rules below are shared verbatim by every session type. They are the
 # distilled output of CP38's hallucination post-mortem — each one names a
@@ -272,8 +277,11 @@ def _as_int(value) -> int | None:
 
 
 def _classification_facts(results: list[dict]) -> list[dict]:
+    # A lapped car's `Time` is not an interval (see `mark_lapped_finishers`);
+    # without this the model was told Gasly finished "+2.171" behind in 2026
+    # Singapore, a lap down.
     facts = []
-    for r in results:
+    for r in mark_lapped_finishers(results):
         grid = _as_int(r.get("grid"))
         position = _as_int(r.get("position"))
         gained = (grid - position) if (grid is not None and position is not None) else None
