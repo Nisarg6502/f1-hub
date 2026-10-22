@@ -336,8 +336,15 @@ class SessionRecapEndpointTests(unittest.TestCase):
         self.assertEqual(body, "Antonelli took pole.")
 
     def test_a_cache_hit_replays_stored_text_without_calling_ollama(self):
-        cache = FakeCollection(find_one_result={"text": "Norris dominated."})
-        fake_db = FakeDb(session_recap=cache)
+        results = [result_row("1", "Lando", "Norris")]
+        cache = FakeCollection(find_one_result={
+            "text": "Norris dominated.",
+            "inputs": session_recap.input_fingerprint(results),
+        })
+        fake_db = FakeDb(
+            race_results=FakeCollection(find_one_result={"race": {}, "results": results}),
+            session_recap=cache,
+        )
 
         with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
             session_recap, "_generate_recap"
@@ -347,6 +354,32 @@ class SessionRecapEndpointTests(unittest.TestCase):
 
         generate_mock.assert_not_called()
         self.assertEqual(body, "Norris dominated.")
+
+    def test_a_recap_of_a_since_revised_classification_is_regenerated(self):
+        """2026 Monaco: the recap kept Gasly on the podium after the appeal."""
+        provisional = [result_row("1", "Kimi", "Antonelli"), result_row("3", "Pierre", "Gasly")]
+        final = [result_row("1", "Kimi", "Antonelli"), result_row("3", "Isack", "Hadjar")]
+        cache = FakeCollection(find_one_result={
+            "text": "Gasly took a famous podium.",
+            "inputs": session_recap.input_fingerprint(provisional),
+        })
+        fake_db = FakeDb(
+            race_results=FakeCollection(find_one_result={"race": {}, "results": final}),
+            session_recap=cache,
+        )
+
+        async def fake_generate(facts, system_prompt=None):
+            yield "Hadjar inherited third."
+
+        with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
+            session_recap, "fetch_race_control", return_value=[]
+        ), patch.object(session_recap, "_generate_recap", side_effect=fake_generate):
+            response = asyncio.run(session_recap.get_session_recap(year=2026, round=6, session="race"))
+            body = asyncio.run(self._drain_response(response))
+
+        self.assertEqual(body, "Hadjar inherited third.")
+        written = cache.update_one_calls[0][1]["$set"]
+        self.assertEqual(written["inputs"], session_recap.input_fingerprint(final))
 
     def test_the_cache_is_keyed_by_prompt_version(self):
         """A prompt/fact-shape change must retire old recaps rather than serve them."""

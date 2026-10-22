@@ -38,6 +38,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
 from .db import get_db
+from .derived_cache import input_fingerprint
 from .race_control_facts import summarize_race_control
 
 router = APIRouter(prefix="/api")
@@ -719,17 +720,23 @@ async def get_session_recap(
         "prompt_version": PROMPT_VERSION,
     }
 
-    cached = await db.session_recap.find_one(cache_key, {"_id": 0})
+    collection = db[SESSION_COLLECTIONS[session_key]]
+    cached, doc = await asyncio.gather(
+        db.session_recap.find_one(cache_key, {"_id": 0}),
+        collection.find_one({"season": year, "round": str(round)}, {"_id": 0}),
+    )
+    results = (doc or {}).get("results") or []
+    # A recap is prose about one classification. When that classification is
+    # revised (2026 Monaco, on appeal, three months after the race) the
+    # cached text is simply wrong, so it is only replayed while the results
+    # it was written from are still the stored ones. See `derived_cache`.
+    inputs = input_fingerprint(results)
 
     async def replay_cached():
         yield cached["text"]
 
-    if cached and cached.get("text"):
+    if cached and cached.get("text") and cached.get("inputs") == inputs:
         return StreamingResponse(replay_cached(), media_type="text/plain")
-
-    collection = db[SESSION_COLLECTIONS[session_key]]
-    doc = await collection.find_one({"season": year, "round": str(round)}, {"_id": 0})
-    results = (doc or {}).get("results") or []
 
     if not results:
         return StreamingResponse(empty(), media_type="text/plain")
@@ -784,7 +791,9 @@ async def get_session_recap(
 
         try:
             await db.session_recap.update_one(
-                cache_key, {"$set": {**cache_key, "text": full_text}}, upsert=True
+                cache_key,
+                {"$set": {**cache_key, "inputs": inputs, "text": full_text}},
+                upsert=True,
             )
         except Exception as error:
             print(

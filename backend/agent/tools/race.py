@@ -30,6 +30,7 @@ endpoint populated with the *distilled* event list.
 from __future__ import annotations
 
 from app import session_recap, strategy_commentary
+from app.derived_cache import NEWEST_FIRST
 from app.driver_directory import _driver_directory
 
 from ..ledger import EvidenceLedger
@@ -64,7 +65,9 @@ async def _race_control_events(db, year: int, round_number: int) -> tuple[list[d
     tally is not carried on it. Both remain available from OpenF1 through the
     website's own recap path; neither is reachable from Mongo.
     """
-    doc = await db.race_replay.find_one({"season": year, "round": str(round_number)})
+    doc = await db.race_replay.find_one(
+        {"season": year, "round": str(round_number)}, sort=NEWEST_FIRST
+    )
     replay = (doc or {}).get("replay") or {}
     events: list[dict] = []
     for lap in replay.get("laps") or []:
