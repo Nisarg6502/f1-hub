@@ -5,14 +5,17 @@ Runs as a Cloud Run Job on an hourly schedule, or locally:
     MONGODB_URI="mongodb+srv://..." python -m app.data_sync
 
 The schedule and standings are refreshed on every run because they change
-between races. Everything keyed to a specific session — results, practice
-classifications, circuit details, weather — is only fetched once that session
-has been run and isn't in Mongo yet. That keeps a routine run to a handful of
+between races. Race, qualifying and sprint results are reconciled against
+Ergast on every run too, because a classification keeps changing after it is
+published (penalties, appeals, late-filled fields; see
+`sync_session_results`). Everything else keyed to a specific session —
+practice classifications, circuit details, weather — is only fetched once that
+session has been run and isn't in Mongo yet. That keeps a routine run to a handful of
 requests and well inside the job timeout, while still filling a Friday
 practice on Friday rather than after the race.
 
 Set SYNC_YEARS ("2025,2026") to sync specific seasons, or FORCE_RESYNC=1 to
-refetch sessions that are already stored.
+refetch the fetch-once sessions that are already stored.
 """
 
 import datetime
@@ -281,40 +284,100 @@ def _completed_rounds(db, year: int, *, settled: bool = False) -> list[dict]:
     return sorted(started, key=_round_key)
 
 
-def _already_stored(
-    collection,
-    query: dict,
-    *,
-    classified: bool = False,
-    source: str | None = None,
-) -> bool:
-    """True if this session is already stored and worth keeping.
+def _already_stored(collection, query: dict, *, classified: bool = False) -> bool:
+    """True if this fetch-once session is already stored and worth keeping.
 
     `classified=True` rejects rows without positions, so practice entries
     written before the classification was derived from laps get refetched
     rather than skipped forever.
 
-    `source="ergast"` rejects documents that came from somewhere else. The
-    FastF1 fallback in the API writes a thinner shape (no grid, laps, status or
-    FastestLap), so without this a stopgap written minutes after the flag would
-    never be replaced once Ergast published the full result.
+    Race, qualifying and sprint results deliberately do NOT use this: they
+    change after publication and are reconciled every run instead (see
+    `sync_session_results`).
     """
     if FORCE_RESYNC:
         return False
-    doc = collection.find_one(query, {"_id": 1, "results": 1, "source": 1})
+    doc = collection.find_one(query, {"_id": 1, "results": 1})
     if not doc or not doc.get("results"):
-        return False
-    if source is not None and doc.get("source") != source:
         return False
     return has_classification(doc["results"]) if classified else True
 
 
-def sync_session_results(db, year: int, races: list[dict]) -> None:
-    """Race, qualifying and sprint results from Ergast.
+def fetch_season_table(year: int, path: str, key: str) -> dict[str, dict] | None:
+    """Every round of one Ergast results table for `year`, keyed by round.
 
-    Each job is gated on its OWN session having run, not on the race having
-    started — Saturday's qualifying is published on Saturday, and waiting for
-    Sunday to ask for it left the site a day stale for no reason.
+    Returns `{round: {"race": <race fields>, "results": [...]}}`, or None if
+    the table could not be read completely.
+
+    Jolpica pages by result ROW, not by race, so one race routinely straddles
+    two pages (2026's round 5 race: 12 rows on the first page, 10 on the
+    next). Pages are therefore merged by round, and the merged row count is
+    checked against the `total` Jolpica reports. Anything short of that is
+    treated as a failed read rather than returned, because the caller
+    OVERWRITES stored results with what this returns: a partially read round
+    written back would silently drop half a classification.
+    """
+    page_size = 100
+    offset = 0
+    total = None
+    rows = 0
+    by_round: dict[str, dict] = {}
+    while total is None or offset < total:
+        payload = fetch_json(
+            f"{ERGAST_BASE}/{year}/{path}/?limit={page_size}&offset={offset}"
+        )
+        if not payload:
+            return None
+        try:
+            total = int(payload["MRData"]["total"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        for race in _ergast_table(payload, "RaceTable", "Races"):
+            round_number = str(race.get("round", ""))
+            page_results = race.get(key, [])
+            rows += len(page_results)
+            entry = by_round.setdefault(round_number, {
+                "race": {k: v for k, v in race.items() if k != key},
+                "results": [],
+            })
+            entry["results"].extend(page_results)
+        offset += page_size
+        time.sleep(0.5)
+    if rows != total:
+        print(f"    {path}: read {rows} of {total} rows, not trusting a partial table")
+        return None
+    return by_round
+
+
+def sync_session_results(db, year: int, races: list[dict]) -> None:
+    """Race, qualifying and sprint results from Ergast, reconciled every run.
+
+    **A published classification is not final**, so stored results are
+    compared against Ergast on every run instead of being fetched once and
+    kept. This used to skip any round already stored, on the assumption that
+    a result never changes after it is published. Each of these changes a
+    stored result after it was first written, and each one was frozen out:
+
+    - Stewards' penalties handed down after the flag (routinely hours later).
+    - Appeals: the 2026 Monaco GP classification changed twice, months after
+      the race. The site kept showing Gasly third after the FIA Court of
+      Appeal reinstated his penalties in September, while the championship
+      table (refetched every run) already reflected the final order, so the
+      race page and the standings disagreed.
+    - Ergast backfilling fields after first publication: rounds 12, 13 and 15
+      of 2026 were captured before their `grid` was filled in, and every
+      driver's starting position stayed blank.
+    - Deleted qualifying laps (2026 round 4: Hadjar's Q2/Q3 times).
+
+    One season-wide read per table (a handful of paginated requests, see
+    `fetch_season_table`) replaces one request per missing round, so checking
+    everything costs about as much as the old incremental fetch did. Each job
+    is still gated on its own session having run (`_session_has_run`), and a
+    round Ergast has not published yet is left alone rather than blanked.
+
+    A write happens only when the results actually differ, and a change to an
+    Ergast result that was already stored stamps `revised_at`, so a correction
+    is visible in Mongo and in the job log rather than silent.
     """
     jobs = [
         ("results", "Results", db.race_results, "race", "Race"),
@@ -323,45 +386,55 @@ def sync_session_results(db, year: int, races: list[dict]) -> None:
     ]
 
     for path, key, collection, label, schedule_field in jobs:
-        synced = 0
-        for race in races:
-            round_number = race.get("round")
-            # A sprint only exists on sprint weekends, and a session that has
-            # not run yet has nothing to publish. `_session_has_run` covers
-            # both: an absent session never counts as run.
-            if not _session_has_run(race, schedule_field):
-                continue
-            if _already_stored(
-                collection, {"season": year, "round": str(round_number)}, source="ergast"
-            ):
+        # A sprint only exists on sprint weekends, and a session that has not
+        # run yet has nothing to publish. `_session_has_run` covers both: an
+        # absent session never counts as run.
+        due = [
+            str(race.get("round"))
+            for race in races
+            if _session_has_run(race, schedule_field)
+        ]
+        if not due:
+            continue
+
+        season = fetch_season_table(year, path, key)
+        if season is None:
+            print(f"  {label} results: could not read Ergast's {year} table, kept what is stored")
+            continue
+
+        added, revised = 0, []
+        for round_number in due:
+            fetched = season.get(round_number)
+            if not fetched or not fetched["results"]:
                 continue
 
-            data = fetch_json(f"{ERGAST_BASE}/{year}/{round_number}/{path}/")
-            races_data = _ergast_table(data, "RaceTable", "Races")
-            if not races_data:
+            query = {"season": year, "round": round_number}
+            stored = collection.find_one(query, {"_id": 0, "results": 1, "source": 1}) or {}
+            stored_results = stored.get("results") or []
+            from_ergast = stored.get("source") == "ergast"
+            if from_ergast and stored_results == fetched["results"]:
                 continue
 
-            race_data = races_data[0]
-            results = race_data.get(key, [])
-            if not results:
-                continue
+            update = {
+                "season": year,
+                "round": round_number,
+                "race": fetched["race"],
+                "results": fetched["results"],
+                "source": "ergast",
+                "synced_at": _utcnow_iso(),
+            }
+            # Only an Ergast result replaced by a different Ergast result is a
+            # revision. Replacing the API's thinner FastF1 stopgap, or filling a
+            # round for the first time, is the normal first write.
+            if from_ergast and stored_results:
+                update["revised_at"] = update["synced_at"]
+                revised.append(round_number)
+            else:
+                added += 1
+            collection.update_one(query, {"$set": update}, upsert=True)
 
-            collection.update_one(
-                {"season": year, "round": str(round_number)},
-                {"$set": {
-                    "season": year,
-                    "round": str(round_number),
-                    "race": {k: v for k, v in race_data.items() if k != key},
-                    "results": results,
-                    "source": "ergast",
-                    "synced_at": _utcnow_iso(),
-                }},
-                upsert=True,
-            )
-            synced += 1
-            time.sleep(0.5)
-
-        print(f"  {label} results: synced {synced} new round(s)")
+        note = f", revised round(s) {', '.join(revised)}" if revised else ""
+        print(f"  {label} results: {added} new round(s){note}")
 
 
 def sync_practice_results(db, year: int, races: list[dict]) -> None:
