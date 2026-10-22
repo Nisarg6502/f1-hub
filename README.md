@@ -240,19 +240,22 @@ gcloud builds submit --config cloudbuild-frontend.yaml .
 gcloud builds submit --config cloudbuild-backend.yaml .
 gcloud builds submit --config cloudbuild-agent.yaml .
 gcloud builds submit --config cloudbuild-trackgeo.yaml .
+gcloud builds submit --config cloudbuild-sync.yaml .
 ```
 
 Three things that have each caused a real incident:
 
-**`cloudbuild-sync.yaml` has no deploy step.** It builds and pushes the image
-and stops there. A Cloud Run Job pins its image at *job-update* time, so
-`gcloud builds submit` alone leaves the hourly job running the old code. Follow
-it with:
+**`f1-data-sync` ran three-month-old code because nothing redeployed it.**
+Until 2026-10-23 `cloudbuild-sync.yaml` only built the image, there was no
+trigger for it, and the redeploy was a manual step documented here — which was
+skipped, so the hourly job ran a 2026-07-17 image while every later
+`data_sync.py` change looked deployed. It now has a `main` trigger
+(`f1-data-sync-deploy`) and its own `jobs update` step, pinned to the build's
+`$BUILD_ID` tag. To check what the job is actually running:
 
 ```bash
-gcloud builds submit --config cloudbuild-sync.yaml .
-gcloud run jobs update f1-data-sync --region asia-south1 \
-  --image gcr.io/f1-dashboard-493015/f1-data-sync:latest
+gcloud run jobs describe f1-data-sync --region asia-south1 \
+  --format="value(spec.template.spec.template.spec.containers[0].image)"
 ```
 
 **The frontend bakes its config in at build time.** Every `NEXT_PUBLIC_*` value
