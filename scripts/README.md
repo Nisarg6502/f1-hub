@@ -134,14 +134,13 @@ gcloud run jobs update f1-track-geometry --region asia-south1 \
 **Do not assume a push alone is enough to redeploy — call `jobs update`
 explicitly, every time.** An execution's logged container spec shows an image
 pinned to a resolved digest (`...@sha256:...`), not a bare `:latest` tag, which
-is why this file's deploy step exists rather than build-and-push-only like
-`cloudbuild-sync.yaml`. What is NOT confirmed: whether that resolution happens
+is why this file's deploy step exists. (`cloudbuild-sync.yaml` was
+build-only until 2026-10-23 and has the same step now, pinned to a per-build
+`$BUILD_ID` tag so the question below no longer matters for it.) What is NOT confirmed: whether that resolution happens
 once, at `jobs update` time (in which case a push with no update genuinely
 never takes effect), or fresh at each execution's start (in which case the
 digest in the log is just what got resolved for that run, and a plain push
-might have been enough on its own). `f1-data-sync`'s job resource shows a bare
-`:latest` reference too, which doesn't distinguish between the two theories
-either. Only ever tested with build, push and update run together — never in
+might have been enough on its own). Only ever tested with build, push and update run together — never in
 isolation — so don't remove the update step to find out; it is correct and
 sufficient under either theory, whereas skipping it is only safe under one.
 
