@@ -545,26 +545,29 @@ def sync_race_stints(db, year: int, races: list[dict]) -> None:
 
 
 def sync_race_laps(db, year: int, races: list[dict]) -> None:
-    """Per-driver, per-lap track position and gap-to-leader via FastF1, for the Pitwall chart.
+    """Per-driver, per-lap track position and gap-to-leader, for the Pitwall chart and replay.
 
-    Same FastF1-on-Cloud-Run caveat as `sync_race_stints`: this only populates
-    when run from a local machine. The API serves whatever is here and reports
-    an empty result rather than an error when a round is missing. A round
-    synced before `gap_seconds` existed just won't have it on its rows until
-    it's re-synced (`FORCE_RESYNC`) -- see `race_laps.py`'s module docstring
-    for why that's a safe, non-crashing degradation rather than a problem.
+    Built by `race_laps.build_race_laps_any`, the same OpenF1-then-FastF1 order
+    the endpoint uses, so this works from Cloud Run for 2023 onwards; FastF1
+    (pre-2023, or a round OpenF1 lacks) only populates from a local machine. The API serves whatever is here and reports
+    an empty result rather than an error when a round is missing.
+
+    A stored round whose rows lack `line_seconds` was built by the old
+    summed-lap-time gap derivation and is rebuilt, not skipped: see
+    `race_laps.py`'s module docstring for what that derivation got wrong.
     """
-    from .race_laps import build_race_laps
+    from .race_laps import build_race_laps_any, has_line_times
 
     synced = 0
     for race in races:
         round_number = int(race.get("round", 0))
-        if not FORCE_RESYNC and db.race_laps.find_one(
-            {"season": year, "round": str(round_number)}
-        ):
+        stored = db.race_laps.find_one(
+            {"season": year, "round": str(round_number)}, {"_id": 0, "laps": 1}
+        )
+        if not FORCE_RESYNC and stored and has_line_times(stored.get("laps")):
             continue
 
-        laps = build_race_laps(year, round_number)
+        laps, source = build_race_laps_any(year, round_number, race.get("date"))
         if not laps:
             continue
 
@@ -574,6 +577,7 @@ def sync_race_laps(db, year: int, races: list[dict]) -> None:
                 "season": year,
                 "round": str(round_number),
                 "laps": laps,
+                "source": source,
                 "synced_at": _utcnow_iso(),
             }},
             upsert=True,

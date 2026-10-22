@@ -44,21 +44,23 @@ class FakeDb:
         self.races = FakeCollection({"date": race_date} if race_date else None)
 
 
-def lap(driver, lap_number, position, lap_time=None):
-    """Build a raw lap row. `lap_time` takes seconds (float/int), a
-    `timedelta` (mirroring the `pandas.Timedelta` FastF1 actually hands back),
-    or `None`/omitted for a missing LapTime (`positions_from_laps` is kept
+def lap(driver, lap_number, position, lap_time=None, line=None):
+    """Build a raw lap row the way FastF1's `session.laps` presents it.
+
+    `lap_time` is the lap's own duration (`LapTime`) and `line` the session
+    time at which the lap was completed (`Time`). Each takes seconds, a
+    `timedelta` (mirroring the `pandas.Timedelta` FastF1 hands back), or
+    `None`/omitted for a missing value. `positions_from_laps` is kept
     independent of pandas, so plain `timedelta` objects exercise the same
-    `.total_seconds()` code path without needing pandas in these tests)."""
+    `.total_seconds()` code path."""
     row = {
         "DriverNumber": driver,
         "LapNumber": lap_number,
         "Position": position,
     }
-    if lap_time is not None:
-        row["LapTime"] = (
-            lap_time if isinstance(lap_time, timedelta) else timedelta(seconds=lap_time)
-        )
+    for column, value in (("LapTime", lap_time), ("Time", line)):
+        if value is not None:
+            row[column] = value if isinstance(value, timedelta) else timedelta(seconds=value)
     return row
 
 
@@ -80,6 +82,7 @@ class PositionsFromLapsTests(unittest.TestCase):
                 "lap_number": 1,
                 "position": 2,
                 "lap_time_seconds": None,
+                "line_seconds": None,
                 "gap_seconds": None,
             },
         )
@@ -133,15 +136,17 @@ def _gap(rows, driver, lap_number):
 # A two-driver race with complete timing on every lap, plus the exact
 # `gap_seconds` it produced *before* `lap_time_seconds` was persisted. Driver 1
 # leads at 90s a lap; 44 runs 91.0/91.5/90.0 behind, so the gaps are uneven
-# rather than a constant offset -- a flat sequence could stay right under a
-# broken cumulative sum. See `GapSecondsIsUnchangedTests`.
+# rather than a constant offset. `line` is each lap's completion instant: on a
+# race with complete timing it is exactly the running sum of lap times, which
+# is why the gaps pinned here survive the move from summing durations to
+# differencing crossings. See `GapSecondsIsUnchangedTests`.
 COMPLETE_TIMING_LAPS = [
-    lap("1", 1, 1, lap_time=90.0),
-    lap("1", 2, 1, lap_time=90.0),
-    lap("1", 3, 1, lap_time=90.0),
-    lap("44", 1, 2, lap_time=91.0),
-    lap("44", 2, 2, lap_time=91.5),
-    lap("44", 3, 2, lap_time=90.0),
+    lap("1", 1, 1, lap_time=90.0, line=90.0),
+    lap("1", 2, 1, lap_time=90.0, line=180.0),
+    lap("1", 3, 1, lap_time=90.0, line=270.0),
+    lap("44", 1, 2, lap_time=91.0, line=91.0),
+    lap("44", 2, 2, lap_time=91.5, line=182.5),
+    lap("44", 3, 2, lap_time=90.0, line=272.5),
 ]
 GAPS_BEFORE_LAP_TIME_SECONDS = {
     (1, 1): 0.0, (1, 2): 0.0, (1, 3): 0.0,
@@ -201,9 +206,9 @@ class LapTimeSecondsTests(unittest.TestCase):
         # stand-in -- a consumer that needs the clock to keep moving picks its
         # own fallback, which is CP77's decision, not this function's.
         laps = [
-            lap("1", 1, 1, lap_time=90.0),
-            lap("1", 2, 1, lap_time=None),
-            lap("1", 3, 1, lap_time=90.0),
+            lap("1", 1, 1, lap_time=90.0, line=90.0),
+            lap("1", 2, 1, lap_time=None, line=180.0),
+            lap("1", 3, 1, lap_time=90.0, line=270.0),
         ]
 
         rows = race_laps.positions_from_laps(laps)
@@ -240,18 +245,14 @@ class LapTimeSecondsTests(unittest.TestCase):
 
 
 class GapToLeaderTests(unittest.TestCase):
-    """Cumulative-time reconstruction and gap-to-leader math.
-
-    `lap()`'s `lap_time` values are chosen so cumulative totals and gaps are
-    round numbers, to make the arithmetic easy to eyeball in each assertion.
-    """
+    """Gap-to-leader is the difference between line-crossing instants."""
 
     def test_leaders_gap_is_always_zero(self):
         laps = [
-            lap("1", 1, 1, lap_time=90.0),
-            lap("1", 2, 1, lap_time=91.0),
-            lap("44", 1, 2, lap_time=91.0),
-            lap("44", 2, 2, lap_time=91.5),
+            lap("1", 1, 1, line=90.0),
+            lap("1", 2, 1, line=181.0),
+            lap("44", 1, 2, line=91.0),
+            lap("44", 2, 2, line=182.5),
         ]
 
         rows = race_laps.positions_from_laps(laps)
@@ -259,14 +260,12 @@ class GapToLeaderTests(unittest.TestCase):
         self.assertEqual(_gap(rows, "1", 1), 0.0)
         self.assertEqual(_gap(rows, "1", 2), 0.0)
 
-    def test_gap_is_the_trailing_drivers_cumulative_time_minus_the_leaders(self):
-        # Driver 1 leads throughout, 1s clear each lap. Driver 44 starts 1s
-        # back on lap 1 and loses another second on lap 2 -> 2s back total.
+    def test_gap_is_the_trailing_drivers_crossing_minus_the_leaders(self):
         laps = [
-            lap("1", 1, 1, lap_time=90.0),
-            lap("1", 2, 1, lap_time=90.0),
-            lap("44", 1, 2, lap_time=91.0),
-            lap("44", 2, 2, lap_time=91.0),
+            lap("1", 1, 1, line=90.0),
+            lap("1", 2, 1, line=180.0),
+            lap("44", 1, 2, line=91.0),
+            lap("44", 2, 2, line=182.0),
         ]
 
         rows = race_laps.positions_from_laps(laps)
@@ -275,16 +274,12 @@ class GapToLeaderTests(unittest.TestCase):
         self.assertEqual(_gap(rows, "44", 2), 2.0)
 
     def test_a_retiring_driver_keeps_correct_gaps_up_to_their_last_lap(self):
-        # Driver 44 retires after lap 2 (no lap 3 row at all) -- same
-        # "line ends here" behaviour the position chart already has, and the
-        # gap for their last lap is still computed correctly from what they
-        # did complete.
         laps = [
-            lap("1", 1, 1, lap_time=90.0),
-            lap("1", 2, 1, lap_time=90.0),
-            lap("1", 3, 1, lap_time=90.0),
-            lap("44", 1, 2, lap_time=92.0),
-            lap("44", 2, 2, lap_time=92.0),
+            lap("1", 1, 1, line=90.0),
+            lap("1", 2, 1, line=180.0),
+            lap("1", 3, 1, line=270.0),
+            lap("44", 1, 2, line=92.0),
+            lap("44", 2, 2, line=184.0),
         ]
 
         rows = race_laps.positions_from_laps(laps)
@@ -294,57 +289,74 @@ class GapToLeaderTests(unittest.TestCase):
         self.assertEqual(_gap(rows, "44", 1), 2.0)
         self.assertEqual(_gap(rows, "44", 2), 4.0)
 
-    def test_a_null_lap_time_is_skipped_not_treated_as_zero(self):
-        # Driver 44's lap 2 has no recorded LapTime (e.g. a red-flag pickup
-        # lap). Per the skip-and-carry-forward rule, their cumulative total
-        # after lap 2 stays exactly what it was after lap 1 (91.0) -- it is
-        # NOT treated as a free (zero-duration) lap added on top of the
-        # leader's real lap 2 time.
+    def test_a_missing_lap_time_does_not_move_anyones_gap(self):
+        # The old derivation summed LapTimes and skipped a missing one, so a
+        # car's running total lost that whole lap: this case used to produce a
+        # gap of -89.0 here, asserted as "the documented tradeoff". The
+        # crossing instant does not depend on the duration being recorded.
         laps = [
-            lap("1", 1, 1, lap_time=90.0),
-            lap("1", 2, 1, lap_time=90.0),
-            lap("1", 3, 1, lap_time=90.0),
-            lap("44", 1, 2, lap_time=91.0),
-            lap("44", 2, 2, lap_time=None),
-            lap("44", 3, 2, lap_time=91.0),
+            lap("1", 1, 1, lap_time=90.0, line=90.0),
+            lap("1", 2, 1, lap_time=90.0, line=180.0),
+            lap("1", 3, 1, lap_time=90.0, line=270.0),
+            lap("44", 1, 2, lap_time=91.0, line=91.0),
+            lap("44", 2, 2, lap_time=None, line=182.0),
+            lap("44", 3, 2, lap_time=91.0, line=273.0),
         ]
 
         rows = race_laps.positions_from_laps(laps)
 
         self.assertEqual(_gap(rows, "44", 1), 1.0)
-        # This is the documented tradeoff of "skip and carry forward": since
-        # 44's total is frozen at 91.0 while the leader's real lap 2 still
-        # counts (total 180.0), the gap swings to *negative* for this one
-        # lap -- an artifact of the missing sample, not a real overtake.
-        # It self-corrects the moment a real LapTime resumes (lap 3 below).
-        self.assertEqual(_gap(rows, "44", 2), round(91.0 - 180.0, 3))
-        # Lap 3: 44's total is 91 + 91 = 182 (the skipped lap's duration never
-        # gets added back), leader's total is 270.
-        self.assertEqual(_gap(rows, "44", 3), round(182.0 - 270.0, 3))
+        self.assertEqual(_gap(rows, "44", 2), 2.0)
+        self.assertEqual(_gap(rows, "44", 3), 3.0)
 
-    def test_a_driver_with_no_lap_time_yet_has_a_null_gap(self):
-        # Driver 44's very first (and only) lap has no LapTime -- there is no
-        # basis at all for their cumulative total yet, so the gap is None
-        # rather than treating the unknown total as 0.
+    def test_the_leader_missing_lap_times_does_not_push_the_field_back(self):
+        # 2026 Japan: the leader had no LapTime on laps 23-25 (most of the
+        # field only on 25), so summing put P2 324s behind on the final lap.
+        # Officially it was 13.7s.
+        laps = []
+        for n in range(1, 31):
+            leader_duration = None if n in (23, 24, 25) else 93.0
+            other_duration = None if n == 25 else 93.5
+            laps.append(lap("12", n, 1, lap_time=leader_duration, line=93.0 * n))
+            laps.append(lap("81", n, 2, lap_time=other_duration, line=93.5 * n))
+
+        rows = race_laps.positions_from_laps(laps)
+
+        self.assertEqual(_gap(rows, "81", 30), round(93.5 * 30 - 93.0 * 30, 3))
+        self.assertTrue(all(abs(r["gap_seconds"]) < 20 for r in rows))
+
+    def test_a_missing_crossing_nulls_only_that_rows_gap(self):
         laps = [
-            lap("1", 1, 1, lap_time=90.0),
-            lap("44", 1, 2, lap_time=None),
+            lap("1", 1, 1, line=90.0),
+            lap("1", 2, 1, line=180.0),
+            lap("44", 1, 2, line=91.0),
+            lap("44", 2, 2, line=None),
         ]
 
         rows = race_laps.positions_from_laps(laps)
 
-        self.assertIsNone(_gap(rows, "44", 1))
+        self.assertEqual(_gap(rows, "44", 1), 1.0)
+        self.assertIsNone(_gap(rows, "44", 2))
 
-    def test_no_lap_times_anywhere_yields_null_gaps_not_a_crash(self):
-        # Mirrors a session whose `laps` frame lacks a usable LapTime column
-        # entirely (e.g. very old FastF1 data) -- position rows still come
-        # through, just with every gap unresolved.
-        laps = [lap("1", 1, 1), lap("44", 1, 2)]
+    def test_no_crossing_times_anywhere_yields_null_gaps_not_a_crash(self):
+        laps = [lap("1", 1, 1, lap_time=90.0), lap("44", 1, 2, lap_time=91.0)]
 
         rows = race_laps.positions_from_laps(laps)
 
         self.assertTrue(all(r["gap_seconds"] is None for r in rows))
         self.assertEqual([r["position"] for r in rows], [1, 2])
+
+
+class HasLineTimesTests(unittest.TestCase):
+    def test_rows_from_the_summed_derivation_are_not_trusted(self):
+        self.assertFalse(race_laps.has_line_times([{"lap_number": 1, "gap_seconds": 324.0}]))
+
+    def test_rows_with_crossing_instants_are(self):
+        self.assertTrue(race_laps.has_line_times([{"lap_number": 1, "line_seconds": None}]))
+
+    def test_no_rows(self):
+        self.assertFalse(race_laps.has_line_times([]))
+        self.assertFalse(race_laps.has_line_times(None))
 
 
 def openf1_lap(driver, lap_number, date_start, duration=None):
@@ -578,7 +590,7 @@ class RaceLapsSourceOrderTests(unittest.TestCase):
         cached = FakeCollection({
             "season": 2026,
             "round": "11",
-            "laps": [{"driver_number": 1, "lap_number": 1, "position": 1, "gap_seconds": 0.0}],
+            "laps": [{"driver_number": 1, "lap_number": 1, "position": 1, "gap_seconds": 0.0, "line_seconds": 90.0}],
         })
 
         with patch.object(race_laps, "get_db", return_value=FakeDb(cached)), \
@@ -591,11 +603,47 @@ class RaceLapsSourceOrderTests(unittest.TestCase):
 
 
 class RaceLapsEndpointTests(unittest.TestCase):
+    def test_a_document_from_the_summed_derivation_is_rebuilt(self):
+        # Production 2026 round 3 as stored: gaps from summed LapTimes, no
+        # crossing instants. It must not be served while a rebuild is possible.
+        stale = FakeCollection({
+            "season": 2026,
+            "round": "3",
+            "laps": [{"driver_number": 81, "lap_number": 53, "position": 2, "gap_seconds": 324.067}],
+        })
+        rebuilt = [{"driver_number": 81, "lap_number": 53, "position": 2, "gap_seconds": 13.546, "line_seconds": 5000.0}]
+
+        with patch.object(race_laps, "get_db", return_value=FakeDb(stale)), \
+             patch.object(race_laps, "build_race_laps_openf1", return_value=rebuilt), \
+             patch.object(race_laps, "build_race_laps") as fastf1_build:
+            response = asyncio.run(race_laps.get_race_laps(year=2026, round_number=3))
+
+        fastf1_build.assert_not_called()
+        self.assertEqual(json.loads(response.body)["laps"], rebuilt)
+        self.assertEqual(stale.update["update"]["$set"]["laps"], rebuilt)
+        self.assertEqual(stale.update["update"]["$set"]["source"], "openf1")
+
+    def test_a_stale_document_is_still_served_when_nothing_can_rebuild_it(self):
+        # Pre-2023 rounds have no OpenF1 data and FastF1 may be unreachable:
+        # the old gaps are better than reporting the round as unsynced.
+        stale_rows = [{"driver_number": 1, "lap_number": 1, "position": 1, "gap_seconds": 0.0}]
+        stale = FakeCollection({"season": 2019, "round": "3", "laps": stale_rows})
+
+        with patch.object(race_laps, "get_db", return_value=FakeDb(stale)), \
+             patch.object(race_laps, "build_race_laps_openf1", return_value=None), \
+             patch.object(race_laps, "build_race_laps", return_value=None):
+            response = asyncio.run(race_laps.get_race_laps(year=2019, round_number=3))
+
+        body = json.loads(response.body)
+        self.assertTrue(body["synced"])
+        self.assertEqual(body["laps"], stale_rows)
+        self.assertIsNone(stale.update)
+
     def test_serves_cached_laps_without_calling_fastf1(self):
         cached = FakeCollection({
             "season": 2026,
             "round": "3",
-            "laps": [{"driver_number": 1, "lap_number": 1, "position": 1}],
+            "laps": [{"driver_number": 1, "lap_number": 1, "position": 1, "line_seconds": 90.0}],
         })
 
         with patch.object(race_laps, "get_db", return_value=FakeDb(cached)), \
@@ -653,6 +701,44 @@ class RaceLapsEndpointTests(unittest.TestCase):
             asyncio.run(race_laps.get_race_laps(year=2026, round_number=3))
 
         build.assert_called_once()
+
+
+class SyncRaceLapsTests(unittest.TestCase):
+    """The hourly sync rebuilds rounds written by the old derivation."""
+
+    class Collection:
+        def __init__(self, docs):
+            self.docs = docs
+            self.writes = []
+
+        def find_one(self, query, projection=None):
+            return next((d for d in self.docs if d["round"] == query["round"]), None)
+
+        def update_one(self, query, update, upsert=False):
+            self.writes.append((query["round"], update["$set"]))
+
+    def _sync(self, docs):
+        from app import data_sync
+
+        class Db:
+            pass
+        db = Db()
+        db.race_laps = self.Collection(docs)
+        fresh = [{"driver_number": 1, "lap_number": 1, "position": 1, "gap_seconds": 0.0, "line_seconds": 90.0}]
+        races = [{"round": "2", "date": "2026-03-15"}, {"round": "17", "date": "2026-10-11"}]
+        with patch.object(race_laps, "build_race_laps_any", return_value=(fresh, "openf1")) as build:
+            data_sync.sync_race_laps(db, 2026, races)
+        return db.race_laps.writes, build
+
+    def test_a_summed_derivation_round_is_rebuilt_and_a_current_one_is_not(self):
+        writes, build = self._sync([
+            {"round": "2", "laps": [{"lap_number": 1, "gap_seconds": 160.5}]},
+            {"round": "17", "laps": [{"lap_number": 1, "gap_seconds": 0.0, "line_seconds": 90.0}]},
+        ])
+
+        self.assertEqual([round_number for round_number, _ in writes], ["2"])
+        self.assertEqual(writes[0][1]["source"], "openf1")
+        build.assert_called_once_with(2026, 2, "2026-03-15")
 
 
 if __name__ == "__main__":
