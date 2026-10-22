@@ -18,9 +18,10 @@ import { EASE_OUT } from "./motion-primitives";
  *
  *  - a genuine curation error: a typo'd Ergast id, or a `yearRange` that
  *    excludes every season the id actually raced;
- *  - a fetch that failed soft. `/constructor_seasons` is not cached for teams
- *    still racing, so those ids are re-fetched from Jolpica on every call and a
- *    throttled response returns `200 OK` with an empty `seasons` array.
+ *  - a fetch that failed. `/constructor_seasons` used to answer a throttled
+ *    Jolpica read with `200 OK` and an empty `seasons` array; it now serves
+ *    the last good list or answers 502, which the page's retry turns into an
+ *    empty list only after every attempt has failed.
  *
  * Production showed the second kind to readers as the first: `⚠ no data for
  * "williams"` in red, on a chart whose whole subject is that Williams has been

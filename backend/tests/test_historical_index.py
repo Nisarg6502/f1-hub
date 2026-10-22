@@ -426,6 +426,29 @@ class ConstructorSeasonsEndpointTests(unittest.TestCase):
         self.assertEqual(json.loads(response.body)["seasons"], [2005, year])
         self.assertEqual(cache.update_one_calls, [])
 
+    def test_a_current_team_cached_last_year_is_refreshed_not_frozen(self):
+        # Review of #205: "finished" decided at read time as max < this year
+        # froze every 2026 team on 1 January 2027 and dropped the whole grid.
+        year = historical_index.datetime.datetime.now(historical_index.datetime.timezone.utc).year
+        cached = {"constructor_id": "red_bull", "seasons": [2005, year - 1], "fetched_at": self._years_ago(48)}
+        response, _, fetch_mock = self._call(cached, [2005, year - 1, year])
+
+        fetch_mock.assert_called_once()
+        self.assertEqual(json.loads(response.body)["seasons"], [2005, year - 1, year])
+
+    def test_a_constructor_that_sat_out_a_whole_season_is_finished(self):
+        year = historical_index.datetime.datetime.now(historical_index.datetime.timezone.utc).year
+        cached = {"constructor_id": "sauber", "seasons": [1993, year - 2], "fetched_at": self._years_ago(48)}
+        _, _, fetch_mock = self._call(cached, None)
+        fetch_mock.assert_not_called()
+
+    def test_a_naive_timestamp_is_read_as_utc_not_a_crash(self):
+        year = historical_index.datetime.datetime.now(historical_index.datetime.timezone.utc).year
+        naive = historical_index.datetime.datetime.utcnow().isoformat()
+        cached = {"constructor_id": "red_bull", "seasons": [2005, year], "fetched_at": naive}
+        _, _, fetch_mock = self._call(cached, [2005, year])
+        fetch_mock.assert_not_called()
+
     def test_a_failed_read_with_nothing_cached_is_a_502_not_an_empty_200(self):
         with self.assertRaises(historical_index.HTTPException) as raised:
             self._call(None, None)

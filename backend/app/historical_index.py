@@ -403,17 +403,31 @@ CURRENT_TEAM_REFRESH = datetime.timedelta(hours=24)
 
 
 def _seasons_cache_fresh(cached: dict, current_year: int) -> bool:
+    """True if a cached season list can be served without asking Jolpica.
+
+    "Finished" must not mean "last season is before this year": decided at
+    read time, that turns every current team cached in 2026 into a finished
+    one on 1 January 2027, serves its 2026-ending list forever, and drops the
+    whole existing grid from /teams once 2027 starts. It also cannot tell a
+    team that has stopped from one whose new season Jolpica has not listed
+    yet in January. A constructor counts as finished when it has sat out a
+    whole season, or when its document predates `fetched_at` (the old code
+    only ever cached finished constructors).
+    """
     seasons = cached.get("seasons") or []
-    if seasons and max(seasons) < current_year:
-        return True  # a finished constructor's history never changes
     fetched_at = cached.get("fetched_at")
+    if seasons and (not fetched_at or max(seasons) < current_year - 1):
+        return True
     if not fetched_at:
         return False
     try:
-        fetched = datetime.datetime.fromisoformat(fetched_at)
-    except ValueError:
+        fetched = datetime.datetime.fromisoformat(str(fetched_at))
+        if fetched.tzinfo is None:
+            fetched = fetched.replace(tzinfo=datetime.timezone.utc)
+        age = datetime.datetime.now(datetime.timezone.utc) - fetched
+    except (TypeError, ValueError):
         return False
-    return datetime.datetime.now(datetime.timezone.utc) - fetched < CURRENT_TEAM_REFRESH
+    return age < CURRENT_TEAM_REFRESH
 
 
 def _seasons_response(cached: dict) -> dict:
