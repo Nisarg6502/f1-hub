@@ -233,6 +233,16 @@ export interface TeamDossier {
   currentSince: number | null;
   /** Seasons that current era has raced, up to `asOfSeason`. */
   currentSeasons: number;
+  /** True when ANY era of the lineage resolved to no seasons, so the lineage
+   * totals (`lineageWins`, titles, `seasonsEntered`) are sums over part of
+   * the team's history and must not be stated as its record.
+   *
+   * `currentEraUnresolved` below only covers the final era. A middle era
+   * failing (Jaguar between Stewart and Red Bull) undercounted silently, and
+   * even the final-era case still printed the partial sum in the collapsed
+   * summary: production rendered Red Bull as "1 all-time win · 2 names",
+   * which was Stewart's single 1999 win. */
+  incomplete: boolean;
   /** True when the lineage's FINAL node resolved to no seasons at all, so
    * which era the team is racing as now is unknown.
    *
@@ -353,6 +363,7 @@ export function buildDossier(
     eras,
     current,
     debutSeason: starts.length > 0 ? Math.min(...starts) : null,
+    incomplete: lineage.nodes.some((node) => node.invalid),
     currentEraUnresolved,
     currentSince: current?.node.startYear ?? null,
     currentSeasons: current?.seasonCount ?? 0,

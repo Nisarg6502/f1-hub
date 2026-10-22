@@ -162,14 +162,16 @@ export default function TeamHeritageCard({
         />
         <Stat
           label="Grand Prix wins"
-          value={String(dossier.lineageWins)}
+          value={dossier.incomplete ? "—" : String(dossier.lineageWins)}
           hint={
-            attribute
-              ? `${current!.wins} as ${current!.node.label}`
-              : "all-time"
+            dossier.incomplete
+              ? "did not load"
+              : attribute
+                ? `${current!.wins} as ${current!.node.label}`
+                : "all-time"
           }
         />
-        {titlesComplete ? (
+        {titlesComplete && !dossier.incomplete ? (
           <>
             <Stat
               label="Constructors'"
@@ -195,16 +197,17 @@ export default function TeamHeritageCard({
           // team with no titles are different facts and must not render the
           // same way.
           <div className="col-span-2 self-center font-medium text-[10px] text-warm-500 leading-snug">
-            Championship totals unavailable — the title archive did not resolve
-            in full, and a partial count would understate it.
+            {dossier.incomplete
+              ? "Championship totals unavailable — see below."
+              : "Championship totals unavailable — the title archive did not resolve in full, and a partial count would understate it."}
           </div>
         )}
       </div>
 
-      {dossier.currentEraUnresolved && (
+      {dossier.incomplete && (
         <div className="font-medium text-[10px] text-warm-500 mt-2.5 leading-snug">
-          This team&apos;s own season history did not load, so the figures above
-          cover its earlier eras only.
+          Part of this team&apos;s season history did not load, so its record is
+          not shown: a total over the eras that did load would understate it.
         </div>
       )}
 
@@ -222,7 +225,7 @@ export default function TeamHeritageCard({
         </div>
       )}
 
-      {isChain && (
+      {isChain && !dossier.incomplete && (
         <div className="font-medium text-[10px] text-warm-500 mt-2.5 leading-snug">
           Wins and titles are totalled across every era of this lineage — {
             dossier.seasonsEntered
