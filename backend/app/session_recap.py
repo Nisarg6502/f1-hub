@@ -38,6 +38,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
 from .db import get_db
+from .classification import mark_lapped_finishers
 from .race_control_facts import summarize_race_control
 
 router = APIRouter(prefix="/api")
@@ -272,8 +273,11 @@ def _as_int(value) -> int | None:
 
 
 def _classification_facts(results: list[dict]) -> list[dict]:
+    # A lapped car's `Time` is not an interval (see `mark_lapped_finishers`);
+    # without this the model was told Gasly finished "+2.171" behind in 2026
+    # Singapore, a lap down.
     facts = []
-    for r in results:
+    for r in mark_lapped_finishers(results):
         grid = _as_int(r.get("grid"))
         position = _as_int(r.get("position"))
         gained = (grid - position) if (grid is not None and position is not None) else None

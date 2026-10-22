@@ -6,6 +6,7 @@ from urllib.request import Request, urlopen
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
+from .classification import mark_lapped_finishers
 from .db import get_db
 from .f1_results import (
     has_classification,
@@ -145,6 +146,8 @@ async def get_race_results(
         except Exception as error:
             print(f"FastF1 race fallback failed for {year} R{round}: {error}")
 
+    # Presentation only, after any caching above: stored rows stay Ergast's own.
+    results = mark_lapped_finishers(results)
     requested = {p.strip() for p in (fields or "").split(",") if p.strip()}
 
     if round is None:
@@ -215,7 +218,7 @@ async def get_sprint_results(
         return JSONResponse(
             content={
                 "race": doc.get("race", {}),
-                "results": sanitize_results(doc.get("results", [])),
+                "results": mark_lapped_finishers(sanitize_results(doc.get("results", []))),
             }
         )
 
@@ -237,7 +240,7 @@ async def get_sprint_results(
     await _cache_results(
         db.sprint_results, {"season": year, "round": str(round)}, race, results, source
     )
-    return JSONResponse(content={"race": race, "results": results})
+    return JSONResponse(content={"race": race, "results": mark_lapped_finishers(results)})
 
 
 @router.get("/session_classification")

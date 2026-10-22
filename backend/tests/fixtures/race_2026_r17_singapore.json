@@ -1,0 +1,276 @@
+[
+ {
+  "position": "1",
+  "positionText": "1",
+  "status": "Finished",
+  "laps": "62",
+  "Driver": {
+   "code": "VER"
+  },
+  "Time": {
+   "millis": "6120785",
+   "time": "1:42:00.785"
+  }
+ },
+ {
+  "position": "2",
+  "positionText": "2",
+  "status": "Finished",
+  "laps": "62",
+  "Driver": {
+   "code": "LEC"
+  },
+  "Time": {
+   "millis": "6128120",
+   "time": "+7.335"
+  }
+ },
+ {
+  "position": "3",
+  "positionText": "3",
+  "status": "Finished",
+  "laps": "62",
+  "Driver": {
+   "code": "ANT"
+  },
+  "Time": {
+   "millis": "6145358",
+   "time": "+24.573"
+  }
+ },
+ {
+  "position": "4",
+  "positionText": "4",
+  "status": "Finished",
+  "laps": "62",
+  "Driver": {
+   "code": "NOR"
+  },
+  "Time": {
+   "millis": "6161291",
+   "time": "+40.506"
+  }
+ },
+ {
+  "position": "5",
+  "positionText": "5",
+  "status": "Finished",
+  "laps": "62",
+  "Driver": {
+   "code": "PIA"
+  },
+  "Time": {
+   "millis": "6170429",
+   "time": "+49.644"
+  }
+ },
+ {
+  "position": "6",
+  "positionText": "6",
+  "status": "Finished",
+  "laps": "62",
+  "Driver": {
+   "code": "HAM"
+  },
+  "Time": {
+   "millis": "6173973",
+   "time": "+53.188"
+  }
+ },
+ {
+  "position": "7",
+  "positionText": "7",
+  "status": "Finished",
+  "laps": "62",
+  "Driver": {
+   "code": "LAW"
+  },
+  "Time": {
+   "millis": "6202451",
+   "time": "+1:21.666"
+  }
+ },
+ {
+  "position": "8",
+  "positionText": "8",
+  "status": "Finished",
+  "laps": "62",
+  "Driver": {
+   "code": "HUL"
+  },
+  "Time": {
+   "millis": "6204171",
+   "time": "+1:23.386"
+  }
+ },
+ {
+  "position": "9",
+  "positionText": "9",
+  "status": "Finished",
+  "laps": "62",
+  "Driver": {
+   "code": "RUS"
+  },
+  "Time": {
+   "millis": "6205462",
+   "time": "+1:24.677"
+  }
+ },
+ {
+  "position": "10",
+  "positionText": "10",
+  "status": "Finished",
+  "laps": "62",
+  "Driver": {
+   "code": "HAD"
+  },
+  "Time": {
+   "millis": "6211647",
+   "time": "+1:30.862"
+  }
+ },
+ {
+  "position": "11",
+  "positionText": "11",
+  "status": "Lapped",
+  "laps": "61",
+  "Driver": {
+   "code": "GAS"
+  },
+  "Time": {
+   "millis": "6122956",
+   "time": "+2.171"
+  }
+ },
+ {
+  "position": "12",
+  "positionText": "12",
+  "status": "Lapped",
+  "laps": "61",
+  "Driver": {
+   "code": "BEA"
+  },
+  "Time": {
+   "millis": "6125791",
+   "time": "+5.006"
+  }
+ },
+ {
+  "position": "13",
+  "positionText": "13",
+  "status": "Lapped",
+  "laps": "61",
+  "Driver": {
+   "code": "OCO"
+  },
+  "Time": {
+   "millis": "6146432",
+   "time": "+25.647"
+  }
+ },
+ {
+  "position": "14",
+  "positionText": "14",
+  "status": "Lapped",
+  "laps": "61",
+  "Driver": {
+   "code": "SAI"
+  },
+  "Time": {
+   "millis": "6178924",
+   "time": "+58.139"
+  }
+ },
+ {
+  "position": "15",
+  "positionText": "15",
+  "status": "Lapped",
+  "laps": "61",
+  "Driver": {
+   "code": "LIN"
+  },
+  "Time": {
+   "millis": "6181735",
+   "time": "+1:00.950"
+  }
+ },
+ {
+  "position": "16",
+  "positionText": "16",
+  "status": "Lapped",
+  "laps": "61",
+  "Driver": {
+   "code": "ALO"
+  },
+  "Time": {
+   "millis": "6195239",
+   "time": "+1:14.454"
+  }
+ },
+ {
+  "position": "17",
+  "positionText": "17",
+  "status": "Lapped",
+  "laps": "60",
+  "Driver": {
+   "code": "PER"
+  },
+  "Time": {
+   "millis": "6141305",
+   "time": "+20.520"
+  }
+ },
+ {
+  "position": "18",
+  "positionText": "18",
+  "status": "Retired",
+  "laps": "59",
+  "Driver": {
+   "code": "ALB"
+  },
+  "Time": {
+   "millis": "5998746",
+   "time": ""
+  }
+ },
+ {
+  "position": "19",
+  "positionText": "19",
+  "status": "Lapped",
+  "laps": "59",
+  "Driver": {
+   "code": "BOT"
+  },
+  "Time": {
+   "millis": "6138132",
+   "time": "+17.347"
+  }
+ },
+ {
+  "position": "20",
+  "positionText": "R",
+  "status": "Retired",
+  "laps": "36",
+  "Driver": {
+   "code": "STR"
+  }
+ },
+ {
+  "position": "21",
+  "positionText": "R",
+  "status": "Retired",
+  "laps": "29",
+  "Driver": {
+   "code": "COL"
+  }
+ },
+ {
+  "position": "22",
+  "positionText": "R",
+  "status": "Retired",
+  "laps": "7",
+  "Driver": {
+   "code": "BOR"
+  }
+ }
+]
