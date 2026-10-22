@@ -283,6 +283,13 @@ class QualifyingVocabularyTests(unittest.TestCase):
         self.assertEqual(violations, [])
 
 
+def _facts_fingerprint(results, session="race"):
+    """What the endpoint fingerprints: the facts built from stored rows alone."""
+    return session_recap.input_fingerprint(
+        session_recap.SESSION_FACT_BUILDERS[session]({}, results, [])
+    )
+
+
 class SessionRecapEndpointTests(unittest.TestCase):
     async def _drain_response(self, response):
         return "".join([chunk async for chunk in response.body_iterator])
@@ -339,7 +346,7 @@ class SessionRecapEndpointTests(unittest.TestCase):
         results = [result_row("1", "Lando", "Norris")]
         cache = FakeCollection(find_one_result={
             "text": "Norris dominated.",
-            "inputs": session_recap.input_fingerprint(results),
+            "inputs": _facts_fingerprint(results),
         })
         fake_db = FakeDb(
             race_results=FakeCollection(find_one_result={"race": {}, "results": results}),
@@ -361,7 +368,7 @@ class SessionRecapEndpointTests(unittest.TestCase):
         final = [result_row("1", "Kimi", "Antonelli"), result_row("3", "Isack", "Hadjar")]
         cache = FakeCollection(find_one_result={
             "text": "Gasly took a famous podium.",
-            "inputs": session_recap.input_fingerprint(provisional),
+            "inputs": _facts_fingerprint(provisional),
         })
         fake_db = FakeDb(
             race_results=FakeCollection(find_one_result={"race": {}, "results": final}),
@@ -379,7 +386,36 @@ class SessionRecapEndpointTests(unittest.TestCase):
 
         self.assertEqual(body, "Hadjar inherited third.")
         written = cache.update_one_calls[0][1]["$set"]
-        self.assertEqual(written["inputs"], session_recap.input_fingerprint(final))
+        self.assertEqual(written["inputs"], _facts_fingerprint(final))
+
+    def test_a_change_in_how_facts_are_derived_regenerates_the_recap(self):
+        """Same stored rows, different facts: #204 changed how a lapped
+        finisher's gap is stated without touching a single stored row."""
+        results = [result_row("1", "Lando", "Norris")]
+        cache = FakeCollection(find_one_result={
+            "text": "Old wording.",
+            "inputs": _facts_fingerprint(results),
+        })
+        fake_db = FakeDb(
+            race_results=FakeCollection(find_one_result={"race": {}, "results": results}),
+            session_recap=cache,
+        )
+        real = session_recap._classification_facts
+
+        async def fake_generate(facts, system_prompt=None):
+            yield "New wording."
+
+        with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
+            session_recap, "fetch_race_control", return_value=[]
+        ), patch.object(session_recap, "_generate_recap", side_effect=fake_generate), patch.object(
+            session_recap,
+            "_classification_facts",
+            side_effect=lambda rows: [{**f, "gap_to_leader": "restated"} for f in real(rows)],
+        ):
+            response = asyncio.run(session_recap.get_session_recap(year=2026, round=17, session="race"))
+            body = asyncio.run(self._drain_response(response))
+
+        self.assertEqual(body, "New wording.")
 
     def test_the_cache_is_keyed_by_prompt_version(self):
         """A prompt/fact-shape change must retire old recaps rather than serve them."""

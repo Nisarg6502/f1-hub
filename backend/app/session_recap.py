@@ -726,11 +726,20 @@ async def get_session_recap(
         collection.find_one({"season": year, "round": str(round)}, {"_id": 0}),
     )
     results = (doc or {}).get("results") or []
-    # A recap is prose about one classification. When that classification is
-    # revised (2026 Monaco, on appeal, three months after the race) the
-    # cached text is simply wrong, so it is only replayed while the results
-    # it was written from are still the stored ones. See `derived_cache`.
-    inputs = input_fingerprint(results)
+    race = (doc or {}).get("race", {})
+    # A recap is prose about one classification, so it is only replayed while
+    # the facts it was written from are unchanged. Fingerprinted: the fact
+    # bundle built from the STORED documents alone (race control is fetched
+    # live and is left out, so this costs no outbound call). That covers both
+    # ways a cached recap goes wrong: the classification being revised (2026
+    # Monaco, on appeal, three months after the race) and the code that turns
+    # it into facts changing (how a lapped finisher's gap is stated), with no
+    # version constant to remember. See `derived_cache`.
+    inputs = (
+        input_fingerprint(SESSION_FACT_BUILDERS[session_key](race, results, []))
+        if results
+        else None
+    )
 
     async def replay_cached():
         yield cached["text"]
@@ -741,7 +750,6 @@ async def get_session_recap(
     if not results:
         return StreamingResponse(empty(), media_type="text/plain")
 
-    race = (doc or {}).get("race", {})
     messages = await asyncio.to_thread(
         fetch_race_control, race.get("date", ""), SESSION_OPENF1_NAMES[session_key]
     )
