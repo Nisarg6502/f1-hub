@@ -623,6 +623,18 @@ class RaceLapsEndpointTests(unittest.TestCase):
         self.assertEqual(stale.update["update"]["$set"]["laps"], rebuilt)
         self.assertEqual(stale.update["update"]["$set"]["source"], "openf1")
 
+    def test_a_rebuild_missing_drivers_is_not_served_or_stored(self):
+        # OpenF1 drops any driver whose /position stream is missing.
+        stale_rows = [{"driver_number": n, "lap_number": 1, "position": n, "gap_seconds": 0.0} for n in (1, 2)]
+        stale = FakeCollection({"season": 2026, "round": "3", "laps": stale_rows})
+        partial = [{"driver_number": 1, "lap_number": 1, "position": 1, "gap_seconds": 0.0, "line_seconds": 90.0}]
+
+        with patch.object(race_laps, "get_db", return_value=FakeDb(stale)),              patch.object(race_laps, "build_race_laps_openf1", return_value=partial):
+            response = asyncio.run(race_laps.get_race_laps(year=2026, round_number=3))
+
+        self.assertEqual(json.loads(response.body)["laps"], stale_rows)
+        self.assertIsNone(stale.update)
+
     def test_a_stale_document_is_still_served_when_nothing_can_rebuild_it(self):
         # Pre-2023 rounds have no OpenF1 data and FastF1 may be unreachable:
         # the old gaps are better than reporting the round as unsynced.
@@ -726,7 +738,7 @@ class SyncRaceLapsTests(unittest.TestCase):
         db.race_laps = self.Collection(docs)
         fresh = [{"driver_number": 1, "lap_number": 1, "position": 1, "gap_seconds": 0.0, "line_seconds": 90.0}]
         races = [{"round": "2", "date": "2026-03-15"}, {"round": "17", "date": "2026-10-11"}]
-        with patch.object(race_laps, "build_race_laps_any", return_value=(fresh, "openf1")) as build:
+        with patch.object(race_laps, "build_race_laps_any", return_value=(fresh, "openf1")) as build,                 patch.object(data_sync.time, "sleep"):
             data_sync.sync_race_laps(db, 2026, races)
         return db.race_laps.writes, build
 
@@ -739,6 +751,22 @@ class SyncRaceLapsTests(unittest.TestCase):
         self.assertEqual([round_number for round_number, _ in writes], ["2"])
         self.assertEqual(writes[0][1]["source"], "openf1")
         build.assert_called_once_with(2026, 2, "2026-03-15")
+
+    def test_an_openf1_document_is_already_crossing_based_and_is_kept(self):
+        writes, build = self._sync([
+            {"round": "2", "source": "openf1", "laps": [{"lap_number": 1, "gap_seconds": 5.4}]},
+            {"round": "17", "source": "openf1", "laps": [{"lap_number": 1, "gap_seconds": 0.0}]},
+        ])
+        self.assertEqual(writes, [])
+        build.assert_not_called()
+
+    def test_a_rebuild_with_fewer_drivers_does_not_replace_the_stored_round(self):
+        stored = [{"driver_number": n, "lap_number": 1, "gap_seconds": 0.0} for n in (1, 4, 16)]
+        writes, _ = self._sync([
+            {"round": "2", "laps": stored},
+            {"round": "17", "source": "openf1", "laps": stored},
+        ])
+        self.assertEqual(writes, [])
 
 
 if __name__ == "__main__":

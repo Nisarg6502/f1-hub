@@ -8,8 +8,9 @@ the same Mongo-first / self-heal pattern as `circuit_info` and `race_stints`.
 
 Each row carries `position`, `gap_seconds` (seconds behind whoever led that
 lap) and `lap_time_seconds` (that lap's own duration), plus `line_seconds`,
-the instant the car crossed the line to complete the lap, in seconds on the
-session's clock. **`gap_seconds` is derived from `line_seconds` and nothing
+the instant the car crossed the line to complete the lap, in seconds. Only
+differences between `line_seconds` values are meaningful: FastF1 measures them
+from the session start, OpenF1 from the session's first lap start. **`gap_seconds` is derived from `line_seconds` and nothing
 else**, for both sources, by `_attach_gaps`: the gap at lap N is this car's
 crossing instant minus the leader's.
 
@@ -25,11 +26,13 @@ resulting negative gap as "the documented tradeoff". A crossing instant has no
 such failure mode: one missing sample costs that one row's gap, nothing after
 it. The OpenF1 path already worked this way; both now share one function.
 
-**A stored document without `line_seconds` was built by the old derivation**
-and is rebuilt rather than served (`has_line_times`): by the endpoint on the
-next view (OpenF1, which works from Cloud Run) and by `data_sync`. If no
-rebuild succeeds the old document is still served, as before, rather than
-nothing.
+**A stored document built by the old derivation is rebuilt rather than
+served** (`built_from_crossings`): by the endpoint on the next view (OpenF1,
+which works from Cloud Run) and by `data_sync`. That is every FastF1-built
+document without `line_seconds`; OpenF1-built ones always differenced
+crossings and are kept. If no rebuild succeeds, or the rebuild covers fewer
+drivers than what is stored (`no_worse_than`), the stored document is served
+as before.
 
 `lap_time_seconds` is kept as its own field because a real-time replay clock
 advances by each lap's actual length, which a gap cannot stand in for.
@@ -117,12 +120,37 @@ def _attach_gaps(rows: list[dict]) -> None:
 
 
 def has_line_times(laps: list[dict]) -> bool:
-    """True if stored lap rows were built with crossing instants.
-
-    Rows without `line_seconds` were written by the summed-`LapTime`
-    derivation (see the module docstring) and their gaps cannot be trusted.
-    """
+    """True if lap rows carry crossing instants (`line_seconds`)."""
     return any("line_seconds" in row for row in laps or [])
+
+
+def built_from_crossings(doc: dict | None) -> bool:
+    """True if a stored `race_laps` document's gaps came from crossing instants.
+
+    Rows with `line_seconds` did by construction. So did every document the
+    OpenF1 path wrote (`source: "openf1"`), which differenced crossings before
+    `line_seconds` was stored: rebuilding those would only reproduce the same
+    gaps and expose good data to a partial upstream response. What is left is
+    the FastF1 path's summed-`LapTime` derivation, whose gaps cannot be trusted
+    (in production: 2026 rounds 1-11, written by the sync with no `source`).
+    """
+    doc = doc or {}
+    return has_line_times(doc.get("laps")) or doc.get("source") == "openf1"
+
+
+def no_worse_than(new_laps: list[dict] | None, stored_laps: list[dict] | None) -> bool:
+    """True unless a rebuild covers fewer drivers than the stored document.
+
+    The OpenF1 path silently drops any driver whose `/position` stream is
+    missing, and a stored round used to be written once and never replaced,
+    so nothing guarded against a partial response. Replacing a stored round is
+    now routine (old-derivation documents are rebuilt), and a rebuild that
+    lost cars would replace a whole classification with part of one.
+    """
+    def drivers(laps):
+        return {row.get("driver_number") for row in laps or []}
+
+    return len(drivers(new_laps)) >= len(drivers(stored_laps))
 
 
 def positions_from_laps(laps: list[dict]) -> list[dict]:
@@ -429,7 +457,7 @@ async def get_race_laps(
     doc = await db.race_laps.find_one(
         {"season": year, "round": str(round_number)}, {"_id": 0, "synced_at": 0}
     )
-    if doc and doc.get("laps") and has_line_times(doc["laps"]):
+    if doc and doc.get("laps") and built_from_crossings(doc):
         return JSONResponse(content={
             "year": year,
             "round": round_number,
@@ -440,7 +468,7 @@ async def get_race_laps(
     race_date = await _race_date(db, year, round_number)
     laps, source = build_race_laps_any(year, round_number, race_date)
 
-    if not laps:
+    if not laps or not no_worse_than(laps, (doc or {}).get("laps")):
         if doc and doc.get("laps"):
             return JSONResponse(content={
                 "year": year,
