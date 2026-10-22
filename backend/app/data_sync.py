@@ -729,6 +729,15 @@ def create_indexes(db) -> None:
     db.driver_standings.create_index([("season", 1)], unique=True)
     db.constructor_standings.create_index([("season", 1)], unique=True)
     db.race_results.create_index([("season", 1), ("round", 1)], unique=True)
+    # One build per code per round (`derived_cache.store_derived`). Without it
+    # two concurrent cold requests can both upsert-insert. Partial, because
+    # documents from the old `version` scheme carry no `code` until rebuilt.
+    for derived in ("race_replay", "race_timing"):
+        db[derived].create_index(
+            [("season", 1), ("round", 1), ("code", 1)],
+            unique=True,
+            partialFilterExpression={"code": {"$exists": True}},
+        )
     db.qualifying_results.create_index([("season", 1), ("round", 1)], unique=True)
     db.sprint_results.create_index([("season", 1), ("round", 1)], unique=True)
     db.practice_results.create_index(

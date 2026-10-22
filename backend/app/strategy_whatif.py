@@ -206,6 +206,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from .db import get_db
+from .derived_cache import NEWEST_FIRST
 from .driver_directory import _driver_directory, _number_by_driver_id
 
 router = APIRouter(prefix="/api")
@@ -1274,7 +1275,7 @@ async def get_strategy_whatif(
     stints_doc = await db.race_stints.find_one(key, {"_id": 0})
     stops_doc = await db.pit_stops.find_one(key, {"_id": 0})
     official_doc = await db.official_laps.find_one(key, {"_id": 0}, sort=[("version", -1)])
-    replay_doc = await db.race_replay.find_one(key, {"_id": 0}, sort=[("version", -1)])
+    replay_doc = await db.race_replay.find_one(key, {"_id": 0}, sort=NEWEST_FIRST)
 
     payload = build_whatif(
         (results_doc or {}).get("results") or [],

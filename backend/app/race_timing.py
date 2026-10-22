@@ -54,11 +54,14 @@ OpenF1's are passed through verbatim, and the official samples *produce* them
 too — see `official_timing_samples` for why a lapped car's exact numeric gap is
 deliberately not served.
 
-Cached in `race_timing` for the same reason `race_replay` caches: a finished
-race's timing is immutable, and the payload is ~490 KB raw, which is far too
-much to rebuild from four fetches on every view. `TIMING_VERSION` is part of
-the cache key so a change to the payload shape retires existing documents
-instead of serving them to a frontend expecting the new one.
+Cached in `race_timing`, because the payload is ~490 KB raw, far too much to
+rebuild from four fetches on every view. A cached payload is served only while
+it matches the code that built it and the stored documents it was built from
+(`race_results` for car numbers and the grid, `official_laps` for the
+timeline); see `derived_cache.py`. This replaced a hand-bumped
+`TIMING_VERSION`, whose history (versions 5, 6 and 7) was three separate
+cases of a structurally perfect document serving wrong data until someone
+remembered the bump.
 """
 
 import asyncio
@@ -70,7 +73,14 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from .db import get_db
-from .official_laps import official_laps_for
+from .derived_cache import (
+    OPENF1_FIRST_SEASON,
+    code_fingerprint,
+    input_fingerprint,
+    is_current,
+    store_derived,
+)
+from .official_laps import OFFICIAL_VERSION, official_laps_for
 from .race_laps import (
     OPENF1_BASE,
     _as_int,
@@ -81,34 +91,31 @@ from .race_laps import (
 
 router = APIRouter(prefix="/api")
 
-# Bump when the payload shape *or* how it's derived changes. Existing cached
-# documents stop matching and rebuild on next view.
-#
-# 5 retires every payload built on the OpenF1-derived timeline. Those are not
-# merely imprecise: on round 1 they invert laps 1 and 2 against the official
-# classification, because the opening of the race was compressed 2:1 by the
-# clock rescaling and because OpenF1's `/laps` feed is missing lap-2 rows for
-# the leading three cars. Nothing about their *shape* is wrong, so without this
-# bump a stale document would keep serving the inverted order indefinitely —
-# which is the harder half of this constant's rule to remember.
-#
-# 6 retires round 1's 84-second timeline shift (see `race_start_offset`). A v5
-# round-1 document is structurally perfect and states the wrong thing on every
-# row: no interval or gap reading exists for the opening lap, and every reading
-# after it belongs to a lap later than the position beside it. The other ten
-# rounds rebuild to a byte-identical payload, so the cost of the bump is one
-# round's worth of refetching.
-#
-# 7 retires every payload whose gap and interval columns came from OpenF1 alone.
-# The shape is byte-for-byte the same — three-element timing samples, same
-# union of types — so nothing about a v6 document *looks* stale, which is again
-# the harder half of this constant's rule. What changed is that the columns are
-# now stamped from the official record at every crossing instead of being an
-# OpenF1 sample carried forward. On round 1 a v6 document shows Alonso's gap
-# frozen at `+63.90` for the seventeen minutes he spent in the garage on lap 13,
-# where the archive states `+1030.86`; that document would otherwise be served
-# forever, because its structure is perfect.
-TIMING_VERSION = 7
+
+
+def timing_code_fingerprint() -> str:
+    """Cache-key component for the code that builds a timing payload."""
+    return code_fingerprint(__name__)
+
+
+def timing_input_fingerprint(results_doc, official_doc) -> str:
+    """Fingerprint of the stored documents a timing payload is built from.
+
+    Takes the documents rather than a database so `scripts/sync_race_timing`
+    (synchronous pymongo) and the endpoint (motor) agree by construction.
+    The OpenF1 feeds and the race date are not included: they are fetched live
+    at build time and are not revised after a race.
+    """
+    return input_fingerprint(
+        (results_doc or {}).get("results"),
+        (official_doc or {}).get("laps"),
+    )
+
+
+def timing_input_keys(year: int, round_number: int) -> tuple[dict, dict]:
+    """Queries for the two input documents: `(race_results, official_laps)`."""
+    base = {"season": year, "round": str(round_number)}
+    return base, {**base, "version": OFFICIAL_VERSION}
 
 # How far an individual lap's implied lights-out instant may sit from the
 # median before it is discarded as a bad boundary. Measured across rounds 3 and
@@ -680,10 +687,8 @@ def build_timing(
     # costs a paged archive fetch plus an OpenF1 `/laps` fetch — ~25,000 rows to
     # recover one timestamp this function already holds.
     #
-    # **Deliberately added without bumping `TIMING_VERSION`.** Retiring every
-    # cached ~490 KB payload to add one string would be a poor trade, and
-    # consumers have to tolerate its absence regardless: documents cached before
-    # this change simply do not carry it, the same situation `lap_time_seconds`
+    # Consumers have to tolerate its absence: documents cached before it was
+    # added did not carry it, the same situation `lap_time_seconds`
     # documents on `ReplayRunner`. Absent means "fall back", never "no race".
     return {
         "drivers": drivers,
@@ -854,15 +859,23 @@ async def get_race_timing(
     are the same situation and the tower has the same fallback for both.
     """
     db = get_db()
-    cache_key = {"season": year, "round": str(round_number), "version": TIMING_VERSION}
+    code = timing_code_fingerprint()
+    results_key, official_key = timing_input_keys(year, round_number)
 
     try:
-        cached = await db.race_timing.find_one(cache_key, {"_id": 0})
+        cached, results_doc, official_doc = await asyncio.gather(
+            db.race_timing.find_one(
+                {"season": year, "round": str(round_number), "code": code}, {"_id": 0}
+            ),
+            db.race_results.find_one(results_key, {"_id": 0, "results": 1}),
+            db.official_laps.find_one(official_key, {"_id": 0, "laps": 1}),
+        )
+        inputs = timing_input_fingerprint(results_doc, official_doc)
     except Exception as error:
         print(f"race_timing: cache read failed for {year} R{round_number}: {error}")
-        cached = None
+        cached, inputs = None, None
 
-    if cached and cached.get("drivers"):
+    if inputs and is_current(cached, code, inputs) and cached.get("drivers"):
         return JSONResponse(content={
             "year": year,
             "round": round_number,
@@ -872,6 +885,7 @@ async def get_race_timing(
         })
 
     payload: dict = {}
+    openf1_rows = 0
     try:
         official_rows = await official_laps_for(year, round_number)
         if official_rows:
@@ -892,6 +906,7 @@ async def get_race_timing(
                     fetch_openf1_feeds, race_date
                 )
 
+            openf1_rows = len(lap_rows) + len(interval_rows) + len(position_rows)
             payload = build_timing(
                 official_rows, numbers, lap_rows, interval_rows, position_rows, grid
             )
@@ -910,21 +925,40 @@ async def get_race_timing(
         })
 
     lap_ms = payload.get("lap_ms") or []
+    # The OpenF1 feeds are fetched live and are not in the input fingerprint.
+    # An OpenF1-era race with none of them is a failed fetch, and cached it
+    # would pin an official-only payload until the code next changes.
+    if not openf1_rows and year >= OPENF1_FIRST_SEASON:
+        print(f"race_timing: no OpenF1 feeds for {year} R{round_number}, not caching this build")
+        return JSONResponse(content={
+            "year": year,
+            "round": round_number,
+            "drivers": drivers,
+            "lap_ms": lap_ms,
+            "synced": True,
+        })
     try:
-        await db.race_timing.update_one(
-            cache_key,
+        # Re-read: the rebuild above can itself have written `official_laps`
+        # (`official_laps_for` caches on the way through), and the payload
+        # must be filed under what it was actually built from.
+        results_doc, official_doc = await asyncio.gather(
+            db.race_results.find_one(results_key, {"_id": 0, "results": 1}),
+            db.official_laps.find_one(official_key, {"_id": 0, "laps": 1}),
+        )
+        await store_derived(
+            db.race_timing,
+            year,
+            round_number,
+            code,
+            timing_input_fingerprint(results_doc, official_doc),
             {
-                "$set": {
-                    **cache_key,
-                    "drivers": drivers,
-                    "lap_ms": lap_ms,
-                    # Stored but not served: the wire payload is read by the
-                    # watch tower, which has no use for a wall-clock anchor,
-                    # while `race_radio` reads this collection directly.
-                    "race_start": payload.get("race_start"),
-                }
+                "drivers": drivers,
+                "lap_ms": lap_ms,
+                # Stored but not served: the wire payload is read by the
+                # watch tower, which has no use for a wall-clock anchor,
+                # while `race_radio` reads this collection directly.
+                "race_start": payload.get("race_start"),
             },
-            upsert=True,
         )
     except Exception as error:
         print(f"Failed to cache race_timing for {year} R{round_number}: {error}")
