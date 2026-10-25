@@ -22,6 +22,8 @@ import { getTeamColor } from "@/lib/team-colors";
 import DriverModal from "./driver-modal";
 import CircuitDetailsModal from "./circuit-details-modal";
 import { track } from "@/lib/analytics";
+import { hiddenRounds } from "@/lib/spoilers";
+import { useSpoilers } from "@/lib/spoilers-client";
 
 const EASE_OUT = [0.23, 1, 0.32, 1] as const;
 
@@ -130,6 +132,8 @@ export default function GlobalSearch({
   const [loaded, setLoaded] = useState(false);
 
   const [selectedDriver, setSelectedDriver] = useState<DriverResult | null>(null);
+  const [driverFiguresHidden, setDriverFiguresHidden] = useState(false);
+  const spoilers = useSpoilers();
   const [selectedCircuit, setSelectedCircuit] = useState<CircuitResult | null>(null);
 
   // Reported from an effect rather than from `handleSelect`/`onClose`, so the
@@ -332,6 +336,15 @@ export default function GlobalSearch({
     // field they searched from.
 
     if (result.kind === "driver") {
+      // Spoiler-free mode. The search results themselves name no result, but
+      // the profile they open shows season and career figures, which include
+      // any hidden round. Decided at open time from the calendar this
+      // component already loaded, since search is client-only and the server
+      // never sees it.
+      setDriverFiguresHidden(
+        spoilers.prefs.on &&
+          hiddenRounds(races, spoilers.prefs, Date.now(), getActiveSeasonYear()).length > 0
+      );
       setSelectedDriver(result);
     } else if (result.kind === "circuit") {
       setSelectedCircuit(result);
@@ -473,6 +486,7 @@ export default function GlobalSearch({
           imgPath={selectedDriverImg}
           flagSrc={selectedDriverFlag}
           color={selectedDriverColor}
+          seasonFiguresHidden={driverFiguresHidden}
           onClose={() => setSelectedDriver(null)}
         />
       )}

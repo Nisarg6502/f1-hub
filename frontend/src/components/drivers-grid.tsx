@@ -13,9 +13,16 @@ import TiltCard from "@/components/tilt-card";
 import FlagImg from "@/components/flag-img";
 import { EASE_OUT, Stagger, StaggerItem } from "@/components/motion-primitives";
 import DriverModal from "@/components/driver-modal";
+import { SpoilerStub } from "@/components/spoiler-shield";
 
 interface DriversGridProps {
   drivers: DriverStanding[];
+  /**
+   * Spoiler-free mode is hiding a round of this season. The page has already
+   * blanked points, wins and position; this swaps the stats row and the
+   * points bar for a quiet marker, and tells the profile modal to do the same.
+   */
+  seasonFiguresHidden?: boolean;
 }
 
 /**
@@ -94,7 +101,7 @@ function TeamMark({
   );
 }
 
-export default function DriversGrid({ drivers }: DriversGridProps) {
+export default function DriversGrid({ drivers, seasonFiguresHidden = false }: DriversGridProps) {
   const [selected, setSelected] = useState<DriverStanding | null>(null);
   const reduce = useReducedMotion();
 
@@ -275,6 +282,14 @@ export default function DriversGrid({ drivers }: DriversGridProps) {
                       {team}
                     </span>
                   </div>
+                  {seasonFiguresHidden ? (
+                    // Same height as the stats row plus the bar it replaces,
+                    // so the card's composition over the portrait is unchanged.
+                    <div className="h-[44px] flex items-center">
+                      <SpoilerStub label="Season figures hidden" />
+                    </div>
+                  ) : (
+                  <>
                   <div className="flex justify-between mb-2">
                     {[
                       { v: driver.wins, l: "Wins", accent: false },
@@ -301,6 +316,8 @@ export default function DriversGrid({ drivers }: DriversGridProps) {
                       style={{ width: `${barPct}%`, background: color.hex }}
                     />
                   </div>
+                  </>
+                  )}
                 </div>
               </TiltCard>
             </StaggerItem>
@@ -316,6 +333,7 @@ export default function DriversGrid({ drivers }: DriversGridProps) {
             imgPath={selectedImgPath}
             flagSrc={selectedFlagSrc}
             color={selectedColor}
+            seasonFiguresHidden={seasonFiguresHidden}
             onClose={() => setSelected(null)}
           />
         )}

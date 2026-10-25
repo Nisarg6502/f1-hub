@@ -17,6 +17,10 @@ import {
   type TeammateBattle,
 } from "@/lib/season-results";
 import DegradedBeacon from "@/components/degraded-beacon";
+import SeasonSelector from "@/components/season-selector";
+import SpoilerShield from "@/components/spoiler-shield";
+import { getSpoilerContext } from "@/lib/spoilers-server";
+import { joinNames } from "@/lib/spoilers";
 
 // Standings change after every race; render per request rather than serving a
 // prerender captured at build time.
@@ -45,6 +49,45 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
 export default async function StandingsPage({ searchParams }: PageProps) {
   const { season } = await searchParams;
   const year = resolveSeasonYear(season);
+
+  // Spoiler-free mode. Every number on this page (points, positions, the
+  // title maths, the teammate scores, the progression chart) moved when the
+  // hidden round was scored, so there is no honest partial view: the whole
+  // body is shielded, and nothing behind it is even fetched.
+  //
+  // "Standings as of the last round you've revealed" would be the nicer
+  // answer, and was considered. The backend serves only the current table
+  // (no per-round standings endpoint), and rebuilding one from per-round
+  // points would mean re-implementing countback tie-breaks and any official
+  // points adjustments in the browser. A table that is subtly wrong is worse
+  // than one that is honestly hidden.
+  const spoilers = await getSpoilerContext(year);
+  if (spoilers.hidden.length > 0) {
+    const names = spoilers.hidden.map((h) => h.raceName);
+    return (
+      <div className="px-6 md:px-10 pt-11 pb-16">
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6 mb-7">
+          <div>
+            <span className="font-bold text-xs tracking-[0.18em] uppercase text-flame">
+              Season {year} · Championship
+            </span>
+            <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[52px] tracking-[-1.5px] mt-2">
+              Championship
+            </h1>
+          </div>
+          <SeasonSelector currentYear={year} maxYear={getActiveSeasonYear()} />
+        </div>
+        <SpoilerShield
+          hidden
+          raceKey={spoilers.hidden.map((h) => h.raceKey)}
+          raceName={names}
+          title={`Standings include the ${joinNames(names)} ${names.length > 1 ? "results" : "result"}`}
+          description="Points, positions and the title fight all changed with it. Reveal it to see the table."
+          minHeight={560}
+        />
+      </div>
+    );
+  }
 
   let drivers: Awaited<ReturnType<typeof getDriverStandings>>["driver_standings"] = [];
   let constructors: Awaited<ReturnType<typeof getConstructorStandings>>["constructor_standings"] = [];

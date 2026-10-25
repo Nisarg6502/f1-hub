@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useModalDialog } from "@/lib/use-modal-dialog";
 import GlobalSearch from "./global-search";
+import { SpoilerSettingsPanel } from "./spoiler-settings";
 
 /**
  * The overflow half of the phone navigation.
@@ -137,6 +138,14 @@ export default function MobileMoreSheet({
                 `hidden lg:block`; the field's behaviour is untouched. */}
             <div className="mb-4">
               <GlobalSearch variant="sheet" onDetailOpenChange={setDetailOpen} />
+            </div>
+
+            {/* Spoiler-free mode. The desktop header's eye control is
+                `hidden lg:block`, so on a phone this is its only home, and it
+                sits above the links because a visitor opening the menu to find
+                out why a podium is missing should not have to scroll for it. */}
+            <div className="mb-4 rounded-xl bg-veil/5 border border-white/[0.06] p-3.5">
+              <SpoilerSettingsPanel active={open} />
             </div>
 
             <nav aria-label="More sections" className="flex flex-col gap-1.5">

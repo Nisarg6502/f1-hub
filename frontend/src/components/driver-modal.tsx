@@ -9,6 +9,7 @@ import { getDriverBio } from "@/lib/api";
 import { driverPortraitFrameStyle, driverPortraitSizes } from "@/lib/driver-portrait";
 import { useModalDialog } from "@/lib/use-modal-dialog";
 import FlagImg from "./flag-img";
+import { SpoilerStub } from "./spoiler-shield";
 
 interface DriverModalProps {
   driver: DriverStanding;
@@ -16,6 +17,12 @@ interface DriverModalProps {
   flagSrc: string | null;
   color: { hex: string; glow: string };
   onClose: () => void;
+  /**
+   * Spoiler-free mode is hiding a round of this season. Both stat blocks go:
+   * the season figures obviously, and the career totals too, because a win,
+   * podium or pole in the hidden round is already counted in them.
+   */
+  seasonFiguresHidden?: boolean;
 }
 
 function ageFromDob(dob?: string | null): number | null {
@@ -32,6 +39,7 @@ export default function DriverModal({
   flagSrc,
   color,
   onClose,
+  seasonFiguresHidden = false,
 }: DriverModalProps) {
   const reduce = useReducedMotion();
   const driverId = driver.Driver.driverId;
@@ -166,7 +174,14 @@ export default function DriverModal({
             {given} {family}
           </div>
 
+          {seasonFiguresHidden && (
+            <div className="mt-5 bg-veil/5 rounded-xl px-3.5 py-3.5">
+              <SpoilerStub label="Season and career figures are hidden by spoiler-free mode" />
+            </div>
+          )}
+
           {/* Current-season stats — already known, no fetch needed. */}
+          {!seasonFiguresHidden && (
           <div className="grid grid-cols-3 gap-3 mt-5">
             {[
               { l: "Position", v: `P${driver.position}` },
@@ -186,6 +201,7 @@ export default function DriverModal({
               </div>
             ))}
           </div>
+          )}
 
           {/* Bio + career totals — fetched lazily on open. */}
           <div className="mt-6">
@@ -203,6 +219,7 @@ export default function DriverModal({
               </div>
             ) : bio ? (
               <>
+                {!seasonFiguresHidden && (
                 <div className="grid grid-cols-4 gap-3">
                   {careerStats.map((s) => (
                     <div
@@ -218,6 +235,7 @@ export default function DriverModal({
                     </div>
                   ))}
                 </div>
+                )}
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-4 text-xs text-warm-400 font-medium">
                   {bio.nationality && <span>{bio.nationality}</span>}
                   {bio.dateOfBirth && (

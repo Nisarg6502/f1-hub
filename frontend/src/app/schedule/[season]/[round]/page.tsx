@@ -16,6 +16,9 @@ import {
 import SessionTabs from "@/components/session-tabs";
 import RaceSelector from "@/components/race-selector";
 import SeasonSelector from "@/components/season-selector";
+import SpoilerShield from "@/components/spoiler-shield";
+import { getSpoilerContext } from "@/lib/spoilers-server";
+import { redactWinners } from "@/lib/spoilers";
 
 interface PageProps {
   params: Promise<{
@@ -174,6 +177,16 @@ export default async function RaceDetailPage({ params }: PageProps) {
 
   const isNextRace = upcomingRace?.round === String(roundNumber);
 
+  // Spoiler-free mode. A hidden round keeps its header, circuit and links,
+  // and loses everything a result lives in: the podium, every session's
+  // classification and the session tabs that hold them. Those requests are
+  // not even made, so there is nothing to serialise into the page.
+  const spoilers = await getSpoilerContext(seasonYear, {
+    races,
+    nowMs: now.getTime(),
+  });
+  const hiddenRound = spoilers.round(roundNumber);
+
   // Fetch results, session classifications and circuit info for completed
   // races in one parallel wave instead of six sequential round trips — each
   // request fails independently so one missing session doesn't wipe the rest.
@@ -187,7 +200,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
   let circuitInfo = null;
   let weather: Awaited<ReturnType<typeof getRaceWeather>>["weather"] = null;
 
-  if (weekendHasBegun) {
+  if (weekendHasBegun && !hiddenRound) {
     const [
       raceRes,
       qualiRes,
@@ -242,7 +255,9 @@ export default async function RaceDetailPage({ params }: PageProps) {
       { label: "Corners", value: circuitInfo?.num_corners || null },
       {
         label: "Fastest Lap",
-        value: circuitInfo?.fastest_lap?.time
+        // FastF1's event record can carry this very race's fastest lap, and
+        // a name next to it is a result. Dropped while the round is hidden.
+        value: !hiddenRound && circuitInfo?.fastest_lap?.time
           ? `${circuitInfo.fastest_lap.time}${
               circuitInfo.fastest_lap.driver ? ` (${circuitInfo.fastest_lap.driver})` : ""
             }`
@@ -296,7 +311,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
             hrefTemplate="/schedule/{year}/1"
           />
           <RaceSelector
-            races={races}
+            races={redactWinners(races, spoilers.hidden)}
             currentRound={String(roundNumber)}
             seasonYear={seasonYear}
           />
@@ -342,6 +357,15 @@ export default async function RaceDetailPage({ params }: PageProps) {
       )}
 
       {/* Session Tabs + Content */}
+      {hiddenRound ? (
+        <SpoilerShield
+          hidden
+          raceKey={hiddenRound.raceKey}
+          raceName={hiddenRound.raceName}
+          description="The podium, every session's classification and the weekend's session tabs are hidden until you reveal this round."
+          minHeight={520}
+        />
+      ) : (
       <SessionTabs
         race={race}
         results={results}
@@ -354,6 +378,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
         isPast={isPast}
         weather={weather}
       />
+      )}
     </div>
   );
 }
