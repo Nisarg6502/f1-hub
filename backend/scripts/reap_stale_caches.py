@@ -56,14 +56,18 @@ if "motor.motor_asyncio" not in sys.modules:  # the app modules import it via db
 
 import pymongo
 
-from app import official_laps, race_replay, race_timing
+from app import official_laps
 
 # `(collection, the constant that defines "current")`. Read at runtime rather
 # than copied, so this script cannot drift from the modules it is reaping for —
 # which is the entire class of bug it exists to clean up after.
+#
+# `race_timing` and `race_replay` are no longer here: since 2026-10-23 they keep
+# one document per round and replace it in place on rebuild
+# (`app/derived_cache.store_derived`), so a code change cannot strand old
+# documents beside the new one any more. Their leftover `version`-keyed
+# documents are deleted by the first rebuild of each round.
 VERSIONED = [
-    ("race_timing", lambda: race_timing.TIMING_VERSION),
-    ("race_replay", lambda: race_replay.REPLAY_VERSION),
     ("official_laps", lambda: official_laps.OFFICIAL_VERSION),
 ]
 

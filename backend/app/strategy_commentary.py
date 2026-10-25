@@ -49,6 +49,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
 from .db import get_db
+from .derived_cache import input_fingerprint
 # From `driver_directory` rather than from `race_replay`, which is where these
 # two used to live: importing `race_replay` pulls in `race_laps` and therefore
 # FastF1, and the `f1-agent` service reuses `build_facts` below while
@@ -421,14 +422,6 @@ async def get_strategy_commentary(
         "prompt_version": PROMPT_VERSION,
     }
 
-    cached = await db.strategy_commentary.find_one(cache_key, {"_id": 0})
-
-    async def replay_cached():
-        yield cached["text"]
-
-    if cached and cached.get("text"):
-        return StreamingResponse(replay_cached(), media_type="text/plain")
-
     results_doc = await db.race_results.find_one(
         {"season": year, "round": str(round)}, {"_id": 0}
     )
@@ -458,6 +451,19 @@ async def get_strategy_commentary(
     race = (results_doc or {}).get("race", {})
     facts = build_facts(race, results, stints, stops, laps)
 
+    # Replayed only while it was written from these exact facts: a revised
+    # classification or a resynced lap table changes what the commentary may
+    # say, and the facts are built from stored documents alone, so checking
+    # them costs no outbound call. See `derived_cache`.
+    inputs = input_fingerprint(facts)
+    cached = await db.strategy_commentary.find_one(cache_key, {"_id": 0})
+
+    async def replay_cached():
+        yield cached["text"]
+
+    if cached and cached.get("text") and cached.get("inputs") == inputs:
+        return StreamingResponse(replay_cached(), media_type="text/plain")
+
     async def generate_and_cache():
         parts: list[str] = []
         async for chunk in _generate_commentary(facts):
@@ -470,7 +476,9 @@ async def get_strategy_commentary(
 
         try:
             await db.strategy_commentary.update_one(
-                cache_key, {"$set": {**cache_key, "text": full_text}}, upsert=True
+                cache_key,
+                {"$set": {**cache_key, "inputs": inputs, "text": full_text}},
+                upsert=True,
             )
         except Exception as error:
             print(

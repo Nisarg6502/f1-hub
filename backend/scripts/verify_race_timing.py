@@ -366,10 +366,10 @@ def verify_round(db, year: int, round_number: int, deployed: bool) -> bool:
             return False
     else:
         doc = db.race_timing.find_one(
-            {"season": year, "round": str(round_number), "version": race_timing.TIMING_VERSION}
+            {"season": year, "round": str(round_number), "code": race_timing.timing_code_fingerprint()}
         )
         if not doc:
-            print(f"  round {round_number}: no cached v{race_timing.TIMING_VERSION} payload, skipped")
+            print(f"  round {round_number}: no payload cached by this code, skipped")
             return True
         drivers = doc.get("drivers") or {}
         lap_ms = doc.get("lap_ms") or []
@@ -504,7 +504,7 @@ def main() -> int:
     )
 
     where = "deployed" if args.deployed else "cached"
-    print(f"verifying {args.year} rounds {rounds} ({where}, v{race_timing.TIMING_VERSION})")
+    print(f"verifying {args.year} rounds {rounds} ({where}, code {race_timing.timing_code_fingerprint()})")
     failures = [r for r in rounds if not verify_round(db, args.year, r, args.deployed)]
 
     if failures:

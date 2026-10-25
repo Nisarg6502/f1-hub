@@ -106,14 +106,16 @@ class FakeCollection:
         # contract actually has to survive.
         self.fail = fail
 
-    async def find_one(self, query=None, projection=None):
+    async def find_one(self, query=None, projection=None, sort=None):
         await asyncio.sleep(0)
         if self.fail:
             raise RuntimeError("connection lost")
-        for doc in self.docs:
-            if _matches(doc, query or {}):
-                return _project(doc, projection)
-        return None
+        matched = [doc for doc in self.docs if _matches(doc, query or {})]
+        # Mongo sorts a missing field before any value ascending, after any
+        # value descending; "" stands in for missing here.
+        for field, direction in reversed(sort or []):
+            matched.sort(key=lambda d: str(d.get(field) or ""), reverse=direction < 0)
+        return _project(matched[0], projection) if matched else None
 
     def find(self, query=None, projection=None):
         fail = self.fail

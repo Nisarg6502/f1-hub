@@ -98,9 +98,10 @@ from collections import defaultdict
 
 # Bumped whenever a stored field's *meaning* changes, so a cache written by an
 # older definition is rebuilt rather than silently mixed with a newer one.
-# Same discipline as `race_timing.TIMING_VERSION`, and for the same reason:
-# `HANDOFF.md` records 59 of 70 dead `race_timing` documents surviving version
-# bumps unnoticed, so a version that is not checked on read is decoration.
+# Same discipline `race_timing` used before it moved to computed fingerprints
+# (`derived_cache.py`): `HANDOFF.md` records 59 of 70 dead `race_timing`
+# documents surviving version bumps unnoticed, so a version that is not
+# checked on read is decoration.
 CHARACTER_VERSION = 1
 
 CACHE_COLLECTION = "circuit_character_cache"
@@ -451,6 +452,7 @@ async def build_index(db) -> dict:
         # the calendar folds into no circuit — and a freshness key that drifts
         # from the thing it is watching rebuilds on every single read.
         "source_lap_documents": await db.race_laps.count_documents({}),
+        "source_results_revised_at": await _latest_results_revision(db),
         "rounds_folded": sum(row["rounds_with_laps"] for row in per_circuit.values()),
         "field": {
             "circuits_with_lap_data": len(indices),
@@ -462,10 +464,27 @@ async def build_index(db) -> dict:
     }
 
 
+async def _latest_results_revision(db) -> str | None:
+    """When any stored classification was last revised, or None if never.
+
+    The lap-document count below notices a new race but not a changed one.
+    `data_sync.sync_session_results` stamps `revised_at` whenever it replaces
+    a stored Ergast result with a different one (a penalty, an appeal, a
+    late-filled grid), so the newest stamp moves exactly when a classification
+    this index summarises has changed.
+    """
+    doc = await db.race_results.find_one(
+        {"revised_at": {"$exists": True}}, {"_id": 0, "revised_at": 1}, sort=[("revised_at", -1)]
+    )
+    return (doc or {}).get("revised_at")
+
+
 async def load_index(db, *, rebuild: bool = True) -> dict | None:
     """The cached index, rebuilt when it is missing, stale or a version behind.
 
-    **Freshness is keyed on the source document count, not on a clock.** The
+    **Freshness is keyed on the source documents, not on a clock**: the
+    `race_laps` count (a new race) and the newest `race_results.revised_at` (a
+    changed one; see `_latest_results_revision`). The
     inputs only change when a race is synced, so a 24-hour staleness check like
     `circuit_history.py`'s would do both wrong things at once: rebuild 23 times
     for nothing between rounds, and serve a stale index for up to a day after a
@@ -479,10 +498,12 @@ async def load_index(db, *, rebuild: bool = True) -> dict | None:
     """
     doc = await db[CACHE_COLLECTION].find_one({"_id": CACHE_ID})
     current = await db.race_laps.count_documents({})
+    revised = await _latest_results_revision(db)
     fresh = (
         doc is not None
         and doc.get("version") == CHARACTER_VERSION
         and doc.get("source_lap_documents") == current
+        and doc.get("source_results_revised_at") == revised
     )
     if fresh:
         return doc

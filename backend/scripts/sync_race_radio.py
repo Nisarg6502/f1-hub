@@ -68,6 +68,7 @@ if "motor.motor_asyncio" not in sys.modules:
 
 from pymongo import MongoClient
 
+from app.derived_cache import NEWEST_FIRST
 from app.driver_directory import _driver_directory
 from app.race_radio import RADIO_VERSION, place_clips
 from app.openf1_sessions import fetch_openf1_session_key, fetch_openf1_sprint_key
@@ -152,7 +153,7 @@ def _anchor_for(db, year: int, round_number: int, session_type: str) -> tuple[st
     doc = db.race_timing.find_one(
         {"season": year, "round": str(round_number)},
         {"_id": 0, "race_start": 1, "lap_ms": 1},
-        sort=[("version", -1)],
+        sort=NEWEST_FIRST,
     )
     if not doc:
         return None, []
