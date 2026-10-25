@@ -27,6 +27,7 @@ import asyncio
 import sys
 import types
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -611,13 +612,19 @@ class CacheTests(unittest.TestCase):
         noticed one (2026 Monaco, revised on appeal months after the race)."""
         db = _inverted_world()
         first = run(cc.load_index(db))
+        self.assertIsNone(first["source_results_revised_at"])
 
         db.race_results.docs[0]["revised_at"] = "2026-10-23T12:00:00+00:00"
-        rebuilt = run(cc.load_index(db))
+        # Asserted through `build_index` being called, not through `synced_at`
+        # moving: two builds a millisecond apart can share a timestamp on
+        # Windows, which made a `synced_at` comparison fail one run in three.
+        with patch.object(cc, "build_index", wraps=cc.build_index) as build:
+            rebuilt = run(cc.load_index(db))
+            again = run(cc.load_index(db))
 
-        self.assertNotEqual(rebuilt["synced_at"], first["synced_at"])
+        self.assertEqual(build.call_count, 1)
         self.assertEqual(rebuilt["source_results_revised_at"], "2026-10-23T12:00:00+00:00")
-        self.assertEqual(run(cc.load_index(db))["synced_at"], rebuilt["synced_at"])
+        self.assertEqual(again["source_results_revised_at"], "2026-10-23T12:00:00+00:00")
 
     def test_a_version_bump_retires_an_index_written_by_the_old_definition(self):
         db = _inverted_world()
