@@ -532,30 +532,6 @@ class AlreadyStoredTests(unittest.TestCase):
             data_sync._already_stored(collection, {"round": "1"}, classified=True)
         )
 
-    def test_a_fastf1_stopgap_does_not_block_the_ergast_result(self):
-        # The API's FastF1 fallback writes a thinner shape when Ergast lags the
-        # flag. Skipping on mere non-emptiness would make that permanent.
-        collection = SyncCollection([
-            {"round": "1", "results": [{"position": "1"}], "source": "fastf1"}
-        ])
-        self.assertFalse(
-            data_sync._already_stored(collection, {"round": "1"}, source="ergast")
-        )
-
-    def test_an_ergast_document_is_kept(self):
-        collection = SyncCollection([
-            {"round": "1", "results": [{"position": "1"}], "source": "ergast"}
-        ])
-        self.assertTrue(
-            data_sync._already_stored(collection, {"round": "1"}, source="ergast")
-        )
-
-    def test_a_document_predating_the_source_marker_is_refetched_once(self):
-        collection = SyncCollection([{"round": "1", "results": [{"position": "1"}]}])
-        self.assertFalse(
-            data_sync._already_stored(collection, {"round": "1"}, source="ergast")
-        )
-
 
 class CompletedRoundsTests(unittest.TestCase):
     class FakeDb:
@@ -947,6 +923,191 @@ class WeatherSchemaBackfillTests(unittest.TestCase):
     def test_an_uncached_round_is_fetched(self):
         self.assertEqual(len(self._sync(None)), 1)
 
+
+class WritableSyncCollection(SyncCollection):
+    """`SyncCollection` that also records and applies `update_one` writes."""
+
+    def __init__(self, docs=None):
+        super().__init__(docs)
+        self.writes = []
+
+    def update_one(self, query, update, upsert=False):
+        self.writes.append(query)
+        doc = self.find_one(query)
+        if doc is None:
+            doc = dict(query)
+            self.docs.append(doc)
+        doc.update(update["$set"])
+
+
+def _row(code, position, grid="1"):
+    return {"position": str(position), "grid": grid, "Driver": {"code": code, "driverId": code.lower()}}
+
+
+class SessionResultsReconcileTests(unittest.TestCase):
+    """Stored race results are compared with Ergast every run, not kept forever.
+
+    Regression cover for the 2026 Monaco GP: the FIA Court of Appeal moved
+    Gasly from third to seventh in September, three months after the race, and
+    the site kept the original order because the sync skipped any round it had
+    already stored. Same mechanism left the grid blank for rounds 12, 13 and 15.
+    """
+
+    def _db(self, stored=None):
+        class Db:
+            pass
+        db = Db()
+        db.race_results = WritableSyncCollection(stored)
+        db.qualifying_results = WritableSyncCollection()
+        db.sprint_results = WritableSyncCollection()
+        return db
+
+    @staticmethod
+    def _race(round_number, hours_ago=48):
+        when = data_sync._utcnow() - datetime.timedelta(hours=hours_ago)
+        return {
+            "round": str(round_number),
+            "date": when.strftime("%Y-%m-%d"),
+            "time": when.strftime("%H:%M:%SZ"),
+            "Qualifying": None,
+        }
+
+    def _sync(self, db, races, season_tables):
+        def fake_table(year, path, key):
+            return season_tables.get(path)
+        with patch.object(data_sync, "fetch_season_table", side_effect=fake_table):
+            data_sync.sync_session_results(db, 2026, races)
+
+    def test_a_revised_classification_replaces_the_stored_one(self):
+        provisional = [_row("ANT", 1), _row("GAS", 2), _row("HAD", 3)]
+        final = [_row("ANT", 1), _row("HAD", 2), _row("GAS", 3)]
+        db = self._db([{"season": 2026, "round": "6", "results": provisional, "source": "ergast"}])
+
+        self._sync(db, [self._race(6)], {"results": {"6": {"race": {}, "results": final}}})
+
+        doc = db.race_results.find_one({"season": 2026, "round": "6"})
+        self.assertEqual(doc["results"], final)
+        self.assertIn("revised_at", doc)
+
+    def test_a_late_filled_field_counts_as_a_revision(self):
+        blank_grid = [_row("NOR", 1, grid="")]
+        db = self._db([{"season": 2026, "round": "12", "results": blank_grid, "source": "ergast"}])
+
+        self._sync(db, [self._race(12)], {"results": {"12": {"race": {}, "results": [_row("NOR", 1, grid="1")]}}})
+
+        self.assertEqual(db.race_results.find_one({"round": "12"})["results"][0]["grid"], "1")
+
+    def test_an_unchanged_result_is_not_rewritten(self):
+        rows = [_row("VER", 1)]
+        db = self._db([{"season": 2026, "round": "17", "results": rows, "source": "ergast"}])
+
+        self._sync(db, [self._race(17)], {"results": {"17": {"race": {}, "results": list(rows)}}})
+
+        self.assertEqual(db.race_results.writes, [])
+
+    def test_a_fastf1_stopgap_is_replaced_without_counting_as_a_revision(self):
+        db = self._db([{"season": 2026, "round": "17", "results": [_row("VER", 1)], "source": "fastf1"}])
+
+        self._sync(db, [self._race(17)], {"results": {"17": {"race": {}, "results": [_row("VER", 1)]}}})
+
+        doc = db.race_results.find_one({"round": "17"})
+        self.assertEqual(doc["source"], "ergast")
+        self.assertNotIn("revised_at", doc)
+
+    def test_a_round_whose_race_has_not_run_is_left_alone(self):
+        db = self._db()
+
+        self._sync(db, [self._race(18, hours_ago=-48)], {"results": {"18": {"race": {}, "results": [_row("X", 1)]}}})
+
+        self.assertEqual(db.race_results.writes, [])
+
+    def test_a_round_ergast_has_not_published_keeps_what_is_stored(self):
+        rows = [_row("VER", 1)]
+        db = self._db([{"season": 2026, "round": "17", "results": rows, "source": "fastf1"}])
+
+        self._sync(db, [self._race(17)], {"results": {}})
+
+        self.assertEqual(db.race_results.find_one({"round": "17"})["results"], rows)
+        self.assertEqual(db.race_results.writes, [])
+
+    def test_a_revision_that_drops_cars_is_refused(self):
+        stored = [_row("VER", 1), _row("LEC", 2)]
+        db = self._db([{"season": 2026, "round": "17", "results": stored, "source": "ergast"}])
+
+        self._sync(db, [self._race(17)], {"results": {"17": {"race": {}, "results": [_row("VER", 1)]}}})
+
+        self.assertEqual(db.race_results.find_one({"round": "17"})["results"], stored)
+
+    def test_a_failed_season_read_writes_nothing(self):
+        db = self._db([{"season": 2026, "round": "6", "results": [_row("GAS", 1)], "source": "ergast"}])
+
+        self._sync(db, [self._race(6)], {})
+
+        self.assertEqual(db.race_results.writes, [])
+
+
+class FetchSeasonTableTests(unittest.TestCase):
+    @staticmethod
+    def _page(total, races):
+        return {"MRData": {"total": str(total), "RaceTable": {"Races": races}}}
+
+    def _fetch(self, pages):
+        responses = iter(pages)
+        with patch.object(data_sync, "fetch_json", side_effect=lambda url: next(responses)),                 patch.object(data_sync.time, "sleep"):
+            return data_sync.fetch_season_table(2026, "results", "Results")
+
+    @staticmethod
+    def _rows(positions):
+        return [{"position": str(p), "Driver": {"driverId": f"d{p}"}} for p in positions]
+
+    def test_a_race_split_across_pages_is_merged(self):
+        # Jolpica pages by result row: 2026 round 5 really is 12 rows on one
+        # page and 10 on the next.
+        first = [{"round": "5", "raceName": "Canadian Grand Prix", "Results": self._rows(range(1, 101))}]
+        second = [{"round": "5", "raceName": "Canadian Grand Prix", "Results": self._rows([101])}]
+
+        table = self._fetch([self._page(101, first), self._page(101, second)])
+
+        self.assertEqual(len(table["5"]["results"]), 101)
+        self.assertEqual(table["5"]["race"], {"round": "5", "raceName": "Canadian Grand Prix"})
+
+    def test_rows_are_returned_in_classification_order(self):
+        # The real shape of 2026 qualifying round 5 from the season endpoint.
+        page = [{"round": "5", "QualifyingResults": self._rows(
+            [*range(1, 14), 15, 16, 14, *range(17, 23)]
+        )}]
+        responses = iter([self._page(22, page)])
+        with patch.object(data_sync, "fetch_json", side_effect=lambda url: next(responses)), \
+                patch.object(data_sync.time, "sleep"):
+            table = data_sync.fetch_season_table(2026, "qualifying", "QualifyingResults")
+
+        self.assertEqual([r["position"] for r in table["5"]["results"]], [str(p) for p in range(1, 23)])
+
+    def test_a_driver_read_twice_fails_the_read(self):
+        # Offset paging over a table that changed mid-read: one row repeated,
+        # another skipped, and the count still adds up.
+        rows = self._rows([1, 2, 3])
+        rows[2]["Driver"]["driverId"] = "d2"
+        self.assertIsNone(self._fetch([self._page(3, [{"round": "1", "Results": rows}])]))
+
+    def test_tied_and_missing_positions_are_real_data_not_corruption(self):
+        # 2024 Monaco qualifying really has two P14s; 2025 Imola has no P19.
+        rows = self._rows([1, 2, 2, 4])
+        rows[2]["Driver"]["driverId"] = "tied"
+
+        table = self._fetch([self._page(4, [{"round": "1", "Results": rows}])])
+
+        self.assertEqual([r["Driver"]["driverId"] for r in table["1"]["results"]], ["d1", "d2", "tied", "d4"])
+
+    def test_a_failed_page_fails_the_whole_read(self):
+        first = [{"round": "1", "Results": self._rows(range(1, 101))}]
+
+        self.assertIsNone(self._fetch([self._page(150, first), None]))
+
+    def test_a_short_read_is_not_trusted(self):
+        page = [{"round": "1", "Results": self._rows(range(1, 21))}]
+
+        self.assertIsNone(self._fetch([self._page(22, page)]))
 
 if __name__ == "__main__":
     unittest.main()
