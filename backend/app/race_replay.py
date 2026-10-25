@@ -34,10 +34,15 @@ rows `retired: true` — its gap and position are frozen at the moment it
 stopped, not a live number, and the frontend renders it accordingly (dimmed,
 sorted below every car still actually racing).
 
-Cached in `race_replay` because a finished race's replay is immutable, the same
-argument `session_recap` makes for caching recaps forever. `REPLAY_VERSION` is
-part of the cache key so a change to the payload shape retires existing
-documents instead of serving them to a frontend that expects the new one.
+Cached in `race_replay`, but a cached replay is only served while it still
+matches both what it was built from and the code that built it: the key
+carries `derived_cache.code_fingerprint` of this module (and everything it
+reaches), and the document stores an `input_fingerprint` of the four source
+documents, rechecked on every request. A finished race's replay is NOT
+immutable: its classification can be revised long after the flag (2026 Monaco,
+on appeal, three months later), and its derivation changes with the code
+(#173 changed it without the hand-bumped `REPLAY_VERSION` this used to rely
+on). See `derived_cache.py`.
 """
 
 import asyncio
@@ -47,6 +52,13 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from .db import get_db
+from .derived_cache import (
+    OPENF1_FIRST_SEASON,
+    code_fingerprint,
+    input_fingerprint,
+    is_current,
+    store_derived,
+)
 # Re-exported: these two live in their own module so `strategy_commentary` can
 # reach them without importing this one (and therefore FastF1) — see
 # `driver_directory.py`'s docstring. Callers of `race_replay._driver_directory`
@@ -60,13 +72,29 @@ from .pit_stops import get_pit_stops
 
 router = APIRouter(prefix="/api")
 
-# Bump when the payload shape *or* how it's derived changes. Existing cached
-# replays stop matching and rebuild on next view. 2 added the
-# classified-finisher carry-forward fix; 3 adds a `retired` flag per runner
-# and carries retired drivers forward too, instead of dropping them from the
-# tower the moment they stop; 4 surfaces `lap_time_seconds` per runner, which
-# every replay cached before Batch 21 is missing entirely.
-REPLAY_VERSION = 4
+
+
+def replay_code_fingerprint() -> str:
+    """Cache-key component for the code that builds a replay. See `derived_cache`."""
+    return code_fingerprint(__name__)
+
+
+async def replay_input_fingerprint(db, year: int, round_number: int) -> str:
+    """Fingerprint of the stored source documents a replay is built from.
+
+    Read straight from Mongo rather than through the endpoints: this runs on
+    every request, cache hit included, and must never be what triggers a
+    FastF1 load. The endpoints' own derivation from these documents is code,
+    and that is covered by `replay_code_fingerprint`.
+    """
+    key = {"season": year, "round": str(round_number)}
+    results, laps, stints, stops = await asyncio.gather(
+        db.race_results.find_one(key, {"_id": 0, "results": 1}),
+        db.race_laps.find_one(key, {"_id": 0, "laps": 1}),
+        db.race_stints.find_one(key, {"_id": 0, "stints": 1}),
+        db.pit_stops.find_one(key, {"_id": 0, "stops": 1}),
+    )
+    return input_fingerprint(results, laps, stints, stops)
 
 
 async def _endpoint_payload(coroutine) -> dict:
@@ -335,10 +363,13 @@ async def get_race_replay(
     report the same case.
     """
     db = get_db()
-    cache_key = {"season": year, "round": str(round_number), "version": REPLAY_VERSION}
+    code = replay_code_fingerprint()
 
-    cached = await db.race_replay.find_one(cache_key, {"_id": 0})
-    if cached and cached.get("replay"):
+    cached, inputs = await asyncio.gather(
+        db.race_replay.find_one({"season": year, "round": str(round_number), "code": code}, {"_id": 0}),
+        replay_input_fingerprint(db, year, round_number),
+    )
+    if is_current(cached, code, inputs) and cached.get("replay"):
         return JSONResponse(content={
             "year": year,
             "round": round_number,
@@ -386,9 +417,29 @@ async def get_race_replay(
         race_control,
     )
 
+    # `fetch_race_control` answers [] on any failure, and race control is not
+    # part of the input fingerprint (it is fetched live). Cached, a failed fetch
+    # would become this round's replay until the code next changes: no flags,
+    # no safety cars, for the replay and for every reader of its events (the
+    # agent, `circuit_character`). Every OpenF1-era race has race control, so
+    # an empty answer is a failure; serve this build, cache the next one.
+    if not messages and year >= OPENF1_FIRST_SEASON:
+        print(f"race_replay: no race control for {year} R{round_number}, not caching this build")
+        return JSONResponse(content={
+            "year": year,
+            "round": round_number,
+            **replay,
+            "synced": True,
+        })
+
     try:
-        await db.race_replay.update_one(
-            cache_key, {"$set": {**cache_key, "replay": replay}}, upsert=True
+        # Re-read rather than reusing `inputs` from above: building can itself
+        # write source documents (the lap/stint endpoints heal a missing round
+        # from FastF1), and the replay must be filed under what it was
+        # actually built from.
+        built_from = await replay_input_fingerprint(db, year, round_number)
+        await store_derived(
+            db.race_replay, year, round_number, code, built_from, {"replay": replay}
         )
     except Exception as error:
         print(f"Failed to cache race_replay for {year} R{round_number}: {error}")

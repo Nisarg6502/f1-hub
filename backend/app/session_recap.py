@@ -39,6 +39,7 @@ from fastapi.responses import StreamingResponse
 
 from .db import get_db
 from .classification import mark_lapped_finishers
+from .derived_cache import input_fingerprint
 from .race_control_facts import summarize_race_control
 
 router = APIRouter(prefix="/api")
@@ -727,22 +728,36 @@ async def get_session_recap(
         "prompt_version": PROMPT_VERSION,
     }
 
-    cached = await db.session_recap.find_one(cache_key, {"_id": 0})
+    collection = db[SESSION_COLLECTIONS[session_key]]
+    cached, doc = await asyncio.gather(
+        db.session_recap.find_one(cache_key, {"_id": 0}),
+        collection.find_one({"season": year, "round": str(round)}, {"_id": 0}),
+    )
+    results = (doc or {}).get("results") or []
+    race = (doc or {}).get("race", {})
+    # A recap is prose about one classification, so it is only replayed while
+    # the facts it was written from are unchanged. Fingerprinted: the fact
+    # bundle built from the STORED documents alone (race control is fetched
+    # live and is left out, so this costs no outbound call). That covers both
+    # ways a cached recap goes wrong: the classification being revised (2026
+    # Monaco, on appeal, three months after the race) and the code that turns
+    # it into facts changing (how a lapped finisher's gap is stated), with no
+    # version constant to remember. See `derived_cache`.
+    inputs = (
+        input_fingerprint(SESSION_FACT_BUILDERS[session_key](race, results, []))
+        if results
+        else None
+    )
 
     async def replay_cached():
         yield cached["text"]
 
-    if cached and cached.get("text"):
+    if cached and cached.get("text") and cached.get("inputs") == inputs:
         return StreamingResponse(replay_cached(), media_type="text/plain")
-
-    collection = db[SESSION_COLLECTIONS[session_key]]
-    doc = await collection.find_one({"season": year, "round": str(round)}, {"_id": 0})
-    results = (doc or {}).get("results") or []
 
     if not results:
         return StreamingResponse(empty(), media_type="text/plain")
 
-    race = (doc or {}).get("race", {})
     messages = await asyncio.to_thread(
         fetch_race_control, race.get("date", ""), SESSION_OPENF1_NAMES[session_key]
     )
@@ -792,7 +807,9 @@ async def get_session_recap(
 
         try:
             await db.session_recap.update_one(
-                cache_key, {"$set": {**cache_key, "text": full_text}}, upsert=True
+                cache_key,
+                {"$set": {**cache_key, "inputs": inputs, "text": full_text}},
+                upsert=True,
             )
         except Exception as error:
             print(

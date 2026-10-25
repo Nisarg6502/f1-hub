@@ -19,13 +19,13 @@ Unlike a finished race (`session_recap.py`'s `session_recap` collection,
 cached forever), a driver's season stats change every round a new result
 lands. So this cannot cache forever on `{season, driver1, driver2}` alone —
 that would serve stale commentary about the pre-latest-round state forever
-after. The number of shared race rounds is folded into the cache key
-instead: a new race result for either driver changes that number, which
-naturally produces a fresh cache row rather than requiring a manual purge
-(the same trick `circuit_history_cache` uses staleness-timestamps for, since
-a circuit's cross-season history barely changes — a driver's in-season
-head-to-head changes every round, so "how many shared rounds" is a better
-freshness signal here than a clock).
+after. A cached recap is therefore replayed only while the facts bundle it was
+written from is unchanged (`derived_cache.input_fingerprint(facts)`). This
+used to key on the number of shared race rounds instead, which noticed a new
+round but not a revised one: when a past result changed (2026 Monaco, on
+appeal) the round count stayed the same and the recap kept describing the
+old classification. Fingerprinting the facts covers both, and since the key
+no longer moves, a regenerated recap replaces the stale one in place.
 """
 
 import json
@@ -36,6 +36,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
 from .db import get_db
+from .derived_cache import input_fingerprint
 
 router = APIRouter(prefix="/api")
 
@@ -47,7 +48,7 @@ OLLAMA_BASE = "https://ollama.com"
 # head-to-head rather than per reader.
 DEFAULT_MODEL = "gpt-oss:120b"
 
-# Part of the cache key (alongside `rounds_compared` — see module docstring).
+# Part of the cache key (see module docstring for what else decides freshness).
 # Bump on any prompt or fact-bundle shape change so existing narratives
 # regenerate instead of serving output built for a previous contract.
 PROMPT_VERSION = 1
@@ -386,9 +387,10 @@ async def get_driver_comparison_recap(
 
     Cached in `driver_comparison_recap`, keyed by season, the two driverIds
     (sorted into a canonical order so either query-parameter order hits the
-    same row), `PROMPT_VERSION`, and the number of shared race rounds — see
-    module docstring for why a driver's in-season comparison can't cache
-    forever the way a finished session's recap does.
+    same row) and `PROMPT_VERSION`, and replayed only while the facts it was
+    written from are unchanged (`derived_cache.input_fingerprint`). That
+    covers a new round being run and a past round's result being revised; the
+    shared-round count this used to be keyed on only noticed the first.
     """
     async def empty():
         return
@@ -418,15 +420,15 @@ async def get_driver_comparison_recap(
         "driver1": d1,
         "driver2": d2,
         "prompt_version": PROMPT_VERSION,
-        "rounds_compared": rounds_compared,
     }
+    inputs = input_fingerprint(facts)
 
     cached = await db.driver_comparison_recap.find_one(cache_key, {"_id": 0})
 
     async def replay_cached():
         yield cached["text"]
 
-    if cached and cached.get("text"):
+    if cached and cached.get("text") and cached.get("inputs") == inputs:
         return StreamingResponse(replay_cached(), media_type="text/plain")
 
     async def generate_and_cache():
@@ -440,8 +442,12 @@ async def get_driver_comparison_recap(
             return
 
         try:
+            # Matched on the key without `inputs`, so a regenerated recap
+            # replaces the stale one instead of accumulating beside it.
             await db.driver_comparison_recap.update_one(
-                cache_key, {"$set": {**cache_key, "text": full_text}}, upsert=True
+                cache_key,
+                {"$set": {**cache_key, "inputs": inputs, "text": full_text}},
+                upsert=True,
             )
         except Exception as error:
             print(

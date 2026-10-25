@@ -288,7 +288,7 @@ class DriverComparisonRecapEndpointTests(unittest.TestCase):
         self.assertEqual(body, "")
 
     def test_driver_order_is_canonicalised_so_either_order_hits_the_same_cache_row(self):
-        cache = FakeCollection(find_one_result={"text": "cached narrative"})
+        cache = FakeCollection(find_one_result={"text": "cached narrative", "inputs": "fp"})
         fake_db = FakeDb(
             race_results=FakeCollection(find_result=[
                 {"round": "1", "race": {"raceName": "Race 1"}, "results": [
@@ -299,7 +299,7 @@ class DriverComparisonRecapEndpointTests(unittest.TestCase):
             driver_comparison_recap=cache,
         )
 
-        with patch.object(dcr, "get_db", return_value=fake_db):
+        with patch.object(dcr, "get_db", return_value=fake_db),                 patch.object(dcr, "input_fingerprint", return_value="fp"):
             response_ab = asyncio.run(
                 dcr.get_driver_comparison_recap(year=2026, driver1="norris", driver2="verstappen")
             )
@@ -313,7 +313,7 @@ class DriverComparisonRecapEndpointTests(unittest.TestCase):
         self.assertEqual(body_ba, "cached narrative")
 
     def test_a_cache_hit_replays_stored_text_without_calling_ollama(self):
-        cache = FakeCollection(find_one_result={"text": "Verstappen leads on race pace."})
+        cache = FakeCollection(find_one_result={"text": "Verstappen leads on race pace.", "inputs": "fp"})
         fake_db = FakeDb(
             race_results=FakeCollection(find_result=[
                 {"round": "1", "race": {"raceName": "Race 1"}, "results": [
@@ -326,7 +326,7 @@ class DriverComparisonRecapEndpointTests(unittest.TestCase):
 
         with patch.object(dcr, "get_db", return_value=fake_db), patch.object(
             dcr, "_generate_recap"
-        ) as generate_mock:
+        ) as generate_mock, patch.object(dcr, "input_fingerprint", return_value="fp"):
             response = asyncio.run(
                 dcr.get_driver_comparison_recap(year=2026, driver1="verstappen", driver2="norris")
             )
@@ -335,7 +335,7 @@ class DriverComparisonRecapEndpointTests(unittest.TestCase):
         generate_mock.assert_not_called()
         self.assertEqual(body, "Verstappen leads on race pace.")
 
-    def test_a_cache_miss_streams_generated_text_and_writes_it_back_keyed_by_rounds_compared(self):
+    def test_a_cache_miss_streams_generated_text_and_writes_it_back_with_its_inputs(self):
         cache = FakeCollection(find_one_result=None)
         fake_db = FakeDb(
             race_results=FakeCollection(find_result=[
@@ -361,10 +361,38 @@ class DriverComparisonRecapEndpointTests(unittest.TestCase):
 
         self.assertEqual(body, "Verstappen leads.")
         written_key, written_update, _ = cache.update_one_calls[0]
-        self.assertEqual(written_key["rounds_compared"], 1)
+        self.assertNotIn("rounds_compared", written_key)
+        self.assertTrue(written_update["$set"]["inputs"])
         self.assertEqual(written_key["driver1"], "norris")
         self.assertEqual(written_key["driver2"], "verstappen")
         self.assertEqual(written_update["$set"]["text"], "Verstappen leads.")
+
+    def test_a_recap_written_from_different_facts_is_regenerated(self):
+        # A past round revised (2026 Monaco, on appeal) leaves the shared-round
+        # count unchanged; the recap must still not be replayed.
+        cache = FakeCollection(find_one_result={"text": "stale", "inputs": "facts-before-the-appeal"})
+        fake_db = FakeDb(
+            race_results=FakeCollection(find_result=[
+                {"round": "1", "race": {"raceName": "Race 1"}, "results": [
+                    result_row("1", "verstappen", "Max", "Verstappen"),
+                    result_row("2", "norris", "Lando", "Norris"),
+                ]},
+            ]),
+            driver_comparison_recap=cache,
+        )
+
+        async def fake_generate(facts, system_prompt=None):
+            yield "fresh"
+
+        with patch.object(dcr, "get_db", return_value=fake_db), patch.object(
+            dcr, "_generate_recap", side_effect=fake_generate
+        ):
+            response = asyncio.run(
+                dcr.get_driver_comparison_recap(year=2026, driver1="verstappen", driver2="norris")
+            )
+            body = asyncio.run(self._drain_response(response))
+
+        self.assertEqual(body, "fresh")
 
     def test_a_failed_generation_caches_nothing(self):
         cache = FakeCollection(find_one_result=None)

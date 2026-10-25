@@ -75,15 +75,16 @@
  *
  * ## The gap reading is only trusted *before* the stop
  *
- * `gap_seconds` is a difference of cumulative times summed from FastF1 lap
- * times, and `race_laps._attach_gap_seconds` carries a driver's total forward
- * unchanged across a null `LapTime` rather than inventing one. A long stop is
- * exactly where nulls appear, so the readings after it are understated and can
- * even go negative — car 14's own rows read `+76.507` at the end of lap 12 and
- * `-38.671` at the end of lap 13. So only the lap *before* the stop is read, and
- * only when it is finite and positive; anything else falls back to the leader's
- * boundary, which is where today's flag already sits and therefore cannot be a
- * regression.
+ * When this was written, `gap_seconds` on FastF1-built rounds was a difference
+ * of cumulative times summed from lap times, which skipped a null `LapTime` and
+ * so went wrong after exactly the laps a long stop produces — car 14's own rows
+ * read `+76.507` at the end of lap 12 and `-38.671` at the end of lap 13. Gaps
+ * are now differences of line-crossing instants on every source
+ * (`race_laps._attach_gaps`) and no longer drift after a stop, so this rule is
+ * more cautious than it needs to be; it is kept because it is still correct:
+ * only the lap *before* the stop is read, and only when it is finite and
+ * positive; anything else falls back to the leader's boundary, which is where
+ * the flag already sat and therefore cannot be a regression.
  *
  * Deliberately free of React and of the DOM, like `watch-clock.ts` and
  * `watch-timing.ts` beside it, so it can be driven against a real payload

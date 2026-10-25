@@ -71,6 +71,11 @@ def _field(doc, path):
 
 def _matches(doc, query):
     for path, condition in (query or {}).items():
+        if isinstance(condition, dict) and set(condition) == {"$exists"}:
+            present = _field(doc, path) is not None
+            if present != bool(condition["$exists"]):
+                return False
+            continue
         if isinstance(condition, dict):
             raise AssertionError(
                 f"the fake collection does not implement {condition!r}; "
@@ -90,14 +95,14 @@ class FakeCollection:
         self.docs = [dict(d) for d in (docs or [])]
         self.fail = fail
 
-    async def find_one(self, query=None, projection=None):
+    async def find_one(self, query=None, projection=None, sort=None):
         await asyncio.sleep(0)
         if self.fail:
             raise RuntimeError("connection lost")
-        for doc in self.docs:
-            if _matches(doc, query or {}):
-                return dict(doc)
-        return None
+        matched = [d for d in self.docs if _matches(d, query or {})]
+        for field, direction in reversed(sort or []):
+            matched.sort(key=lambda d: d.get(field) or "", reverse=direction < 0)
+        return dict(matched[0]) if matched else None
 
     async def count_documents(self, query=None):
         await asyncio.sleep(0)
@@ -600,6 +605,19 @@ class CacheTests(unittest.TestCase):
         third = run(cc.load_index(db))
         self.assertEqual(third["source_lap_documents"], 3)
         self.assertIn("spa", third["circuits"])
+
+    def test_the_index_is_rebuilt_when_a_stored_classification_is_revised(self):
+        """A revision changes no document count, so the count alone never
+        noticed one (2026 Monaco, revised on appeal months after the race)."""
+        db = _inverted_world()
+        first = run(cc.load_index(db))
+
+        db.race_results.docs[0]["revised_at"] = "2026-10-23T12:00:00+00:00"
+        rebuilt = run(cc.load_index(db))
+
+        self.assertNotEqual(rebuilt["synced_at"], first["synced_at"])
+        self.assertEqual(rebuilt["source_results_revised_at"], "2026-10-23T12:00:00+00:00")
+        self.assertEqual(run(cc.load_index(db))["synced_at"], rebuilt["synced_at"])
 
     def test_a_version_bump_retires_an_index_written_by_the_old_definition(self):
         db = _inverted_world()

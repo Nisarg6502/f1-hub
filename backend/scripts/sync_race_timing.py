@@ -37,6 +37,7 @@ if "motor.motor_asyncio" not in sys.modules:
 import pymongo
 
 from app import official_laps, race_timing
+from app.derived_cache import is_current, store_derived_sync
 
 
 def _mongo():
@@ -53,16 +54,22 @@ def _mongo():
 
 
 def sync_round(db, year: int, round_number: int, force: bool) -> bool:
-    key = {"season": year, "round": str(round_number), "version": race_timing.TIMING_VERSION}
-    if not force and db.race_timing.find_one(key, {"_id": 1}):
-        print(f"  round {round_number:2d}: already cached")
-        return True
+    # Same validity rule as the endpoint, by construction: same code
+    # fingerprint, same input fingerprint over the same two documents.
+    code = race_timing.timing_code_fingerprint()
+    results_key, official_key = race_timing.timing_input_keys(year, round_number)
+    if not force:
+        cached_payload = db.race_timing.find_one(
+            {"season": year, "round": str(round_number), "code": code}, {"_id": 0, "drivers": 0}
+        )
+        inputs = race_timing.timing_input_fingerprint(
+            db.race_results.find_one(results_key, {"_id": 0, "results": 1}),
+            db.official_laps.find_one(official_key, {"_id": 0, "laps": 1}),
+        )
+        if is_current(cached_payload, code, inputs):
+            print(f"  round {round_number:2d}: already cached")
+            return True
 
-    official_key = {
-        "season": year,
-        "round": str(round_number),
-        "version": official_laps.OFFICIAL_VERSION,
-    }
     cached = db.official_laps.find_one(official_key, {"_id": 0, "laps": 1})
     official_rows = (cached or {}).get("laps")
     if not official_rows:
@@ -92,22 +99,25 @@ def sync_round(db, year: int, round_number: int, force: bool) -> bool:
         print(f"  round {round_number:2d}: build produced nothing, skipped")
         return False
 
-    db.race_timing.update_one(
-        key,
+    store_derived_sync(
+        db.race_timing,
+        year,
+        round_number,
+        code,
+        race_timing.timing_input_fingerprint(
+            db.race_results.find_one(results_key, {"_id": 0, "results": 1}),
+            db.official_laps.find_one(official_key, {"_id": 0, "laps": 1}),
+        ),
         {
-            "$set": {
-                **key,
-                "drivers": drivers,
-                "lap_ms": payload.get("lap_ms") or [],
-                # Stored, not served: `race_radio` reads this collection directly
-                # to place a radio clip's wall-clock instant on the replay clock.
-                # Written here as well as in the endpoint so a round filled by
-                # this script is not missing the anchor the endpoint would have
-                # stored.
-                "race_start": payload.get("race_start"),
-            }
+            "drivers": drivers,
+            "lap_ms": payload.get("lap_ms") or [],
+            # Stored, not served: `race_radio` reads this collection directly
+            # to place a radio clip's wall-clock instant on the replay clock.
+            # Written here as well as in the endpoint so a round filled by
+            # this script is not missing the anchor the endpoint would have
+            # stored.
+            "race_start": payload.get("race_start"),
         },
-        upsert=True,
     )
     samples = sum(len(e["positions"]) for e in drivers.values())
     fill = "openf1" if interval_rows or position_rows else "official only"
@@ -131,7 +141,7 @@ def main() -> int:
         if args.round
         else sorted(int(r) for r in db.race_results.distinct("round", {"season": args.year}))
     )
-    print(f"syncing {args.year} rounds {rounds} (v{race_timing.TIMING_VERSION})")
+    print(f"syncing {args.year} rounds {rounds} (code {race_timing.timing_code_fingerprint()})")
     failed = [r for r in rounds if not sync_round(db, args.year, r, args.force)]
     if failed:
         print(f"\nincomplete: {failed}")
