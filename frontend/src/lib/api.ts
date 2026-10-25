@@ -1018,10 +1018,13 @@ export interface ConstructorSeasonsResponse {
  * @param fresh Bypass Next's fetch cache for this call.
  *
  * The 24-hour revalidate is right for the answer and catastrophic for the
- * non-answer. `/constructor_seasons` is not cached server-side for teams that
- * are still racing, so those ids are re-fetched from Jolpica on every call —
- * and when Jolpica throttles, the backend fails soft to `200 OK` with an empty
- * `seasons` array. Next then caches that empty for a day.
+ * non-answer. Until 2026-10-23 `/constructor_seasons` did not cache teams that
+ * were still racing, re-fetched them from Jolpica on every call, and failed
+ * soft to `200 OK` with an empty `seasons` array when throttled. Next then
+ * cached that empty for a day. The backend now caches current teams, serves
+ * the last good list when a refresh fails, and answers 502 (never cached by
+ * Next) when it has nothing; the fresh retry below is kept for an id that is
+ * genuinely empty.
  *
  * Measured, because the symptom hides the cause completely: at the HTTP level
  * the burst of ~40 ids succeeds every time (0 empty at concurrency 4), yet

@@ -54,7 +54,7 @@ import json
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from .db import get_db
@@ -322,10 +322,17 @@ async def get_historical_race_index(
 # --- /api/constructor_seasons ------------------------------------------------
 
 
-async def _fetch_constructor_seasons(constructor_id: str) -> list[int]:
+async def _fetch_constructor_seasons(constructor_id: str) -> list[int] | None:
+    """The constructor's seasons, or None if Jolpica could not be read.
+
+    None and [] are different answers and must stay apart: [] is "Jolpica
+    says this id never entered a season", None is "we do not know".
+    """
     payload = await asyncio.to_thread(
         _fetch_json, f"{ERGAST_BASE}/constructors/{constructor_id}/seasons/?limit=100"
     )
+    if not isinstance(payload, dict) or "MRData" not in payload:
+        return None
     data = ((payload or {}).get("MRData") or {}).get("SeasonTable", {}).get("Seasons", [])
     seasons = []
     for entry in data:
@@ -347,34 +354,81 @@ async def get_constructor_seasons(
     `canonical_key` — the genealogy's curated lineage data maps individual
     raw ids to lineage nodes itself, so this endpoint stays a thin,
     cacheable pass-through per id rather than pre-merging on its behalf.
-    Cached forever in `constructor_seasons_cache` (keyed by constructor_id)
-    once a constructor's most recent season is in the past — that season
-    list can never change again. A constructor whose latest season is the
-    current year (still racing, could add another round or another season
-    next year) is never cached and is re-resolved from Jolpica on every
-    call instead, since this endpoint is cheap (one Jolpica call) and only
-    used to build the genealogy page, not hit on every request.
+    Cached in `constructor_seasons_cache` (keyed by constructor_id): forever
+    once a constructor's most recent season is in the past, since that list
+    can never change again, and for `CURRENT_TEAM_REFRESH` for a constructor
+    still racing, whose list grows by one entry a year.
+
+    **A failed Jolpica read is a 502, never an empty list.** This used to
+    answer 200 with `seasons: []` on any upstream failure, and never cached a
+    current team, so every /teams render re-asked Jolpica for all eleven of
+    them at once (with retries) against a ~4 req/s limit. Under that load a
+    throttled read was indistinguishable from "this team never raced", and
+    the page summed the eras that did load into a record: Red Bull rendered
+    as "1 all-time win", Stewart's. A current team's last good list is now
+    served when a refresh fails, and only a team never read successfully
+    can fail at all, loudly.
     """
     db = get_db()
 
     cached = await db.constructor_seasons_cache.find_one({"constructor_id": constructor_id}, {"_id": 0})
-    if cached:
-        return JSONResponse(content=cached)
+    current_year = datetime.datetime.now(datetime.timezone.utc).year
+    if cached and _seasons_cache_fresh(cached, current_year):
+        return JSONResponse(content=_seasons_response(cached))
 
     seasons = await _fetch_constructor_seasons(constructor_id)
+    if seasons is None:
+        if cached:
+            return JSONResponse(content=_seasons_response(cached))
+        raise HTTPException(status_code=502, detail="Jolpica did not answer for this constructor")
+
     response = {"constructor_id": constructor_id, "seasons": seasons}
-
-    current_year = datetime.datetime.now(datetime.timezone.utc).year
-    is_finished = bool(seasons) and max(seasons) < current_year
-
-    if is_finished:
+    if seasons:
         try:
             await db.constructor_seasons_cache.update_one(
                 {"constructor_id": constructor_id},
-                {"$set": response},
+                {"$set": {**response, "fetched_at": _utcnow_iso()}},
                 upsert=True,
             )
         except Exception as error:
             print(f"Failed to cache constructor_seasons for {constructor_id}: {error}")
 
     return JSONResponse(content=response)
+
+
+# How long a still-racing constructor's season list is served from cache. Its
+# list changes once a year, when a season begins, so a day is far fresher than
+# it needs to be while still cutting /teams' Jolpica traffic to almost nothing.
+CURRENT_TEAM_REFRESH = datetime.timedelta(hours=24)
+
+
+def _seasons_cache_fresh(cached: dict, current_year: int) -> bool:
+    """True if a cached season list can be served without asking Jolpica.
+
+    "Finished" must not mean "last season is before this year": decided at
+    read time, that turns every current team cached in 2026 into a finished
+    one on 1 January 2027, serves its 2026-ending list forever, and drops the
+    whole existing grid from /teams once 2027 starts. It also cannot tell a
+    team that has stopped from one whose new season Jolpica has not listed
+    yet in January. A constructor counts as finished when it has sat out a
+    whole season, or when its document predates `fetched_at` (the old code
+    only ever cached finished constructors).
+    """
+    seasons = cached.get("seasons") or []
+    fetched_at = cached.get("fetched_at")
+    if seasons and (not fetched_at or max(seasons) < current_year - 1):
+        return True
+    if not fetched_at:
+        return False
+    try:
+        fetched = datetime.datetime.fromisoformat(str(fetched_at))
+        if fetched.tzinfo is None:
+            fetched = fetched.replace(tzinfo=datetime.timezone.utc)
+        age = datetime.datetime.now(datetime.timezone.utc) - fetched
+    except (TypeError, ValueError):
+        return False
+    return age < CURRENT_TEAM_REFRESH
+
+
+def _seasons_response(cached: dict) -> dict:
+    return {"constructor_id": cached.get("constructor_id"), "seasons": cached.get("seasons") or []}

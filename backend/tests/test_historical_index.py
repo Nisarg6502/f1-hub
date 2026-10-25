@@ -382,19 +382,81 @@ class ConstructorSeasonsEndpointTests(unittest.TestCase):
         self.assertEqual(body["seasons"], [1985, 1986, 1987])
         self.assertEqual(len(cache.update_one_calls), 1)
 
-    def test_a_still_active_constructor_is_not_cached(self):
-        cache = FakeCollection(find_one_result=None)
+    def _call(self, cached, fetched):
+        cache = FakeCollection(find_one_result=cached)
         fake_db = FakeDb(constructor_seasons_cache=cache)
-        current_year = historical_index.datetime.datetime.now(historical_index.datetime.timezone.utc).year
 
         async def fake_fetch(constructor_id):
-            return [current_year - 1, current_year]
+            return fetched
 
         with patch.object(historical_index, "get_db", return_value=fake_db), patch.object(
             historical_index, "_fetch_constructor_seasons", side_effect=fake_fetch
-        ):
-            asyncio.run(historical_index.get_constructor_seasons(constructor_id="red_bull"))
+        ) as fetch_mock:
+            response = asyncio.run(historical_index.get_constructor_seasons(constructor_id="red_bull"))
+        return response, cache, fetch_mock
 
+    @staticmethod
+    def _years_ago(hours):
+        now = historical_index.datetime.datetime.now(historical_index.datetime.timezone.utc)
+        return (now - historical_index.datetime.timedelta(hours=hours)).isoformat()
+
+    def test_a_still_active_constructor_is_cached_with_its_fetch_time(self):
+        year = historical_index.datetime.datetime.now(historical_index.datetime.timezone.utc).year
+        _, cache, _ = self._call(None, [year - 1, year])
+
+        written = cache.update_one_calls[0]
+        self.assertIn("fetched_at", str(written))
+
+    def test_a_recently_fetched_current_team_is_served_from_cache(self):
+        year = historical_index.datetime.datetime.now(historical_index.datetime.timezone.utc).year
+        cached = {"constructor_id": "red_bull", "seasons": [year - 1, year], "fetched_at": self._years_ago(2)}
+        response, _, fetch_mock = self._call(cached, [year])
+
+        fetch_mock.assert_not_called()
+        self.assertEqual(json.loads(response.body)["seasons"], [year - 1, year])
+
+    def test_a_failed_refresh_serves_the_last_good_list_not_an_empty_one(self):
+        # Production 2026-10-23: a throttled red_bull read answered [] and the
+        # Teams page rendered Red Bull as "1 all-time win" (Stewart's).
+        year = historical_index.datetime.datetime.now(historical_index.datetime.timezone.utc).year
+        cached = {"constructor_id": "red_bull", "seasons": [2005, year], "fetched_at": self._years_ago(48)}
+        response, cache, fetch_mock = self._call(cached, None)
+
+        fetch_mock.assert_called_once()
+        self.assertEqual(json.loads(response.body)["seasons"], [2005, year])
+        self.assertEqual(cache.update_one_calls, [])
+
+    def test_a_current_team_cached_last_year_is_refreshed_not_frozen(self):
+        # Review of #205: "finished" decided at read time as max < this year
+        # froze every 2026 team on 1 January 2027 and dropped the whole grid.
+        year = historical_index.datetime.datetime.now(historical_index.datetime.timezone.utc).year
+        cached = {"constructor_id": "red_bull", "seasons": [2005, year - 1], "fetched_at": self._years_ago(48)}
+        response, _, fetch_mock = self._call(cached, [2005, year - 1, year])
+
+        fetch_mock.assert_called_once()
+        self.assertEqual(json.loads(response.body)["seasons"], [2005, year - 1, year])
+
+    def test_a_constructor_that_sat_out_a_whole_season_is_finished(self):
+        year = historical_index.datetime.datetime.now(historical_index.datetime.timezone.utc).year
+        cached = {"constructor_id": "sauber", "seasons": [1993, year - 2], "fetched_at": self._years_ago(48)}
+        _, _, fetch_mock = self._call(cached, None)
+        fetch_mock.assert_not_called()
+
+    def test_a_naive_timestamp_is_read_as_utc_not_a_crash(self):
+        year = historical_index.datetime.datetime.now(historical_index.datetime.timezone.utc).year
+        naive = historical_index.datetime.datetime.utcnow().isoformat()
+        cached = {"constructor_id": "red_bull", "seasons": [2005, year], "fetched_at": naive}
+        _, _, fetch_mock = self._call(cached, [2005, year])
+        fetch_mock.assert_not_called()
+
+    def test_a_failed_read_with_nothing_cached_is_a_502_not_an_empty_200(self):
+        with self.assertRaises(historical_index.HTTPException) as raised:
+            self._call(None, None)
+        self.assertEqual(raised.exception.status_code, 502)
+
+    def test_a_real_empty_answer_is_returned_but_not_cached(self):
+        response, cache, _ = self._call(None, [])
+        self.assertEqual(json.loads(response.body)["seasons"], [])
         self.assertEqual(cache.update_one_calls, [])
 
     def test_a_cached_entry_is_served_without_a_live_fetch(self):

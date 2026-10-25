@@ -39,12 +39,17 @@ export default function TeamHeritageDisclosure({
   const panelId = useId();
 
   const eraCount = dossier.eras.length;
+  // With an era unresolved, the win total and the name count are both sums
+  // over part of the lineage. Stated anyway they read as the team's record,
+  // so the summary says the record did not load instead.
   const summary = [
     dossier.currentSince ? `Since ${dossier.currentSince}` : null,
-    `${dossier.lineageWins} all-time ${
-      dossier.lineageWins === 1 ? "win" : "wins"
-    }`,
-    eraCount > 1 ? `${eraCount} names` : null,
+    dossier.incomplete
+      ? "record did not load"
+      : `${dossier.lineageWins} all-time ${
+          dossier.lineageWins === 1 ? "win" : "wins"
+        }`,
+    !dossier.incomplete && eraCount > 1 ? `${eraCount} names` : null,
   ]
     .filter(Boolean)
     .join(" · ");
