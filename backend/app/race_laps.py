@@ -6,33 +6,36 @@ Powers the Pitwall "Lap Telemetry" chart. `session.laps` already carries a
 surface -- just a different subset of columns off the same load. Served with
 the same Mongo-first / self-heal pattern as `circuit_info` and `race_stints`.
 
-Originally this endpoint was track-position-only ("who overtook whom"), with
-its docstring noting that a time-based gap needs cumulative race-time
-reconstruction per driver -- a materially bigger endpoint. This is that
-endpoint: alongside `position`, each row now also carries `gap_seconds`, the
-driver's cumulative race time (running sum of their own `LapTime`s) minus the
-lap's leader's cumulative time. See `_attach_gap_seconds` for the null-LapTime
-and lapped-traffic caveats baked into that computation.
+Each row carries `position`, `gap_seconds` (seconds behind whoever led that
+lap) and `lap_time_seconds` (that lap's own duration), plus `line_seconds`,
+the instant the car crossed the line to complete the lap, in seconds. Only
+differences between `line_seconds` values are meaningful: FastF1 measures them
+from the session start, OpenF1 from the session's first lap start. **`gap_seconds` is derived from `line_seconds` and nothing
+else**, for both sources, by `_attach_gaps`: the gap at lap N is this car's
+crossing instant minus the leader's.
 
-Each row also carries `lap_time_seconds`, that single lap's own duration.
-It was long computed here and discarded; it is kept because a real-time
-replay clock has to advance by each lap's actual length, and `gap_seconds`
-cannot stand in for it (a gap is relative and goes null wherever either side
-lacks timing, so a clock built on it stalls instead of merely approximating).
-The same "additional key" argument below applies to it: a doc cached before
-this change simply lacks the key and reads as `None`, so no forced rebuild is
-warranted here either — but note that means the field is null until a local
-re-sync backfills it.
+It used to be derived, on the FastF1 path only, as a running sum of each car's
+own `LapTime`s, skipping any lap whose `LapTime` was missing. A missing
+duration is routine (pit entries, red-flag laps, safety-car pickups), and
+skipping it shortens that car's running total by the whole lap, so every gap
+measured against it is off by that much for the rest of the race. When the
+car that loses a lap is the leader, the entire field appears minutes behind:
+2026 Japan showed P2 324 s behind on the last lap (officially 13.7 s), China
+160 s (5.5 s), Britain 175 s (0.4 s), and a test in this repo asserted the
+resulting negative gap as "the documented tradeoff". A crossing instant has no
+such failure mode: one missing sample costs that one row's gap, nothing after
+it. The OpenF1 path already worked this way; both now share one function.
 
-Because `gap_seconds` is just an additional key on each row dict, this is
-naturally backward compatible with documents cached before this change: an
-old cached doc's rows simply don't have the key, `.get("gap_seconds")` reads
-as `None` for them, and the frontend already treats a missing/null gap as "no
-gap data for this round" rather than a crash. No cache-doc version bump or
-forced rebuild is needed -- and forcing one would be actively harmful, since
-re-deriving from FastF1 only works from a local sync; forcing a rebuild on
-Cloud Run would turn an already-working position chart into "not synced yet"
-until the next local sync runs.
+**A stored document built by the old derivation is rebuilt rather than
+served** (`built_from_crossings`): by the endpoint on the next view (OpenF1,
+which works from Cloud Run) and by `data_sync`. That is every FastF1-built
+document without `line_seconds`; OpenF1-built ones always differenced
+crossings and are kept. If no rebuild succeeds, or the rebuild covers fewer
+drivers than what is stored (`no_worse_than`), the stored document is served
+as before.
+
+`lap_time_seconds` is kept as its own field because a real-time replay clock
+advances by each lap's actual length, which a gap cannot stand in for.
 
 On a cache miss the rebuild is two-stage. **OpenF1** is tried first — its
 `/laps` and `/position` feeds are joined on time by `positions_from_openf1` to
@@ -58,11 +61,10 @@ router = APIRouter(prefix="/api")
 
 OPENF1_BASE = "https://api.openf1.org/v1"
 
-# Columns of `session.laps` this endpoint reads. Anything else on the frame is
-# lap timing detail the position/gap chart has no use for. `LapTime` is a
-# `pandas.Timedelta` (or `NaT`) per lap, used to reconstruct cumulative race
-# time -- see `_lap_time_seconds` and `_attach_gap_seconds`.
-LAP_COLUMNS = ("DriverNumber", "LapNumber", "Position", "LapTime")
+# Columns of `session.laps` this endpoint reads. `Time` is the session time at
+# which the lap was completed (the line crossing, see `_attach_gaps`); `LapTime`
+# is the lap's own duration. Both are `pandas.Timedelta` or `NaT`.
+LAP_COLUMNS = ("DriverNumber", "LapNumber", "Position", "LapTime", "Time")
 
 
 def _as_int(value) -> int | None:
@@ -78,7 +80,7 @@ def _as_int(value) -> int | None:
 
 
 def _lap_time_seconds(value) -> float | None:
-    """Coerce a `LapTime` cell (a `pandas.Timedelta`, `NaT`, or None) to seconds.
+    """Coerce a `LapTime` or `Time` cell (a `pandas.Timedelta`, `NaT`, or None) to seconds.
 
     `pandas.NaT` (a missing lap time -- an in-lap/out-lap edge case, or a lap
     picked up mid-red-flag with no recorded duration) supports `.total_seconds()`
@@ -94,70 +96,61 @@ def _lap_time_seconds(value) -> float | None:
     return None if seconds != seconds else seconds
 
 
-def _attach_gap_seconds(rows: list[dict]) -> None:
-    """Mutate `rows` in place, adding a `gap_seconds` key to each.
+def _attach_gaps(rows: list[dict]) -> None:
+    """Set each row's `gap_seconds` from its `line_seconds`, in place.
 
-    `rows` must already be sorted by `(driver_number, lap_number)` (as
-    `positions_from_laps` sorts them) and each row must carry a
-    `lap_time_seconds` key, which this function reads but -- unlike the
-    scratch key it used to consume -- leaves in place. That duration is now a
-    persisted field in its own right (it is what the watch-party mode's
-    real-time clock advances on), so throwing it away here would mean every
-    sync recomputing a number and discarding it, which is exactly the gap
-    Batch 21 exists to close. Nothing about the gap math below changed with
-    it: the key is read at the same point, with the same meaning.
+    The gap at lap N is this car's line-crossing instant minus the crossing
+    instant of whichever car held P1 at lap N; 0 for the leader. Lap number,
+    not wall clock, is the x-axis unit, so for a lapped car this is the gap to
+    the leader's crossing of the same lap number (the convention every "gap
+    by lap" chart uses).
 
-    Per driver, this walks their laps in order and keeps a running total --
-    their cumulative race time as of that lap. `gap_seconds` for a row is then
-    that driver's cumulative total minus the cumulative total of whichever
-    driver held `position == 1` at that *same lap number* -- 0 for the leader
-    themselves. Comparing by lap number rather than by wall-clock time is a
-    deliberate simplification: it matches how the chart already treats "lap N"
-    as its x-axis unit (same as the position chart), and needs no clock
-    alignment across drivers who may be on different laps due to retirements
-    or being lapped. It is not a perfectly live gap for lapped traffic, but
-    it's the same approximation every "gap chart by lap" makes.
-
-    Null LapTimes (see `_lap_time_seconds`) get a "skip and carry forward"
-    treatment: the running total for that driver is left unchanged for that
-    one lap rather than treated as a zero-duration lap (which would silently
-    shrink their cumulative time and produce a bogus gap swing on the next
-    lap) or aborting their cumulative total outright (which would blank out
-    gap data for the rest of that driver's race over one missing sample).
-    The tradeoff is that a driver's cumulative time -- and every gap derived
-    from it from that point on -- is understated by the true duration of
-    whatever lap(s) got skipped. That's an acceptable approximation for a
-    chart annotation, not an accounting system.
-
-    A row's `gap_seconds` is `None` when either side of the subtraction is
-    unknown: the driver has no valid cumulative total yet (their race-so-far
-    has no usable LapTime at all), or the lap's leader doesn't (same reason).
-    That in turn means a round with no usable `LapTime` data at all (e.g. an
-    old FastF1 session missing the column) ends up with every row's
-    `gap_seconds` at `None` -- which the frontend already treats as "no gap
-    data for this round," not a crash.
+    None when either instant is unknown. Nothing is carried forward or
+    estimated: a missing crossing costs exactly that row's gap.
     """
-    running_total: dict[int, float | None] = {}
-    leader_cumulative_by_lap: dict[int, float | None] = {}
+    leader_line_by_lap: dict[int, float] = {}
+    for row in rows:
+        if row["position"] == 1 and row.get("line_seconds") is not None:
+            leader_line_by_lap[row["lap_number"]] = row["line_seconds"]
 
     for row in rows:
-        driver = row["driver_number"]
-        seconds = row.get("lap_time_seconds")
-        total = running_total.get(driver)
-        if seconds is not None:
-            total = (total or 0.0) + seconds
-        running_total[driver] = total
-        row["_cumulative_seconds"] = total
-        if row["position"] == 1:
-            leader_cumulative_by_lap[row["lap_number"]] = total
+        own = row.get("line_seconds")
+        leader = leader_line_by_lap.get(row["lap_number"])
+        row["gap_seconds"] = None if own is None or leader is None else round(own - leader, 3)
 
-    for row in rows:
-        own_total = row.pop("_cumulative_seconds", None)
-        leader_total = leader_cumulative_by_lap.get(row["lap_number"])
-        if own_total is None or leader_total is None:
-            row["gap_seconds"] = None
-        else:
-            row["gap_seconds"] = round(own_total - leader_total, 3)
+
+def has_line_times(laps: list[dict]) -> bool:
+    """True if lap rows carry crossing instants (`line_seconds`)."""
+    return any("line_seconds" in row for row in laps or [])
+
+
+def built_from_crossings(doc: dict | None) -> bool:
+    """True if a stored `race_laps` document's gaps came from crossing instants.
+
+    Rows with `line_seconds` did by construction. So did every document the
+    OpenF1 path wrote (`source: "openf1"`), which differenced crossings before
+    `line_seconds` was stored: rebuilding those would only reproduce the same
+    gaps and expose good data to a partial upstream response. What is left is
+    the FastF1 path's summed-`LapTime` derivation, whose gaps cannot be trusted
+    (in production: 2026 rounds 1-11, written by the sync with no `source`).
+    """
+    doc = doc or {}
+    return has_line_times(doc.get("laps")) or doc.get("source") == "openf1"
+
+
+def no_worse_than(new_laps: list[dict] | None, stored_laps: list[dict] | None) -> bool:
+    """True unless a rebuild covers fewer drivers than the stored document.
+
+    The OpenF1 path silently drops any driver whose `/position` stream is
+    missing, and a stored round used to be written once and never replaced,
+    so nothing guarded against a partial response. Replacing a stored round is
+    now routine (old-derivation documents are rebuilt), and a rebuild that
+    lost cars would replace a whole classification with part of one.
+    """
+    def drivers(laps):
+        return {row.get("driver_number") for row in laps or []}
+
+    return len(drivers(new_laps)) >= len(drivers(stored_laps))
 
 
 def positions_from_laps(laps: list[dict]) -> list[dict]:
@@ -167,9 +160,9 @@ def positions_from_laps(laps: list[dict]) -> list[dict]:
     and the sync job both hand it plain row dicts. Rows missing a driver
     number, lap number, or position are dropped -- a driver who retired mid-
     race simply has no rows past their last completed lap, which the chart
-    reads as "line ends here" rather than a gap to fill in. A missing/null
-    `LapTime` does NOT drop the row (position data is still valid); it only
-    affects that row's `gap_seconds` -- see `_attach_gap_seconds`.
+    reads as "line ends here" rather than a gap to fill in. A missing `Time`
+    or `LapTime` does NOT drop the row (position data is still valid); it only
+    nulls that row's `gap_seconds` or `lap_time_seconds` -- see `_attach_gaps`.
 
     `lap_time_seconds` -- how long *this one lap* took -- is persisted
     alongside the derived `gap_seconds` rather than being used and thrown
@@ -197,10 +190,11 @@ def positions_from_laps(laps: list[dict]) -> list[dict]:
             "lap_number": lap_number,
             "position": position,
             "lap_time_seconds": _lap_time_seconds(lap.get("LapTime")),
+            "line_seconds": _lap_time_seconds(lap.get("Time")),
         })
 
     rows.sort(key=lambda r: (r["driver_number"], r["lap_number"]))
-    _attach_gap_seconds(rows)
+    _attach_gaps(rows)
     return rows
 
 
@@ -271,14 +265,10 @@ def positions_from_openf1(lap_rows: list[dict], position_rows: list[dict]) -> li
     said. Before their first event (which is emitted well before lights out)
     that earliest event stands in, so lap 1 reads as the grid slot.
 
-    `gap_seconds` is the difference between two line-crossing instants — this
-    driver's, and that of whoever was leading at that same lap number — so it
-    is a true elapsed-time gap rather than the FastF1 path's running sum of
-    lap times. It agrees with that path to within ~0.05s median on a clean
-    round, and is *more* accurate where FastF1 has to skip a null lap time.
-    Same contract as `_attach_gap_seconds`: 0 for the leader, None when either
-    side's crossing instant is unknown — which the frontend already reads as
-    "no gap data" rather than a crash.
+    Each crossing instant is stored as `line_seconds`, measured from the
+    earliest lap start in the session, and `gap_seconds` comes from
+    `_attach_gaps`, the same function the FastF1 path uses. Only differences
+    between crossings are ever used, so the choice of zero does not matter.
 
     `lap_time_seconds` comes straight off OpenF1's own `lap_duration`, not from
     differencing the crossing instants this function already computes. Those
@@ -343,20 +333,22 @@ def positions_from_openf1(lap_rows: list[dict], position_rows: list[dict]) -> li
                 "_end": end,
             })
 
-    leader_end_by_lap: dict[int, datetime.datetime] = {}
-    for row in rows:
-        if row["position"] == 1 and row["_end"] is not None:
-            leader_end_by_lap[row["lap_number"]] = row["_end"]
-
+    starts = [
+        moment
+        for row in lap_rows
+        if (moment := _parse_iso(row.get("date_start"))) is not None
+    ]
+    origin = min(starts) if starts else None
     for row in rows:
         end = row.pop("_end")
-        leader_end = leader_end_by_lap.get(row["lap_number"])
-        if end is None or leader_end is None:
-            row["gap_seconds"] = None
-        else:
-            row["gap_seconds"] = round((end - leader_end).total_seconds(), 3)
+        row["line_seconds"] = (
+            round((end - origin).total_seconds(), 3)
+            if end is not None and origin is not None
+            else None
+        )
 
     rows.sort(key=lambda r: (r["driver_number"], r["lap_number"]))
+    _attach_gaps(rows)
     return rows
 
 
@@ -427,6 +419,23 @@ def build_race_laps(year: int, round_number: int) -> list[dict] | None:
     return positions_from_laps(rows)
 
 
+def build_race_laps_any(year: int, round_number: int, race_date: str | None) -> tuple[list[dict] | None, str]:
+    """`(rows, source)` from OpenF1 if it has the round, else FastF1.
+
+    The one rebuild order for both the endpoint and `data_sync`. OpenF1 first
+    because it is reachable from Cloud Run; FastF1 for pre-2023 seasons and
+    any round OpenF1 lacks. The sync used to go straight to FastF1, which
+    fails soft from Cloud Run (and, as of 2026-10-23, returns 401 for the
+    whole static archive from a home connection too), so it could not rebuild
+    anything on its own.
+    """
+    if race_date:
+        laps = build_race_laps_openf1(race_date)
+        if laps:
+            return laps, "openf1"
+    return build_race_laps(year, round_number), "fastf1"
+
+
 @router.get("/race_laps")
 async def get_race_laps(
     year: int = Query(..., description="Season year, e.g. 2026"),
@@ -438,17 +447,17 @@ async def get_race_laps(
     this round hasn't been processed yet. `synced` tells the frontend which case
     it's looking at.
 
-    A cached doc from before `gap_seconds` existed is served as-is: its rows
-    just won't have that key, which reads as "no gap data" on the frontend
-    rather than an error -- see the module docstring for why that's fine and
-    no cache version bump is warranted.
+    A stored doc without `line_seconds` was built by the old summed-lap-time
+    derivation, whose gaps are wrong wherever a lap time was missing. It is
+    rebuilt like a miss; if neither source can rebuild it, it is still served
+    rather than reporting the round as unsynced.
     """
     db = get_db()
 
     doc = await db.race_laps.find_one(
         {"season": year, "round": str(round_number)}, {"_id": 0, "synced_at": 0}
     )
-    if doc and doc.get("laps"):
+    if doc and doc.get("laps") and built_from_crossings(doc):
         return JSONResponse(content={
             "year": year,
             "round": round_number,
@@ -456,17 +465,17 @@ async def get_race_laps(
             "synced": True,
         })
 
-    laps = None
-    source = "openf1"
     race_date = await _race_date(db, year, round_number)
-    if race_date:
-        laps = build_race_laps_openf1(race_date)
+    laps, source = build_race_laps_any(year, round_number, race_date)
 
-    if not laps:
-        source = "fastf1"
-        laps = build_race_laps(year, round_number)
-
-    if not laps:
+    if not laps or not no_worse_than(laps, (doc or {}).get("laps")):
+        if doc and doc.get("laps"):
+            return JSONResponse(content={
+                "year": year,
+                "round": round_number,
+                "laps": doc["laps"],
+                "synced": True,
+            })
         return JSONResponse(content={
             "year": year,
             "round": round_number,

@@ -665,27 +665,37 @@ def sync_race_stints(db, year: int, races: list[dict]) -> None:
 
 
 def sync_race_laps(db, year: int, races: list[dict]) -> None:
-    """Per-driver, per-lap track position and gap-to-leader via FastF1, for the Pitwall chart.
+    """Per-driver, per-lap track position and gap-to-leader, for the Pitwall chart and replay.
 
-    Same FastF1-on-Cloud-Run caveat as `sync_race_stints`: this only populates
-    when run from a local machine. The API serves whatever is here and reports
-    an empty result rather than an error when a round is missing. A round
-    synced before `gap_seconds` existed just won't have it on its rows until
-    it's re-synced (`FORCE_RESYNC`) -- see `race_laps.py`'s module docstring
-    for why that's a safe, non-crashing degradation rather than a problem.
+    Built by `race_laps.build_race_laps_any`, the same OpenF1-then-FastF1 order
+    the endpoint uses, so this works from Cloud Run for 2023 onwards; FastF1
+    (pre-2023, or a round OpenF1 lacks) only populates from a local machine. The API serves whatever is here and reports
+    an empty result rather than an error when a round is missing.
+
+    A stored round built by the old summed-lap-time gap derivation is
+    rebuilt, not skipped (`race_laps.built_from_crossings`), unless the
+    rebuild covers fewer drivers than what is stored: see `race_laps.py`'s
+    module docstring for what that derivation got wrong.
     """
-    from .race_laps import build_race_laps
+    from .race_laps import build_race_laps_any, built_from_crossings, no_worse_than
 
     synced = 0
     for race in races:
         round_number = int(race.get("round", 0))
-        if not FORCE_RESYNC and db.race_laps.find_one(
-            {"season": year, "round": str(round_number)}
-        ):
+        stored = db.race_laps.find_one(
+            {"season": year, "round": str(round_number)}, {"_id": 0, "laps": 1, "source": 1}
+        )
+        if not FORCE_RESYNC and stored and built_from_crossings(stored):
             continue
 
-        laps = build_race_laps(year, round_number)
+        laps, source = build_race_laps_any(year, round_number, race.get("date"))
+        # OpenF1 allows ~3 requests a second and a rebuild is three; a 429
+        # fails soft into the FastF1 path and leaves the round for next hour.
+        time.sleep(1)
         if not laps:
+            continue
+        if not no_worse_than(laps, (stored or {}).get("laps")):
+            print(f"    race laps R{round_number}: rebuild has fewer drivers than stored, kept stored")
             continue
 
         db.race_laps.update_one(
@@ -694,6 +704,7 @@ def sync_race_laps(db, year: int, races: list[dict]) -> None:
                 "season": year,
                 "round": str(round_number),
                 "laps": laps,
+                "source": source,
                 "synced_at": _utcnow_iso(),
             }},
             upsert=True,
