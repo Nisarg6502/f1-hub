@@ -1,5 +1,56 @@
+# Builds, pushes, and redeploys the f1-data-sync Cloud Run Job.
+#
+# Runs on every push to `main` via the `f1-data-sync-deploy` trigger, the same
+# way the other four units deploy themselves.
+#
+# Until 2026-10-23 this file stopped after the build: no push step, no
+# `jobs update`, and no trigger at all. The README documented the missing
+# redeploy as a manual follow-up, nobody ran it, and the hourly job kept
+# executing an image built on 2026-07-17 for three months. Every
+# `data_sync.py` change merged in that window (#157, #167, the historical
+# race index top-up, ...) was deployed nowhere, while looking deployed.
+#
+# The image is tagged with this build's `$BUILD_ID` and the job is pointed at
+# that tag, not at `:latest`. A Cloud Run Job records the image it was given;
+# pointing it at an immutable per-build tag means the job's spec always names
+# exactly the code it runs, and "which commit is the sync on?" is answerable
+# from `gcloud run jobs describe` instead of by comparing digests.
+# `$BUILD_ID` rather than `$SHORT_SHA` because only the former is set on a
+# manual `gcloud builds submit`.
 steps:
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/f1-dashboard-493015/f1-data-sync', '-f', 'Dockerfile.sync', '.']
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/f1-dashboard-493015/f1-data-sync:$BUILD_ID'
+      - '-t'
+      - 'gcr.io/f1-dashboard-493015/f1-data-sync:latest'
+      - '-f'
+      - 'Dockerfile.sync'
+      - '.'
+
+  # Pushed explicitly (rather than left to `images:`, which only pushes after
+  # every step has finished) because the next step needs the image to exist in
+  # the registry before the job can be pointed at it.
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '--all-tags', 'gcr.io/f1-dashboard-493015/f1-data-sync']
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'jobs'
+      - 'update'
+      - 'f1-data-sync'
+      - '--image'
+      - 'gcr.io/f1-dashboard-493015/f1-data-sync:$BUILD_ID'
+      - '--region'
+      - 'asia-south1'
+      - '--quiet'
+
 images:
-  - 'gcr.io/f1-dashboard-493015/f1-data-sync'
+  - 'gcr.io/f1-dashboard-493015/f1-data-sync:$BUILD_ID'
+  - 'gcr.io/f1-dashboard-493015/f1-data-sync:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
