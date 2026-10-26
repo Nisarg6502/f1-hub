@@ -23,6 +23,8 @@ interface DriversGridProps {
    * points bar for a quiet marker, and tells the profile modal to do the same.
    */
   seasonFiguresHidden?: boolean;
+  /** A round of any season in the window is hidden: the modal's career totals go. */
+  careerFiguresHidden?: boolean;
 }
 
 /**
@@ -101,7 +103,11 @@ function TeamMark({
   );
 }
 
-export default function DriversGrid({ drivers, seasonFiguresHidden = false }: DriversGridProps) {
+export default function DriversGrid({
+  drivers,
+  seasonFiguresHidden = false,
+  careerFiguresHidden = seasonFiguresHidden,
+}: DriversGridProps) {
   const [selected, setSelected] = useState<DriverStanding | null>(null);
   const reduce = useReducedMotion();
 
@@ -334,6 +340,7 @@ export default function DriversGrid({ drivers, seasonFiguresHidden = false }: Dr
             flagSrc={selectedFlagSrc}
             color={selectedColor}
             seasonFiguresHidden={seasonFiguresHidden}
+            careerFiguresHidden={careerFiguresHidden}
             onClose={() => setSelected(null)}
           />
         )}

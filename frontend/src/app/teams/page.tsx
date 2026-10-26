@@ -27,7 +27,7 @@ import SeasonSelector from "@/components/season-selector";
 import TeamHeritageDisclosure from "@/components/team-heritage-disclosure";
 import DegradedBeacon from "@/components/degraded-beacon";
 import { SpoilerBanner, SpoilerStub } from "@/components/spoiler-shield";
-import { getSpoilerContext } from "@/lib/spoilers-server";
+import { getSpoilerContext, getWindowHiddenRounds } from "@/lib/spoilers-server";
 import { joinNames } from "@/lib/spoilers";
 
 // Constructor standings change after every race; render per request.
@@ -145,13 +145,22 @@ export default async function TeamsPage({ searchParams }: PageProps) {
   // cards sort by name, season figures are blanked here on the server, and
   // the hidden rounds are dropped from the win index below. What remains is
   // exactly the record as it stood before those rounds.
-  const spoilers = await getSpoilerContext(year);
+  //
+  // The all-time figures (wins, titles) span seasons, so they are filtered by
+  // the hidden rounds of EVERY season in the window, not just the one being
+  // viewed: across New Year a hidden previous-season finale would otherwise
+  // already be counted.
+  const [spoilers, windowHidden] = await Promise.all([
+    getSpoilerContext(year),
+    getWindowHiddenRounds(),
+  ]);
   const figuresHidden = spoilers.hidden.length > 0;
   const hiddenNames = spoilers.hidden.map((h) => h.raceName);
   const list = figuresHidden
     ? [...(constructors ?? [])]
         .sort((a, b) => (a.Constructor.name ?? "").localeCompare(b.Constructor.name ?? ""))
-        .map((team) => ({ ...team, position: "", points: "", wins: "" }))
+        // `positionText` rides along on the API object; blank it with the rest.
+        .map((team) => ({ ...team, position: "", positionText: "", points: "", wins: "" }))
     : constructors ?? [];
 
   // --- Heritage data -------------------------------------------------------
@@ -173,10 +182,10 @@ export default async function TeamsPage({ searchParams }: PageProps) {
   let fullRaces: Awaited<ReturnType<typeof getHistoricalRaceIndex>>["races"] = [];
   try {
     const { races } = await getHistoricalRaceIndex("full");
-    fullRaces = figuresHidden
+    fullRaces = windowHidden.length
       ? races.filter(
           (race) =>
-            !spoilers.hidden.some((h) => h.season === race.season && h.round === race.round)
+            !windowHidden.some((h) => h.season === race.season && h.round === race.round)
         )
       : races;
   } catch {
@@ -210,7 +219,7 @@ export default async function TeamsPage({ searchParams }: PageProps) {
   // the counts. Rarer than it is serious, and there is no per-round title
   // data to subtract it with, so the rows are hidden the same way an
   // incomplete title fetch hides them.
-  if (titles && spoilers.hidden.some((h) => h.season <= titles!.last_season)) {
+  if (titles && windowHidden.some((h) => h.season <= titles!.last_season)) {
     titles = null;
   }
 

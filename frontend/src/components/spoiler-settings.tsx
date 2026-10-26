@@ -7,7 +7,7 @@ import {
   serializeSpoilerPrefs,
   type HiddenRound,
 } from "@/lib/spoilers";
-import { useSpoilers } from "@/lib/spoilers-client";
+import { useSpoilerCrossTabSync, useSpoilers } from "@/lib/spoilers-client";
 
 /**
  * The spoiler-free controls: the eye in the desktop header, and the panel it
@@ -212,6 +212,10 @@ export function SpoilerSettingsPanel({ active = true }: { active?: boolean }) {
 /** The header control: an eye that opens the panel in a popover. */
 export default function SpoilerToggle() {
   const { prefs, ready } = useSpoilers();
+  // Mounted once per page via the header (in the DOM at every width; only
+  // its visibility is responsive), so this is where cross-tab changes are
+  // picked up. See the hook for why it is not inside `useSpoilers`.
+  useSpoilerCrossTabSync();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);

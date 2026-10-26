@@ -18,7 +18,7 @@
  * panel, and surfaces like search that fetch their data in the browser.
  */
 
-import { useCallback, useSyncExternalStore, useTransition } from "react";
+import { useCallback, useEffect, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { track } from "./analytics";
 import {
@@ -71,6 +71,38 @@ export function writeSpoilerCookie(prefs: SpoilerPrefs): boolean {
   document.cookie = `${SPOILER_COOKIE}=${value}; Path=/; Max-Age=${SPOILER_COOKIE_MAX_AGE_S}; SameSite=Lax${secure}`;
   emit();
   return readRaw() === value;
+}
+
+/**
+ * Re-render the server components when the cookie changed in ANOTHER tab.
+ *
+ * The external store above already re-reads the cookie on `visibilitychange`,
+ * so the controls catch up on their own. The placeholders don't: they were
+ * decided on the server from the cookie this tab sent at load time. Revealing
+ * a round in tab A and switching back to tab B would leave B's placeholder
+ * up (or, after turning the mode ON in A, B's result showing) until a reload.
+ *
+ * Mount this ONCE per page (the header toggle does). Every `useSpoilers()`
+ * consumer subscribing would refresh once each.
+ */
+export function useSpoilerCrossTabSync() {
+  const router = useRouter();
+  useEffect(() => {
+    let seenWhileVisible = readRaw();
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        seenWhileVisible = readRaw();
+        return;
+      }
+      const now = readRaw();
+      if (now !== seenWhileVisible) {
+        seenWhileVisible = now;
+        router.refresh();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [router]);
 }
 
 export interface UseSpoilers {

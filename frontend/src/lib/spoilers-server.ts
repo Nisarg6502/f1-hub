@@ -30,17 +30,36 @@ import {
  * "hidden right now" list.
  */
 export async function getAllHiddenRounds(nowMs = Date.now()): Promise<HiddenRound[]> {
+  const { hidden, calendarAvailable } = await windowContexts(nowMs);
+  // An unreachable calendar must not read as "nothing hidden" in a list whose
+  // whole job is to say what is hidden.
+  if (!calendarAvailable) throw new Error("calendar unavailable");
+  return hidden;
+}
+
+/**
+ * Hidden rounds across every season that can hold one, for figures that span
+ * seasons: career totals, all-time win counts, title counts.
+ *
+ * Scoping those to the season being viewed leaks across New Year. Viewing
+ * 2027 in January with the 2026 finale still hidden, a driver's career wins
+ * and a team's title count already include it. Lenient like
+ * `getSpoilerContext`: an unreachable calendar reads as nothing hidden.
+ */
+export async function getWindowHiddenRounds(nowMs = Date.now()): Promise<HiddenRound[]> {
+  return (await windowContexts(nowMs)).hidden;
+}
+
+async function windowContexts(nowMs: number) {
   const prefs = await getSpoilerPrefs();
   const seasons = seasonsInWindow(prefs, nowMs, getActiveSeasonYear());
   const contexts = await Promise.all(
     seasons.map((season) => getSpoilerContext(season, { nowMs }))
   );
-  // An unreachable calendar must not read as "nothing hidden" in a list whose
-  // whole job is to say what is hidden.
-  if (contexts.some((ctx) => !ctx.calendarAvailable)) {
-    throw new Error("calendar unavailable");
-  }
-  return contexts.flatMap((ctx) => ctx.hidden);
+  return {
+    hidden: contexts.flatMap((ctx) => ctx.hidden),
+    calendarAvailable: contexts.every((ctx) => ctx.calendarAvailable),
+  };
 }
 
 export async function getSpoilerPrefs(): Promise<SpoilerPrefs> {

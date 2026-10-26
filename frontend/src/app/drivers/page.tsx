@@ -5,7 +5,7 @@ import SeasonSelector from "@/components/season-selector";
 import CompareDriversPanel from "@/components/compare-drivers-panel";
 import DegradedBeacon from "@/components/degraded-beacon";
 import { SpoilerBanner } from "@/components/spoiler-shield";
-import { getSpoilerContext } from "@/lib/spoilers-server";
+import { getSpoilerContext, getWindowHiddenRounds } from "@/lib/spoilers-server";
 import { joinNames } from "@/lib/spoilers";
 
 // Driver standings change after every race; render per request.
@@ -49,15 +49,25 @@ export default async function DriversPage({ searchParams }: PageProps) {
   // server, rather than merely not drawn: the client grid and its modal never
   // receive them. The head-to-head panel compares season results, so it waits
   // too.
-  const spoilers = await getSpoilerContext(year);
+  //
+  // Career totals in the profile modal are a separate question: they span
+  // seasons, so they hide while a round of ANY season in the window is hidden
+  // (a hidden 2026 finale still counts in a career viewed from 2027).
+  const [spoilers, windowHidden] = await Promise.all([
+    getSpoilerContext(year),
+    getWindowHiddenRounds(),
+  ]);
   const figuresHidden = spoilers.hidden.length > 0;
+  const careerHidden = windowHidden.length > 0;
   const hiddenNames = spoilers.hidden.map((h) => h.raceName);
   const list = figuresHidden
     ? [...(drivers ?? [])]
         .sort((a, b) =>
           (a.Driver.familyName ?? "").localeCompare(b.Driver.familyName ?? "")
         )
-        .map((d) => ({ ...d, position: "", points: "", wins: "" }))
+        // `positionText` too: the API sends it alongside `position`, and a
+        // spread would otherwise carry it straight into the client props.
+        .map((d) => ({ ...d, position: "", positionText: "", points: "", wins: "" }))
     : drivers ?? [];
 
   return (
@@ -98,7 +108,11 @@ export default async function DriversPage({ searchParams }: PageProps) {
         <CompareDriversPanel drivers={list} seasonYear={year} />
       )}
 
-      <DriversGrid drivers={list} seasonFiguresHidden={figuresHidden} />
+      <DriversGrid
+        drivers={list}
+        seasonFiguresHidden={figuresHidden}
+        careerFiguresHidden={careerHidden}
+      />
     </div>
   );
 }
