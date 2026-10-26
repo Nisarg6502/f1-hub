@@ -43,6 +43,7 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
@@ -67,6 +68,9 @@ import { ActivityAccordion, type ActivityEntry } from "./activity-accordion";
 import DictationButton from "./dictation-button";
 import { useDictation } from "@/lib/use-dictation";
 import { track } from "@/lib/analytics";
+import { getAgentToken } from "@/lib/agent-auth";
+import type { Conversation } from "@/lib/chat-history";
+import ChatHistoryView from "./chat-history/chat-history-view";
 
 type Message = {
   id: string;
@@ -128,6 +132,76 @@ let nextId = 0;
 function newId(): string {
   nextId += 1;
   return `m${nextId}`;
+}
+
+/**
+ * A saved conversation (`lib/chat-history.ts`) back into the panel's own
+ * `Message`s, so a past answer renders through exactly the code a live one
+ * does — `buildAnchoredMarkdown` over the raw draft and its anchors,
+ * `VisualFrame` over the stored `visual` payloads, `SourceStrip` over the
+ * stored sources, the follow-up chips it offered at the time.
+ *
+ * `done` is rebuilt from the stored `meta` because three things on a settled
+ * bubble key off it: the Copy/Ask-again row, the feedback controls (which need
+ * `run_id`), and `StatusFooter` — and the last one is why this matters. An
+ * answer that streamed with a "could not be matched to a stored record"
+ * warning must come back from history carrying the same warning. `model` and
+ * `prompt_version` are not stored and nothing renders them.
+ *
+ * Fresh client ids, not the stored indices: anchor hrefs and citation DOM ids
+ * embed the message id, and an id reused from an earlier render of another
+ * conversation would point a citation at the wrong bubble.
+ */
+function messagesFromConversation(conversation: Conversation): Message[] {
+  const out: Message[] = [];
+  let question: string | null = null;
+  for (const stored of conversation.messages) {
+    const timestampMs = stored.created_at ? Date.parse(stored.created_at) : Date.now();
+    const base = {
+      id: newId(),
+      activity: [],
+      error: null,
+      timestampMs: Number.isFinite(timestampMs) ? timestampMs : Date.now(),
+      feedback: null,
+      cancelled: false,
+    };
+    if (stored.role === "user") {
+      question = stored.content;
+      out.push({
+        ...base,
+        role: "user",
+        text: stored.content,
+        sources: [],
+        anchors: [],
+        visuals: [],
+        done: null,
+        suggestions: [],
+        question: null,
+      });
+      continue;
+    }
+    const meta = stored.meta ?? {};
+    out.push({
+      ...base,
+      role: "assistant",
+      text: stored.content,
+      sources: stored.citations?.sources ?? [],
+      anchors: stored.citations?.anchors ?? [],
+      visuals: stored.visuals ?? [],
+      done: {
+        run_id: stored.run_id ?? null,
+        mode: meta.mode ?? "model",
+        model: "",
+        prompt_version: 0,
+        tier: meta.tier ?? null,
+        verification: meta.verification ?? null,
+        elapsed_ms: meta.elapsed_ms ?? 0,
+      },
+      suggestions: stored.followups ?? [],
+      question,
+    });
+  }
+  return out;
 }
 
 /**
@@ -357,6 +431,13 @@ export default function PitwallAssistantPanel({
   // CP71 (5c): the inline "Discard this conversation?" confirmation state for
   // the New chat control. Only ever true for a non-empty thread.
   const [confirmingNewChat, setConfirmingNewChat] = useState(false);
+  // Saved history (account-only). `session` is what the token route last
+  // said: "unknown" until the first answer, so neither the History control
+  // nor the guest's sign-in line flashes in and back out on open. `view`
+  // swaps the transcript for the saved-chats list — see `ChatHistoryView`'s
+  // docstring for why it replaces the body rather than overlaying it.
+  const [session, setSession] = useState<"unknown" | "signed-in" | "signed-out">("unknown");
+  const [view, setView] = useState<"chat" | "history">("chat");
   const elapsedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Minimize (this pass). `visibilityRef` mirrors the `visibility` prop into
@@ -470,6 +551,21 @@ export default function PitwallAssistantPanel({
     };
   }, [visibility, onClose]);
 
+  // Who is signed in, re-asked each time the panel opens rather than once per
+  // mount: the panel survives minimize, and a reader who signs in on another
+  // tab and comes back should get their History control without a reload.
+  // `getAgentToken` caches, so this is a network call at most once a minute.
+  useEffect(() => {
+    if (visibility !== "open") return;
+    let live = true;
+    getAgentToken().then((token) => {
+      if (live) setSession(token ? "signed-in" : "signed-out");
+    });
+    return () => {
+      live = false;
+    };
+  }, [visibility]);
+
   // The turn's abort is intentionally NOT in the effect above anymore.
   // Aborting has to survive exactly as long as this component is actually
   // mounted — which now spans open↔minimized — and only fire on a genuine
@@ -571,8 +667,19 @@ export default function PitwallAssistantPanel({
       turnCompletedRef.current = false;
 
       const patch = (fn: (m: Message) => Message) => patchMessage(assistantId, fn);
+      const turnThreadId = threadId.current;
 
-      streamChat(
+      // The token is fetched per turn (from cache, normally instantly) rather
+      // than held in state, so a token that expired while the panel sat open
+      // is refreshed here instead of being sent stale. A guest gets `null` and
+      // the request goes out exactly as it always did — no header at all.
+      getAgentToken()
+        .then((token) => {
+          setSession(token ? "signed-in" : "signed-out");
+          if (controller.signal.aborted) {
+            throw new DOMException("Aborted", "AbortError");
+          }
+          return streamChat(
         trimmed,
         {
           onActivity: (label, state, detail, kind) =>
@@ -597,8 +704,9 @@ export default function PitwallAssistantPanel({
           onError: (code, message) =>
             patch((m) => ({ ...m, error: { code, message } })),
         },
-        { threadId: threadId.current, signal: controller.signal }
-      )
+        { threadId: turnThreadId, signal: controller.signal, token }
+          );
+        })
         .catch((err: Error) => {
           if (err.name === "AbortError") return;
           // Pre-connection failures (e.g. the browser's raw "Failed to
@@ -690,12 +798,59 @@ export default function PitwallAssistantPanel({
   }, [stopElapsedTimer, stopDictation]);
 
   const requestNewChat = useCallback(() => {
-    if (messages.length === 0) {
+    // A signed-in reader's conversation is saved, so "discard" would be a lie
+    // and the confirmation has nothing to protect — it is one tap away in
+    // History. Guests keep the warning: for them it really is gone.
+    if (messages.length === 0 || session === "signed-in") {
       startNewChat();
       return;
     }
     setConfirmingNewChat(true);
-  }, [messages.length, startNewChat]);
+  }, [messages.length, session, startNewChat]);
+
+  /** Replace the transcript with a saved conversation and continue it. The
+   *  thread id becomes the saved one, so the next question lands in the same
+   *  thread — the agent reuses its memory, or reseeds it if it expired. */
+  const openConversation = useCallback(
+    (conversation: Conversation) => {
+      abortRef.current?.abort();
+      stopElapsedTimer();
+      stopDictation();
+      setRunning(false);
+      setElapsedSec(null);
+      setConfirmingNewChat(false);
+      threadId.current = conversation.id;
+      setMessages(messagesFromConversation(conversation));
+      setView("chat");
+      isAtBottomRef.current = true;
+      requestAnimationFrame(() => inputRef.current?.focus());
+    },
+    [stopElapsedTimer, stopDictation]
+  );
+
+  const backToChat = useCallback(() => {
+    setView("chat");
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, []);
+
+  const newChatFromHistory = useCallback(() => {
+    startNewChat();
+    setView("chat");
+  }, [startNewChat]);
+
+  /** A deleted chat that is the one on screen must not stay on screen — the
+   *  next question would recreate it under the same id. */
+  const onHistoryDeleted = useCallback(
+    (id: string) => {
+      if (id === threadId.current) startNewChat();
+    },
+    [startNewChat]
+  );
+
+  const onHistorySignedOut = useCallback(() => {
+    setSession("signed-out");
+    setView("chat");
+  }, []);
 
   // Follow the stream to the bottom as new content arrives — but only while
   // the user is still parked at the bottom. Keyed on the streaming message's
@@ -776,6 +931,25 @@ export default function PitwallAssistantPanel({
             </p>
           </div>
           <div className="flex items-center gap-1.5">
+            {/* Saved chats — signed-in only; a guest has nothing to list and
+                gets the one-line sign-in hint in the empty state instead.
+                Toggles, and shows its pressed state, so it doubles as the way
+                back from the list. */}
+            {session === "signed-in" && (
+              <button
+                onClick={() => (view === "history" ? backToChat() : setView("history"))}
+                aria-label="Saved chats"
+                aria-pressed={view === "history"}
+                title="Saved chats"
+                className={`flex h-[34px] w-[34px] items-center justify-center rounded-control text-warm-200 transition-[background-color,transform] duration-150 active:scale-90 ${
+                  view === "history"
+                    ? "bg-[var(--color-primary)]/20 text-[var(--color-primary)]"
+                    : "bg-surface-container-low/50 hover:bg-surface-container-low/70"
+                }`}
+              >
+                <HistoryIcon />
+              </button>
+            )}
             {/* New chat. Icon-only at 34px to match the close button's hit
                 target — a text button here would compete with the panel
                 title, and this is a secondary, occasional action. */}
@@ -855,6 +1029,26 @@ export default function PitwallAssistantPanel({
           )}
         </>
 
+        {view === "history" && session === "signed-in" ? (
+          <motion.div
+            key="history"
+            initial={reduce ? { opacity: 0 } : { opacity: 0, x: 12 }}
+            animate={reduce ? { opacity: 1 } : { opacity: 1, x: 0 }}
+            transition={{ duration: reduce ? 0.12 : 0.2, ease: [0.23, 1, 0.32, 1] }}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <ChatHistoryView
+              activeThreadId={threadId.current}
+              onOpen={openConversation}
+              onBack={backToChat}
+              onNewChat={newChatFromHistory}
+              onDeleted={onHistoryDeleted}
+              onDeletedAll={startNewChat}
+              onSignedOut={onHistorySignedOut}
+            />
+          </motion.div>
+        ) : (
+        <>
         <div
           ref={messageListRef}
           onScroll={handleMessageListScroll}
@@ -877,20 +1071,33 @@ export default function PitwallAssistantPanel({
                   </button>
                 ))}
               </div>
-              {/* Say that the conversation is disposable, because nothing else
-                  does.
-                  `threadId` is a fresh UUID on every mount and the launcher
-                  only mounts this panel while it is open, so closing the panel
-                  — not just reloading — discards the conversation. The
-                  deliberate reset ("Start a new chat? This conversation will be
-                  discarded") warns before doing exactly the same thing, which
-                  makes the silent version more surprising, not less. One line
-                  here is cheaper than persistence and honest about what the
-                  product is. */}
-              <p className="pt-1 text-[11px] text-[var(--color-on-surface-variant)]">
-                Conversations aren&apos;t saved — closing this panel starts a
-                fresh one.
-              </p>
+              {/* Say whether the conversation survives, because nothing else
+                  does. For a guest it does not: `threadId` is a fresh UUID on
+                  every mount, so closing the panel discards it, and the
+                  deliberate reset warns before doing the same thing. */}
+              {/* Saved history is account-only. A guest gets one quiet line
+                  with a way to change that — no modal, no interruption — and
+                  a signed-in reader is told where their chats went. Nothing
+                  renders until the token route has answered, so the line
+                  never flashes the wrong state. */}
+              {session === "signed-out" && (
+                <p className="pt-1 text-[11px] text-[var(--color-on-surface-variant)]">
+                  This chat won&apos;t be saved.{" "}
+                  <Link
+                    href="/signin"
+                    onClick={onClose}
+                    className="font-medium text-[var(--color-primary)] underline-offset-2 hover:underline"
+                  >
+                    Sign in to keep your chats
+                  </Link>
+                </p>
+              )}
+              {session === "signed-in" && (
+                <p className="pt-1 text-[11px] text-[var(--color-on-surface-variant)]">
+                  Chats are saved to your account — find past ones under the
+                  clock icon above.
+                </p>
+              )}
             </div>
           )}
           {messages.map((message, index) => (
@@ -971,6 +1178,8 @@ export default function PitwallAssistantPanel({
           </button>
           </div>
         </div>
+        </>
+        )}
               </motion.div>
             </motion.div>
           )}
@@ -1484,6 +1693,19 @@ function MinimizeIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <line x1="5" y1="19" x2="19" y2="19" />
+    </svg>
+  );
+}
+
+/** Header affordance for saved chats — a clock with a counter-clockwise
+ *  arrow, the conventional "history" glyph, drawn to match the other
+ *  hand-rolled header icons (15px, 2px stroke) rather than imported. */
+function HistoryIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <polyline points="3 3 3 8 8 8" />
+      <polyline points="12 7 12 12 15 14" />
     </svg>
   );
 }
