@@ -141,8 +141,9 @@ function SheetBody({ onClose, surface, heading, render, linkFor, filenameFor, va
   // only ever set from the promise callbacks, never synchronously here.
   useEffect(() => {
     const id = `${key}#${attempt}`;
-    if (requested.current.has(id)) return;
-    requested.current.add(id);
+    const asked = requested.current;
+    if (asked.has(id)) return;
+    asked.add(id);
     let cancelled = false;
     render(format, variant).then(
       ({ blob, note }) => {
@@ -162,7 +163,7 @@ function SheetBody({ onClose, surface, heading, render, linkFor, filenameFor, va
       cancelled = true;
       // A cancelled request may be asked for again (StrictMode remounts,
       // a fast toggle back), so it is forgotten rather than left pending.
-      requested.current.delete(id);
+      asked.delete(id);
     };
   }, [key, attempt, format, variant, render, filenameFor]);
 
