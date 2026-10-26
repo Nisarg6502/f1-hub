@@ -23,6 +23,7 @@ import SeasonSelector from "@/components/season-selector";
 import TeammateBattlePanel from "@/components/teammate-battle-panel";
 import TitleDeciderPanel from "@/components/title-decider-panel";
 import TeamCar from "@/components/team-car";
+import { StandingsShareButton } from "@/components/share/share-button";
 
 interface StandingsViewProps {
   drivers: DriverStanding[];
@@ -161,6 +162,9 @@ export default function StandingsView({
             ))}
           </div>
           <SeasonSelector currentYear={year} maxYear={maxYear} />
+          {(tab === "drivers" ? drivers : constructors).length > 0 && (
+            <StandingsShareButton season={year} kind={tab === "drivers" ? "drivers" : "constructors"} />
+          )}
         </div>
       </div>
 
@@ -188,6 +192,7 @@ export default function StandingsView({
               colorHex: getTeamColor(d.Constructors?.[0]?.name ?? "—").hex,
             }))}
             logsByEntityId={seasonLogs}
+            share={{ season: year, kind: "drivers" }}
           />
         </div>
       )}
@@ -201,6 +206,7 @@ export default function StandingsView({
               colorHex: getTeamColor(c.Constructor.name).hex,
             }))}
             logsByEntityId={constructorLogs}
+            share={{ season: year, kind: "constructors" }}
           />
         </div>
       )}

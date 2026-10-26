@@ -15,6 +15,8 @@ import {
   type ProgressionEntry,
   type ProgressionRow,
 } from "@/lib/championship-progression";
+import type { StandingsKind } from "@/lib/share";
+import { ProgressionShareButton } from "@/components/share/share-button";
 
 export interface ProgressionEntity {
   id: string;
@@ -25,6 +27,8 @@ export interface ProgressionEntity {
 interface ChampionshipProgressionChartProps {
   entities: ProgressionEntity[];
   logsByEntityId: Record<string, { entries: ProgressionEntry[] } | undefined>;
+  /** Which championship this is, for the Share button. Omitted: no button. */
+  share?: { season: number; kind: StandingsKind };
 }
 
 interface ProgressionTooltipProps {
@@ -82,6 +86,7 @@ function ProgressionTooltip({ active, payload, entities, highlighted }: Progress
 export default function ChampionshipProgressionChart({
   entities,
   logsByEntityId,
+  share,
 }: ChampionshipProgressionChartProps) {
   const [highlighted, setHighlighted] = useState<Set<string>>(new Set());
 
@@ -143,9 +148,12 @@ export default function ChampionshipProgressionChart({
 
   return (
     <div className="apex-glass-soft rounded-2xl p-6">
-      <h3 className="font-bold text-[11px] tracking-[0.18em] uppercase text-warm-500 mb-4">
-        Championship progression
-      </h3>
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <h3 className="font-bold text-[11px] tracking-[0.18em] uppercase text-warm-500">
+          Championship progression
+        </h3>
+        {share && <ProgressionShareButton season={share.season} kind={share.kind} />}
+      </div>
       <ResponsiveContainer width="100%" height={360}>
         <LineChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#2a231d" />
