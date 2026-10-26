@@ -20,7 +20,7 @@
  */
 .grid {
   --cell: 212px;
-  --gap: 16px;
+  --gap: 20px; /* the old page's gap-5, at every width */
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-auto-rows: auto;
