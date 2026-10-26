@@ -40,9 +40,15 @@ steps:
       - 'managed'
       # `--update-env-vars`, not `--set-env-vars`: RAPIDAPI_KEY is set on the
       # service out of band and `--set-env-vars` would delete it on every
-      # deploy.
+      # deploy. The same now holds for the accounts secrets below.
+      #
+      # BETTER_AUTH_URL is the public origin Better Auth builds callback and
+      # magic-link URLs from. It is not secret, so it rides along here; on its
+      # own it changes nothing, because accounts stay hidden until
+      # MONGODB_URI and BETTER_AUTH_SECRET are attached (see the
+      # _BETTER_AUTH_URL substitution for the one-time secret setup).
       - '--update-env-vars'
-      - 'RAPIDAPI_HOST=${_NEXT_PUBLIC_RAPIDAPI_HOST}'
+      - 'RAPIDAPI_HOST=${_NEXT_PUBLIC_RAPIDAPI_HOST},BETTER_AUTH_URL=${_BETTER_AUTH_URL}'
       - '--quiet'
 
 images:
@@ -78,6 +84,22 @@ substitutions:
   # make a running deployment start reporting -- the frontend must be rebuilt.
   # Same gotcha as _NEXT_PUBLIC_AGENT_BASE_URL above.
   _NEXT_PUBLIC_GA_MEASUREMENT_ID: 'G-LFJ5KBBXD3'
+  # Accounts (optional sign-in). The canonical f1-frontend URL, as reported
+  # by `gcloud run services list --region=asia-south1` -- the Google OAuth
+  # client's redirect URI must match it exactly:
+  #   https://f1-frontend-2w5wydk2ca-el.a.run.app/api/auth/callback/google
+  #
+  # The secrets are RUNTIME values, attached to the service once, out of band,
+  # and preserved by `--update-env-vars` above. Use `--update-secrets`, which
+  # merges; `--set-secrets` REPLACES the service's whole secret list and would
+  # drop any secret not named in that command:
+  #   gcloud run services update f1-frontend --region=asia-south1 \
+  #     --update-secrets=MONGODB_URI=MONGODB_URI:latest,BETTER_AUTH_SECRET=BETTER_AUTH_SECRET:latest,AGENT_USER_TOKEN_SECRET=AGENT_USER_TOKEN_SECRET:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,EMAIL_SERVER_PASSWORD=EMAIL_SERVER_PASSWORD:latest
+  #   gcloud run services update f1-frontend --region=asia-south1 \
+  #     --update-env-vars=EMAIL_SERVER_HOST=smtp.gmail.com,EMAIL_SERVER_PORT=465,EMAIL_SERVER_USER=<address>,EMAIL_FROM='APEX <address>'
+  # Until MONGODB_URI and BETTER_AUTH_SECRET are attached, every account
+  # surface hides itself and the site behaves exactly as it did before.
+  _BETTER_AUTH_URL: 'https://f1-frontend-2w5wydk2ca-el.a.run.app'
 
 options:
   logging: CLOUD_LOGGING_ONLY
