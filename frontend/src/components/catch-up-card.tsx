@@ -357,7 +357,7 @@ function Header({
 
 function Skeleton({ reduce }: { reduce: boolean }) {
   return (
-    <div className={`mt-5 grid gap-5 md:grid-cols-[1.35fr_1fr] ${reduce ? "" : "animate-pulse"}`} aria-hidden="true">
+    <div className={`mt-5 grid grid-cols-1 gap-5 md:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] ${reduce ? "" : "animate-pulse"}`} aria-hidden="true">
       <div className="space-y-2.5">
         {[0, 1].map((i) => (
           <div key={i} className="h-[74px] rounded-tile bg-white/[0.05]" />
@@ -421,8 +421,8 @@ function Body({
         </div>
       )}
 
-      <div className="grid gap-5 md:grid-cols-[1.35fr_1fr]">
-        <div>
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+        <div className="min-w-0">
           <ul className="space-y-2.5">
             {shown.map((round) => (
               <li key={round.round_key}>
@@ -486,7 +486,7 @@ function RoundRow({ season, round, hideSprint }: { season: number; round: CatchU
       )}
 
       {sprint?.winner && (
-        <p className="mt-1.5 text-xs text-warm-300 truncate">
+        <p className="mt-1.5 text-xs text-warm-300">
           <span className="font-bold text-warm-400">Sprint</span> · {sprint.winner.name} won
           {sprint.podium.length > 1 &&
             `, ${sprint.podium
@@ -525,7 +525,7 @@ function Championship({
   const notable = facts?.notable ?? [];
 
   return (
-    <div className="space-y-2.5 self-start">
+    <div className="min-w-0 space-y-2.5 self-start">
       {standings ? (
         <>
           {standings.leader_now && (
