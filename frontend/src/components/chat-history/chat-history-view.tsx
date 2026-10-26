@@ -65,7 +65,7 @@ export default function ChatHistoryView({
   onSignedOut,
 }: {
   /** The conversation currently in the panel, highlighted in the list. */
-  activeThreadId: string;
+  activeThreadId: string | null;
   /** A conversation was fetched in full and should replace the transcript. */
   onOpen: (conversation: Conversation) => void;
   onBack: () => void;

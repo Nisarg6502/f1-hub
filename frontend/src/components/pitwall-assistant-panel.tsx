@@ -438,6 +438,11 @@ export default function PitwallAssistantPanel({
   // docstring for why it replaces the body rather than overlaying it.
   const [session, setSession] = useState<"unknown" | "signed-in" | "signed-out">("unknown");
   const [view, setView] = useState<"chat" | "history">("chat");
+  // The thread on screen, for highlighting it in the history list. State, not
+  // a read of `threadId.current`: a ref read during render is invisible to
+  // React, and the list would keep highlighting whatever was open when it
+  // last re-rendered. Null until a question is sent or a chat is opened.
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const elapsedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Minimize (this pass). `visibilityRef` mirrors the `visibility` prop into
@@ -668,6 +673,7 @@ export default function PitwallAssistantPanel({
 
       const patch = (fn: (m: Message) => Message) => patchMessage(assistantId, fn);
       const turnThreadId = threadId.current;
+      setActiveThreadId(turnThreadId);
 
       // The token is fetched per turn (from cache, normally instantly) rather
       // than held in state, so a token that expired while the panel sat open
@@ -793,6 +799,7 @@ export default function PitwallAssistantPanel({
     setInput("");
     setConfirmingNewChat(false);
     threadId.current = crypto.randomUUID();
+    setActiveThreadId(null);
     isAtBottomRef.current = true;
     inputRef.current?.focus();
   }, [stopElapsedTimer, stopDictation]);
@@ -820,6 +827,7 @@ export default function PitwallAssistantPanel({
       setElapsedSec(null);
       setConfirmingNewChat(false);
       threadId.current = conversation.id;
+      setActiveThreadId(conversation.id);
       setMessages(messagesFromConversation(conversation));
       setView("chat");
       isAtBottomRef.current = true;
@@ -1038,7 +1046,7 @@ export default function PitwallAssistantPanel({
             className="flex min-h-0 flex-1 flex-col"
           >
             <ChatHistoryView
-              activeThreadId={threadId.current}
+              activeThreadId={activeThreadId}
               onOpen={openConversation}
               onBack={backToChat}
               onNewChat={newChatFromHistory}
