@@ -29,6 +29,13 @@ motor~=3.7.1
 # checkpointer's constraint first.
 pymongo[srv]~=4.16.0
 
+# --- Saved chat history ----------------------------------------------------
+# Verifies the signed-in user's bearer token (`agent/user_auth.py`). HS256
+# only — no `[crypto]` extra, because nothing here verifies an asymmetric
+# signature, and pulling in `cryptography` for an algorithm we refuse would be
+# a large native dependency bought for nothing.
+PyJWT~=2.15.1
+
 # --- Agent stack -----------------------------------------------------------
 # deepagents 0.7.4 is the version CHAT-AGENT-PLAN.md was written against, and
 # it brings langchain/langgraph with it; both are pinned anyway so a resolver

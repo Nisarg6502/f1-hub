@@ -230,6 +230,22 @@ FEEDBACK_COST = 0.05
 unauthenticated write, and the per-caller counters are the only thing standing
 between it and a flood."""
 
+HISTORY_COST = 0.02
+"""One saved-history request (`/api/conversations*`): list, open, rename,
+delete. Charged per caller only (`charge_global=False`), exactly like a vote.
+
+The case for charging nothing is real — no model runs, and every one of these
+needs a verified sign-in token — and it loses to this module's own rule for
+cache hits: a free path is a path worth hammering. A token proves who minted
+it, not that its holder is a person; a signed-in script listing and searching
+in a loop is Mongo load with no ceiling at all. Kept below `FEEDBACK_COST`
+because a person browsing history makes many more of these than they cast
+votes — opening the panel, paging, a debounced search, a few renames — and
+fifty of them still cost what one tier-1 question does, so browsing can never
+noticeably eat into anyone's chat allowance. Never charged against the daily
+budget: that budget measures inference spend, and none happens here.
+"""
+
 SECONDS_PER_COST_UNIT = 60.0
 
 

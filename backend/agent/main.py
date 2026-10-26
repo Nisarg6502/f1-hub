@@ -25,7 +25,7 @@ import uuid
 from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any, AsyncIterator
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
@@ -35,6 +35,7 @@ from . import (
     checkpointer,
     concurrency,
     config,
+    conversations,
     followups,
     graph,
     guardrails,
@@ -42,6 +43,7 @@ from . import (
     rate_limit,
     sse,
     tracing,
+    user_auth,
     verifier,
     visuals,
 )
@@ -132,8 +134,27 @@ app.add_middleware(
     # quota) — but it means a future `AGENT_ALLOWED_ORIGINS=*` would now fail
     # loudly at startup instead of quietly being permissive.
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    # PATCH and DELETE for saved history (`/api/conversations*`).
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    # `Authorization` carries the signed-in user's bearer token
+    # (`user_auth.py`). Adding it costs the chat stream nothing extra on the
+    # wire: `POST /api/chat` with `Content-Type: application/json` was already
+    # a non-simple request, so the browser has always preflighted it — the
+    # header only joins the `Access-Control-Request-Headers` list of a
+    # preflight that was happening anyway. Guests send no `Authorization` at
+    # all, so their preflight is exactly what it was.
+    #
+    # The preflight is answered by this middleware before any route runs,
+    # which matters twice over: an OPTIONS request never reaches the rate
+    # limiter (it must not be charged, and must not be refused with a 429 the
+    # browser would report as a CORS failure), and it never reaches
+    # `user_auth` (a preflight carries no credentials by spec).
+    allow_headers=["Content-Type", "Authorization"],
+    # Explicit rather than Starlette's implicit default, so the number is
+    # visible: browsers cache a preflight for this long per (origin, URL,
+    # method, headers), so a conversation's turns after the first pay no
+    # extra round trip. Chrome caps it at 7200s; ten minutes is plenty.
+    max_age=600,
 )
 
 _TRACING_LIVE = tracing.configure()
@@ -163,7 +184,8 @@ class ChatRequest(BaseModel):
     thread_id: str | None = Field(
         None,
         max_length=64,
-        description="Conversation id; reserved for CP61's checkpointer",
+        description="Conversation id: the checkpointer's thread, and for a "
+        "signed-in user the saved conversation's `_id`",
     )
 
 
@@ -215,7 +237,7 @@ async def _echo(message: str) -> AsyncIterator[str]:
 
 
 async def _answer(
-    message: str, *, thread_id: str | None, ledger
+    message: str, *, thread_id: str | None, ledger, history: list[dict] | None = None
 ) -> AsyncIterator[graph.AgentEvent]:
     """Run the CP61 deep agent for one turn.
 
@@ -230,8 +252,59 @@ async def _answer(
         thread_id=thread_id,
         ledger=ledger,
         checkpointer=checkpointer.current(),
+        history=history or None,
     ):
         yield event
+
+
+async def _seed_history(
+    auth: "user_auth.Auth | None", thread_id: str, stored: dict | None
+) -> list[dict]:
+    """Prior turns to replay when a saved chat's thread memory is gone.
+
+    Continuing an old conversation has two cases, and only one needs help. If
+    the checkpoint still exists (within `CHECKPOINT_TTL_SECONDS` of the last
+    turn), reusing the thread id is the whole job — the model already
+    remembers. If it has expired, the transcript in `agent_conversations` is
+    the only record left, and the last few turns of it are replayed as plain
+    messages so a follow-up like "and what about his teammate?" still resolves.
+
+    Seeds only on a *definite* "no checkpoint" — a probe that fails says
+    nothing, and seeding on top of live memory would put every old turn into
+    context twice. With no saver at all (thread memory unconfigured) the graph
+    runs stateless, so the transcript is the only memory there is and is
+    always replayed. Guests never get here: they have no stored transcript.
+    """
+    if auth is None or not auth.signed_in or not stored:
+        return []
+    saver = checkpointer.current()
+    if saver is not None:
+        exists = await conversations.checkpoint_exists(saver, thread_id)
+        if exists is not False:
+            return []
+    return conversations.seed_messages(stored)
+
+
+async def _save_turn(
+    auth: "user_auth.Auth | None", thread_id: str, **fields: Any
+) -> None:
+    """Store one completed turn for a signed-in user. Never raises.
+
+    Called after `done` (and after the chips) are on the wire, and only on a
+    turn that completed — an `error` or a cancelled stream stores nothing, the
+    same rule the answer cache follows for the same reason: a failure is not
+    an answer. Guests return on the first line; this is the guarantee behind
+    "guest mode makes no database writes".
+    """
+    if auth is None or not auth.signed_in:
+        return
+    try:
+        turn = conversations.build_turn(**fields)
+        await conversations.record_turn(auth.user_id, thread_id, turn)
+    except asyncio.CancelledError:
+        raise
+    except Exception as error:  # noqa: BLE001 - saved history is additive
+        print(f"conversation turn skipped: {type(error).__name__}: {error}")
 
 
 async def _stream(
@@ -239,6 +312,8 @@ async def _stream(
     *,
     identity: "rate_limit.Identity | None" = None,
     decision: "rate_limit.Decision | None" = None,
+    auth: "user_auth.Auth | None" = None,
+    stored: dict | None = None,
 ) -> AsyncIterator[str]:
     """Stream one turn, reconciling the rate limiter's up-front charge as it goes.
 
@@ -372,7 +447,29 @@ async def _stream(
             cached=True,
             elapsed_ms=int((time.monotonic() - started) * 1000),
         )
+        # A replayed answer is still an answer the reader saw, so a signed-in
+        # user's history keeps it — with its charts and sources, which is the
+        # point of storing the frames rather than the prose.
+        await _save_turn(
+            auth,
+            thread_id,
+            question=text,
+            answer=cached.get("text") or "",
+            visuals=[
+                stored_visual.to_dict()
+                for stored_visual in visuals.VisualBuffer.from_dicts(cached.get("visuals"))
+            ],
+            sources=cached_sources,
+            anchors=[
+                anchor
+                for source in cached_sources
+                for anchor in (source.get("anchors") or [])
+            ],
+            meta={"tier": cached.get("tier"), "verification": "passed", "mode": "model", "cached": True},
+        )
         return
+
+    history = await _seed_history(auth, thread_id, stored)
 
     with tracing.traced_run(
         "chat",
@@ -395,6 +492,9 @@ async def _stream(
         # write below — the replay path has no agent run to regenerate them
         # from, and does not need one.
         answer_visuals: list[dict] = []
+        # Kept for the saved-history write, which stores the answer exactly as
+        # the reader saw it (`conversations.py`).
+        answer_chips: list[str] = []
         tier: int | None = None
         # None for tier 1 (CP64 skips verification there — see graph.py's
         # astream_answer docstring) and for the echo fallback, neither of
@@ -473,7 +573,7 @@ async def _stream(
                 # resolves into a clean `AtCapacity` error on its own, so
                 # it does not get the same treatment here.
                 answer_iter = _answer(
-                    text, thread_id=thread_id, ledger=ledger
+                    text, thread_id=thread_id, ledger=ledger, history=history
                 ).__aiter__()
                 next_task: "asyncio.Task | None" = None
                 try:
@@ -667,11 +767,37 @@ async def _stream(
                     print(f"follow-up chips skipped: {type(error).__name__}: {error}")
                     chips = []
                 if chips:
+                    answer_chips = list(chips)
                     yield sse.suggestions(chips)
 
             # Everything below this point is off the critical path and must
             # not hold a slot the next caller is queued for.
             await run_gate.aclose()
+
+            # Saved history, for signed-in users only. After the slot is
+            # released and before the stream closes: the reader already has
+            # everything, and awaiting here (bounded by
+            # `conversations.DB_TIMEOUT_SECONDS`) rather than firing a
+            # background task means the chat is listed the moment the stream
+            # ends — and Cloud Run throttles CPU outside a request, so a task
+            # outliving its response is not guaranteed to finish at all.
+            await _save_turn(
+                auth,
+                thread_id,
+                question=text,
+                answer="".join(answer_parts),
+                visuals=answer_visuals,
+                sources=answer_sources,
+                anchors=answer_anchors,
+                followups=answer_chips,
+                run_id=rid,
+                meta={
+                    "tier": tier,
+                    "verification": verification_status,
+                    "mode": mode,
+                    "elapsed_ms": elapsed_ms,
+                },
+            )
 
             # After `done` is already on the wire — a slow or failed cache
             # write must never delay or break the response the asker is
@@ -835,8 +961,34 @@ async def chat(request: ChatRequest, http: Request):
         rate_limit.attach_session_cookie(refusal, identity, http)
         return refusal
 
+    # Saved history. An invalid or expired token is answered as a guest (see
+    # `user_auth.py` for why chat must never refuse over a history
+    # credential); only a verified one is ever written under.
+    auth = user_auth.authenticate(http)
+    if not auth.signed_in:
+        auth = user_auth.GUEST
+    stored: dict | None = None
+    if auth.signed_in and request.thread_id:
+        # Before the stream commits, so "not yours" can still be a status
+        # code. The checkpointer keys memory on thread id alone; without this
+        # a signed-in user who learned another user's id could continue that
+        # conversation with its memory intact. 404, not 403, so the answer is
+        # the same as for an id that does not exist. Charged first and
+        # refunded here, so probing ids is not a free read.
+        ownership, stored = await conversations.lookup(auth.user_id, request.thread_id)
+        if ownership == "foreign":
+            await rate_limit.settle(
+                decision, actual_cost=rate_limit.measured_cost(tier=None, refused=True)
+            )
+            refusal = JSONResponse(
+                {"code": "not_found", "message": "That conversation was not found."},
+                status_code=404,
+            )
+            rate_limit.attach_session_cookie(refusal, identity, http)
+            return refusal
+
     response = StreamingResponse(
-        _stream(request, identity=identity, decision=decision),
+        _stream(request, identity=identity, decision=decision, auth=auth, stored=stored),
         media_type=sse.MEDIA_TYPE,
         headers=sse.SSE_HEADERS,
     )
@@ -1007,6 +1159,145 @@ async def feedback(request: FeedbackRequest, http: Request) -> Any:
     except Exception as exc:  # telemetry: degrade, never 500 the client — matches tracing.py's rule
         print(f"feedback not recorded: {exc}")
         return {"recorded": False}
+
+
+# --------------------------------------------------------------------------
+# Saved history — `conversations.py`. Signed-in users only.
+# --------------------------------------------------------------------------
+
+
+class RenameRequest(BaseModel):
+    """`PATCH /api/conversations/{id}`. Bounded at the door like `ChatRequest`;
+    `conversations.clean_title` trims to the product limit after."""
+
+    title: str = Field(..., max_length=500)
+
+
+def _history_error(status: int, code: str, message: str, **headers: str) -> JSONResponse:
+    return JSONResponse({"code": code, "message": message}, status_code=status, headers=headers or None)
+
+
+_NOT_FOUND = ("not_found", "That conversation was not found.")
+_UNAVAILABLE = ("unavailable", "Saved chats can't be reached right now. Try again shortly.")
+
+
+async def _history_caller(http: Request) -> "user_auth.Auth | JSONResponse":
+    """Authenticate, then rate-limit, one history request.
+
+    In that order on purpose. Verifying a token is pure CPU, so an
+    unauthenticated request is turned away before it costs a counter write; a
+    signed-in one then pays `rate_limit.HISTORY_COST` against the same
+    per-caller counters as everything else (see that constant for why it is not
+    free), never against the daily inference budget.
+
+    401 for a missing token as well as an invalid one — there is no guest
+    version of "my saved chats" — with `WWW-Authenticate: Bearer` so the status
+    means what RFC 6750 says it means. The frontend's token cache treats a 401
+    as "refresh and retry once".
+    """
+    auth = user_auth.authenticate(http)
+    if not auth.signed_in:
+        return _history_error(
+            401,
+            "unauthorized",
+            "Sign in to see your saved chats.",
+            **{"WWW-Authenticate": 'Bearer realm="f1-agent"'},
+        )
+    if config.RATE_LIMIT_ENABLED:
+        verdict = await rate_limit.check_and_charge(
+            rate_limit.identify(http), cost=rate_limit.HISTORY_COST, charge_global=False
+        )
+        if not verdict.allowed:
+            return JSONResponse(
+                verdict.http_body(),
+                status_code=429,
+                headers={"Retry-After": str(verdict.retry_after)},
+            )
+    return auth
+
+
+@app.get("/api/conversations")
+async def list_conversations(
+    http: Request, limit: int = 20, cursor: str | None = None, q: str | None = None
+) -> Any:
+    """The caller's saved chats, newest first: `{items, next_cursor}`.
+
+    Keyset-paginated (`cursor` is opaque — pass back `next_cursor`), with `q`
+    as a case-insensitive title search. Rows carry no messages; open one with
+    `GET /api/conversations/{id}`.
+    """
+    caller = await _history_caller(http)
+    if isinstance(caller, JSONResponse):
+        return caller
+    try:
+        return await conversations.list_conversations(
+            caller.user_id, limit=limit, cursor=cursor, query=q
+        )
+    except conversations.Unavailable:
+        return _history_error(503, *_UNAVAILABLE)
+
+
+@app.get("/api/conversations/{thread_id}")
+async def get_conversation(thread_id: str, http: Request) -> Any:
+    """One saved chat with every stored message — 404 if it is not the caller's."""
+    caller = await _history_caller(http)
+    if isinstance(caller, JSONResponse):
+        return caller
+    try:
+        doc = await conversations.get_conversation(caller.user_id, thread_id)
+    except conversations.Unavailable:
+        return _history_error(503, *_UNAVAILABLE)
+    if doc is None:
+        return _history_error(404, *_NOT_FOUND)
+    return conversations.public(doc)
+
+
+@app.patch("/api/conversations/{thread_id}")
+async def rename_conversation(thread_id: str, body: RenameRequest, http: Request) -> Any:
+    """Rename a saved chat. Returns the updated list row."""
+    caller = await _history_caller(http)
+    if isinstance(caller, JSONResponse):
+        return caller
+    title = conversations.clean_title(body.title)
+    if not title:
+        return _history_error(400, "bad_request", "A title can't be empty.")
+    try:
+        row = await conversations.rename(caller.user_id, thread_id, title)
+    except conversations.Unavailable:
+        return _history_error(503, *_UNAVAILABLE)
+    if row is None:
+        return _history_error(404, *_NOT_FOUND)
+    return row
+
+
+@app.delete("/api/conversations/{thread_id}")
+async def delete_conversation(thread_id: str, http: Request) -> Any:
+    """Delete one saved chat, and the model's memory of it. 204 on success."""
+    caller = await _history_caller(http)
+    if isinstance(caller, JSONResponse):
+        return caller
+    try:
+        deleted = await conversations.delete(
+            caller.user_id, thread_id, saver=checkpointer.current()
+        )
+    except conversations.Unavailable:
+        return _history_error(503, *_UNAVAILABLE)
+    if not deleted:
+        return _history_error(404, *_NOT_FOUND)
+    return Response(status_code=204)
+
+
+@app.delete("/api/conversations")
+async def delete_all_conversations(http: Request) -> Any:
+    """Delete every saved chat the caller owns: `{deleted: n}`."""
+    caller = await _history_caller(http)
+    if isinstance(caller, JSONResponse):
+        return caller
+    try:
+        count = await conversations.delete_all(caller.user_id, saver=checkpointer.current())
+    except conversations.Unavailable:
+        return _history_error(503, *_UNAVAILABLE)
+    return {"deleted": count}
 
 
 if __name__ == "__main__":  # pragma: no cover
