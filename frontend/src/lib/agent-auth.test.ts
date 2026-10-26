@@ -18,13 +18,13 @@ function jsonResponse(status: number, body?: unknown): Response {
 
 function setup(responses: Array<() => Response | Promise<Response>>) {
   let clock = T0;
-  const fetchMock = vi.fn(async () => {
+  const fetchMock = vi.fn<typeof fetch>(async () => {
     const next = responses.shift();
     if (!next) throw new Error("unexpected fetch");
     return next();
   });
   const cache = createAgentTokenCache({
-    fetch: fetchMock as unknown as typeof fetch,
+    fetch: fetchMock,
     now: () => clock,
   });
   return {
