@@ -4,7 +4,9 @@ import {
   CORRUPT_SPOILER_PREFS,
   DEFAULT_SPOILER_PREFS,
   ENABLE_LOOKBACK_MS,
-  MAX_REVEALED,
+  MAX_REVEALED_SEASONS,
+  isRevealed,
+  normalizeRevealed,
   describeRounds,
   findHiddenRound,
   firstResultSessionMs,
@@ -28,7 +30,7 @@ const DAY = 24 * HOUR;
 const ms = (iso: string) => new Date(iso).getTime();
 
 function prefs(overrides: Partial<SpoilerPrefs> = {}): SpoilerPrefs {
-  return { on: true, autoRevealDays: 7, revealed: [], since: 0, ...overrides };
+  return { on: true, autoRevealDays: 7, revealed: [], revealedThroughSeason: 0, since: 0, ...overrides };
 }
 
 /** A conventional weekend: FP1-3 Fri/Sat, qualifying Saturday, race Sunday. */
@@ -122,6 +124,7 @@ describe("cookie parse / serialize", () => {
     ["wrong version", "v9|1|7|0|"],
     ["too few fields", "v1|1|7"],
     ["too many fields", "v1|1|7|0|2026-1|extra"],
+    ["v2 with too few fields", "v2|1|7|0|2026~1"],
     ["bad on flag", "v1|yes|7|0|"],
     ["broken percent-encoding", "v1%E0%A4%A|1|7|0|"],
   ])("fails CLOSED on a corrupt cookie (%s)", (_label, raw) => {
@@ -143,25 +146,86 @@ describe("cookie parse / serialize", () => {
     expect(parseSpoilerCookie(encodeURIComponent(raw)).revealed).toEqual(["2026-3"]);
   });
 
-  it("caps the revealed list when reading an oversized cookie", () => {
-    const keys = Array.from({ length: 50 }, (_, i) => `2025-${i + 1}`).join(".");
-    expect(parseSpoilerCookie(`v1|1|7|0|${keys}`).revealed).toHaveLength(MAX_REVEALED);
+  it("still reads a v1 cookie (plain key list) and rewrites it as v2", () => {
+    const parsed = parseSpoilerCookie("v1|1|0|hs280|2026-17.2026-3");
+    expect(parsed).toMatchObject({ on: true, autoRevealDays: null, revealed: ["2026-17", "2026-3"] });
+    expect(serializeSpoilerPrefs(parsed).startsWith("v2|")).toBe(true);
+  });
+
+  it("stores a season as one compact mask", () => {
+    const raw = serializeSpoilerPrefs(
+      prefs({ revealed: Array.from({ length: 24 }, (_, i) => `2026-${i + 1}`) })
+    );
+    expect(raw).toBe("v2|1|7|0|0|2026~9zldr");
+    expect(parseSpoilerCookie(raw).revealed).toHaveLength(24);
+  });
+
+  it("drops a malformed mask entry but keeps the others", () => {
+    const parsed = parseSpoilerCookie("v2|1|7|0|0|2026~5.junk.2025~!!.2024~1");
+    expect(parsed.revealed).toEqual(["2026-3", "2026-1", "2024-1"]);
+  });
+});
+
+describe("revealing never forgets (no eviction re-hide)", () => {
+  const never = prefs({ autoRevealDays: null, since: 1 });
+
+  it("keeps all of one season plus the next: the reported regression", () => {
+    // Reveal all 24 rounds of 2026, then 7 of 2027. With the old 30-key cap
+    // 2026-1 was evicted and hidden again.
+    let p = never;
+    for (let r = 1; r <= 24; r++) p = withRevealed(p, `2026-${r}`);
+    for (let r = 1; r <= 7; r++) p = withRevealed(p, `2027-${r}`);
+    const reread = parseSpoilerCookie(serializeSpoilerPrefs(p));
+    for (let r = 1; r <= 24; r++) {
+      expect(isRoundHidden(reread, `2026-${r}`, 1000, 2000)).toBe(false);
+    }
+    expect(isRoundHidden(reread, "2027-7", 1000, 2000)).toBe(false);
+    expect(isRoundHidden(reread, "2027-8", 1000, 2000)).toBe(true);
+  });
+
+  it("survives hundreds of reveals across many seasons with nothing re-hidden", () => {
+    let p = never;
+    const all: string[] = [];
+    for (let season = 2018; season <= 2027; season++) {
+      for (let r = 1; r <= 24; r++) {
+        const key = `${season}-${r}`;
+        all.push(key);
+        p = parseSpoilerCookie(serializeSpoilerPrefs(withRevealed(p, key)));
+      }
+    }
+    for (const key of all) expect(isRoundHidden(p, key, 1000, 2000)).toBe(false);
+    expect(serializeSpoilerPrefs(p).length).toBeLessThan(120);
+  });
+
+  it("folds seasons beyond the newest five into the watermark, which only reveals", () => {
+    const p = withRevealed(never, ["2020-1", "2021-1", "2022-1", "2023-1", "2024-1", "2025-1", "2026-1"]);
+    expect(MAX_REVEALED_SEASONS).toBe(5);
+    expect(p.revealedThroughSeason).toBe(2021);
+    expect(p.revealed).toEqual(["2026-1", "2025-1", "2024-1", "2023-1", "2022-1"]);
+    // An unrevealed round in a folded season is now treated as watched...
+    expect(isRoundHidden(p, "2021-9", 1000, 2000)).toBe(false);
+    // ...but nothing in a kept season changes.
+    expect(isRoundHidden(p, "2022-9", 1000, 2000)).toBe(true);
+    expect(isRevealed(p, "2022-1")).toBe(true);
+  });
+
+  it("round-trips the watermark", () => {
+    const p = prefs({ revealed: ["2026-2"], revealedThroughSeason: 2019 });
+    expect(parseSpoilerCookie(serializeSpoilerPrefs(p))).toEqual(p);
+  });
+
+  it("normalizeRevealed ignores rounds outside 1..52 and keys under the watermark", () => {
+    expect(normalizeRevealed(["2026-0", "2026-53", "2026-52", "2019-4"], 2019)).toEqual({
+      revealed: ["2026-52"],
+      revealedThroughSeason: 2019,
+    });
   });
 });
 
 describe("pref updates", () => {
-  it("withRevealed puts the newest first, dedupes and keeps the 30 most recent", () => {
-    let p = prefs();
-    for (let round = 1; round <= 35; round++) p = withRevealed(p, `2025-${round}`);
-    expect(p.revealed).toHaveLength(MAX_REVEALED);
-    expect(p.revealed[0]).toBe("2025-35");
-    expect(p.revealed).not.toContain("2025-5");
-    expect(p.revealed).toContain("2025-6");
-
-    const again = withRevealed(p, "2025-20");
-    expect(again.revealed[0]).toBe("2025-20");
-    expect(again.revealed.filter((k) => k === "2025-20")).toHaveLength(1);
-    expect(again.revealed).toHaveLength(MAX_REVEALED);
+  it("withRevealed dedupes and orders newest season, highest round first", () => {
+    const p = withRevealed(prefs({ revealed: ["2025-20", "2026-1"] }), ["2025-20", "2026-4"]);
+    expect(p.revealed).toEqual(["2026-4", "2026-1", "2025-20"]);
   });
 
   it("withRevealed takes several keys and ignores malformed ones", () => {

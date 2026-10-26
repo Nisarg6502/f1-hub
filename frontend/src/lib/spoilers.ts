@@ -52,21 +52,42 @@
  *
  * ## Cookie format
  *
- *   v1|<on 0/1>|<auto-reveal days: 3, 7 or 0 for never>|<since, base-36 minutes>|<keys>
+ *   v2|<on 0/1>|<auto-reveal: 3, 7 or 0 for never>|<since, base-36 minutes>|<through>|<masks>
  *
- * e.g. `v1|1|7|2qkbz4|2026-21.2026-20`. Every character is a legal
- * cookie-octet (RFC 6265 forbids comma, semicolon, quote, backslash and
- * whitespace, which rules out raw JSON), so the value round-trips through
- * `document.cookie` and Next's `cookies()` with no encoding step for either
- * side to get wrong. Thirty keys is about 240 bytes.
+ * e.g. `v2|1|7|hs280|0|2026~3k.2025~1`. `<masks>` is one entry per season,
+ * `<season>~<base-36 bitmask>`, where bit `round - 1` set means "revealed".
+ * `<through>` is a season watermark: every round of that season and earlier
+ * counts as revealed (0 = none).
+ *
+ * Why masks and not a list of keys: the first version kept the 30 most recent
+ * keys and dropped the oldest, and with "never" auto-reveal, dropping a key
+ * RE-HID a round the visitor had already said they had watched (reveal a
+ * season's 24 rounds plus seven of the next, and round 1 came back hidden). A
+ * mask holds a whole season in about six characters, so nothing is ever
+ * dropped for space within the `MAX_REVEALED_SEASONS` most recent seasons;
+ * older seasons are folded into the watermark. Folding can only REVEAL
+ * (an unrevealed round more than five seasons old becomes visible), never
+ * hide, which is the only safe direction for a lossy step.
+ *
+ * Every character is a legal cookie-octet (RFC 6265 forbids comma,
+ * semicolon, quote, backslash and whitespace, which rules out raw JSON), so
+ * the value round-trips through `document.cookie` and Next's `cookies()` with
+ * no encoding step for either side to get wrong. A `v1` cookie (a plain key
+ * list) is still read.
  */
 
 import type { Race } from "./api";
 
 export const SPOILER_COOKIE = "apex_spoilers";
 
-/** How many revealed rounds are remembered. Newest kept, oldest dropped. */
-export const MAX_REVEALED = 30;
+/**
+ * How many seasons keep a per-round reveal mask. Older seasons fold into the
+ * `revealedThroughSeason` watermark (see the cookie format above).
+ */
+export const MAX_REVEALED_SEASONS = 5;
+
+/** Bit `round - 1` of a base-36 mask; 52 keeps the mask inside a safe integer. */
+const MAX_ROUND = 52;
 
 /**
  * The browser caps a cookie's lifetime at 400 days (Chrome since M104), so
@@ -106,8 +127,13 @@ export interface SpoilerPrefs {
   on: boolean;
   /** Days after the grand prix starts that its round reveals itself. Null = never. */
   autoRevealDays: AutoRevealDays;
-  /** Race keys the visitor has revealed, newest first, at most `MAX_REVEALED`. */
+  /**
+   * Race keys the visitor has revealed, sorted newest season / highest round
+   * first. Only seasons after `revealedThroughSeason` appear here.
+   */
   revealed: string[];
+  /** Every round of this season and earlier counts as revealed. 0 = none. */
+  revealedThroughSeason: number;
   /**
    * When the mode was last switched on, epoch ms (minute precision), or 0 when
    * unknown. See `ENABLE_LOOKBACK_MS`.
@@ -119,6 +145,7 @@ export const DEFAULT_SPOILER_PREFS: SpoilerPrefs = Object.freeze({
   on: false,
   autoRevealDays: 7,
   revealed: [],
+  revealedThroughSeason: 0,
   since: 0,
 }) as SpoilerPrefs;
 
@@ -136,6 +163,7 @@ export const CORRUPT_SPOILER_PREFS: SpoilerPrefs = Object.freeze({
   on: true,
   autoRevealDays: 7,
   revealed: [],
+  revealedThroughSeason: 0,
   since: 0,
 }) as SpoilerPrefs;
 
@@ -157,16 +185,66 @@ function parseDays(raw: string): AutoRevealDays {
   return 7;
 }
 
-function uniqueKeys(keys: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const key of keys) {
-    if (!isRaceKey(key) || seen.has(key)) continue;
-    seen.add(key);
-    out.push(key);
-    if (out.length === MAX_REVEALED) break;
+function splitKey(key: string): [number, number] {
+  const [season, round] = key.split("-").map(Number);
+  return [season, round];
+}
+
+/**
+ * Deduplicate, drop what the watermark already covers, and fold seasons
+ * beyond the `MAX_REVEALED_SEASONS` most recent into the watermark. Pure and
+ * lossless for everything it keeps; the one lossy step only ever reveals.
+ */
+export function normalizeRevealed(
+  keys: string[],
+  throughSeason: number
+): { revealed: string[]; revealedThroughSeason: number } {
+  let through = Number.isFinite(throughSeason) && throughSeason > 0 ? Math.floor(throughSeason) : 0;
+  const unique = new Set<string>();
+  for (const raw of keys) {
+    if (!isRaceKey(raw)) continue;
+    const [season, round] = splitKey(raw);
+    if (round < 1 || round > MAX_ROUND) continue;
+    unique.add(raceKey(season, round));
   }
-  return out;
+  const seasons = [...new Set([...unique].map((k) => splitKey(k)[0]))].sort((a, b) => b - a);
+  const dropped = seasons.slice(MAX_REVEALED_SEASONS);
+  if (dropped.length) through = Math.max(through, dropped[0]);
+  const revealed = [...unique]
+    .filter((k) => splitKey(k)[0] > through)
+    .sort((a, b) => {
+      const [sa, ra] = splitKey(a);
+      const [sb, rb] = splitKey(b);
+      return sb - sa || rb - ra;
+    });
+  return { revealed, revealedThroughSeason: through };
+}
+
+function encodeMasks(keys: string[]): string {
+  const bySeason = new Map<number, number>();
+  for (const key of keys) {
+    const [season, round] = splitKey(key);
+    bySeason.set(season, (bySeason.get(season) ?? 0) + 2 ** (round - 1));
+  }
+  return [...bySeason.entries()]
+    .sort((a, b) => b[0] - a[0])
+    .map(([season, mask]) => `${season}~${mask.toString(36)}`)
+    .join(".");
+}
+
+function decodeMasks(raw: string): string[] {
+  const keys: string[] = [];
+  for (const entry of raw.split(".")) {
+    const match = /^(\d{4})~([0-9a-z]{1,11})$/.exec(entry);
+    if (!match) continue;
+    let mask = parseInt(match[2], 36);
+    if (!Number.isSafeInteger(mask)) continue;
+    for (let round = 1; mask > 0 && round <= MAX_ROUND; round++) {
+      if (mask % 2 === 1) keys.push(`${match[1]}-${round}`);
+      mask = Math.floor(mask / 2);
+    }
+  }
+  return keys;
 }
 
 /**
@@ -192,10 +270,12 @@ export function parseSpoilerCookie(raw: string | null | undefined): SpoilerPrefs
   }
 
   const parts = value.split("|");
-  if (parts.length !== 5 || parts[0] !== "v1") {
+  const v1 = parts.length === 5 && parts[0] === "v1";
+  const v2 = parts.length === 6 && parts[0] === "v2";
+  if (!v1 && !v2) {
     return { ...CORRUPT_SPOILER_PREFS, revealed: [] };
   }
-  const [, onRaw, daysRaw, sinceRaw, keysRaw] = parts;
+  const [, onRaw, daysRaw, sinceRaw] = parts;
   if (onRaw !== "0" && onRaw !== "1") {
     return { ...CORRUPT_SPOILER_PREFS, revealed: [] };
   }
@@ -203,10 +283,16 @@ export function parseSpoilerCookie(raw: string | null | undefined): SpoilerPrefs
   const sinceMinutes = /^[0-9a-z]{1,10}$/.test(sinceRaw) ? parseInt(sinceRaw, 36) : NaN;
   const since = Number.isFinite(sinceMinutes) ? sinceMinutes * 60_000 : 0;
 
+  // v1 stored a plain key list and no watermark.
+  const throughRaw = v2 ? parts[4] : "0";
+  const keysRaw = v2 ? parts[5] : parts[4];
+  const through = /^\d{1,4}$/.test(throughRaw) ? Number(throughRaw) : 0;
+  const keys = keysRaw === "" ? [] : v2 ? decodeMasks(keysRaw) : keysRaw.split(".");
+
   return {
     on: onRaw === "1",
     autoRevealDays: parseDays(daysRaw),
-    revealed: uniqueKeys(keysRaw === "" ? [] : keysRaw.split(".")),
+    ...normalizeRevealed(keys, through),
     since,
   };
 }
@@ -214,21 +300,33 @@ export function parseSpoilerCookie(raw: string | null | undefined): SpoilerPrefs
 export function serializeSpoilerPrefs(prefs: SpoilerPrefs): string {
   const days = prefs.autoRevealDays === null ? "0" : String(prefs.autoRevealDays);
   const since = Math.max(0, Math.floor((prefs.since || 0) / 60_000)).toString(36);
+  const { revealed, revealedThroughSeason } = normalizeRevealed(
+    prefs.revealed,
+    prefs.revealedThroughSeason ?? 0
+  );
   return [
-    "v1",
+    "v2",
     prefs.on ? "1" : "0",
     days,
     since,
-    uniqueKeys(prefs.revealed).join("."),
+    String(revealedThroughSeason),
+    encodeMasks(revealed),
   ].join("|");
 }
 
-/** Mark one or more rounds watched. Newest first, capped, deduplicated. */
+/** Whether the visitor has revealed this round, by key or by watermark. */
+export function isRevealed(prefs: SpoilerPrefs, key: string): boolean {
+  if (prefs.revealed.includes(key)) return true;
+  const [season] = splitKey(key);
+  return Number.isFinite(season) && season <= (prefs.revealedThroughSeason ?? 0);
+}
+
+/** Mark one or more rounds watched. Deduplicated; never forgets an earlier reveal. */
 export function withRevealed(prefs: SpoilerPrefs, keys: string | string[]): SpoilerPrefs {
   const incoming = (Array.isArray(keys) ? keys : [keys]).filter(isRaceKey);
   return {
     ...prefs,
-    revealed: uniqueKeys([...incoming, ...prefs.revealed]),
+    ...normalizeRevealed([...incoming, ...prefs.revealed], prefs.revealedThroughSeason ?? 0),
   };
 }
 
@@ -318,7 +416,7 @@ export function isRoundHidden(
   if (firstSessionStartMs === null || firstSessionStartMs === undefined) return false;
   if (!Number.isFinite(firstSessionStartMs)) return false;
   if (nowMs < firstSessionStartMs) return false;
-  if (prefs.revealed.includes(key)) return false;
+  if (isRevealed(prefs, key)) return false;
   if (prefs.since > 0 && firstSessionStartMs < prefs.since - ENABLE_LOOKBACK_MS) return false;
   if (prefs.autoRevealDays !== null) {
     const from = Math.max(raceStartMs ?? firstSessionStartMs, firstSessionStartMs);

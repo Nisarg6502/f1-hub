@@ -145,6 +145,48 @@ export function SpoilerBanner({
   );
 }
 
+/**
+ * The body of a small card (the home page's bento tiles) whose whole content
+ * is a result. Keeps the card's own kicker so the grid still reads as the
+ * same three cards, and carries its own reveal button because a bento tile
+ * has no page banner above it to point at.
+ */
+export function SpoilerTile({
+  kicker,
+  raceKey,
+  raceName,
+  title,
+}: {
+  kicker: string;
+  raceKey: string | string[];
+  raceName: string | string[];
+  title?: string;
+}) {
+  const keys = asList(raceKey);
+  const names = asList(raceName);
+  return (
+    <div className="relative flex flex-col h-full" aria-label="Hidden by spoiler-free mode">
+      <span className="font-bold text-[11px] tracking-[0.14em] uppercase text-warm-300">
+        {kicker}
+      </span>
+      <div className="flex items-center gap-3 mt-4">
+        <EyeOffMark size="sm" />
+        <p className="font-bold text-sm text-on-background leading-snug">
+          {title ?? `Hidden until you’ve watched the ${joinNames(names.map((n) => n.replace(/ Grand Prix$/, " GP")))}`}
+        </p>
+      </div>
+      <p className="font-medium text-xs text-warm-400 mt-2">Spoiler-free mode is on.</p>
+      <div className="mt-auto pt-4">
+        <SpoilerRevealButton
+          raceKeys={keys}
+          size="sm"
+          label={keys.length > 1 ? "I’ve watched them" : "I’ve watched it"}
+        />
+      </div>
+    </div>
+  );
+}
+
 /** An inline "hidden" marker for a figure inside a card or a list row. */
 export function SpoilerStub({
   label = "Hidden",

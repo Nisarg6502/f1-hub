@@ -21,6 +21,8 @@ import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { getCircuitImagePath } from "@/lib/circuit-images";
 import { getTeamColor } from "@/lib/team-colors";
 import { buildRaceSessionTimeline, getUpcomingSessions } from "@/lib/sessions";
+import { getSpoilerContext } from "@/lib/spoilers-server";
+import { SpoilerTile } from "@/components/spoiler-shield";
 
 // Rendered per request: the "next race" and "latest winner" depend on the
 // current time, so a prerender goes stale the moment a race is run.
@@ -70,6 +72,15 @@ export default async function Home() {
     .sort((a, b) => b.ts - a.ts);
   const latestCompletedRace = completed[0]?.race;
 
+  // Spoiler-free mode. The leader card, the title-gap ring and "Leader wins"
+  // all moved when any hidden round was scored, so they hide while ANY round
+  // of the season is hidden; "Last time out" hides when its own round is, and
+  // its results are then not fetched at all. The race-week strip shields
+  // itself (see race-week-glimpse.tsx).
+  const spoilers = await getSpoilerContext(seasonYear, { races, nowMs });
+  const standingsHidden = spoilers.hidden.length > 0;
+  const lastHidden = latestCompletedRace ? spoilers.round(latestCompletedRace.round) : null;
+
   let latestWinner: {
     name: string;
     team: string;
@@ -78,7 +89,7 @@ export default async function Home() {
     givenName: string;
     familyName: string;
   } | null = null;
-  if (latestCompletedRace) {
+  if (latestCompletedRace && !lastHidden) {
     try {
       const res = await getRaceResults(seasonYear, Number(latestCompletedRace.round));
       const winner = (res.results ?? [])[0];
@@ -261,12 +272,13 @@ export default async function Home() {
                   },
                   {
                     label: "Title gap",
-                    center: `${ptsGap}`,
-                    unit: "pts",
-                    offset: RING * (1 - gapPct),
+                    center: standingsHidden ? "—" : `${ptsGap}`,
+                    unit: standingsHidden ? undefined : "pts",
+                    offset: standingsHidden ? RING : RING * (1 - gapPct),
                     color: "#c9c0b4",
-                    tooltip:
-                      "Points separating the championship leader from 2nd place — a smaller gap means a tighter title fight.",
+                    tooltip: standingsHidden
+                      ? "Hidden by spoiler-free mode: the gap includes a round you haven't revealed yet."
+                      : "Points separating the championship leader from 2nd place — a smaller gap means a tighter title fight.",
                   },
                 ].map((ring) => (
                   <div key={ring.label} className="relative">
@@ -312,7 +324,7 @@ export default async function Home() {
               </div>
               <div>
                 {[
-                  { k: "Leader wins", v: leaderWins },
+                  { k: "Leader wins", v: standingsHidden ? "Hidden" : leaderWins },
                   { k: "Rounds completed", v: `${done} / ${total}` },
                   { k: "Rounds remaining", v: roundsLeft },
                 ].map((row) => (
@@ -342,6 +354,14 @@ export default async function Home() {
           {/* Championship leader */}
           <StaggerItem>
           <TiltCard className="apex-glass apex-sheen rounded-panel p-[26px] overflow-hidden min-h-[224px] block h-full">
+            {standingsHidden ? (
+              <SpoilerTile
+                kicker="Championship leader"
+                raceKey={spoilers.hidden.map((h) => h.raceKey)}
+                raceName={spoilers.hidden.map((h) => h.raceName)}
+              />
+            ) : (
+            <>
             <BentoDriverArt
               given={leader?.Driver.givenName}
               family={leader?.Driver.familyName}
@@ -373,12 +393,22 @@ export default async function Home() {
                 </span>
               </div>
             </div>
+            </>
+            )}
           </TiltCard>
           </StaggerItem>
 
           {/* Last time out */}
           <StaggerItem>
           <TiltCard className="apex-glass apex-sheen rounded-panel p-[26px] overflow-hidden min-h-[224px] block h-full">
+            {lastHidden ? (
+              <SpoilerTile
+                kicker="Last time out"
+                raceKey={lastHidden.raceKey}
+                raceName={lastHidden.raceName}
+              />
+            ) : (
+            <>
             <BentoDriverArt
               given={latestWinner?.givenName}
               family={latestWinner?.familyName}
@@ -407,6 +437,8 @@ export default async function Home() {
                 </div>
               )}
             </div>
+            </>
+            )}
           </TiltCard>
           </StaggerItem>
 
