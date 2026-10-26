@@ -12,7 +12,7 @@
  * response body with a stream reader and parses SSE frames by hand.
  */
 
-const AGENT_BASE_URL =
+export const AGENT_BASE_URL =
   process.env.NEXT_PUBLIC_AGENT_BASE_URL ?? "http://localhost:8100";
 
 /** Closed set, mirroring `sse.ERROR_CODES`. The UI styles on these. */
@@ -409,15 +409,24 @@ export function citationAnchorId(messageId: string, evidenceId: string): string 
  *
  * Pass `signal` to cancel; aborting stops the LangGraph run server-side rather
  * than leaving it burning quota for a closed tab.
+ *
+ * Pass `token` (from `agent-auth.ts`'s `getAgentToken`) for a signed-in user,
+ * and the agent saves the turn to their history under `threadId`. Omitted or
+ * `null` for a guest, in which case no `Authorization` header is sent at all —
+ * the request is byte-for-byte what it was before history existed, which is
+ * what keeps guest mode, and its rate limiting, unchanged. An expired token is
+ * not an error here: the agent answers it as a guest and simply does not save.
  */
 export async function streamChat(
   message: string,
   handlers: AgentHandlers,
-  options: { threadId?: string; signal?: AbortSignal } = {}
+  options: { threadId?: string; signal?: AbortSignal; token?: string | null } = {}
 ): Promise<void> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (options.token) headers.Authorization = `Bearer ${options.token}`;
   const res = await fetch(new URL("/api/chat", AGENT_BASE_URL).toString(), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ message, thread_id: options.threadId ?? null }),
     signal: options.signal,
     // Without this the session cookie is never sent, and the per-person rate
