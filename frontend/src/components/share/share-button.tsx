@@ -122,6 +122,8 @@ export function ProgressionShareButton({ season, kind }: { season: number; kind:
   );
 }
 
+const asSession = (variant: string): RaceSession => (variant === "sprint" ? "sprint" : "race");
+
 export function RaceShareButton({
   season,
   round,
@@ -135,7 +137,6 @@ export function RaceShareButton({
   sessions: RaceSession[];
 }) {
   const variants: ShareVariant[] = sessions.map((s) => ({ id: s, label: s === "sprint" ? "Sprint" : "Race" }));
-  const asSession = (variant: string): RaceSession => (variant === "sprint" ? "sprint" : "race");
   const path = useCallback(
     (format: ShareFormat, variant: string) => raceCardPath({ season, round, session: asSession(variant), format }),
     [season, round]
