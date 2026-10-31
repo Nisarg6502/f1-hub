@@ -16,6 +16,7 @@ import { AnimatedRing } from "@/components/animated-ring";
 import Tooltip from "@/components/tooltip";
 import RaceWeekGlimpse from "@/components/race-week-glimpse";
 import DiscoveryTips from "@/components/discovery-tips";
+import CatchUpCard from "@/components/catch-up-card";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion-primitives";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { getCircuitImagePath } from "@/lib/circuit-images";
@@ -341,6 +342,8 @@ export default async function Home() {
           </TiltCard>
         </div>
       </section>
+
+      <CatchUpCard season={seasonYear} races={races} />
 
       {/* ===================== RACE WEEK ===================== */}
       {/* Renders only while a weekend is running (or has just finished), and
