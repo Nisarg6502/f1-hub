@@ -154,9 +154,31 @@ function snapshotScript(frameId: string, maxChars: number): string {
 
     try {
       var body = getComputedStyle(document.body);
-      var wrap = '<div xmlns="' + XHTMLNS + '" style="width:' + width + 'px;height:' + height +
+      // Re-hosted inside an <svg> image, the mount loses its html/body
+      // ancestors, so rules and custom properties scoped to them no longer
+      // reach chart marks (bars came out black, lines vanished). Two
+      // belt-and-braces fixes: copy every root/body custom property onto the
+      // wrapper, and bake computed paint into each chart <svg> subtree.
+      var vars = "";
+      var roots = [getComputedStyle(document.documentElement), body];
+      for (var ri = 0; ri < roots.length; ri++) {
+        for (var k = 0; k < roots[ri].length; k++) {
+          var name = roots[ri][k];
+          if (name.indexOf("--") === 0) {
+            vars += name + ":" + roots[ri].getPropertyValue(name).replace(/"/g, "'") + ";";
+          }
+        }
+      }
+      var clone = mount.cloneNode(true);
+      var origSvgs = mount.getElementsByTagNameNS(SVGNS, "svg");
+      var copySvgs = clone.getElementsByTagNameNS(SVGNS, "svg");
+      for (var si = 0; si < origSvgs.length && si < copySvgs.length; si++) {
+        if (!origSvgs[si].ownerSVGElement) inlinePaint(origSvgs[si], copySvgs[si]);
+      }
+      var wrap = '<div xmlns="' + XHTMLNS + '" style="' + vars.replace(/&/g, "&amp;").replace(/</g, "&lt;") + 'width:' + width +
+        'px;height:' + height +
         'px;font-family:' + body.fontFamily.replace(/"/g, "'") + ';font-size:' + body.fontSize +
-        ';color:' + body.color + ';">' + xs.serializeToString(mount) + '</div>';
+        ';color:' + body.color + ';">' + xs.serializeToString(clone) + '</div>';
       html = '<svg xmlns="' + SVGNS + '" width="' + width + '" height="' + height +
         '" viewBox="0 0 ' + width + ' ' + height + '"><style>' +
         cssText().replace(/<\\//g, "<\\\\/") + '</style><foreignObject x="0" y="0" width="' + width +
