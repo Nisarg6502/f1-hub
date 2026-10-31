@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, useReducedMotion } from "motion/react";
 import MobileMoreSheet from "./mobile-more-sheet";
+import { useSpoilers } from "@/lib/spoilers-client";
 
 /**
  * `/telemetry` is deliberately NOT here.
@@ -241,6 +242,8 @@ export function MobileNav() {
   const pathname = usePathname();
 
   const [moreOpen, setMoreOpen] = useState(false);
+  const spoilers = useSpoilers();
+  const spoilersOn = spoilers.ready && spoilers.prefs.on;
 
   /**
    * Still six columns — the width budget below has not changed — but the sixth
@@ -335,12 +338,18 @@ export function MobileNav() {
           moreActive || moreOpen ? "text-primary" : "text-warm-500"
         }`}
       >
-        <span className="material-symbols-outlined text-[22px]" aria-hidden="true">
+        <span className="relative material-symbols-outlined text-[22px]" aria-hidden="true">
           more_horiz
+          {/* Spoiler-free indicator for phones, where the settings live in
+              this sheet: a flame dot on the tab that leads to them. */}
+          {spoilersOn && (
+            <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-primary-container shadow-[0_0_8px_rgb(var(--rgb-primary-container)_/_0.9)]" />
+          )}
         </span>
         <span className="text-[9px] font-semibold tracking-[0.1em] uppercase">
           More
         </span>
+        {spoilersOn && <span className="sr-only">(spoiler-free mode is on)</span>}
       </button>
 
       <MobileMoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} />

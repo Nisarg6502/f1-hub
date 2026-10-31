@@ -9,6 +9,7 @@ import { getDriverBio } from "@/lib/api";
 import { driverPortraitFrameStyle, driverPortraitSizes } from "@/lib/driver-portrait";
 import { useModalDialog } from "@/lib/use-modal-dialog";
 import FlagImg from "./flag-img";
+import { SpoilerStub } from "./spoiler-shield";
 
 interface DriverModalProps {
   driver: DriverStanding;
@@ -16,6 +17,15 @@ interface DriverModalProps {
   flagSrc: string | null;
   color: { hex: string; glow: string };
   onClose: () => void;
+  /** Spoiler-free mode is hiding a round of this season: position, points, season wins go. */
+  seasonFiguresHidden?: boolean;
+  /**
+   * A round of ANY season in the window is hidden: the career totals go, since
+   * a win, podium or pole in it is already counted. Separate from the season
+   * flag because across New Year last season's finale can be hidden while the
+   * new season's figures are not. Defaults to the season flag.
+   */
+  careerFiguresHidden?: boolean;
 }
 
 function ageFromDob(dob?: string | null): number | null {
@@ -32,6 +42,8 @@ export default function DriverModal({
   flagSrc,
   color,
   onClose,
+  seasonFiguresHidden = false,
+  careerFiguresHidden = seasonFiguresHidden,
 }: DriverModalProps) {
   const reduce = useReducedMotion();
   const driverId = driver.Driver.driverId;
@@ -166,7 +178,22 @@ export default function DriverModal({
             {given} {family}
           </div>
 
+          {(seasonFiguresHidden || careerFiguresHidden) && (
+            <div className="mt-5 bg-veil/5 rounded-xl px-3.5 py-3.5">
+              <SpoilerStub
+                label={
+                  seasonFiguresHidden && careerFiguresHidden
+                    ? "Season and career figures are hidden by spoiler-free mode"
+                    : seasonFiguresHidden
+                    ? "Season figures are hidden by spoiler-free mode"
+                    : "Career figures are hidden by spoiler-free mode"
+                }
+              />
+            </div>
+          )}
+
           {/* Current-season stats — already known, no fetch needed. */}
+          {!seasonFiguresHidden && (
           <div className="grid grid-cols-3 gap-3 mt-5">
             {[
               { l: "Position", v: `P${driver.position}` },
@@ -186,6 +213,7 @@ export default function DriverModal({
               </div>
             ))}
           </div>
+          )}
 
           {/* Bio + career totals — fetched lazily on open. */}
           <div className="mt-6">
@@ -203,6 +231,7 @@ export default function DriverModal({
               </div>
             ) : bio ? (
               <>
+                {!careerFiguresHidden && (
                 <div className="grid grid-cols-4 gap-3">
                   {careerStats.map((s) => (
                     <div
@@ -218,6 +247,7 @@ export default function DriverModal({
                     </div>
                   ))}
                 </div>
+                )}
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-4 text-xs text-warm-400 font-medium">
                   {bio.nationality && <span>{bio.nationality}</span>}
                   {bio.dateOfBirth && (

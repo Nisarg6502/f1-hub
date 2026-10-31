@@ -33,11 +33,11 @@ import ShareSheet, { type ShareRenderResult, type ShareSheetProps, type ShareVar
  * the sender's side — the Share button and sheet must not render for a round
  * the viewer has hidden, since the preview itself would show the result.
  *
- * TODO(spoilers, #210): gate on spoiler-free mode once #210 lands on main. It
- * exposes `getSpoilerContext` / `useSpoilers` in `lib/spoilers*`; render
- * nothing from `RaceShareButton` for a hidden round, and from the standings /
- * progression buttons while any round of `season` is hidden. Not wired yet
- * because that API is not on main at the time of writing.
+ * The hidden set is decided on the server (`getSpoilerContext`), from the
+ * calendar and the viewer's cookie, so the gate is applied there: the race
+ * page passes `hidden` for a round spoiler-free mode is hiding, and
+ * `/standings` replaces the whole view (and with it the standings and
+ * progression buttons) with a shield while any round of the season is hidden.
  */
 
 type SheetSource = Omit<ShareSheetProps, "open" | "onClose">;
@@ -142,7 +142,10 @@ export function RaceShareButton({
   round,
   raceName,
   sessions,
+  hidden = false,
 }: {
+  /** True when spoiler-free mode hides this round: the card would show the result. */
+  hidden?: boolean;
   season: number;
   round: number;
   raceName: string;
@@ -160,7 +163,7 @@ export function RaceShareButton({
       shareFilename([raceName, season, asSession(variant) === "sprint" ? "sprint" : null], format),
     [raceName, season]
   );
-  if (sessions.length === 0) return null;
+  if (hidden || sessions.length === 0) return null;
   return (
     <ShareButton
       label={`Share the ${season} ${raceName} result as an image`}
