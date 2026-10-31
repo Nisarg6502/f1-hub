@@ -10,6 +10,7 @@ import PitwallAssistantLauncher from "@/components/pitwall-assistant-launcher";
 import AppShell from "@/components/app-shell";
 import Analytics from "@/components/analytics";
 import ConsentBanner from "@/components/consent-banner";
+import AccountControl from "@/components/account/account-control";
 import "./globals.css";
 
 /**
@@ -267,6 +268,7 @@ export default function RootLayout({
               <Suspense fallback={<div className="font-semibold text-xs text-warm-300 w-[85px]" />}>
                 <SeasonBadge />
               </Suspense>
+              <AccountControl />
             </div>
           </div>
         </nav>

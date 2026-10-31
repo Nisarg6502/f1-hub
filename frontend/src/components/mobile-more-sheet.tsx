@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useModalDialog } from "@/lib/use-modal-dialog";
 import GlobalSearch from "./global-search";
+import AccountSheetRow from "./account/account-sheet-row";
 
 /**
  * The overflow half of the phone navigation.
@@ -138,6 +139,8 @@ export default function MobileMoreSheet({
             <div className="mb-4">
               <GlobalSearch variant="sheet" onDetailOpenChange={setDetailOpen} />
             </div>
+
+            <AccountSheetRow onNavigate={onClose} />
 
             <nav aria-label="More sections" className="flex flex-col gap-1.5">
               {items.map((item) => (

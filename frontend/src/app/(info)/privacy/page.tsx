@@ -4,7 +4,7 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "Privacy | APEX",
   description:
-    "What APEX measures with Google Analytics, the two cookies it can set, two browser-local preferences, and one real disclosure: what happens to Pitwall chat messages.",
+    "What APEX measures with Google Analytics, the cookies it can set, what an optional account stores and how to export or delete it, and what happens to Pitwall chat messages.",
 };
 
 export default function PrivacyPage() {
@@ -12,10 +12,11 @@ export default function PrivacyPage() {
     <>
       <h1>Privacy</h1>
       <p className="lede">
-        Short, because there is not much to say. APEX has no accounts and sells
-        nothing. It does measure which pages get used, and it asks first where
-        the law requires it. The one thing worth reading carefully is what
-        happens to what you type into the chat assistant.
+        Short, because there is not much to say. APEX sells nothing, and
+        accounts are optional: everything works without one. It does measure
+        which pages get used, and it asks first where the law requires it. Two
+        things are worth reading carefully: what an account stores if you make
+        one, and what happens to what you type into the chat assistant.
       </p>
 
       <h2>What APEX does not do</h2>
@@ -27,8 +28,10 @@ export default function PrivacyPage() {
           to follow you somewhere else.
         </li>
         <li>
-          <strong>No accounts.</strong> There is nothing to sign up for and
-          nothing to log into, so there is no profile to build.
+          <strong>No account required.</strong> Every page and the chat
+          assistant work without signing in. An account is optional, and only
+          stores what is listed under{" "}
+          <a href="#accounts">If you create an account</a>.
         </li>
         <li>
           <strong>No selling or sharing of personal data.</strong> Analytics
@@ -43,8 +46,8 @@ export default function PrivacyPage() {
         otherwise cannot: which of these pages are actually used, whether people
         arrive on a phone or a desktop, and whether things like the race replay
         and the 3D circuit viewer are ever opened. This is a portfolio project
-        with no accounts and no revenue, and until now it had no way of knowing
-        whether any of it worked.
+        with no revenue, and until now it had no way of knowing whether any of
+        it worked.
       </p>
       <p>What is collected:</p>
       <ul>
@@ -64,9 +67,10 @@ export default function PrivacyPage() {
       <p>
         <strong>The message count is recorded; the messages are not.</strong>{" "}
         Nothing you type — into the assistant or into the search box — is ever
-        sent to Google. Nor is anything that could identify you: there are no
-        accounts here, so there is no identity to attach. Analytics data is
-        deleted after 14 months.
+        sent to Google. Nor is anything that could identify you: if you have an
+        account, its id, name and email are never sent to Google Analytics, so
+        analytics cannot be tied to it. Analytics data is deleted after 14
+        months.
       </p>
 
       <h2>Consent, and why there is now a banner</h2>
@@ -101,11 +105,121 @@ export default function PrivacyPage() {
       </p>
       <p>
         It carries no profile, records nothing about you, and is useless to any
-        other site. It is set only when you use the assistant, and it is the one
-        cookie here you are not asked about: a strictly-necessary cookie does
+        other site. It is set only when you use the assistant, and it is not
+        asked about (nor is the sign-in cookie described below, if you choose
+        to make an account): a strictly-necessary cookie does
         not require consent, and asking permission for something you cannot
         decline would be theatre. The analytics cookie above is a different
         matter, which is exactly why that one is asked about.
+      </p>
+
+      <h2 id="accounts">If you create an account</h2>
+      <p>
+        Accounts are optional. Nothing on this site needs one; signing in only
+        adds favourites, preferences and saved chat history that follow you
+        between devices. There are no passwords: you sign in with Google or
+        with a one-time link sent to your email address.
+      </p>
+      <p>
+        If you make one, this is what is stored, all of it in a{" "}
+        <strong>MongoDB Atlas</strong> database (the same one that holds the
+        race data):
+      </p>
+      <div className="info-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>What</th>
+              <th>Why</th>
+              <th>Kept for</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Your email address, display name, and avatar URL</td>
+              <td>
+                To sign you in and show who is signed in. The name and avatar
+                come from Google if you use it (the avatar is a link to the
+                picture on Google&apos;s servers, not a copy); otherwise the
+                name starts as the first part of your email address and the
+                avatar is your initials. You can change the name.
+              </td>
+              <td>Until you delete the account</td>
+            </tr>
+            <tr>
+              <td>Linked sign-in methods</td>
+              <td>
+                If you use Google: your Google account id and the tokens Google
+                issues at sign-in, stored encrypted. They are not used for
+                anything after sign-in.
+              </td>
+              <td>Until you disconnect Google or delete the account</td>
+            </tr>
+            <tr>
+              <td>Sessions</td>
+              <td>
+                One record per signed-in browser, with its IP address and
+                browser name, so you stay signed in.
+              </td>
+              <td>30 days after you last used it, or until you sign out</td>
+            </tr>
+            <tr>
+              <td>Preferences</td>
+              <td>
+                Favourite driver and team, time format, and later your home
+                page layout and spoiler settings.
+              </td>
+              <td>Until you delete the account</td>
+            </tr>
+            <tr>
+              <td>Chat conversations</td>
+              <td>
+                Once saved chat history is switched on, conversations you have
+                while signed in are stored against your account so you can come
+                back to them on another device.
+              </td>
+              <td>Until you delete them or the account</td>
+            </tr>
+            <tr>
+              <td>Sign-in links</td>
+              <td>
+                A hashed copy of each emailed link, and a record that a link
+                was sent to your address, used to limit how many can be sent.
+              </td>
+              <td>10 minutes for the link; one hour for the record</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Accounts are not deleted automatically for inactivity, so an account
+        you stop using stays until you delete it.
+      </p>
+      <p>
+        <strong>Signing in sets one cookie</strong>,{" "}
+        <strong>better-auth.session_token</strong> (on the live site it carries
+        a <strong>__Secure-</strong> prefix). It holds a random session
+        identifier, lasts up to 30 days, and is strictly necessary to keep you
+        signed in, so like the rate-limiting cookie it is not asked about. It
+        is only set once you choose to sign in.
+      </p>
+      <p>
+        <strong>Who else is involved.</strong> If you sign in with Google,
+        Google sees that you signed in to APEX and shares your name, email
+        address and profile picture with it. If you use an email link, the
+        link is sent through the email provider APEX sends mail with, which
+        therefore handles your address and the message.
+        Neither receives your preferences or your chat history.
+      </p>
+      <p>
+        <strong>Export or delete it yourself.</strong> On your{" "}
+        <Link href="/account">account page</Link>, <em>Export my data</em>{" "}
+        downloads everything listed above as a JSON file (with sign-in tokens
+        withheld, since they are credentials rather than information about
+        you). <em>Delete account</em> removes your account, every session,
+        your linked sign-in methods, your preferences and your saved chat
+        conversations immediately. If the database host is keeping backups,
+        a copy can survive in them until they expire.
       </p>
 
       <h2>Stored in your browser only</h2>
