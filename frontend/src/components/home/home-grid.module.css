@@ -1,0 +1,110 @@
+/*
+ * Grid geometry and the edit-mode jiggle for the customisable home.
+ *
+ * A CSS module rather than additions to globals.css: everything here is
+ * private to the home grid, and keeping it beside the component keeps the
+ * feature's footprint inside `components/home/`.
+ */
+
+/*
+ * Fixed cell heights are what make "no layout shift" true. Every S/M/L widget
+ * is exactly one or two cells tall whatever it contains, so a client-fetched
+ * widget swapping its skeleton for data, a font loading late, or a longer
+ * driver name cannot move anything around it. Only `full` widgets are
+ * content-height, and every one of those renders from server data.
+ *
+ * 212px on a phone is the tallest the old leader card ever got there (a
+ * two-line name); 252px from `lg` is the old bento card's measured height at
+ * 1440px. Rows are `auto` so a `full` widget can be as tall as its content
+ * while S/M/L set their own height.
+ */
+.grid {
+  --cell: 212px;
+  --gap: 20px; /* the old page's gap-5, at every width */
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: auto;
+  grid-auto-flow: row; /* sparse, never dense — see placeLayout() */
+  gap: var(--gap);
+}
+
+@media (min-width: 1024px) {
+  .grid {
+    --cell: 252px;
+    --gap: 20px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.size-s {
+  grid-column: span 1;
+  height: var(--cell);
+}
+.size-m {
+  grid-column: span 2;
+  height: var(--cell);
+}
+.size-l {
+  grid-column: span 2;
+  grid-row: span 2;
+  height: calc(var(--cell) * 2 + var(--gap));
+}
+.size-full {
+  grid-column: 1 / -1;
+}
+
+/*
+ * The jiggle. A CSS animation, not a motion spring: it is a predetermined,
+ * endlessly repeating loop with nothing to interrupt, so it belongs on the
+ * compositor where a busy main thread (a drag, a fetch landing) cannot make it
+ * stutter. It runs on an inner element so it never fights the outer element's
+ * layout-animation transform.
+ *
+ * Amplitude shrinks as widgets grow — the same 1° that reads as a nervous
+ * tremble on a 1×1 tile swings the corners of a full-width hero by a dozen
+ * pixels. Each cell gets its own phase (`--jiggle-delay`) so the grid shivers
+ * rather than rocking in unison.
+ */
+@keyframes jiggle {
+  0% {
+    transform: rotate(calc(var(--jiggle-amp) * -1));
+  }
+  50% {
+    transform: rotate(var(--jiggle-amp));
+  }
+  100% {
+    transform: rotate(calc(var(--jiggle-amp) * -1));
+  }
+}
+
+.jiggle {
+  animation: jiggle 280ms ease-in-out infinite;
+  animation-delay: var(--jiggle-delay, 0ms);
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+.size-s .jiggle {
+  --jiggle-amp: 0.9deg;
+}
+.size-m .jiggle {
+  --jiggle-amp: 0.45deg;
+}
+.size-l .jiggle {
+  --jiggle-amp: 0.35deg;
+}
+.size-full .jiggle {
+  --jiggle-amp: 0.1deg;
+}
+
+/* Paused while a widget is being dragged or focused: a target that wobbles
+   under the pointer, or a focus ring that wobbles under the eye, is harder to
+   hit and harder to read. */
+.jiggle.still {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jiggle {
+    animation: none;
+  }
+}

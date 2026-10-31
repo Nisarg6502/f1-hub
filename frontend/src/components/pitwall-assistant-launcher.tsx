@@ -28,6 +28,14 @@ import { track } from "@/lib/analytics";
 
 type Visibility = "closed" | "open" | "minimized";
 
+/**
+ * Dispatch on `window` to open (or restore) the assistant from anywhere — the
+ * home page's "Ask the Pitwall" widget does. A named event rather than a
+ * synthetic Cmd/Ctrl+K: the shortcut is a keyboard affordance that could
+ * change, and opening "via shortcut" would mislabel the analytics.
+ */
+export const OPEN_PITWALL_EVENT = "apex:open-pitwall";
+
 /** Shared nudge-tooltip look — a small glass callout, matching the panel's
  *  own `apex-glass-strong` surfaces rather than inventing a new one. */
 const NUDGE_TOOLTIP_CLASS =
@@ -106,6 +114,12 @@ export default function PitwallAssistantLauncher() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [openOrRestore]);
+
+  useEffect(() => {
+    const handleOpen = () => openOrRestore("home-widget");
+    window.addEventListener(OPEN_PITWALL_EVENT, handleOpen);
+    return () => window.removeEventListener(OPEN_PITWALL_EVENT, handleOpen);
   }, [openOrRestore]);
 
   return (
