@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET as standingsGET } from "@/app/api/share/standings/route";
 import { GET as raceGET } from "@/app/api/share/race/[season]/[round]/route";
 import { GET as progressionGET } from "@/app/api/share/progression/route";
+import { clearCardMemo } from "@/app/api/share/_lib/respond";
+import { cardHost } from "@/app/api/share/_lib/frame";
 import {
   fixtureDriverStandings,
   fixtureLongConstructorStandings,
@@ -41,6 +43,7 @@ function stubBackend(map: Record<string, Handler>) {
 }
 
 beforeEach(() => {
+  clearCardMemo();
   routes = {};
   vi.stubGlobal(
     "fetch",
@@ -263,5 +266,60 @@ describe("GET /api/share/progression", () => {
   it("rejects a bad kind with 400", async () => {
     const res = await progressionGET(req("/api/share/progression?kind=both"));
     expect(res.status).toBe(400);
+  });
+});
+
+describe("hardening", () => {
+  const races2026 = [fixtureRace(1, "Australian Grand Prix")];
+
+  it.each([
+    "/api/share/standings?season=2026&cb=123",
+    "/api/share/standings?format=landscape&format=portrait",
+    "/api/share/progression?kind=drivers&utm_source=x",
+  ])("rejects unknown or repeated params with a 400 and no fetch: %s", async (path) => {
+    const get = path.includes("progression") ? progressionGET : standingsGET;
+    const res = await get(req(path));
+    expect(res.status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects unknown params on the race route", async () => {
+    const res = await raceGET(req("/api/share/race/2026/1?bust=1"), {
+      params: Promise.resolve({ season: "2026", round: "1" }),
+    });
+    expect(res.status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("memoises by parsed params: an equivalent URL does not fetch or render again", async () => {
+    stubBackend({
+      "/api/driverstandings": () => jsonResponse({ driver_standings: fixtureDriverStandings() }),
+      "/api/races": () => jsonResponse({ races: races2026 }),
+    });
+    await expectPng(await standingsGET(req("/api/share/standings?season=2026&kind=drivers")), 1200, 630);
+    const calls = vi.mocked(fetch).mock.calls.length;
+    await expectPng(
+      await standingsGET(req("/api/share/standings?kind=drivers&format=landscape&season=2026")),
+      1200,
+      630
+    );
+    expect(vi.mocked(fetch).mock.calls.length).toBe(calls);
+  }, 60_000);
+
+  it("does not memoise failures", async () => {
+    stubBackend({ "/api/driverstandings": () => jsonResponse({}, 500) });
+    expect((await standingsGET(req("/api/share/standings?season=2026"))).status).toBe(503);
+    stubBackend({
+      "/api/driverstandings": () => jsonResponse({ driver_standings: fixtureDriverStandings() }),
+      "/api/races": () => jsonResponse({ races: races2026 }),
+    });
+    await expectPng(await standingsGET(req("/api/share/standings?season=2026")), 1200, 630);
+  }, 60_000);
+
+  it("prints the configured site host, never the request's Host header", () => {
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://apex.example");
+    expect(cardHost()).toBe("apex.example");
+    vi.unstubAllEnvs();
+    expect(cardHost()).not.toBe("apex.test");
   });
 });

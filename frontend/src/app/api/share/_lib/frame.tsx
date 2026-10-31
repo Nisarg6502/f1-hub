@@ -279,10 +279,18 @@ export function EmptyBody({ format, title, detail }: { format: ShareFormat; titl
   );
 }
 
-/** `host` for the footer: the request's own, so a preview deploy says so. */
-export function cardHost(requestUrl: string): string {
+/**
+ * `host` for the footer: the configured public site, never the request's
+ * `Host` / `X-Forwarded-Host`. Those headers are caller-controlled, and a
+ * card is an image other people see — trusting them would let anyone render
+ * an APEX-branded card that names a domain of their choosing. Same variable
+ * and fallback as `metadataBase` in `app/layout.tsx`.
+ */
+export function cardHost(): string {
   try {
-    return new URL(requestUrl).host;
+    return new URL(
+      process.env.NEXT_PUBLIC_SITE_URL ?? "https://f1-frontend-2w5wydk2ca-el.a.run.app"
+    ).host;
   } catch {
     return "APEX";
   }

@@ -4,7 +4,7 @@ import { parseRaceParams, shareCacheControl, shareFilename } from "@/lib/share";
 import { hasClassification, resultRows } from "@/lib/share-results";
 import { loadDriverPortrait } from "../../../_lib/assets";
 import { cardHost } from "../../../_lib/frame";
-import { renderCard, shareError } from "../../../_lib/respond";
+import { memoCard, renderCard, shareError } from "../../../_lib/respond";
 import { RaceCard } from "../../../_cards/race-card";
 
 /**
@@ -29,6 +29,8 @@ export async function GET(
   const active = getActiveSeasonYear();
   const parsed = parseRaceParams(await params, request.nextUrl.searchParams, active);
   if (!parsed.ok) return shareError(400, parsed.error);
+  // Memoised by the parsed card, not the URL; see `memoCard`.
+  return memoCard(`race:${JSON.stringify(parsed.value)}`, async () => {
   const { season, round, session, format } = parsed.value;
 
   let races: Awaited<ReturnType<typeof getSeasonRaces>>["races"];
@@ -71,7 +73,7 @@ export async function GET(
       circuitName={race.Circuit?.circuitName ?? null}
       rows={rows}
       portraits={Object.fromEntries(podiumPortraits)}
-      host={cardHost(request.url)}
+      host={cardHost()}
     />,
     format,
     {
@@ -79,4 +81,5 @@ export async function GET(
       filename: shareFilename([race.raceName, season, session === "sprint" ? "sprint" : null], format),
     }
   );
+  });
 }

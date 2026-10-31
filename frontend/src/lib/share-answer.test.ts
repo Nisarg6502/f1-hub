@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { answerChartPanel, containBox, planAnswerCard } from "./share-answer";
+import { clampRasterSize, MAX_RASTER_AREA, MAX_RASTER_SIDE, answerChartPanel, containBox, planAnswerCard } from "./share-answer";
 import { SHARE_FORMATS } from "./share";
 
 /** Proportional-ish fake ruler: 0.5em per character. */
@@ -104,5 +104,23 @@ describe("containBox", () => {
 
   it("is total on a zero-size image", () => {
     expect(containBox(0, 100, box)).toEqual({ x: 10, y: 20, w: 0, h: 0 });
+  });
+});
+
+describe("clampRasterSize", () => {
+  it("keeps ordinary sizes at the requested scale", () => {
+    expect(clampRasterSize(560, 300, 2)).toEqual({ width: 1120, height: 600 });
+  });
+  it("clamps a runaway height and keeps the aspect ratio", () => {
+    const { width, height } = clampRasterSize(560, 1_000_000, 2);
+    expect(height).toBeLessThanOrEqual(MAX_RASTER_SIDE);
+    expect(width * height).toBeLessThanOrEqual(MAX_RASTER_AREA);
+  });
+  it("bounds total area even when each side is under the limit", () => {
+    const { width, height } = clampRasterSize(4000, 4000, 2);
+    expect(width * height).toBeLessThanOrEqual(MAX_RASTER_AREA);
+  });
+  it("collapses junk input to a drawable size", () => {
+    expect(clampRasterSize(NaN, -5, Infinity)).toEqual({ width: 1, height: 1 });
   });
 });

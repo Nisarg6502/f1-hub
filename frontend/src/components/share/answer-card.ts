@@ -2,7 +2,7 @@
 
 import type { AgentVisual } from "@/lib/agent-api";
 import type { ShareFormat } from "@/lib/share";
-import { answerChartPanel, containBox, planAnswerCard, type Box } from "@/lib/share-answer";
+import { answerChartPanel, clampRasterSize, containBox, planAnswerCard, type Box } from "@/lib/share-answer";
 import { CONTINUED_ON_APEX, ellipsize } from "@/lib/share-text";
 import { snapshotVisual, type VisualSnapshot } from "./visual-snapshot";
 
@@ -87,8 +87,9 @@ async function rasterise(svg: string, w: number, h: number, scale: number): Prom
   try {
     const img = await loadImage(svg);
     const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(w * scale));
-    canvas.height = Math.max(1, Math.round(h * scale));
+    const size = clampRasterSize(w, h, scale); // the frame reports w × h; never trust it unbounded
+    canvas.width = size.width;
+    canvas.height = size.height;
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);

@@ -12,7 +12,7 @@ import { buildProgressionGeometry, progressionSeriesLimit } from "@/lib/share-ch
 import { getTeamColor } from "@/lib/team-colors";
 import { shortTeamLabel } from "@/lib/share-results";
 import { cardHost } from "../_lib/frame";
-import { renderCard, shareError } from "../_lib/respond";
+import { memoCard, renderCard, shareError } from "../_lib/respond";
 import { ProgressionCard, progressionChartBox } from "../_cards/progression-card";
 
 /**
@@ -29,6 +29,8 @@ export async function GET(request: NextRequest): Promise<Response> {
   const active = getActiveSeasonYear();
   const parsed = parseStandingsParams(request.nextUrl.searchParams, active);
   if (!parsed.ok) return shareError(400, parsed.error);
+  // Memoised by the parsed card, not the URL; see `memoCard`.
+  return memoCard(`progression:${JSON.stringify(parsed.value)}`, async () => {
   const { season, kind, format } = parsed.value;
 
   let entities: Array<{ id: string; label: string; colorHex: string }>;
@@ -89,7 +91,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       roundCount={rows.length}
       shown={entities.length}
       total={total}
-      host={cardHost(request.url)}
+      host={cardHost()}
     />,
     format,
     {
@@ -97,4 +99,5 @@ export async function GET(request: NextRequest): Promise<Response> {
       filename: shareFilename(["title-race", season, kind], format),
     }
   );
+  });
 }

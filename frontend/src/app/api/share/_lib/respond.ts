@@ -40,10 +40,19 @@ export async function renderCard(
   format: ShareFormat,
   { cacheControl, filename }: { cacheControl: string; filename: string }
 ): Promise<Response> {
-  const fonts = await loadCardFonts();
-  const { width, height } = SHARE_FORMATS[format];
-  const image = new ImageResponse(element, { width, height, fonts });
-  const body = await image.arrayBuffer();
+  let body: ArrayBuffer;
+  try {
+    const fonts = await loadCardFonts();
+    const { width, height } = SHARE_FORMATS[format];
+    const image = new ImageResponse(element, { width, height, fonts });
+    body = await image.arrayBuffer();
+  } catch (error) {
+    // A Satori/resvg failure is ours, but it is still answered as the JSON
+    // 503 rather than a bare 500: `no-store`, a stable shape for the share
+    // sheet's error line, and a hint to crawlers to retry later.
+    console.error("share card render failed", error);
+    return shareError(503, "This card couldn't be drawn right now.");
+  }
   return new Response(body, {
     status: 200,
     headers: {
@@ -56,4 +65,60 @@ export async function renderCard(
       "Content-Disposition": `inline; filename="${filename}"`,
     },
   });
+}
+
+/* ==========================================================================
+   Render memo
+   ========================================================================== */
+
+interface MemoEntry {
+  expires: number;
+  result: Promise<{ status: number; headers: [string, string][]; body: ArrayBuffer }>;
+}
+
+const MEMO_MAX = 64;
+const MEMO_TTL_MS = 5 * 60 * 1000;
+const memo = new Map<string, MemoEntry>();
+
+/**
+ * Serve a card from an in-process memo keyed by its *parsed* parameters.
+ *
+ * The CDN caches by URL; this caches by meaning, so two URLs that parse to
+ * the same card (`?format=landscape` and no format at all) share one render,
+ * and concurrent requests for one card share one in-flight render. Together
+ * with `rejectUnknownParams` that bounds rendering work to the number of real
+ * cards per five minutes, however many URLs are thrown at the routes.
+ *
+ * Only 200s are kept: an error is cheap to recompute and must not outlive
+ * the backend hiccup that caused it. Five minutes matches the active-season
+ * `Cache-Control`; past seasons simply re-render a little more often than
+ * the CDN would. Small LRU (Map insertion order), per instance.
+ */
+export async function memoCard(key: string, produce: () => Promise<Response>): Promise<Response> {
+  const now = Date.now();
+  let entry = memo.get(key);
+  if (!entry || entry.expires <= now) {
+    const result = produce().then(async (res) => ({
+      status: res.status,
+      headers: [...res.headers.entries()],
+      body: await res.arrayBuffer(),
+    }));
+    entry = { expires: now + MEMO_TTL_MS, result };
+    memo.set(key, entry);
+    result.then(
+      (r) => { if (r.status !== 200) memo.delete(key); },
+      () => memo.delete(key)
+    );
+    while (memo.size > MEMO_MAX) memo.delete(memo.keys().next().value as string);
+  } else {
+    memo.delete(key);
+    memo.set(key, entry);
+  }
+  const r = await entry.result;
+  return new Response(r.body.slice(0), { status: r.status, headers: r.headers });
+}
+
+/** Test seam: forget every memoised card. */
+export function clearCardMemo(): void {
+  memo.clear();
 }

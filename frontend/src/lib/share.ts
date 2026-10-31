@@ -56,6 +56,29 @@ export type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string
 /** The subset of `URLSearchParams` the parsers read, so a plain map satisfies it in tests. */
 export interface ParamSource {
   get(name: string): string | null;
+  /** Present on `URLSearchParams`; when given, unknown names are rejected. */
+  keys?(): Iterable<string>;
+}
+
+/**
+ * Unknown query names are a 400, not ignored. The cards are cached and
+ * memoised by their *parsed* parameters, and accepting `?x=<random>` would
+ * let anyone mint unlimited distinct URLs that each miss the CDN and force a
+ * fresh render. Rejecting them keeps the URL space exactly as large as the
+ * set of real cards. Repeated names are rejected for the same reason.
+ */
+export function rejectUnknownParams(
+  params: ParamSource,
+  allowed: readonly string[]
+): ParseResult<null> {
+  if (!params.keys) return { ok: true, value: null };
+  const seen = new Set<string>();
+  for (const name of params.keys()) {
+    if (!allowed.includes(name)) return { ok: false, error: `Unknown parameter "${name}".` };
+    if (seen.has(name)) return { ok: false, error: `Parameter "${name}" is given twice.` };
+    seen.add(name);
+  }
+  return { ok: true, value: null };
 }
 
 /**
@@ -144,6 +167,8 @@ export function parseStandingsParams(
   params: ParamSource,
   activeSeason: number
 ): ParseResult<StandingsCardParams> {
+  const known = rejectUnknownParams(params, ["season", "kind", "format"]);
+  if (!known.ok) return known;
   const season = parseSeason(params.get("season"), activeSeason, { required: false });
   if (!season.ok) return season;
   const kind = parseStandingsKind(params.get("kind"));
@@ -166,6 +191,8 @@ export function parseRaceParams(
   params: ParamSource,
   activeSeason: number
 ): ParseResult<RaceCardParams> {
+  const known = rejectUnknownParams(params, ["session", "format"]);
+  if (!known.ok) return known;
   const season = parseSeason(segments.season, activeSeason, { required: true });
   if (!season.ok) return season;
   const round = parseRound(segments.round);

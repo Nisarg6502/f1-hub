@@ -9,7 +9,7 @@ import { parseStandingsParams, shareCacheControl, shareFilename } from "@/lib/sh
 import { constructorStandingRows, driverStandingRows, lastScoredRound } from "@/lib/share-results";
 import { loadDriverPortrait } from "../_lib/assets";
 import { cardHost } from "../_lib/frame";
-import { renderCard, shareError } from "../_lib/respond";
+import { memoCard, renderCard, shareError } from "../_lib/respond";
 import { StandingsCard, standingsRowLimit } from "../_cards/standings-card";
 
 /**
@@ -28,6 +28,8 @@ export async function GET(request: NextRequest): Promise<Response> {
   const active = getActiveSeasonYear();
   const parsed = parseStandingsParams(request.nextUrl.searchParams, active);
   if (!parsed.ok) return shareError(400, parsed.error);
+  // Memoised by the parsed card, not the URL; see `memoCard`.
+  return memoCard(`standings:${JSON.stringify(parsed.value)}`, async () => {
   const { season, kind, format } = parsed.value;
 
   let standings: Parameters<typeof driverStandingRows>[0] | Parameters<typeof constructorStandingRows>[0];
@@ -65,7 +67,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       leaderPortrait={leaderPortrait}
       afterRound={lastScoredRound(races)}
       isFinal={season < active}
-      host={cardHost(request.url)}
+      host={cardHost()}
     />,
     format,
     {
@@ -73,4 +75,5 @@ export async function GET(request: NextRequest): Promise<Response> {
       filename: shareFilename(["standings", season, kind], format),
     }
   );
+  });
 }

@@ -25,6 +25,19 @@ import ShareSheet, { type ShareRenderResult, type ShareSheetProps, type ShareVar
  * The sheet is not mounted until the first click — nothing about sharing
  * costs a page anything until someone asks — and stays mounted afterwards so
  * its exit animation can play.
+ *
+ * Spoilers. The image URLs under `/api/share/**` are deliberately public and
+ * spoiler-unaware: they are what a recipient's chat app fetches, with no
+ * cookie or preference to consult, and a shared card is by definition one
+ * its sender chose to reveal. Spoiler protection therefore belongs here, on
+ * the sender's side — the Share button and sheet must not render for a round
+ * the viewer has hidden, since the preview itself would show the result.
+ *
+ * TODO(spoilers, #210): gate on spoiler-free mode once #210 lands on main. It
+ * exposes `getSpoilerContext` / `useSpoilers` in `lib/spoilers*`; render
+ * nothing from `RaceShareButton` for a hidden round, and from the standings /
+ * progression buttons while any round of `season` is hidden. Not wired yet
+ * because that API is not on main at the time of writing.
  */
 
 type SheetSource = Omit<ShareSheetProps, "open" | "onClose">;

@@ -172,3 +172,29 @@ export function containBox(w: number, h: number, box: Box): Box {
   const dh = Math.round(h * scale * 10) / 10;
   return { x: Math.round((box.x + (box.w - dw) / 2) * 10) / 10, y: box.y, w: dw, h: dh };
 }
+
+/** Largest side, and largest area, a scratch canvas is allowed. */
+export const MAX_RASTER_SIDE = 4096;
+export const MAX_RASTER_AREA = 4096 * 4096;
+
+/**
+ * Pixel size for rasterising a chart snapshot, clamped.
+ *
+ * `w × h` come from the visual frame's own report of its scroll size, and the
+ * frame runs model-written code: a chart that sets its height to 10^6 would
+ * otherwise ask for a canvas browsers refuse (Safari above ~16.7M px) or that
+ * stalls the tab allocating it. The scale is reduced uniformly so the aspect
+ * ratio, and therefore `containBox`'s fit, is unchanged. Non-finite or
+ * non-positive input collapses to 1×1, which simply draws nothing.
+ */
+export function clampRasterSize(w: number, h: number, scale: number): { width: number; height: number } {
+  const safe = (n: number) => (Number.isFinite(n) && n > 0 ? n : 1);
+  let k = safe(scale);
+  const W = safe(w);
+  const H = safe(h);
+  k = Math.min(k, MAX_RASTER_SIDE / W, MAX_RASTER_SIDE / H, Math.sqrt(MAX_RASTER_AREA / (W * H)));
+  return {
+    width: Math.max(1, Math.min(MAX_RASTER_SIDE, Math.floor(W * k))),
+    height: Math.max(1, Math.min(MAX_RASTER_SIDE, Math.floor(H * k))),
+  };
+}

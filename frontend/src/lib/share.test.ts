@@ -103,8 +103,9 @@ describe("parseStandingsParams", () => {
     if (!bad.ok) expect(bad.error).toMatch(/kind/);
   });
 
-  it("ignores parameters it does not know", () => {
-    expect(parseStandingsParams(params({ utm_source: "x" }), ACTIVE).ok).toBe(true);
+  it("rejects parameters it does not know (cache-busting must not mint new renders)", () => {
+    expect(parseStandingsParams(params({ utm_source: "x" }), ACTIVE).ok).toBe(false);
+    expect(parseStandingsParams(params({ season: "2026", kind: "drivers", format: "portrait" }), ACTIVE).ok).toBe(true);
   });
 });
 
