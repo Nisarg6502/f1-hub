@@ -15,6 +15,9 @@ import {
   getCurrentLiveSession,
   getNextSession,
 } from "@/lib/sessions";
+import { firstResultSessionMs, isRoundHidden, raceKey, raceStartMs } from "@/lib/spoilers";
+import { useSpoilers } from "@/lib/spoilers-client";
+import SpoilerShield from "@/components/spoiler-shield";
 
 function getTyreDotColor(compound?: string) {
   const normalized = (compound ?? "").toUpperCase();
@@ -79,8 +82,32 @@ export default function TelemetryPage() {
   );
   const nextSession = useMemo(() => getNextSession(sessions, nowMs), [sessions, nowMs]);
 
+  // Spoiler-free mode. A live running order IS the result of a session in
+  // progress, so it hides while that round is hidden, and the timing feed is
+  // not even polled. Decided in the browser because this page is a static
+  // client page (making it read `cookies()` on the server would turn it
+  // dynamic for a check that can only matter once a session is live, which is
+  // after the calendar has loaded here anyway). Practice before the round's
+  // first qualifying or sprint session is not hidden, by the same rule as
+  // everywhere else.
+  const spoilers = useSpoilers();
+  const liveRace = liveSession
+    ? races.find((r) => r.round === liveSession.round) ?? null
+    : null;
+  const liveRaceKey = liveRace ? raceKey(liveRace.season ?? getActiveSeasonYear(), liveRace.round) : "";
+  const timingHidden =
+    liveRace !== null &&
+    (!spoilers.ready ||
+      isRoundHidden(
+        spoilers.prefs,
+        liveRaceKey,
+        firstResultSessionMs(liveRace),
+        nowMs,
+        raceStartMs(liveRace)
+      ));
+
   useEffect(() => {
-    if (!liveSession) {
+    if (!liveSession || timingHidden) {
       setTimingRows([]);
       setTimingError(null);
       setIsConfigError(false);
@@ -136,7 +163,7 @@ export default function TelemetryPage() {
       isMounted = false;
       clearInterval(intervalId);
     };
-  }, [liveSession]);
+  }, [liveSession, timingHidden]);
 
   return (
     <div className="px-6 md:px-10 pt-10 pb-16 space-y-5">
@@ -194,7 +221,17 @@ export default function TelemetryPage() {
         </section>
       )}
 
-      {liveSession && (
+      {liveSession && timingHidden && liveRace && (
+        <SpoilerShield
+          hidden
+          raceKey={liveRaceKey}
+          raceName={liveRace.raceName}
+          description={`${liveSession.sessionLabel} is live. The running order is hidden until you reveal this round.`}
+          minHeight={420}
+        />
+      )}
+
+      {liveSession && !timingHidden && (
         <section className="apex-glass-soft rounded-2xl overflow-hidden">
           <div className="grid grid-cols-[42px_44px_90px_1fr_1fr_110px_140px_90px_74px] gap-2 px-4 py-3.5 text-[10px] tracking-[0.12em] uppercase font-bold text-warm-500 border-b border-white/[0.07]">
             <div className="text-center">Pos</div>

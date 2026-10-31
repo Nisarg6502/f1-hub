@@ -22,6 +22,8 @@ import { getTeamColor } from "@/lib/team-colors";
 import DriverModal from "./driver-modal";
 import CircuitDetailsModal from "./circuit-details-modal";
 import { track } from "@/lib/analytics";
+import { serializeSpoilerPrefs, type HiddenRound } from "@/lib/spoilers";
+import { useSpoilers } from "@/lib/spoilers-client";
 
 const EASE_OUT = [0.23, 1, 0.32, 1] as const;
 
@@ -130,6 +132,27 @@ export default function GlobalSearch({
   const [loaded, setLoaded] = useState(false);
 
   const [selectedDriver, setSelectedDriver] = useState<DriverResult | null>(null);
+  const [driverFigures, setDriverFigures] = useState({ season: false, career: false });
+  const spoilers = useSpoilers();
+  // Every hidden round across the seasons that can hold one, from the same
+  // server endpoint the settings panel uses. `null` = unknown or failed.
+  const [hiddenList, setHiddenList] = useState<HiddenRound[] | null>(null);
+  const spoilersKey = spoilers.ready && spoilers.prefs.on ? serializeSpoilerPrefs(spoilers.prefs) : "";
+  useEffect(() => {
+    if (!spoilersKey) return;
+    let cancelled = false;
+    fetch("/api/spoilers", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
+      .then((body: { hidden?: HiddenRound[] }) => {
+        if (!cancelled) setHiddenList(body.hidden ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setHiddenList(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [spoilersKey]);
   const [selectedCircuit, setSelectedCircuit] = useState<CircuitResult | null>(null);
 
   // Reported from an effect rather than from `handleSelect`/`onClose`, so the
@@ -332,6 +355,18 @@ export default function GlobalSearch({
     // field they searched from.
 
     if (result.kind === "driver") {
+      // Spoiler-free mode. The search results themselves name no result, but
+      // the profile they open shows season and career figures, which include
+      // any hidden round. Season figures hide for a hidden round of the
+      // active season; career figures for a hidden round of ANY season in the
+      // window (a hidden previous-season finale counts in a career). While the
+      // list is unknown or failed to load, both hide: fail closed.
+      const active = getActiveSeasonYear();
+      const known = spoilers.prefs.on ? hiddenList : [];
+      setDriverFigures({
+        season: known === null || known.some((h) => h.season === active),
+        career: known === null || known.length > 0,
+      });
       setSelectedDriver(result);
     } else if (result.kind === "circuit") {
       setSelectedCircuit(result);
@@ -473,6 +508,8 @@ export default function GlobalSearch({
           imgPath={selectedDriverImg}
           flagSrc={selectedDriverFlag}
           color={selectedDriverColor}
+          seasonFiguresHidden={driverFigures.season}
+          careerFiguresHidden={driverFigures.career}
           onClose={() => setSelectedDriver(null)}
         />
       )}

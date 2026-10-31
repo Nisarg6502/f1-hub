@@ -11,6 +11,9 @@ import TeamCar from "@/components/team-car";
 import { getRaceWeek } from "@/lib/race-week";
 import type { RaceSessionField, SessionTimelineItem } from "@/lib/sessions";
 import { getTeamColor } from "@/lib/team-colors";
+import { getSpoilerPrefs } from "@/lib/spoilers-server";
+import { firstResultSessionMs, isRoundHidden, raceKey, raceStartMs } from "@/lib/spoilers";
+import { SpoilerBanner } from "@/components/spoiler-shield";
 
 /**
  * A strip that only exists during a race weekend: the top three of the most
@@ -120,6 +123,33 @@ export default async function RaceWeekGlimpse({
 
   const round = Number(week.race.round);
   if (!Number.isFinite(round)) return null;
+
+  // Spoiler-free mode, decided inside the component rather than by its
+  // caller, because the caller is the home page and the home page should not
+  // have to remember. Once the weekend's first qualifying or sprint session
+  // has started the strip becomes a placeholder of the same height, and no
+  // session is fetched. Before that it is practice only, which is not hidden.
+  const prefs = await getSpoilerPrefs();
+  const key = raceKey(week.race.season ?? seasonYear, round);
+  if (
+    isRoundHidden(
+      prefs,
+      key,
+      firstResultSessionMs(week.race),
+      nowMs,
+      raceStartMs(week.race)
+    )
+  ) {
+    return (
+      <section className="px-6 md:px-10 mt-2 mb-9 anim-fade" style={{ animationDelay: "0.65s" }}>
+        <SpoilerBanner
+          raceKey={key}
+          raceName={week.race.raceName}
+          description={`Race week · ${week.live ? `${week.live.sessionLabel} is live · ` : ""}Spoiler-free mode is on.`}
+        />
+      </section>
+    );
+  }
 
   let session: SessionTimelineItem | null = null;
   let rows: SessionRow[] = [];
