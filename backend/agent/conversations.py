@@ -80,7 +80,9 @@ plain one is ~5-15KB.
 So one user can never hold more than ~4MB; a typical one (a few dozen short
 chats) holds well under 1MB. The cluster-level number is 4MB × signed-in users,
 which is the figure to revisit if sign-ups ever approach a hundred. Pruning
-does not delete checkpoints — those expire on their own TTL.
+deletes the pruned chats' checkpoints too, as an explicit delete does. The
+check runs after every turn as one aggregation returning a single count/bytes
+row; only a user over a cap pays for reading their rows.
 
 --------------------------------------------------------------------------
 Failure posture
@@ -90,13 +92,14 @@ Failure posture
 a Mongo failure costs the user their saved copy of one turn, never the answer
 they are reading. The read paths behind the history endpoints are not —
 they raise `Unavailable`, which `main.py` turns into a 503, because "your
-history is empty" and "we could not load your history" are different things to
-tell somebody, and only one of them is true during an outage.
+history is empty" and "we could not load your history" are different things
+to tell somebody, and only one of them is true during an outage.
 
-Concurrency: `record_turn` is a read-modify-write rather than an atomic
-`$push`, because trimming by bytes needs the sizes in hand. That is safe here
-for the reason it is safe anywhere in this service: `concurrency.py` runs one
-turn at a time, and a single thread cannot have two turns in flight.
+Concurrency: `record_turn` is a read-modify-write, because trimming by bytes
+needs the sizes in hand, made safe by a per-document `version`: a write only
+replaces the version it read, and a loser re-reads and retries. Two tabs
+answering on one thread therefore both land, in some order, rather than one
+silently overwriting the other.
 """
 
 from __future__ import annotations
@@ -434,13 +437,15 @@ def _require(db: Any) -> Any:
     return database
 
 
-async def lookup(user_id: str, thread_id: str | None, *, db: Any = None) -> tuple[str, dict | None]:
+async def lookup(user_id: str | None, thread_id: str | None, *, db: Any = None) -> tuple[str, dict | None]:
     """Who owns `thread_id`: `("absent"|"owned"|"foreign"|"unavailable", doc)`.
 
-    `/api/chat` calls this before streaming so a signed-in user cannot continue
-    another user's thread — the checkpointer would otherwise hand them its
-    memory, since it is keyed on thread id alone. "unavailable" lets the chat
-    proceed (the write that follows is ownership-checked by `_id` anyway);
+    `/api/chat` calls this before streaming, for signed-in callers *and*
+    guests, because the checkpointer keys memory on thread id alone: without
+    it, anyone holding a saved chat's id could continue it with its memory
+    intact. `user_id=None` is a guest, for whom any saved document is
+    "foreign". A read only — guests still never write. "unavailable" lets the
+    chat proceed (the write that follows is ownership-checked by `_id` anyway);
     `doc` is only ever returned to its owner.
     """
     if not is_storable_thread_id(thread_id):
@@ -457,9 +462,15 @@ async def lookup(user_id: str, thread_id: str | None, *, db: Any = None) -> tupl
         return "unavailable", None
     if doc is None:
         return "absent", None
-    if doc.get("user_id") != user_id:
+    if not user_id or doc.get("user_id") != user_id:
         return "foreign", None
     return "owned", doc
+
+
+WRITE_ATTEMPTS = 4
+"""Optimistic-concurrency retries for `record_turn`. Two turns on one thread
+only race when the same chat is open in two tabs; four attempts is far more
+than that ever needs, and a loser past it is logged, not raised."""
 
 
 async def record_turn(
@@ -467,13 +478,23 @@ async def record_turn(
     thread_id: str,
     turn: list[dict],
     *,
+    saver: Any = None,
     db: Any = None,
     now: datetime.datetime | None = None,
 ) -> bool:
     """Append one completed turn and prune the user's oldest chats. Total.
 
-    Returns whether the turn was stored. Never raises: this runs inside an
-    already-committed stream (see the module docstring's failure posture).
+    **Atomic per write, by version check.** The append has to trim by bytes,
+    which `$push`/`$slice` cannot express, so this is a read-modify-write — and
+    a plain one loses a turn when two land on the same thread at once (two
+    tabs). Each document carries a `version`; the write replaces only the
+    version it read (`{_id, user_id, version}`), and a write that matched
+    nothing re-reads and retries. A brand-new chat is an `insert_one`, whose
+    duplicate-`_id` failure is the same "someone got there first" signal.
+    Ownership rides on the same filter: another user's document never matches.
+
+    Returns whether the turn was stored. Never raises: this runs after the
+    answer was delivered (see the module docstring's failure posture).
     """
     if not user_id or not is_storable_thread_id(thread_id) or not turn:
         return False
@@ -484,34 +505,49 @@ async def record_turn(
     try:
         await _ensure_index(database)
         collection = database[COLLECTION]
-        existing = await _op(collection.find_one({"_id": thread_id}))
-        if existing is not None and existing.get("user_id") != user_id:
-            print("conversations: refused a write to another user's thread")
-            return False
-        if existing is None:
-            question = next((m.get("content") for m in turn if m.get("role") == "user"), "")
-            doc = {
-                "_id": thread_id,
-                "user_id": user_id,
-                "title": make_title(question or ""),
-                "created_at": moment,
-                "messages": [],
+        for _attempt in range(WRITE_ATTEMPTS):
+            existing = await _op(collection.find_one({"_id": thread_id}))
+            if existing is not None and existing.get("user_id") != user_id:
+                print("conversations: refused a write to another user's thread")
+                return False
+            prior = list((existing or {}).get("messages") or [])
+            messages = _trim(prior + list(turn))
+            fields = {
+                "messages": messages,
+                "updated_at": moment,
+                "message_count": len(messages),
+                "size_bytes": _size(messages),
             }
-        else:
-            doc = dict(existing)
-        messages = _trim(list(doc.get("messages") or []) + list(turn))
-        doc.update(
-            messages=messages,
-            updated_at=moment,
-            message_count=len(messages),
-            size_bytes=_size(messages),
-        )
-        # Filtered on `user_id` as well as `_id`: if another user's document
-        # appeared since the read above, the upsert's insert collides on
-        # `_id` and raises instead of overwriting it.
-        await _op(collection.replace_one({"_id": thread_id, "user_id": user_id}, doc, upsert=True))
-        await _prune(collection, user_id, keep=thread_id)
-        return True
+            if existing is None:
+                question = next((m.get("content") for m in turn if m.get("role") == "user"), "")
+                doc = {
+                    "_id": thread_id,
+                    "user_id": user_id,
+                    "title": make_title(question or ""),
+                    "created_at": moment,
+                    "version": 1,
+                    **fields,
+                }
+                try:
+                    await _op(collection.insert_one(doc))
+                except Exception as error:  # noqa: BLE001
+                    if "duplicate" in type(error).__name__.lower() or "E11000" in str(error):
+                        continue  # created concurrently; re-read and append
+                    raise
+            else:
+                version = existing.get("version")
+                selector = {"_id": thread_id, "user_id": user_id, "version": version}
+                result = await _op(
+                    collection.update_one(
+                        selector, {"$set": {**fields, "version": int(version or 0) + 1}}
+                    )
+                )
+                if not getattr(result, "matched_count", 0):
+                    continue  # another turn wrote first; re-read and append
+            await _prune(collection, user_id, keep=thread_id, saver=saver)
+            return True
+        print("conversations: turn not saved (lost every concurrent-write retry)")
+        return False
     except asyncio.CancelledError:
         raise
     except Exception as error:  # noqa: BLE001 - fail-soft by contract
@@ -519,30 +555,48 @@ async def record_turn(
         return False
 
 
-async def _prune(collection: Any, user_id: str, *, keep: str) -> int:
+async def _prune(collection: Any, user_id: str, *, keep: str, saver: Any = None) -> int:
     """Delete the user's oldest conversations past either per-user cap.
 
-    Walks newest-first, keeping conversations while both the count and the
+    Runs after every turn, so the common case — well under both caps — must
+    be cheap: one aggregation over the `(user_id, updated_at)` index returning
+    a single `{n, bytes}` row. Only a user actually over a cap pays for the
+    newest-first walk, which keeps conversations while both the count and the
     cumulative bytes fit; `keep` (the one just written) is always kept even if
     it alone is over the byte budget — deleting the chat the reader is in the
     middle of would be the cap defeating the feature.
+
+    Pruned chats lose their checkpoints too (`_forget_threads`), for the same
+    reason an explicit delete does.
     """
+    totals = await _op(
+        collection.aggregate(
+            [
+                {"$match": {"user_id": user_id}},
+                {"$group": {"_id": None, "n": {"$sum": 1}, "bytes": {"$sum": "$size_bytes"}}},
+            ]
+        ).to_list(length=1)
+    )
+    row = totals[0] if totals else {"n": 0, "bytes": 0}
+    if int(row.get("n") or 0) <= MAX_CONVERSATIONS_PER_USER and int(row.get("bytes") or 0) <= MAX_USER_BYTES:
+        return 0
     cursor = collection.find(
         {"user_id": user_id}, {"_id": 1, "size_bytes": 1, "updated_at": 1}
     ).sort([("updated_at", -1), ("_id", -1)])
     rows = await _op(cursor.to_list(length=None))
     kept, total, doomed = 0, 0, []
-    for row in rows:
-        size = int(row.get("size_bytes") or 0)
-        if row["_id"] == keep or (
+    for item in rows:
+        size = int(item.get("size_bytes") or 0)
+        if item["_id"] == keep or (
             kept < MAX_CONVERSATIONS_PER_USER and total + size <= MAX_USER_BYTES
         ):
             kept += 1
             total += size
         else:
-            doomed.append(row["_id"])
+            doomed.append(item["_id"])
     if doomed:
         await _op(collection.delete_many({"_id": {"$in": doomed}, "user_id": user_id}))
+        await _forget_threads(saver, doomed)
     return len(doomed)
 
 
@@ -681,8 +735,11 @@ async def delete_all(user_id: str, *, saver: Any = None, db: Any = None) -> int:
     try:
         rows = await _op(collection.find({"user_id": user_id}, {"_id": 1}).to_list(length=None))
         ids = [row["_id"] for row in rows]
+        # By the ids just read, not by `user_id`: a chat created between the
+        # read and the delete would otherwise be deleted without its
+        # checkpoints being forgotten. It survives instead, and is listed.
         if ids:
-            await _op(collection.delete_many({"user_id": user_id}))
+            await _op(collection.delete_many({"_id": {"$in": ids}, "user_id": user_id}))
     except asyncio.CancelledError:
         raise
     except Exception as error:  # noqa: BLE001

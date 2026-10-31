@@ -108,6 +108,7 @@ async def _lifespan(_app: FastAPI):
     try:
         yield
     finally:
+        await drain_saves()
         checkpointer.close_saver()
 
 
@@ -300,11 +301,34 @@ async def _save_turn(
         return
     try:
         turn = conversations.build_turn(**fields)
-        await conversations.record_turn(auth.user_id, thread_id, turn)
-    except asyncio.CancelledError:
-        raise
     except Exception as error:  # noqa: BLE001 - saved history is additive
         print(f"conversation turn skipped: {type(error).__name__}: {error}")
+        return
+    # A background task, not an `await`: the stream must not stay open on a
+    # Mongo round trip (or up to `conversations.DB_TIMEOUT_SECONDS` of a slow
+    # one) after the reader already has the whole answer. Held in
+    # `_PENDING_SAVES` so the task is not garbage-collected mid-write, and
+    # drained at shutdown (`_lifespan`). The cost of this choice is stated
+    # rather than hidden: Cloud Run throttles CPU between requests, so a save
+    # can be delayed until the next request wakes the instance — it is not
+    # lost, since the task stays scheduled, but "reload immediately and see it
+    # listed" can lag by that much on an idle instance.
+    task = asyncio.create_task(
+        conversations.record_turn(
+            auth.user_id, thread_id, turn, saver=checkpointer.current()
+        )
+    )
+    _PENDING_SAVES.add(task)
+    task.add_done_callback(_PENDING_SAVES.discard)
+
+
+_PENDING_SAVES: "set[asyncio.Task]" = set()
+
+
+async def drain_saves(timeout: float = 10.0) -> None:
+    """Wait for in-flight history writes — at shutdown, and in tests."""
+    if _PENDING_SAVES:
+        await asyncio.wait(set(_PENDING_SAVES), timeout=timeout)
 
 
 async def _stream(
@@ -774,13 +798,9 @@ async def _stream(
             # not hold a slot the next caller is queued for.
             await run_gate.aclose()
 
-            # Saved history, for signed-in users only. After the slot is
-            # released and before the stream closes: the reader already has
-            # everything, and awaiting here (bounded by
-            # `conversations.DB_TIMEOUT_SECONDS`) rather than firing a
-            # background task means the chat is listed the moment the stream
-            # ends — and Cloud Run throttles CPU outside a request, so a task
-            # outliving its response is not guaranteed to finish at all.
+            # Saved history, for signed-in users only, after the slot is
+            # released. `_save_turn` schedules the write and returns at once,
+            # so the stream is not held open on Mongo (see its comment).
             await _save_turn(
                 auth,
                 thread_id,
@@ -968,15 +988,40 @@ async def chat(request: ChatRequest, http: Request):
     if not auth.signed_in:
         auth = user_auth.GUEST
     stored: dict | None = None
-    if auth.signed_in and request.thread_id:
+    if request.thread_id:
         # Before the stream commits, so "not yours" can still be a status
         # code. The checkpointer keys memory on thread id alone; without this
-        # a signed-in user who learned another user's id could continue that
-        # conversation with its memory intact. 404, not 403, so the answer is
-        # the same as for an id that does not exist. Charged first and
-        # refunded here, so probing ids is not a free read.
-        ownership, stored = await conversations.lookup(auth.user_id, request.thread_id)
-        if ownership == "foreign":
+        # anyone who learned a saved chat's id — another signed-in user, or a
+        # guest — could continue it with its memory intact. 404, not 403, so
+        # the answer is the same as for an id that does not exist. Charged
+        # first and refunded here, so probing ids is not a free read. For a
+        # guest this is a single read and never a write.
+        if auth.signed_in:
+            # This user's previous turn may still be saving in the
+            # background; without waiting, its brand-new thread would look
+            # "checkpointed but unowned" below and be refused. One process
+            # serves the service (`--max-instances=1`), so these are all the
+            # saves there are.
+            await drain_saves(timeout=conversations.DB_TIMEOUT_SECONDS)
+        ownership, stored = await conversations.lookup(
+            auth.user_id if auth.signed_in else None, request.thread_id
+        )
+        refuse = ownership == "foreign"
+        if auth.signed_in and ownership == "absent":
+            # No saved document, but the thread may still have live memory:
+            # a guest's conversation, or one whose first save failed. Adopting
+            # it would hand this user someone else's context under their own
+            # name, so a checkpointed thread with no matching owner document
+            # is refused. A genuinely new thread has no checkpoint yet and
+            # passes; a probe that cannot tell (`None`) passes too, matching
+            # this module's fail-soft posture on the read side.
+            refuse = (
+                await conversations.checkpoint_exists(
+                    checkpointer.current(), request.thread_id
+                )
+                is True
+            )
+        if refuse:
             await rate_limit.settle(
                 decision, actual_cost=rate_limit.measured_cost(tier=None, refused=True)
             )

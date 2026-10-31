@@ -91,6 +91,7 @@ class FakeCollection:
         self.docs: dict[str, dict] = {}
         self.fail_with: Exception | None = None
         self.calls = 0
+        self.find_calls = 0
 
     def _check(self):
         self.calls += 1
@@ -102,6 +103,8 @@ class FakeCollection:
 
     async def find_one(self, selector):
         self._check()
+        # Yield, so two concurrent writers genuinely interleave read-then-write.
+        await asyncio.sleep(0)
         for doc in self.docs.values():
             if _matches(doc, selector):
                 return dict(doc)
@@ -109,6 +112,7 @@ class FakeCollection:
 
     def find(self, selector, projection=None):
         self._check()
+        self.find_calls += 1
         rows = [d for d in self.docs.values() if _matches(d, selector)]
         if projection and projection.get("messages") == 0:
             rows = [{k: v for k, v in d.items() if k != "messages"} for d in rows]
@@ -125,6 +129,27 @@ class FakeCollection:
         if doc["_id"] in self.docs:
             raise DuplicateKeyError(doc["_id"])
         self.docs[doc["_id"]] = dict(doc)
+
+    async def insert_one(self, doc):
+        self._check()
+        if doc["_id"] in self.docs:
+            raise DuplicateKeyError(f"E11000 duplicate key {doc['_id']}")
+        self.docs[doc["_id"]] = dict(doc)
+
+    async def update_one(self, selector, update):
+        self._check()
+        for doc in self.docs.values():
+            if _matches(doc, selector):
+                doc.update(update.get("$set") or {})
+                return _Updated(1)
+        return _Updated(0)
+
+    def aggregate(self, pipeline):
+        self._check()
+        match = pipeline[0]["$match"]
+        rows = [d for d in self.docs.values() if _matches(d, match)]
+        out = [{"_id": None, "n": len(rows), "bytes": sum(int(d.get("size_bytes") or 0) for d in rows)}] if rows else []
+        return FakeCursor(out)
 
     async def find_one_and_update(self, selector, update, projection=None, return_document=None):
         self._check()
@@ -148,6 +173,11 @@ class FakeCollection:
         for key in doomed:
             del self.docs[key]
         return _Deleted(len(doomed))
+
+
+class _Updated:
+    def __init__(self, n):
+        self.matched_count = n
 
 
 class _Deleted:
@@ -404,7 +434,7 @@ class Result:
         return out
 
 
-def call(method, path, body=None, *, token=None, headers=(), query=b""):
+def call(method, path, body=None, *, token=None, headers=(), query=b"", drain=True):
     async def drive():
         raw_headers = [(b"host", b"testserver"), (b"content-type", b"application/json")]
         if token:
@@ -433,6 +463,8 @@ def call(method, path, body=None, *, token=None, headers=(), query=b""):
                 captured["body"] += message.get("body", b"")
 
         await main.app(scope, receive, send)
+        if drain:
+            await main.drain_saves()
         return Result(captured["status"], captured["headers"], captured["body"])
 
     return asyncio.run(drive())
@@ -601,11 +633,28 @@ class ChatPersistenceTests(_StoreCase):
         self.assertEqual(assistant["meta"]["verification"], "passed")
         self.assertEqual(assistant["meta"]["tier"], 2)
 
-    def test_a_guest_turn_touches_no_database(self):
-        with patch.object(conversations, "_database", side_effect=AssertionError("guest hit the store")):
-            result = self.chat()
+    def test_a_guest_turn_writes_nothing(self):
+        # A guest's thread id is checked against saved chats (one read, so a
+        # guest cannot continue someone's saved thread) and nothing more.
+        writes = []
+        collection = self.db.collection
+        for name in ("insert_one", "update_one", "replace_one", "delete_one", "delete_many"):
+            original = getattr(collection, name)
+
+            async def tracked(*a, _name=name, _orig=original, **k):
+                writes.append(_name)
+                return await _orig(*a, **k)
+
+            setattr(collection, name, tracked)
+        result = self.chat()
         self.assertIn("done", [n for n, _ in result.events])
-        self.assertEqual(self.db.collection.calls, 0)
+        self.assertEqual(writes, [])
+        self.assertEqual(collection.docs, {})
+
+    def test_a_guest_turn_without_a_thread_id_touches_no_database(self):
+        with patch.object(conversations, "_database", side_effect=AssertionError("guest hit the store")):
+            result = call("POST", "/api/chat", {"message": "Who won Monaco?"})
+        self.assertIn("done", [n for n, _ in result.events])
 
     def test_an_expired_token_is_answered_as_a_guest_and_not_stored(self):
         result = self.chat(token=mint(exp_in=-600))
@@ -658,6 +707,133 @@ class ChatPersistenceTests(_StoreCase):
     def test_a_new_thread_has_nothing_to_replay(self):
         self.chat(thread="fresh", token=mint())
         self.assertIsNone(self.seen[0]["history"])
+
+
+class ReviewFixTests(unittest.TestCase):
+    """The six review findings on PR #213, one case (or more) each."""
+
+    def setUp(self):
+        self.db = FakeDB()
+
+    def test_pruned_chats_lose_their_checkpoints(self):
+        saver = FakeSaver({"t0", "t1", "t2"})
+        with patch.object(conversations, "MAX_CONVERSATIONS_PER_USER", 2):
+            for i in range(3):
+                run(conversations.record_turn("u1", f"t{i}", turn(), db=self.db, saver=saver, now=at(i)))
+        self.assertNotIn("t0", self.db.collection.docs)
+        self.assertEqual(saver.deleted, ["t0", "t0--repair"])
+
+    def test_concurrent_turns_on_one_thread_both_survive(self):
+        run(conversations.record_turn("u1", "t1", turn("first"), db=self.db, now=at(0)))
+
+        async def both():
+            return await asyncio.gather(
+                conversations.record_turn("u1", "t1", turn("tab A"), db=self.db, now=at(1)),
+                conversations.record_turn("u1", "t1", turn("tab B"), db=self.db, now=at(1)),
+            )
+
+        self.assertEqual(run(both()), [True, True])
+        users = [m["content"] for m in self.db.collection.docs["t1"]["messages"] if m["role"] == "user"]
+        self.assertEqual(sorted(users), ["first", "tab A", "tab B"])
+        self.assertEqual(self.db.collection.docs["t1"]["version"], 3)
+
+    def test_concurrent_first_turns_both_survive(self):
+        async def both():
+            return await asyncio.gather(
+                conversations.record_turn("u1", "new", turn("one"), db=self.db, now=at(0)),
+                conversations.record_turn("u1", "new", turn("two"), db=self.db, now=at(0)),
+            )
+
+        self.assertEqual(run(both()), [True, True])
+        self.assertEqual(self.db.collection.docs["new"]["message_count"], 4)
+
+    def test_under_both_caps_pruning_reads_no_rows(self):
+        for i in range(3):
+            run(conversations.record_turn("u1", f"t{i}", turn(), db=self.db, now=at(i)))
+        self.assertEqual(self.db.collection.find_calls, 0)
+
+    def test_delete_all_deletes_only_what_it_read_and_forgets_it(self):
+        for i in range(2):
+            run(conversations.record_turn("u1", f"t{i}", turn(), db=self.db, now=at(i)))
+        saver = FakeSaver()
+        collection = self.db.collection
+        original_find = collection.find
+
+        def find_then_race(selector, projection=None):
+            cursor = original_find(selector, projection)
+            # A chat created after the read must survive the delete.
+            collection.docs["late"] = {"_id": "late", "user_id": "u1", "size_bytes": 1}
+            return cursor
+
+        with patch.object(collection, "find", find_then_race):
+            self.assertEqual(run(conversations.delete_all("u1", saver=saver, db=self.db)), 2)
+        self.assertEqual(list(collection.docs), ["late"])
+        self.assertEqual(sorted(saver.deleted), ["t0", "t0--repair", "t1", "t1--repair"])
+
+
+class ChatOwnershipReviewTests(ChatPersistenceTests):
+    # Subclassed for its fakes; its own cases re-run here harmlessly.
+
+    def test_a_guest_cannot_continue_a_saved_thread(self):
+        self.seed(user="user-1", thread="t1")
+        result = self.chat(thread="t1")
+        self.assertEqual(result.status, 404)
+        self.assertEqual(self.seen, [])
+
+    def test_a_checkpointed_thread_with_no_owner_cannot_be_adopted(self):
+        self.saver.threads.add("someone-elses")
+        result = self.chat(thread="someone-elses", token=mint("user-2"))
+        self.assertEqual(result.status, 404)
+        self.assertEqual(self.seen, [])
+        self.assertEqual(self.db.collection.docs, {})
+
+    def test_the_users_own_second_turn_still_continues(self):
+        self.chat(thread="mine", token=mint())
+        self.saver.threads.add("mine")  # the first turn wrote its checkpoint
+        result = self.chat(message="And second?", thread="mine", token=mint())
+        self.assertEqual(result.status, 200)
+        self.assertEqual(self.db.collection.docs["mine"]["message_count"], 4)
+
+    def test_the_stream_closes_before_the_save_finishes(self):
+        release = None
+
+        async def slow_record(*_a, **_k):
+            await release.wait()
+            return True
+
+        # Drive inside one loop: the response must complete while the save is
+        # still blocked, then the save is released and drained.
+        async def scenario():
+            nonlocal release
+            release = asyncio.Event()
+            with patch.object(conversations, "record_turn", slow_record):
+                done = asyncio.Event()
+
+                raw_headers = [(b"host", b"t"), (b"content-type", b"application/json"),
+                               (b"authorization", f"Bearer {mint()}".encode())]
+                scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+                         "method": "POST", "path": "/api/chat", "raw_path": b"/api/chat",
+                         "query_string": b"", "root_path": "", "scheme": "http",
+                         "headers": raw_headers, "client": ("127.0.0.1", 1), "server": ("t", 80)}
+                inbound = [{"type": "http.request", "body": json.dumps({"message": "Who won Monaco?", "thread_id": "slow"}).encode(), "more_body": False}]
+
+                async def receive():
+                    if inbound:
+                        return inbound.pop(0)
+                    await asyncio.Event().wait()
+
+                async def send(message):
+                    if message["type"] == "http.response.body" and not message.get("more_body", False):
+                        done.set()
+
+                await asyncio.wait_for(main.app(scope, receive, send), timeout=10)
+                self.assertTrue(done.is_set())
+                self.assertEqual(len(main._PENDING_SAVES), 1)
+                release.set()
+                await main.drain_saves()
+                self.assertEqual(len(main._PENDING_SAVES), 0)
+
+        run(scenario())
 
 
 if __name__ == "__main__":
