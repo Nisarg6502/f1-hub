@@ -57,7 +57,7 @@ const COPY: Record<string, AuthErrorCopy> = {
     title: "That Google account belongs to another APEX account",
     body: "Sign out, then sign in with that Google account to use it — or link a different Google account.",
   },
-  email_doesn't_match: {
+  "email_doesn't_match": {
     title: "That Google account uses a different email",
     body: "To link Google, choose the Google account with the same email address as this APEX account.",
   },
