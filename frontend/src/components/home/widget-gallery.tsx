@@ -264,7 +264,9 @@ function Preview({
 
   const width = NOMINAL_WIDTH[size];
   const height = NOMINAL_HEIGHT[size];
-  let zoom = available ? Math.min(1, available / width) : 0;
+  // Never above 0.72: at 1:1 a medium preview filled the whole dialog and the
+  // list became three entries per screen of scrolling.
+  let zoom = available ? Math.min(0.72, available / width) : 0;
   if (height && zoom * height > MAX_PREVIEW_HEIGHT) zoom = MAX_PREVIEW_HEIGHT / height;
 
   return (

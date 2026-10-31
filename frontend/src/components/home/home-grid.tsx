@@ -610,8 +610,10 @@ function EditBar({
       exit={reduce ? { opacity: 0 } : { opacity: 0, transform: "translateY(12px)", transition: { duration: 0.15 } }}
       transition={{ type: "spring", bounce: 0, duration: 0.3 }}
       // Centred with auto margins, not a translate: the enter animation owns
-      // `transform`.
-      className="fixed z-[55] inset-x-0 mx-auto w-fit bottom-[calc(88px+env(safe-area-inset-bottom))] lg:bottom-6 flex items-center gap-1 p-1.5 rounded-full apex-glass-strong max-w-[calc(100vw-24px)]"
+      // `transform`. Below `lg` it clears both the tab strip and the
+      // assistant's floating button, which sits just above the strip on the
+      // right and covered "Done" at 88px.
+      className="fixed z-[55] inset-x-0 mx-auto w-fit bottom-[calc(150px+env(safe-area-inset-bottom))] lg:bottom-6 flex items-center gap-1 p-1.5 rounded-full apex-glass-strong max-w-[calc(100vw-24px)]"
       style={{ position: "fixed" }}
     >
       <button id="home-add-widget" type="button" onClick={onAdd} className={`${btn} text-warm-100 hover:bg-veil/10`}>
