@@ -315,6 +315,21 @@ class FirstCareerWinTests(unittest.TestCase):
         payload = catch_up.build_catch_up(2026, 1, SCHEDULE, self.races, [], prior_winners=None)
         self.assertEqual(payload["facts"]["notable"], [])
 
+    def test_a_win_this_season_known_only_to_the_index_counts(self):
+        # Round 1 of this season is in the index but not in race_results.
+        races = self.races[1:]
+        prior = {"Andrea Kimi Antonelli": [(2026, 1)]}
+        payload = catch_up.build_catch_up(2026, 1, SCHEDULE, races, [], prior_winners=prior)
+        self.assertEqual(payload["facts"]["notable"], [])
+
+    def test_the_index_listing_this_very_win_does_not_cancel_it(self):
+        prior = {"Andrea Kimi Antonelli": [(2026, 2), (2026, 3)], "George Russell": [(2025, 4)]}
+        payload = catch_up.build_catch_up(2026, 1, SCHEDULE, self.races, [], prior_winners=prior)
+        self.assertEqual(
+            [(n["round"], n["driver"]["driver_id"]) for n in payload["facts"]["notable"]],
+            [(2, "antonelli")],
+        )
+
     def test_an_earlier_win_this_season_counts(self):
         payload = catch_up.build_catch_up(2026, 2, SCHEDULE, self.races, [], prior_winners=set())
         self.assertEqual(payload["facts"]["notable"], [])
@@ -475,11 +490,13 @@ def scripted_llm(*answers):
     calls = []
     queue = list(answers)
 
-    async def fake(facts, system_prompt):
+    async def fake(facts, system_prompt, on_done=None):
         calls.append(system_prompt)
         answer = queue.pop(0) if queue else ""
         if answer:
             yield answer
+            if on_done:
+                on_done()
 
     return fake, calls
 
@@ -513,6 +530,13 @@ class WriteNarrativeTests(unittest.TestCase):
     def test_no_answer_is_not_a_rejection(self):
         fake, _ = scripted_llm("")
         with patch.object(catch_up, "_generate_recap", fake):
+            self.assertEqual(asyncio.run(catch_up.write_narrative(self.facts)), (None, False))
+
+    def test_a_stream_cut_off_before_done_is_no_answer(self):
+        async def truncated(facts, system_prompt, on_done=None):
+            yield "Antonelli won and leads by"  # connection dropped; no `done`
+
+        with patch.object(catch_up, "_generate_recap", truncated):
             self.assertEqual(asyncio.run(catch_up.write_narrative(self.facts)), (None, False))
 
     def test_markdown_emphasis_is_stripped(self):
@@ -675,9 +699,10 @@ class EndpointTests(unittest.TestCase):
         db = FakeDb(RACES)
         gate = asyncio.Event()
 
-        async def slow(facts, system_prompt):
+        async def slow(facts, system_prompt, on_done=None):
             await gate.wait()
             yield "never seen by this request"
+            on_done()
 
         async def run():
             with patch.object(catch_up, "get_db", return_value=db), \
@@ -718,7 +743,7 @@ class EndpointTests(unittest.TestCase):
     def test_a_slow_model_times_out_to_null(self):
         db = FakeDb(RACES)
 
-        async def never(facts, system_prompt):
+        async def never(facts, system_prompt, on_done=None):
             await asyncio.sleep(3600)
             yield ""
 
@@ -734,6 +759,19 @@ class EndpointTests(unittest.TestCase):
         body = asyncio.run(run())
         self.assertIsNone(body["narrative"])
         self.assertEqual(body["rounds"][0]["race"]["winner"]["driver_id"], "antonelli")
+
+
+class SeasonBoundsTests(unittest.TestCase):
+    def test_an_out_of_range_season_is_a_422(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        app = FastAPI()
+        app.include_router(catch_up.router)
+        client = TestClient(app)
+        for season in (1949, catch_up._LATEST_SEASON + 1, 99999):
+            response = client.get("/api/catch_up", params={"season": season, "after_round": 0})
+            self.assertEqual(response.status_code, 422, season)
 
 
 if __name__ == "__main__":

@@ -63,6 +63,16 @@ interface CatchUpCardProps {
 
 type Phase = "idle" | "loading" | "ready" | "gone";
 
+/** Store the visit as seen up to the latest session the card showed. */
+function markRead(plan: CatchUpPlan, data: CatchUpResponse | null, races: Race[]) {
+  const storage = browserStorage();
+  const latest = data?.rounds.find((r) => r.round === data.latest_round);
+  const classified = latest
+    ? { round: latest.round, raceClassified: latest.race.status === "classified" }
+    : null;
+  writeCatchUpState(storage, markCatchUpRead(plan, races, classified, readCatchUpState(storage)));
+}
+
 function browserStorage(): StorageLike | null {
   try {
     return window.localStorage;
@@ -100,6 +110,7 @@ export default function CatchUpCard({ season, races, hiddenRoundKeys }: CatchUpC
   const [expanded, setExpanded] = useState(true);
   const rootRef = useRef<HTMLElement | null>(null);
   const markedRef = useRef(false);
+  const scheduleRef = useRef<Race[]>([]);
 
   const hiddenKey = (hiddenRoundKeys ?? []).join(",");
 
@@ -119,6 +130,7 @@ export default function CatchUpCard({ season, races, hiddenRoundKeys }: CatchUpC
         }
       }
       if (cancelled) return;
+      scheduleRef.current = schedule;
 
       const state = readCatchUpState(storage);
       const nextPlan = planCatchUp(season, schedule, state, nowMs);
@@ -207,7 +219,7 @@ export default function CatchUpCard({ season, races, hiddenRoundKeys }: CatchUpC
       last = now;
       if (readMs >= CATCH_UP_READ_MS && !markedRef.current) {
         markedRef.current = true;
-        writeCatchUpState(browserStorage(), markCatchUpRead(plan));
+        markRead(plan, data, scheduleRef.current);
         window.clearInterval(timer);
       }
     }, 500);
@@ -216,12 +228,12 @@ export default function CatchUpCard({ season, races, hiddenRoundKeys }: CatchUpC
       observer.disconnect();
       window.clearInterval(timer);
     };
-  }, [phase, plan, expanded, anyHidden]);
+  }, [phase, plan, data, expanded, anyHidden]);
 
   function dismiss() {
     if (plan) {
       markedRef.current = true;
-      writeCatchUpState(browserStorage(), markCatchUpRead(plan));
+      markRead(plan, data, scheduleRef.current);
     }
     setPhase("gone");
   }
@@ -415,7 +427,7 @@ function Body({
           )}
           {narrative && (
             <p className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500 mt-2">
-              AI summary · written only from the results below, and checked against them
+              AI summary · written from the results below · its numbers are checked against them
             </p>
           )}
         </div>

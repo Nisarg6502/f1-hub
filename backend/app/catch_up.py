@@ -60,6 +60,7 @@ answer (Ollama down) is not cached at all, so the next visitor retries.
 """
 
 import asyncio
+import datetime
 import json
 import re
 from collections import Counter
@@ -98,6 +99,11 @@ NARRATIVE_PODIUM_ROUNDS = 3
 # season is present in it -- otherwise "no earlier win on record" might just
 # mean "no earlier season on record".
 FIRST_CHAMPIONSHIP_SEASON = 1950
+
+# Upper bound for `season`, so a nonsense year is a 422 rather than a 500 from
+# `range(1950, season)` and friends. Next year is allowed: a deploy outlives
+# New Year's Eve, and this is fixed at import.
+_LATEST_SEASON = datetime.datetime.now(datetime.timezone.utc).year + 1
 
 SYSTEM_PROMPT = """You write the two-to-three sentence summary at the top of a Formula 1 "catch me up" card, for a fan who missed the races listed in the JSON. You will be given a JSON bundle of verified facts. Summarise the most important of them.
 
@@ -324,11 +330,25 @@ def _top_scorer(window_sessions: list[tuple]) -> dict | None:
 # --------------------------------- notable ---------------------------------
 
 
+def _won_before(prior_winners, name: str, season: int, round_number: int) -> bool:
+    """Whether the winners index has `name` winning before this race.
+
+    `prior_winners` maps a name to the `(season, round)` of its wins, read
+    from `historical_race_index` for earlier seasons AND this one, so a win
+    the index holds but this season's `race_results` lacks still counts. A
+    plain set means "won in an earlier season" (the fixtures' shorthand).
+    """
+    if isinstance(prior_winners, dict):
+        return any(tuple(win) < (season, round_number) for win in prior_winners.get(name, ()))
+    return name in prior_winners
+
+
 def _notable(
+    season: int,
     window_sessions: list[tuple],
     all_sessions: list[tuple],
     race_names: dict[int, str],
-    prior_winners: set[str] | None,
+    prior_winners: set[str] | dict[str, list[tuple]] | None,
 ) -> list[dict]:
     """Facts that fall cleanly out of the data, and only those.
 
@@ -370,7 +390,7 @@ def _notable(
         if (
             in_window
             and prior_winners is not None
-            and winner["name"] not in prior_winners
+            and not _won_before(prior_winners, winner["name"], season, round_number)
             and winner["name"] not in earlier_winners
         ):
             notable.append({
@@ -394,7 +414,7 @@ def build_catch_up(
     schedule: list[dict],
     race_docs: list[dict],
     sprint_docs: list[dict],
-    prior_winners: set[str] | None = None,
+    prior_winners: set[str] | dict[str, list[tuple]] | None = None,
     stored_standings: list[dict] | None = None,
 ) -> dict:
     """The deterministic half of the response: rounds and facts, no narrative.
@@ -486,7 +506,7 @@ def build_catch_up(
     )
 
     verified = standings_agree(now, stored_standings)
-    notable = _notable(window_sessions, sessions, race_names, prior_winners)
+    notable = _notable(season, window_sessions, sessions, race_names, prior_winners)
     payload["facts"] = {
         "standings_verified": verified,
         # Withheld rather than shown with a caveat: a wrong "title gap" is
@@ -727,7 +747,11 @@ def _plain(text: str) -> str:
 
 
 async def _collect(facts: dict, prompt: str) -> str:
-    return _plain("".join([chunk async for chunk in _generate_recap(facts, prompt)]))
+    """The whole answer, or "" if the stream never reported `done`: a cut-off
+    stream reads as a shorter answer, and this one would be cached."""
+    finished = []
+    parts = [chunk async for chunk in _generate_recap(facts, prompt, on_done=lambda: finished.append(True))]
+    return _plain("".join(parts)) if finished else ""
 
 
 async def write_narrative(facts: dict) -> tuple[str | None, bool]:
@@ -808,31 +832,39 @@ def _generation_task(db, key: dict, inputs: str, facts: dict) -> asyncio.Task:
     return task
 
 
-async def _prior_winners(db, season: int, candidates: set[str]) -> set[str] | None:
-    """Which of `candidates` won a championship race before `season`.
+async def _prior_winners(db, season: int, candidates: set[str]) -> dict[str, list[tuple]] | None:
+    """Every win by any of `candidates` in the winners index, up to and
+    including `season`, as `{name: [(season, round), ...]}`.
 
-    None when the historical winners index does not hold every earlier season,
-    in which case no first-career-win claim is made at all.
+    None when the index does not hold every earlier season, in which case no
+    first-career-win claim is made at all.
     """
     if not candidates:
-        return set()
+        return {}
     try:
         seasons = await db.historical_race_index.distinct("season", {"season": {"$lt": season}})
         if not set(range(FIRST_CHAMPIONSHIP_SEASON, season)) <= {_as_int(s) for s in seasons}:
             return None
         docs = await db.historical_race_index.find(
-            {"season": {"$lt": season}, "driver": {"$in": sorted(candidates)}},
-            {"_id": 0, "driver": 1},
+            {"season": {"$lte": season}, "driver": {"$in": sorted(candidates)}},
+            {"_id": 0, "driver": 1, "season": 1, "round": 1},
         ).to_list(length=None)
     except Exception as error:
         print(f"catch_up: historical winners lookup failed: {error}")
         return None
-    return {d.get("driver") for d in docs}
+    wins: dict[str, list[tuple]] = {}
+    for doc in docs:
+        wins.setdefault(doc.get("driver"), []).append(
+            (_as_int(doc.get("season")) or 0, _as_int(doc.get("round")) or 0)
+        )
+    return wins
 
 
 @router.get("/catch_up")
 async def get_catch_up(
-    season: int = Query(..., description="Season year, e.g. 2026"),
+    season: int = Query(
+        ..., ge=FIRST_CHAMPIONSHIP_SEASON, le=_LATEST_SEASON, description="Season year, e.g. 2026"
+    ),
     after_round: int = Query(
         ..., ge=0, le=40, description="Last round the visitor had seen (0: none this season)"
     ),

@@ -218,9 +218,40 @@ export function stateForVisitWithoutCard(
   };
 }
 
-/** The state to store once the visitor has read, or dismissed, the card. */
-export function markCatchUpRead(plan: CatchUpPlan): CatchUpState {
-  return { lastSeenAt: plan.nowMs, lastSeenRoundKey: plan.latestFinishedRoundKey };
+/** What the server actually classified: the last round with any result, and
+ * whether that round's Grand Prix (not just its sprint) is in. */
+export interface ClassifiedThrough {
+  round: number;
+  raceClassified: boolean;
+}
+
+/**
+ * The state to store once the visitor has read, or dismissed, the card.
+ *
+ * Capped at the end of the latest session the card actually SHOWED, not at
+ * "now" and not at the schedule. A Grand Prix that has finished but whose
+ * result has not synced yet was not on the card; moving the marker past it
+ * would mean the visitor is never told who won. Never moves the marker back:
+ * the result is the later of this and what is already stored (another tab may
+ * have marked further).
+ */
+export function markCatchUpRead(
+  plan: CatchUpPlan,
+  races: Race[],
+  classified: ClassifiedThrough | null,
+  stored: CatchUpState | null
+): CatchUpState {
+  let shownThrough = plan.lastSeenAt;
+  if (classified) {
+    const kind = classified.raceClassified ? "Race" : "Sprint";
+    const session = pointsSessions(races).find((s) => s.round === classified.round && s.kind === kind);
+    shownThrough = Math.max(plan.lastSeenAt, Math.min(plan.nowMs, session?.endTimeMs ?? plan.lastSeenAt));
+  }
+  const next: CatchUpState = {
+    lastSeenAt: shownThrough,
+    lastSeenRoundKey: latestFinishedRoundKey(plan.season, races, shownThrough) ?? null,
+  };
+  return stored && stored.lastSeenAt > next.lastSeenAt ? stored : next;
 }
 
 /**

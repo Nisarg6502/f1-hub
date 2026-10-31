@@ -160,12 +160,40 @@ describe("planCatchUp", () => {
 });
 
 describe("marking the card read", () => {
-  it("stores the moment the plan was made, not the moment of the click", () => {
+  it("stores the end of the latest session shown, not the moment of the click", () => {
     const plan = planCatchUp(2026, RACES, seen(R1_END + DAY), R3_END + HOUR)!;
-    expect(markCatchUpRead(plan)).toEqual({ lastSeenAt: R3_END + HOUR, lastSeenRoundKey: "2026-3" });
+    const read = markCatchUpRead(plan, RACES, { round: 3, raceClassified: true }, null);
+    expect(read).toEqual({ lastSeenAt: R3_END, lastSeenRoundKey: "2026-3" });
     // A race finishing after that is still news next time.
-    const next = planCatchUp(2026, RACES, markCatchUpRead(plan), R4_END + HOUR)!;
-    expect(next.missedRoundKeys).toEqual(["2026-4"]);
+    expect(planCatchUp(2026, RACES, read, R4_END + HOUR)!.missedRoundKeys).toEqual(["2026-4"]);
+  });
+
+  it("never skips a Grand Prix that finished but had not synced", () => {
+    // R3 has finished by the schedule, but the server only had R2.
+    const plan = planCatchUp(2026, RACES, seen(R1_END + DAY), R3_END + DAY)!;
+    expect(plan.missedRoundKeys).toEqual(["2026-2", "2026-3"]);
+    const read = markCatchUpRead(plan, RACES, { round: 2, raceClassified: true }, null);
+    expect(read).toEqual({ lastSeenAt: R2_END, lastSeenRoundKey: "2026-2" });
+    expect(planCatchUp(2026, RACES, read, R3_END + 2 * DAY)!.missedRoundKeys).toEqual(["2026-3"]);
+  });
+
+  it("stops at the sprint when only the sprint was classified", () => {
+    const plan = planCatchUp(2026, RACES, seen(R1_END + DAY), R2_END + HOUR)!;
+    const read = markCatchUpRead(plan, RACES, { round: 2, raceClassified: false }, null);
+    expect(read.lastSeenAt).toBe(R2_SPRINT_END);
+    expect(read.lastSeenRoundKey).toBe("2026-1");
+    expect(planCatchUp(2026, RACES, read, R2_END + HOUR)!.missedRoundKeys).toEqual(["2026-2"]);
+  });
+
+  it("never moves the marker backwards past what is stored", () => {
+    const plan = planCatchUp(2026, RACES, seen(R1_END + DAY), R3_END + HOUR)!;
+    const newer = seen(R3_END + 30 * 60 * 1000, "2026-3");
+    expect(markCatchUpRead(plan, RACES, { round: 2, raceClassified: true }, newer)).toEqual(newer);
+  });
+
+  it("does not move at all when nothing was classified", () => {
+    const plan = planCatchUp(2026, RACES, seen(R1_END + DAY), R3_END + HOUR)!;
+    expect(markCatchUpRead(plan, RACES, null, null).lastSeenAt).toBe(R1_END + DAY);
   });
 
   it("records a first visit without showing anything", () => {
