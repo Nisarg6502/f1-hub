@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAuth } from "@/lib/auth";
+import { CLIENT_IP_HEADER, clientIpFromForwardedFor, getAuth } from "@/lib/auth";
 import { AUTH_COLLECTIONS, getAuthDb, isAuthConfigured } from "@/lib/auth-db";
 import { hashMagicLinkToken, magicLinkIdentifier } from "@/lib/auth-magic-link";
 
@@ -52,7 +52,18 @@ async function handle(request: Request): Promise<Response> {
     const expired = await redirectIfExpiredMagicLink(request);
     if (expired) return expired;
   }
-  return getAuth().handler(request);
+  // Rate limiting keys on the right-most X-Forwarded-For hop; see lib/auth.ts.
+  const forwarded = new Headers(request.headers);
+  forwarded.delete(CLIENT_IP_HEADER);
+  const ip = clientIpFromForwardedFor(request.headers.get("x-forwarded-for"));
+  if (ip) forwarded.set(CLIENT_IP_HEADER, ip);
+  const init: RequestInit & { duplex?: "half" } = {
+    method: request.method,
+    headers: forwarded,
+    body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
+    duplex: "half",
+  };
+  return getAuth().handler(new Request(request.url, init));
 }
 
 export const GET = handle;

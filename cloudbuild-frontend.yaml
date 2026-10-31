@@ -97,6 +97,10 @@ substitutions:
   #     --update-secrets=MONGODB_URI=MONGODB_URI:latest,BETTER_AUTH_SECRET=BETTER_AUTH_SECRET:latest,AGENT_USER_TOKEN_SECRET=AGENT_USER_TOKEN_SECRET:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,EMAIL_SERVER_PASSWORD=EMAIL_SERVER_PASSWORD:latest
   #   gcloud run services update f1-frontend --region=asia-south1 \
   #     --update-env-vars=EMAIL_SERVER_HOST=smtp.gmail.com,EMAIL_SERVER_PORT=465,EMAIL_SERVER_USER=<address>,EMAIL_FROM='APEX <address>'
+  # Cloud Run also answers on a second, project-number URL
+  # (https://f1-frontend-1076575666662.asia-south1.run.app). Sign-in started
+  # there is refused unless it is listed, comma-separated, in
+  # AUTH_TRUSTED_ORIGINS (set with --update-env-vars like the rest).
   # Until MONGODB_URI and BETTER_AUTH_SECRET are attached, every account
   # surface hides itself and the site behaves exactly as it did before.
   _BETTER_AUTH_URL: 'https://f1-frontend-2w5wydk2ca-el.a.run.app'

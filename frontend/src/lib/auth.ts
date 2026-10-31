@@ -50,8 +50,36 @@ export function isGoogleConfigured(env: NodeJS.ProcessEnv = process.env): boolea
   return Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
 }
 
+/**
+ * Public origin for callback and magic-link URLs. Locally it defaults to
+ * http://localhost:3105, the port this repo's dev and verification setup
+ * uses; on any other port set BETTER_AUTH_URL, or links point at 3105.
+ */
 function siteUrl(): string {
   return process.env.BETTER_AUTH_URL || "http://localhost:3105";
+}
+
+export const CLIENT_IP_HEADER = "x-apex-client-ip";
+
+/** Right-most X-Forwarded-For entry: the hop Cloud Run itself appended. */
+export function clientIpFromForwardedFor(value: string | null): string | null {
+  if (!value) return null;
+  const parts = value.split(",").map((part) => part.trim()).filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : null;
+}
+
+/**
+ * Extra origins allowed to start sign-in and receive callbacks, from
+ * `AUTH_TRUSTED_ORIGINS` (comma-separated). Cloud Run answers on two URLs —
+ * the canonical `f1-frontend-2w5wydk2ca-el.a.run.app` and the
+ * project-number form `f1-frontend-1076575666662.asia-south1.run.app` —
+ * and a request from the non-canonical one is refused unless listed here.
+ */
+function trustedOrigins(): string[] {
+  return (process.env.AUTH_TRUSTED_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 }
 
 /**
@@ -81,17 +109,21 @@ async function throttleMagicLinkSend(email: string): Promise<void> {
     });
   await sendIndexReady;
 
+  // Atomic fixed window: one counter document per address per window, bumped
+  // with a single upserting `$inc`. A count-then-insert pair would let
+  // concurrent requests all read "4" and all send.
   const address = email.trim().toLowerCase();
-  const recent = await collection.countDocuments({
-    email: address,
-    sentAt: { $gt: new Date(Date.now() - SEND_WINDOW_MS) },
-  });
-  if (recent >= SEND_MAX_PER_WINDOW) {
+  const window = Math.floor(Date.now() / SEND_WINDOW_MS);
+  const counter = await collection.findOneAndUpdate(
+    { _id: `${address}:${window}` as never },
+    { $inc: { count: 1 }, $setOnInsert: { email: address, sentAt: new Date() } },
+    { upsert: true, returnDocument: "after" }
+  );
+  if ((counter?.count ?? 0) > SEND_MAX_PER_WINDOW) {
     throw new APIError("TOO_MANY_REQUESTS", {
       message: "Too many sign-in links for this address. Wait a few minutes and try again.",
     });
   }
-  await collection.insertOne({ email: address, sentAt: new Date() });
 }
 
 function createAuth() {
@@ -110,6 +142,7 @@ function createAuth() {
   return betterAuth({
     appName: "APEX",
     baseURL: siteUrl(),
+    trustedOrigins: trustedOrigins(),
     secret: process.env.BETTER_AUTH_SECRET,
     database: mongodbAdapter(getAuthDb(), { client: getMongoClient() }),
     user: {
@@ -155,7 +188,14 @@ function createAuth() {
       // Cloud Run's front end sets X-Forwarded-For; without this every
       // visitor would share the load balancer's address and one rate-limit
       // bucket.
-      ipAddress: { ipAddressHeaders: ["x-forwarded-for"] },
+      //
+      // But NOT the raw header: its LEFT-most entries are whatever the client
+      // chose to send, and Cloud Run APPENDS the address it actually saw. The
+      // auth route therefore copies the right-most entry into
+      // `x-apex-client-ip` (see `clientIpFromForwardedFor`) and Better Auth
+      // keys on that alone, so a spoofed prefix cannot pick a bucket and every
+      // visitor cannot collapse into one.
+      ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
     },
     databaseHooks: {
       user: {

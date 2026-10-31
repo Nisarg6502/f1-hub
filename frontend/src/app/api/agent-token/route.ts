@@ -38,6 +38,15 @@ export async function GET() {
     );
   }
 
-  const minted = await signAgentToken({ userId: user.id, secret });
-  return NextResponse.json(minted, { headers: NO_STORE });
+  try {
+    const minted = await signAgentToken({ userId: user.id, secret });
+    return NextResponse.json(minted, { headers: NO_STORE });
+  } catch (error) {
+    // A secret under 32 bytes is a configuration fault, not a server bug.
+    console.error("Cannot mint agent token:", (error as Error).message);
+    return NextResponse.json(
+      { error: "agent_token_unconfigured" },
+      { status: 503, headers: NO_STORE }
+    );
+  }
 }

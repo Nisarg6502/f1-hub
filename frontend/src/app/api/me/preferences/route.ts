@@ -55,7 +55,15 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "signed_out" }, { status: 401, headers: NO_STORE });
   }
 
-  // Read as text first so the size check happens before any parsing.
+  // Refuse on the declared length before reading anything, then check the
+  // actual bytes too (Content-Length can be absent or wrong).
+  const declared = Number(request.headers.get("content-length") ?? 0);
+  if (declared > MAX_PATCH_BODY_BYTES) {
+    return NextResponse.json(
+      { error: "too_large", message: `Body exceeds ${MAX_PATCH_BODY_BYTES} bytes` },
+      { status: 413, headers: NO_STORE }
+    );
+  }
   const raw = await request.text();
   if (new TextEncoder().encode(raw).length > MAX_PATCH_BODY_BYTES) {
     return NextResponse.json(
