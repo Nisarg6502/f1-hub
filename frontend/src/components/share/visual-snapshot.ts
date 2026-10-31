@@ -95,7 +95,7 @@ function snapshotScript(frameId: string, maxChars: number): string {
   var SVGNS = "http://www.w3.org/2000/svg";
   var XHTMLNS = "http://www.w3.org/1999/xhtml";
   var PAINT = ["fill", "fill-opacity", "stroke", "stroke-width", "stroke-opacity",
-    "stroke-dasharray", "stroke-linecap", "stroke-linejoin", "opacity", "font-family",
+    "stroke-dasharray", "stroke-dashoffset", "stroke-linecap", "stroke-linejoin", "opacity", "font-family",
     "font-size", "font-weight", "font-style", "letter-spacing", "text-anchor",
     "dominant-baseline", "alignment-baseline", "visibility", "display", "color"];
 
@@ -119,7 +119,12 @@ function snapshotScript(frameId: string, maxChars: number): string {
       var v = cs.getPropertyValue(PAINT[i]);
       if (v) style += PAINT[i] + ":" + v + ";";
     }
-    copy.setAttribute("style", style + (copy.getAttribute("style") || ""));
+    // Computed values go LAST so they win. The runtime's line draw-in sets an
+    // inline stroke-dashoffset equal to the path length and only clears it in
+    // an async onfinish; finishAnimations() above settles the animation
+    // synchronously, so the computed value is already 0 while the inline one
+    // still hides the whole stroke (lines came out as bare dots).
+    copy.setAttribute("style", (copy.getAttribute("style") || "") + ";" + style);
     var oc = orig.children, cc = copy.children;
     for (var j = 0; j < oc.length && j < cc.length; j++) inlinePaint(oc[j], cc[j]);
   }
