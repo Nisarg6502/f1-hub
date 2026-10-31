@@ -7,6 +7,7 @@ import { EASE_OUT, Stagger } from "./motion-primitives";
 import FlagImg from "./flag-img";
 import SeasonSelector from "./season-selector";
 import LocalDateTime from "./local-datetime";
+import { SpoilerStub } from "./spoiler-shield";
 
 // Rows fade+rise in; completed rows settle at a dimmed rest opacity (the
 // `custom` boolean drives it) so the cascade doesn't leave them fully lit.
@@ -55,6 +56,11 @@ export interface ScheduleRow {
     familyName: string;
     code: string;
   };
+  /**
+   * Spoiler-free mode has hidden this round. The server has already removed
+   * `winner`; this only tells the row to say so instead of looking unsynced.
+   */
+  spoilerHidden?: boolean;
 }
 
 interface ScheduleBoardProps {
@@ -264,6 +270,9 @@ export default function ScheduleBoard({
                       </span>
                       {r.winner.code || r.winner.familyName}
                     </span>
+                  )}
+                  {r.spoilerHidden && (
+                    <SpoilerStub label="Result hidden" className="whitespace-nowrap" />
                   )}
                   <div className="flex items-center gap-1.5">
                     {r.status === "completed" && r.isSprint && (

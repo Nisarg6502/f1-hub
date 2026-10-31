@@ -20,6 +20,8 @@ import RadioPanel from "@/components/radio-panel";
 import RaceReplayView from "@/components/race-replay";
 import PitwallModules from "@/components/pitwall-modules";
 import StrategyCommentaryCard from "@/components/strategy-commentary-card";
+import SpoilerShield from "@/components/spoiler-shield";
+import { getSpoilerContext, getSpoilerPrefs } from "@/lib/spoilers-server";
 
 export const metadata: Metadata = {
   title: "Pitwall | APEX",
@@ -97,6 +99,48 @@ export default async function PitwallPage({ params, searchParams }: PageProps) {
 
   if (!Number.isFinite(seasonYear) || !Number.isFinite(roundNumber)) {
     notFound();
+  }
+
+  // Spoiler-free mode. Every module on this page is the race told another way
+  // (stints and stops show who pitted when, lap charts show who led, the
+  // replay IS the race), so a hidden round gets the header and one shield,
+  // and none of the requests below are made. Checked before the parallel
+  // wave, but only costs a calendar fetch (cached for a day) when the mode
+  // is actually on.
+  if ((await getSpoilerPrefs()).on) {
+    const hiddenRound = (await getSpoilerContext(seasonYear)).round(roundNumber);
+    if (hiddenRound) {
+      return (
+        <div className="px-6 md:px-10 pt-8 pb-16">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-6">
+            <div>
+              <span className="font-bold text-xs tracking-[0.18em] uppercase text-flame">
+                Telemetry lab
+              </span>
+              <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[56px] tracking-[-1.5px] leading-none mt-2">
+                Pitwall <span className="apex-flame-text">Strategy</span>
+              </h1>
+              <p className="font-semibold text-[13px] text-warm-400 mt-2">
+                {hiddenRound.raceName} · Round {hiddenRound.round}
+              </p>
+            </div>
+            <Link
+              href={`/schedule/${season}/${round}`}
+              className="font-bold text-xs px-5 h-[46px] rounded-control apex-glass-soft flex items-center justify-center hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-95"
+            >
+              ← Back to race
+            </Link>
+          </div>
+          <SpoilerShield
+            hidden
+            raceKey={hiddenRound.raceKey}
+            raceName={hiddenRound.raceName}
+            description="Stints, pit stops, lap charts, the replay, team radio and race control all give the result away, so the whole strategy view waits until you reveal this round."
+            minHeight={560}
+          />
+        </div>
+      );
+    }
   }
 
   // None of these depend on each other's result, so fire them together rather

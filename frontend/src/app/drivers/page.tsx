@@ -4,6 +4,9 @@ import DriversGrid from "@/components/drivers-grid";
 import SeasonSelector from "@/components/season-selector";
 import CompareDriversPanel from "@/components/compare-drivers-panel";
 import DegradedBeacon from "@/components/degraded-beacon";
+import { SpoilerBanner } from "@/components/spoiler-shield";
+import { getSpoilerContext, getWindowHiddenRounds } from "@/lib/spoilers-server";
+import { joinNames } from "@/lib/spoilers";
 
 // Driver standings change after every race; render per request.
 export const dynamic = "force-dynamic";
@@ -40,7 +43,32 @@ export default async function DriversPage({ searchParams }: PageProps) {
     // Backend offline
   }
 
-  const list = drivers ?? [];
+  // Spoiler-free mode. The grid is still the grid, but its order, points,
+  // wins and positions all include the hidden round. So the drivers are
+  // re-sorted by surname and those three figures are blanked HERE, on the
+  // server, rather than merely not drawn: the client grid and its modal never
+  // receive them. The head-to-head panel compares season results, so it waits
+  // too.
+  //
+  // Career totals in the profile modal are a separate question: they span
+  // seasons, so they hide while a round of ANY season in the window is hidden
+  // (a hidden 2026 finale still counts in a career viewed from 2027).
+  const [spoilers, windowHidden] = await Promise.all([
+    getSpoilerContext(year),
+    getWindowHiddenRounds(),
+  ]);
+  const figuresHidden = spoilers.hidden.length > 0;
+  const careerHidden = windowHidden.length > 0;
+  const hiddenNames = spoilers.hidden.map((h) => h.raceName);
+  const list = figuresHidden
+    ? [...(drivers ?? [])]
+        .sort((a, b) =>
+          (a.Driver.familyName ?? "").localeCompare(b.Driver.familyName ?? "")
+        )
+        // `positionText` too: the API sends it alongside `position`, and a
+        // spread would otherwise carry it straight into the client props.
+        .map((d) => ({ ...d, position: "", positionText: "", points: "", wins: "" }))
+    : drivers ?? [];
 
   return (
     <div className="px-6 md:px-10 pt-11 pb-16">
@@ -66,9 +94,25 @@ export default async function DriversPage({ searchParams }: PageProps) {
         </div>
       )}
 
-      {list.length > 0 && <CompareDriversPanel drivers={list} seasonYear={year} />}
+      {list.length > 0 && figuresHidden && (
+        <SpoilerBanner
+          className="mb-6"
+          raceKey={spoilers.hidden.map((h) => h.raceKey)}
+          raceName={hiddenNames}
+          title={`Points and positions include the ${joinNames(hiddenNames)} ${hiddenNames.length > 1 ? "results" : "result"}`}
+          description="Spoiler-free mode is on, so the grid is in surname order and season figures are hidden."
+        />
+      )}
 
-      <DriversGrid drivers={list} />
+      {list.length > 0 && !figuresHidden && (
+        <CompareDriversPanel drivers={list} seasonYear={year} />
+      )}
+
+      <DriversGrid
+        drivers={list}
+        seasonFiguresHidden={figuresHidden}
+        careerFiguresHidden={careerHidden}
+      />
     </div>
   );
 }
