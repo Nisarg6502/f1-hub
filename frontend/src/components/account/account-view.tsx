@@ -95,7 +95,7 @@ export default function AccountView({
 }: {
   user: { id: string; name: string; email: string; image?: string | null };
   grid: { season: number; drivers: GridDriver[]; teams: GridTeam[] };
-  providers: string[];
+  providers: { providerId: string; accountId: string }[];
   googleEnabled: boolean;
   welcome: boolean;
   error: AuthErrorCopy | null;
@@ -402,11 +402,12 @@ function SignInMethodsSection({
   googleEnabled,
 }: {
   email: string;
-  providers: string[];
+  providers: { providerId: string; accountId: string }[];
   googleEnabled: boolean;
 }) {
   const router = useRouter();
-  const hasGoogle = providers.includes("google");
+  const googleAccount = providers.find((p) => p.providerId === "google");
+  const hasGoogle = Boolean(googleAccount);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -427,7 +428,9 @@ function SignInMethodsSection({
   async function unlinkGoogle() {
     setBusy(true);
     setMessage(null);
-    const { error } = await authClient.unlinkAccount({ providerId: "google" });
+    const { error } = await authClient.unlinkAccount({
+      accountId: googleAccount?.accountId ?? "",
+    });
     setBusy(false);
     if (error) {
       setMessage("Google couldn't be unlinked just now. Please try again.");

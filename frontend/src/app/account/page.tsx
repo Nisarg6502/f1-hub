@@ -78,7 +78,7 @@ export default async function AccountPage({
     <AccountView
       user={user}
       grid={grid}
-      providers={accounts.map((account) => account.providerId)}
+      providers={accounts.map(({ providerId, accountId }) => ({ providerId, accountId }))}
       googleEnabled={isGoogleConfigured()}
       welcome={params.welcome === "1"}
       error={describeAuthError(errorParam)}
