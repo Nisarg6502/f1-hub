@@ -208,12 +208,18 @@ export default function HomeGrid({ data, raceWeek }: { data: HomeData; raceWeek:
     pendingFocus.current = "__edit-button__";
   }, [announce]);
 
-  // Escape finishes editing from anywhere — except while the gallery is
-  // open, where the dialog's own Escape closes the gallery first.
+  // Escape finishes editing when focus is on the home itself (the grid, the
+  // edit bar) or on nothing in particular. Not while the gallery is open —
+  // its own Escape closes it first — and not when focus is in some other
+  // surface, such as the Pitwall panel, whose Escape belongs to it.
+  const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!editing || galleryOpen) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Escape") finishEditing();
+      if (e.key !== "Escape") return;
+      const target = e.target as Node | null;
+      const onPage = !target || target === document.body || target === document.documentElement;
+      if (onPage || rootRef.current?.contains(target)) finishEditing();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -380,7 +386,14 @@ export default function HomeGrid({ data, raceWeek }: { data: HomeData; raceWeek:
   }, []);
 
   const onDragEnd = useCallback(
-    ({ active }: DragEndEvent) => {
+    ({ active, over }: DragEndEvent) => {
+      // Dropped outside every widget: treat as a cancel and keep the order
+      // the drag started from, not wherever the live preview had got to.
+      if (!over) {
+        setActiveId(null);
+        setDragItems(null);
+        return;
+      }
       const from = layout.items.findIndex((i) => i.id === active.id);
       const to = dragItems?.findIndex((i) => i.id === active.id) ?? -1;
       setActiveId(null);
@@ -435,7 +448,7 @@ export default function HomeGrid({ data, raceWeek }: { data: HomeData; raceWeek:
   }
 
   return (
-    <div className="px-6 md:px-10">
+    <div ref={rootRef} className="px-6 md:px-10">
       {/* Read by a screen reader when a widget takes focus in edit mode. */}
       <p id={instructionsId} className="sr-only">
         Arrow keys move this widget. Home and End move it to the start or end. Plus and minus change its size.

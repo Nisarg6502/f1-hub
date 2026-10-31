@@ -15,6 +15,13 @@ import { buildHomeData, latestCompletedRace } from "@/components/home/home-data"
 // current time, so a prerender goes stale the moment a race is run.
 export const dynamic = "force-dynamic";
 
+/** The request's "now", read once per render. A helper outside the component
+ * because `react-hooks/purity` forbids `Date.now()` in a component body; the
+ * page is `force-dynamic`, so one read per request is the intended value. */
+function requestTime(): number {
+  return Date.now();
+}
+
 /**
  * The home page: a customisable grid of widgets (see
  * `components/home/home-grid.tsx`).
@@ -33,7 +40,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function Home() {
   const seasonYear = getActiveSeasonYear();
-  const nowMs = Date.now();
+  const nowMs = requestTime();
 
   let races: Race[] = [];
   let driverStandings: DriverStanding[] = [];

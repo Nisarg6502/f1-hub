@@ -307,10 +307,10 @@ describe("parseHomeLayout", () => {
     ]);
   });
 
-  it("keeps an empty layout — removing everything is a real choice", () => {
-    const parsed = parseHomeLayout(stored([]));
-    expect(parsed.items).toEqual([]);
-    expect(isDefaultLayout(parsed)).toBe(false);
+  it("falls back to the default when no items survive", () => {
+    expect(parseHomeLayout(stored([]))).toBe(DEFAULT_HOME_LAYOUT);
+    expect(parseHomeLayout(stored([{ id: "x", type: "ghost", size: "m" }]))).toBe(DEFAULT_HOME_LAYOUT);
+    expect(isDefaultLayout(parseHomeLayout(stored([])))).toBe(true);
   });
 
   describe("versions", () => {

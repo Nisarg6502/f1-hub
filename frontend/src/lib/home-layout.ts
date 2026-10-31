@@ -297,6 +297,9 @@ export function normaliseLayout(rawItems: readonly unknown[]): HomeLayout {
     items.push({ id: itemId, type, size: coerceSize(type, size) });
   }
 
+  // Nothing usable survived (an empty array, or only unknown types): a blank
+  // home is far more likely to be damage than a choice, so show the default.
+  if (items.length === 0) return DEFAULT_HOME_LAYOUT;
   const layout: HomeLayout = { version: HOME_LAYOUT_VERSION, items };
   return isDefaultLayout(layout) ? DEFAULT_HOME_LAYOUT : layout;
 }
