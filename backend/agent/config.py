@@ -233,6 +233,32 @@ def session_secret() -> str | None:
     return os.getenv("AGENT_SESSION_SECRET") or None
 
 
+def user_token_secret() -> str | None:
+    """HS256 key for the signed-in user's bearer token, read at call time.
+
+    Shared with the frontend, which mints the token in `GET /api/agent-token`
+    (see `user_auth.py` for the full contract). Read at call time for the same
+    reason as `session_secret()`. Absent is not an error either, but it does
+    NOT fall back to a random key the way the session cookie does: a random key
+    here would just mean every token fails verification, so `user_auth` treats
+    "no secret" as "nobody can sign in" directly and saved history is simply
+    off — guests are unaffected either way.
+    """
+    return os.getenv("AGENT_USER_TOKEN_SECRET") or None
+
+
+def conversations_db_name() -> str:
+    """Which database `conversations.py` writes saved chats to.
+
+    Defaults to the service's own database, which is where production keeps
+    them. The override exists so local end-to-end runs can write real
+    conversations against the real Atlas cluster without putting test chats in
+    the database the deployed service reads — `f1_scratch_dev` is the
+    convention. Read at call time so a test can patch it.
+    """
+    return os.getenv("AGENT_CONVERSATIONS_DB") or MONGODB_DB_NAME
+
+
 # How long a session cookie identifies the same bucket. Long enough that a
 # returning visitor keeps their own allowance rather than inheriting whatever
 # their CGNAT neighbours have spent; short enough that a leaked cookie is not

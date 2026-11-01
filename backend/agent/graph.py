@@ -948,9 +948,19 @@ async def astream_answer(
     thread_id: str | None,
     ledger: EvidenceLedger,
     checkpointer: Any | None = None,
+    history: list[dict] | None = None,
 ) -> AsyncIterator[AgentEvent]:
     """Run one turn of the deep agent, yielding tier, activity, token and
     verification events.
+
+    `history` is prior turns as plain `{role, content}` messages, prepended to
+    this turn's input. Empty on every ordinary turn — the checkpointer is what
+    carries a thread's memory. It is non-empty only when a signed-in user
+    continues a saved conversation whose checkpoint has expired
+    (`conversations.seed_messages`); the run then writes a fresh checkpoint
+    that includes it, so the seed is a one-off rather than a per-turn cost.
+    The fast path ignores it, as it ignores the checkpointer: its intents
+    ("who won the last race") are answerable without context by construction.
 
     Raises the same typed errors `model.stream_chat` does
     (`ModelUnavailable` / `ModelAtCapacity` / `ModelTimeout` / `ModelError`),
@@ -1034,7 +1044,7 @@ async def astream_answer(
         # continue, rather than looping until the free-tier quota notices.
         "recursion_limit": config.AGENT_MAX_STEPS,
     }
-    inputs = {"messages": [{"role": "user", "content": message}]}
+    inputs = {"messages": [*(history or []), {"role": "user", "content": message}]}
 
     try:
         async with asyncio.timeout(config.REQUEST_TIMEOUT_SECONDS):
