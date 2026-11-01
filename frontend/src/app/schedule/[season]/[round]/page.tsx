@@ -16,6 +16,8 @@ import {
 import SessionTabs from "@/components/session-tabs";
 import RaceSelector from "@/components/race-selector";
 import SeasonSelector from "@/components/season-selector";
+import { RaceShareButton } from "@/components/share/share-button";
+import { hasClassification } from "@/lib/share-results";
 import SpoilerShield from "@/components/spoiler-shield";
 import { getSpoilerContext } from "@/lib/spoilers-server";
 import { redactWinners } from "@/lib/spoilers";
@@ -328,6 +330,18 @@ export default async function RaceDetailPage({ params }: PageProps) {
               Watch at race pace
             </Link>
           )}
+          {/* Only sessions with a real classification are offered — see
+              `hasClassification` for the rounds that have rows and no order. */}
+          <RaceShareButton
+            hidden={hiddenRound !== null}
+            season={seasonYear}
+            round={roundNumber}
+            raceName={race.raceName}
+            sessions={[
+              ...(hasClassification(results) ? (["race"] as const) : []),
+              ...(hasClassification(sprintResults) ? (["sprint"] as const) : []),
+            ]}
+          />
           <Link
             href="/schedule"
             className="font-bold text-xs px-5 h-[46px] rounded-control apex-glass-soft flex items-center justify-center hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-95"

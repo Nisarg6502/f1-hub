@@ -61,6 +61,7 @@ import { buildAnchoredMarkdown } from "@/lib/answer-anchors";
 import AnchorMark, { AnchorContext } from "./anchor-mark";
 import SourceStrip from "./source-strip";
 import VisualFrame from "./visual-frame";
+import ShareAnswerButton from "./share/share-answer-button";
 import LocalDateTime from "./local-datetime";
 import FeedbackControls from "./feedback-controls";
 import { ActivityAccordion, type ActivityEntry } from "./activity-accordion";
@@ -1257,6 +1258,7 @@ const MessageBubble = memo(function MessageBubble({
       {!message.error && message.done && (
         <div className="flex items-center gap-1.5">
           <CopyButton text={message.text} />
+          <ShareAnswerButton question={message.question} text={anchored.plainText} visuals={message.visuals} />
           {message.question && (
             <button
               type="button"
