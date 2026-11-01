@@ -647,7 +647,7 @@ def _qualifying_violations(text: str) -> list[str]:
 SESSION_VALIDATORS = {"qualifying": _qualifying_violations}
 
 
-async def _generate_recap(facts: dict, system_prompt: str = SYSTEM_PROMPT):
+async def _generate_recap(facts: dict, system_prompt: str = SYSTEM_PROMPT, on_done=None):
     """Stream recap text from Ollama Cloud, yielding content deltas.
 
     Yields nothing if `OLLAMA_API_KEY` is unset or the call fails — the
@@ -657,6 +657,10 @@ async def _generate_recap(facts: dict, system_prompt: str = SYSTEM_PROMPT):
     Only `message.content` is forwarded. Reasoning models on Ollama Cloud also
     stream a `message.thinking` field carrying raw chain-of-thought; forwarding
     it would leak reasoning traces into user-facing prose.
+
+    `on_done`, if given, is called once the stream reports `done`. A caller
+    that caches the whole text (`catch_up`) uses it to refuse a stream that
+    was cut off part-way, which otherwise looks like a short answer.
     """
     api_key = os.getenv("OLLAMA_API_KEY")
     if not api_key:
@@ -694,6 +698,8 @@ async def _generate_recap(facts: dict, system_prompt: str = SYSTEM_PROMPT):
                     if content:
                         yield content
                     if chunk.get("done"):
+                        if on_done:
+                            on_done()
                         break
     except httpx.HTTPError as error:
         print(f"Ollama recap call failed: {error}")

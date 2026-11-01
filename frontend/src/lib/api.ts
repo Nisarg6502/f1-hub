@@ -1068,3 +1068,126 @@ export async function getConstructorTitles(): Promise<ConstructorTitlesResponse>
     { next: { revalidate: 86400 } } // titles only change once a year
   );
 }
+
+// --- Catch me up (backend/app/catch_up.py) ---
+//
+// Everything classified since the last round a returning visitor saw. The
+// facts are deterministic and always present when there are rounds; the
+// narrative is an optional AI summary of them, null whenever the model is
+// unavailable, slow, or wrote something its number check rejected.
+//
+// Fetched from the browser (the card reads `localStorage` to know what was
+// missed), so this opts out of Next's fetch cache: a cached "no narrative yet"
+// would otherwise stick for five minutes.
+
+export interface CatchUpPerson {
+  driver_id: string;
+  name: string;
+  code?: string | null;
+  team?: string | null;
+  team_id?: string | null;
+}
+
+export interface CatchUpPodiumEntry extends CatchUpPerson {
+  position: number;
+}
+
+export interface CatchUpSession {
+  /** `missing`: no result on file for a round inside the span. `pending`: the
+   * latest round's sprint is in but its Grand Prix is not. */
+  status: "classified" | "missing" | "pending";
+  winner: CatchUpPodiumEntry | null;
+  podium: CatchUpPodiumEntry[];
+}
+
+export interface CatchUpRound {
+  round: number;
+  round_key: string;
+  race_name: string | null;
+  date?: string | null;
+  race: CatchUpSession;
+  sprint: CatchUpSession | null;
+}
+
+export interface CatchUpLeader {
+  drivers: CatchUpPerson[];
+  points: number;
+  /** Level on points: no single leader is named. */
+  tied: boolean;
+}
+
+export interface CatchUpTitleGap {
+  points: number;
+  leader: CatchUpPerson;
+  leader_points: number;
+  second: CatchUpPerson;
+  second_points: number;
+}
+
+export interface CatchUpMover extends CatchUpPerson {
+  from_position: number;
+  to_position: number;
+  /** Positive is up the table. */
+  change: number;
+  points_gained: number;
+}
+
+export interface CatchUpWins extends CatchUpPerson {
+  wins: number;
+  races: (string | null)[];
+}
+
+export interface CatchUpNotable {
+  kind: "first_career_win" | "leader_non_finish";
+  round: number;
+  race_name: string | null;
+  session: "race" | "sprint";
+  driver: CatchUpPerson;
+  status?: string;
+}
+
+export interface CatchUpFacts {
+  /** False when the standings rebuilt from results disagreed with the stored
+   * standings; `standings` is then null rather than possibly wrong. */
+  standings_verified: boolean;
+  standings: {
+    baseline_round: number;
+    leader_before: CatchUpLeader | null;
+    leader_now: CatchUpLeader | null;
+    leader_changed: boolean;
+    title_gap_before: CatchUpTitleGap | null;
+    title_gap_now: CatchUpTitleGap | null;
+    movers: CatchUpMover[];
+    top_scorer: { drivers: CatchUpPerson[]; points: number } | null;
+  } | null;
+  grands_prix_classified: number;
+  race_wins: CatchUpWins[];
+  sprint_wins: CatchUpWins[];
+  notable: CatchUpNotable[];
+}
+
+export interface CatchUpResponse {
+  season: number;
+  after_round: number;
+  latest_round: number;
+  baseline: { round: number; race_name: string | null };
+  rounds: CatchUpRound[];
+  facts: CatchUpFacts | null;
+  narrative: string | null;
+}
+
+/**
+ * `narrative: false` answers with the facts at once (and starts the summary in
+ * the background); `true` waits, bounded server-side, for the summary too.
+ */
+export async function getCatchUp(
+  season: number,
+  afterRound: number,
+  { narrative, signal }: { narrative: boolean; signal?: AbortSignal }
+): Promise<CatchUpResponse> {
+  return fetchJson<CatchUpResponse>(
+    "/api/catch_up",
+    { season, after_round: afterRound, narrative },
+    { cache: "no-store", next: undefined, signal }
+  );
+}

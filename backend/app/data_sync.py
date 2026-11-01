@@ -888,6 +888,12 @@ def create_indexes(db) -> None:
     db.historical_race_index.create_index([("season", 1), ("round", 1)], unique=True)
     # Populated lazily by /api/constructor_seasons on demand, not by this batch job.
     db.constructor_seasons_cache.create_index([("constructor_id", 1)], unique=True)
+    # Written lazily by /api/catch_up; one narrative per span, so two cold
+    # requests for the same span upsert into one document, not two.
+    db.catch_up_narrative.create_index(
+        [("season", 1), ("after_round", 1), ("latest_round", 1), ("prompt_version", 1)],
+        unique=True,
+    )
 
 
 def _years_to_sync() -> list[int]:

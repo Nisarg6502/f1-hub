@@ -26,6 +26,9 @@ import { Stagger, StaggerItem } from "@/components/motion-primitives";
 import SeasonSelector from "@/components/season-selector";
 import TeamHeritageDisclosure from "@/components/team-heritage-disclosure";
 import DegradedBeacon from "@/components/degraded-beacon";
+import { SpoilerBanner, SpoilerStub } from "@/components/spoiler-shield";
+import { getSpoilerContext, getWindowHiddenRounds } from "@/lib/spoilers-server";
+import { joinNames } from "@/lib/spoilers";
 
 // Constructor standings change after every race; render per request.
 export const dynamic = "force-dynamic";
@@ -135,7 +138,30 @@ export default async function TeamsPage({ searchParams }: PageProps) {
     // Backend offline
   }
 
-  const list = constructors ?? [];
+  // Spoiler-free mode. Three things on a team card carry the hidden round:
+  // the card ORDER (standings order), the season block (position, wins,
+  // points), and the heritage block's all-time win count, which ticks up the
+  // moment a hidden race is won. So, while a round of this season is hidden:
+  // cards sort by name, season figures are blanked here on the server, and
+  // the hidden rounds are dropped from the win index below. What remains is
+  // exactly the record as it stood before those rounds.
+  //
+  // The all-time figures (wins, titles) span seasons, so they are filtered by
+  // the hidden rounds of EVERY season in the window, not just the one being
+  // viewed: across New Year a hidden previous-season finale would otherwise
+  // already be counted.
+  const [spoilers, windowHidden] = await Promise.all([
+    getSpoilerContext(year),
+    getWindowHiddenRounds(),
+  ]);
+  const figuresHidden = spoilers.hidden.length > 0;
+  const hiddenNames = spoilers.hidden.map((h) => h.raceName);
+  const list = figuresHidden
+    ? [...(constructors ?? [])]
+        .sort((a, b) => (a.Constructor.name ?? "").localeCompare(b.Constructor.name ?? ""))
+        // `positionText` rides along on the API object; blank it with the rest.
+        .map((team) => ({ ...team, position: "", positionText: "", points: "", wins: "" }))
+    : constructors ?? [];
 
   // --- Heritage data -------------------------------------------------------
   //
@@ -156,7 +182,12 @@ export default async function TeamsPage({ searchParams }: PageProps) {
   let fullRaces: Awaited<ReturnType<typeof getHistoricalRaceIndex>>["races"] = [];
   try {
     const { races } = await getHistoricalRaceIndex("full");
-    fullRaces = races;
+    fullRaces = windowHidden.length
+      ? races.filter(
+          (race) =>
+            !windowHidden.some((h) => h.season === race.season && h.round === race.round)
+        )
+      : races;
   } catch {
     // Win counts degrade to zero-with-no-source rather than a wrong number;
     // the heritage block hides them (see hasRaceIndex below).
@@ -182,6 +213,14 @@ export default async function TeamsPage({ searchParams }: PageProps) {
     titles = payload.complete ? payload : null;
   } catch {
     // Endpoint unavailable — championship rows are hidden.
+  }
+  // Titles only cover completed seasons, so this bites in one case: the
+  // hidden round is a season finale, and the title it decided is already in
+  // the counts. Rarer than it is serious, and there is no per-round title
+  // data to subtract it with, so the rows are hidden the same way an
+  // incomplete title fetch hides them.
+  if (titles && windowHidden.some((h) => h.season <= titles!.last_season)) {
+    titles = null;
   }
 
   const hasRaceIndex = fullRaces.length > 0;
@@ -230,6 +269,16 @@ export default async function TeamsPage({ searchParams }: PageProps) {
         <div className="apex-glass-soft rounded-2xl px-6 py-12 text-center font-medium text-warm-400">
           Constructor standings are unavailable right now.
         </div>
+      )}
+
+      {list.length > 0 && figuresHidden && (
+        <SpoilerBanner
+          className="mb-6"
+          raceKey={spoilers.hidden.map((h) => h.raceKey)}
+          raceName={hiddenNames}
+          title={`Season figures include the ${joinNames(hiddenNames)} ${hiddenNames.length > 1 ? "results" : "result"}`}
+          description="Spoiler-free mode is on, so teams are in name order and win counts stop before the hidden rounds."
+        />
       )}
 
       {/* Team cards */}
@@ -348,6 +397,11 @@ export default async function TeamsPage({ searchParams }: PageProps) {
                 <div className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500 mb-2">
                   {year} season
                 </div>
+                {figuresHidden ? (
+                  <div className="h-[48px] flex items-center">
+                    <SpoilerStub label="Position, wins and points hidden" />
+                  </div>
+                ) : (
                 <div className="flex items-end justify-between">
                   <div>
                     <div className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500">
@@ -374,6 +428,7 @@ export default async function TeamsPage({ searchParams }: PageProps) {
                     </div>
                   </div>
                 </div>
+                )}
               </div>
 
               {dossier && hasRaceIndex && (

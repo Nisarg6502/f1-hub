@@ -24,6 +24,7 @@ from . import constructor_titles
 from . import track_geometry
 from . import watch_session
 from . import session_sectors
+from . import catch_up
 
 app = FastAPI(title="F1 API")
 
@@ -87,6 +88,7 @@ app.include_router(constructor_titles.router)
 app.include_router(track_geometry.router)
 app.include_router(watch_session.router)
 app.include_router(session_sectors.router)
+app.include_router(catch_up.router)
 
 
 @app.get("/health")

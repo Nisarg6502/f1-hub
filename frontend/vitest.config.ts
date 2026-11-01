@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 /**
@@ -14,6 +15,13 @@ import { defineConfig } from "vitest/config";
  * per `docs/superpowers/specs/2026-08-22-google-analytics-design.md`.
  */
 export default defineConfig({
+  // The `@/` alias from tsconfig, which vitest does not read on its own. Added
+  // for the share-card route tests (`lib/share-routes.test.ts`), which import
+  // route handlers written in the app's usual `@/lib/...` style rather than
+  // rewriting them to relative paths for the test runner's sake.
+  resolve: {
+    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+  },
   test: {
     environment: "node",
     include: ["src/lib/**/*.test.ts"],
