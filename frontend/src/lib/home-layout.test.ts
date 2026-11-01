@@ -59,13 +59,14 @@ describe("catalogue", () => {
 
   it("reserves the full-width size for the countdown and the old full-width strips", () => {
     const full = WIDGET_TYPES.filter((t) => WIDGET_CATALOGUE[t].sizes.includes("full"));
-    expect(full.sort()).toEqual(["countdown", "explore", "race-week", "tips"]);
+    expect(full.sort()).toEqual(["catch-up", "countdown", "explore", "race-week", "tips"]);
   });
 
   it("flags every result-bearing widget for spoiler mode", () => {
     const revealing = WIDGET_TYPES.filter((t) => WIDGET_CATALOGUE[t].revealsResults);
     expect(revealing.sort()).toEqual(
       [
+        "catch-up",
         "constructor-standings",
         "driver-standings",
         "last-race",
@@ -80,6 +81,7 @@ describe("catalogue", () => {
   it("builds the default layout from today's home sections, in today's order", () => {
     expect(types(DEFAULT_HOME_LAYOUT)).toEqual([
       "countdown",
+      "catch-up",
       "race-week",
       "leader",
       "last-race",
@@ -119,7 +121,7 @@ describe("reducers", () => {
     const next = addWidget(DEFAULT_HOME_LAYOUT, "driver-standings");
     expect(types(next).at(-1)).toBe("driver-standings");
     expect(next.items.at(-1)).toMatchObject({ id: "driver-standings", size: "m" });
-    expect(DEFAULT_HOME_LAYOUT.items).toHaveLength(7); // not mutated
+    expect(DEFAULT_HOME_LAYOUT.items).toHaveLength(8); // not mutated
   });
 
   it("adds at a requested index and coerces the requested size", () => {
@@ -159,14 +161,14 @@ describe("reducers", () => {
   it("moves by index, clamping out-of-range targets", () => {
     const next = moveWidget(DEFAULT_HOME_LAYOUT, 0, 99);
     expect(types(next).at(-1)).toBe("countdown");
-    expect(types(next)[0]).toBe("race-week");
+    expect(types(next)[0]).toBe("catch-up");
     expect(moveWidget(DEFAULT_HOME_LAYOUT, 2, 2)).toBe(DEFAULT_HOME_LAYOUT);
     expect(moveWidget(DEFAULT_HOME_LAYOUT, -1, 2)).toBe(DEFAULT_HOME_LAYOUT);
   });
 
   it("moves by a step, and is a no-op at either end", () => {
     const next = moveWidgetBy(DEFAULT_HOME_LAYOUT, "last-race", -1);
-    expect(types(next).slice(2, 4)).toEqual(["last-race", "leader"]);
+    expect(types(next).slice(3, 5)).toEqual(["last-race", "leader"]);
     expect(moveWidgetBy(DEFAULT_HOME_LAYOUT, "countdown", -1)).toBe(DEFAULT_HOME_LAYOUT);
     expect(moveWidgetBy(DEFAULT_HOME_LAYOUT, "tips", 1)).toBe(DEFAULT_HOME_LAYOUT);
   });
@@ -199,16 +201,17 @@ describe("placeLayout (reflow)", () => {
     const desktop = placeLayout(DEFAULT_HOME_LAYOUT.items, 4);
     expect(desktop.map((p) => [p.id, p.row, p.column])).toEqual([
       ["countdown", 0, 0],
-      ["race-week", 1, 0],
-      ["leader", 2, 0],
-      ["last-race", 2, 2],
-      ["next-circuit", 2, 3],
-      ["explore", 3, 0],
-      ["tips", 4, 0],
+      ["catch-up", 1, 0],
+      ["race-week", 2, 0],
+      ["leader", 3, 0],
+      ["last-race", 3, 2],
+      ["next-circuit", 3, 3],
+      ["explore", 4, 0],
+      ["tips", 5, 0],
     ]);
     const phone = placeLayout(DEFAULT_HOME_LAYOUT.items, 2);
-    expect(phone.find((p) => p.id === "last-race")).toMatchObject({ row: 3, column: 0 });
-    expect(phone.find((p) => p.id === "next-circuit")).toMatchObject({ row: 3, column: 1 });
+    expect(phone.find((p) => p.id === "last-race")).toMatchObject({ row: 4, column: 0 });
+    expect(phone.find((p) => p.id === "next-circuit")).toMatchObject({ row: 4, column: 1 });
   });
 
   it("keeps reading order equal to list order at every column count", () => {

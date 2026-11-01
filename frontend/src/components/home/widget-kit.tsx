@@ -23,7 +23,13 @@ export interface WidgetProps {
   editing?: boolean;
   /** Server-rendered nodes the client grid places but cannot itself render
    * (the race-week strip is an async server component). */
-  slots: { raceWeek: ReactNode };
+  slots: HomeSlots;
+}
+
+/** Server-rendered nodes the client grid places but cannot itself render. */
+export interface HomeSlots {
+  raceWeek: ReactNode;
+  catchUp: ReactNode;
 }
 
 /** The small all-caps label every card leads with. */

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import type { HomeSlots } from "./widget-kit";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { motion, useInView } from "motion/react";
 import {
@@ -47,7 +48,7 @@ export default function WidgetGallery({
   open: boolean;
   layout: HomeLayout;
   data: HomeData;
-  slots: { raceWeek: ReactNode };
+  slots: HomeSlots;
   reduce: boolean;
   onAdd: (type: WidgetType, size: WidgetSize) => void;
   onClose: () => void;
@@ -81,7 +82,7 @@ function GallerySheet({
 }: {
   layout: HomeLayout;
   data: HomeData;
-  slots: { raceWeek: ReactNode };
+  slots: HomeSlots;
   reduce: boolean;
   onAdd: (type: WidgetType, size: WidgetSize) => void;
   onClose: () => void;
@@ -173,7 +174,7 @@ function GalleryEntry({
   type: WidgetType;
   available: boolean;
   data: HomeData;
-  slots: { raceWeek: ReactNode };
+  slots: HomeSlots;
   onAdd: (type: WidgetType, size: WidgetSize) => void;
 }) {
   const spec = WIDGET_CATALOGUE[type];
@@ -248,7 +249,7 @@ function Preview({
   type: WidgetType;
   size: WidgetSize;
   data: HomeData;
-  slots: { raceWeek: ReactNode };
+  slots: HomeSlots;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
   const inView = useInView(frameRef, { once: true, margin: "200px 0px" });

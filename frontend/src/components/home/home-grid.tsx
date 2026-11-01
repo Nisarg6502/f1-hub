@@ -118,9 +118,17 @@ function title(type: WidgetType) {
   return WIDGET_REGISTRY[type].title;
 }
 
-export default function HomeGrid({ data, raceWeek }: { data: HomeData; raceWeek: ReactNode }) {
+export default function HomeGrid({
+  data,
+  raceWeek,
+  catchUp,
+}: {
+  data: HomeData;
+  raceWeek: ReactNode;
+  catchUp: ReactNode;
+}) {
   const reduce = useReducedMotion() ?? false;
-  const slots = useMemo(() => ({ raceWeek }), [raceWeek]);
+  const slots = useMemo(() => ({ raceWeek, catchUp }), [raceWeek, catchUp]);
   const instructionsId = useId();
 
   /* ------------------------------- the layout ------------------------------- */

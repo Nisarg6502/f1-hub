@@ -1,5 +1,6 @@
 "use client";
 
+import type { HomeSlots } from "./widget-kit";
 import { memo, useRef, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { AnimatePresence, motion, type Transition } from "motion/react";
 import { useSortable } from "@dnd-kit/sortable";
@@ -8,6 +9,9 @@ import { EASE_OUT } from "@/components/motion-primitives";
 import { SIZE_LABEL, WIDGET_REGISTRY } from "./registry";
 import type { HomeData } from "./home-data";
 import styles from "./home-grid.module.css";
+import { SpoilerTile } from "@/components/spoiler-shield";
+
+const SELF_SHIELDED: ReadonlySet<WidgetType> = new Set<WidgetType>(["race-week", "catch-up"]);
 
 /** How long a finger must rest on a widget before the home enters edit mode.
  * iOS's figure, near enough; long enough that a scroll that starts on a
@@ -42,11 +46,29 @@ export const WidgetBody = memo(function WidgetBody({
   type: WidgetType;
   size: WidgetSize;
   data: HomeData;
-  slots: { raceWeek: ReactNode };
+  slots: HomeSlots;
   editing?: boolean;
   preview?: boolean;
 }) {
   const { Component } = WIDGET_REGISTRY[type];
+  // Spoiler-free mode: a widget that reveals results shows the shield tile
+  // instead while a round it depends on is hidden. "last-race" depends only
+  // on its own round; everything standings-shaped moved with ANY hidden round.
+  // Race week and catch-up redact themselves, per session and per round.
+  if (WIDGET_CATALOGUE[type].revealsResults && !SELF_SHIELDED.has(type)) {
+    const hidden = type === "last-race" ? data.spoilers.lastRace : data.spoilers.season;
+    if (hidden.length > 0) {
+      return (
+        <div className="apex-glass rounded-panel p-[26px] min-h-[224px] h-full">
+          <SpoilerTile
+            kicker={WIDGET_REGISTRY[type].title}
+            raceKey={hidden.map((h) => h.raceKey)}
+            raceName={hidden.map((h) => h.raceName)}
+          />
+        </div>
+      );
+    }
+  }
   return <Component data={data} size={size} slots={slots} editing={editing} preview={preview} />;
 });
 
@@ -55,7 +77,7 @@ export interface WidgetCellProps {
   index: number;
   count: number;
   data: HomeData;
-  slots: { raceWeek: ReactNode };
+  slots: HomeSlots;
   editing: boolean;
   selected: boolean;
   /** This cell is the drag source; the overlay is drawing the widget. */

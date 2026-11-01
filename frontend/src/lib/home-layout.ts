@@ -57,6 +57,7 @@ export function isWidgetSize(value: unknown): value is WidgetSize {
 
 export const WIDGET_TYPES = [
   "countdown",
+  "catch-up",
   "race-week",
   "season",
   "leader",
@@ -111,6 +112,7 @@ export interface WidgetSpec {
  */
 export const WIDGET_CATALOGUE: Record<WidgetType, WidgetSpec> = {
   countdown: { sizes: ["s", "m", "l", "full"], defaultSize: "full", revealsResults: false, unique: true },
+  "catch-up": { sizes: ["full"], defaultSize: "full", revealsResults: true, unique: true },
   "race-week": { sizes: ["full"], defaultSize: "full", revealsResults: true, unique: true },
   season: { sizes: ["s", "m", "l"], defaultSize: "m", revealsResults: true, unique: true },
   leader: { sizes: ["s", "m"], defaultSize: "m", revealsResults: true, unique: true },
@@ -178,6 +180,7 @@ export const DEFAULT_HOME_LAYOUT: HomeLayout = Object.freeze({
   version: HOME_LAYOUT_VERSION,
   items: Object.freeze([
     { id: "countdown", type: "countdown", size: "full" },
+    { id: "catch-up", type: "catch-up", size: "full" },
     { id: "race-week", type: "race-week", size: "full" },
     { id: "leader", type: "leader", size: "m" },
     { id: "last-race", type: "last-race", size: "s" },

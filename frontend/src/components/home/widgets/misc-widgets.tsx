@@ -177,3 +177,18 @@ export function AskPitwallWidget({ size, preview }: WidgetProps) {
     </button>
   );
 }
+
+/** The catch-me-up card, placed via a server slot because it needs the
+ * season's races and the visitor's hidden rounds. It renders nothing when
+ * there is nothing to catch up on, and redacts hidden rounds itself. */
+export function CatchUpWidget({ slots, preview, editing }: WidgetProps) {
+  if (!editing && !preview) return <>{slots.catchUp}</>;
+  return (
+    <div className="flex flex-col gap-3">
+      {slots.catchUp}
+      <span className="font-medium text-[12px] text-warm-400">
+        Catch me up: appears when races have run since your last visit.
+      </span>
+    </div>
+  );
+}

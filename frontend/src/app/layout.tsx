@@ -7,6 +7,7 @@ import NavLinks, { MobileNav } from "@/components/nav-links";
 import SeasonBadge from "@/components/season-badge";
 import GlobalSearch from "@/components/global-search";
 import PitwallAssistantLauncher from "@/components/pitwall-assistant-launcher";
+import SpoilerToggle from "@/components/spoiler-settings";
 import AppShell from "@/components/app-shell";
 import Analytics from "@/components/analytics";
 import ConsentBanner from "@/components/consent-banner";
@@ -263,6 +264,10 @@ export default function RootLayout({
             </div>
             <div className="flex items-center gap-4">
               <GlobalSearch />
+              {/* Spoiler-free mode. Reads its cookie in the browser so this
+                  layout never calls `cookies()`, which would turn every
+                  static page in the app dynamic; see spoiler-settings.tsx. */}
+              <SpoilerToggle />
               <PitwallAssistantLauncher />
               <Suspense fallback={<div className="font-semibold text-xs text-warm-300 w-[85px]" />}>
                 <SeasonBadge />

@@ -10,6 +10,8 @@ import {
 import RaceWeekGlimpse from "@/components/race-week-glimpse";
 import HomeGrid from "@/components/home/home-grid";
 import { buildHomeData, latestCompletedRace } from "@/components/home/home-data";
+import CatchUpCard from "@/components/catch-up-card";
+import { getSpoilerContext } from "@/lib/spoilers-server";
 
 // Rendered per request: the "next race" and "latest winner" depend on the
 // current time, so a prerender goes stale the moment a race is run.
@@ -57,7 +59,12 @@ export default async function Home() {
 
   let lastRaceResults: RaceResult[] = [];
   const latest = latestCompletedRace(races, nowMs);
-  if (latest) {
+  // Spoiler-free mode (see widget-cell.tsx for how widgets are gated). A
+  // hidden latest race's results are not fetched at all.
+  const spoilers = await getSpoilerContext(seasonYear, { races, nowMs });
+  const lastHidden = latest ? spoilers.round(latest.round) : null;
+  const ref = (h: { raceKey: string; raceName: string }) => ({ raceKey: h.raceKey, raceName: h.raceName });
+  if (latest && !lastHidden) {
     try {
       lastRaceResults = (await getRaceResults(seasonYear, Number(latest.round))).results ?? [];
     } catch {
@@ -65,7 +72,14 @@ export default async function Home() {
     }
   }
 
-  const data = buildHomeData({ seasonYear, nowMs, races, driverStandings, lastRaceResults });
+  const data = buildHomeData({
+    seasonYear,
+    nowMs,
+    races,
+    driverStandings,
+    lastRaceResults,
+    spoilers: { season: spoilers.hidden.map(ref), lastRace: lastHidden ? [ref(lastHidden)] : [] },
+  });
 
   return (
     <HomeGrid
@@ -74,6 +88,13 @@ export default async function Home() {
       // client grid as a node. Between weekends it renders nothing, which the
       // grid knows from `data.raceWeekActive`.
       raceWeek={<RaceWeekGlimpse races={races} seasonYear={seasonYear} nowMs={nowMs} />}
+      catchUp={
+        <CatchUpCard
+          season={seasonYear}
+          races={races}
+          hiddenRoundKeys={spoilers.hidden.map((h) => h.raceKey)}
+        />
+      }
     />
   );
 }

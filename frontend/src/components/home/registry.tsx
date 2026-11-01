@@ -6,7 +6,7 @@ import CountdownWidget from "./widgets/countdown-widget";
 import SeasonWidget from "./widgets/season-widget";
 import { LastRaceWidget, LeaderWidget, NextCircuitWidget } from "./widgets/bento-widgets";
 import { ConstructorStandingsWidget, DriverStandingsWidget, TitleFightWidget } from "./widgets/standings-widgets";
-import { AskPitwallWidget, ExploreWidget, RaceWeekWidget, TipsWidget } from "./widgets/misc-widgets";
+import { AskPitwallWidget, CatchUpWidget, ExploreWidget, RaceWeekWidget, TipsWidget } from "./widgets/misc-widgets";
 import type { WidgetProps } from "./widget-kit";
 
 /**
@@ -42,6 +42,12 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDefinition> = {
     description: "Time to lights out at the next Grand Prix. Full width, it is the hero, with the season card beside it.",
     icon: "timer",
     Component: CountdownWidget,
+  },
+  "catch-up": {
+    title: "Catch me up",
+    description: "What you missed since your last visit, round by round.",
+    icon: "history",
+    Component: CatchUpWidget,
   },
   "race-week": {
     title: "Race week",

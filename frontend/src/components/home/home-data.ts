@@ -49,8 +49,16 @@ export interface HomeSession {
   startTimeMs: number;
 }
 
+export interface HiddenRoundRef {
+  raceKey: string;
+  raceName: string;
+}
+
 export interface HomeData {
   seasonYear: number;
+  /** Spoiler-free mode: rounds hidden for this visitor. `season` is every
+   * hidden round of the season; `lastRace` is the latest race's, if hidden. */
+  spoilers: { season: HiddenRoundRef[]; lastRace: HiddenRoundRef[] };
   nowMs: number;
   /** The `Race` itself, because `CountdownTimer` takes one. One object. */
   nextRace: Race | null;
@@ -125,6 +133,7 @@ export function buildHomeData({
   races,
   driverStandings,
   lastRaceResults,
+  spoilers = { season: [], lastRace: [] },
 }: {
   seasonYear: number;
   nowMs: number;
@@ -132,6 +141,7 @@ export function buildHomeData({
   driverStandings: DriverStanding[];
   /** Results of the most recent completed race, if they could be fetched. */
   lastRaceResults: RaceResult[];
+  spoilers?: HomeData["spoilers"];
 }): HomeData {
   const withTs = races
     .map((race) => ({ race, ts: parseRaceMs(race.date, race.time) }))
@@ -161,6 +171,7 @@ export function buildHomeData({
 
   return {
     seasonYear,
+    spoilers,
     nowMs,
     nextRace,
     nextCircuit: {

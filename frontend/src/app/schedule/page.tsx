@@ -3,6 +3,7 @@ import { getActiveSeasonYear, getSeasonRaces, resolveSeasonYear } from "@/lib/ap
 import { getCountryFlagPath } from "@/lib/flags";
 import ScheduleBoard, { type ScheduleRow } from "@/components/schedule-board";
 import DegradedBeacon from "@/components/degraded-beacon";
+import { getSpoilerContext } from "@/lib/spoilers-server";
 
 // Rendered per request: this page splits the calendar into past and upcoming
 // against the current time, which a prerender cannot keep correct.
@@ -48,6 +49,11 @@ export default async function SchedulePage({ searchParams }: PageProps) {
   // eslint-disable-next-line react-hooks/purity
   const nowMs = Date.now();
 
+  // Spoiler-free mode: a hidden round's row keeps its place, date and name
+  // but loses its winner, and the winner is dropped here rather than in the
+  // board so it never reaches the client component's props at all.
+  const spoilers = await getSpoilerContext(year, { races, nowMs });
+
   const enriched = races.map((race) => {
     let ms: number | null = null;
     if (race.date) {
@@ -68,6 +74,7 @@ export default async function SchedulePage({ searchParams }: PageProps) {
 
   const rows: ScheduleRow[] = enriched.map((r, i) => {
     const country = r.race.Circuit?.Location?.country ?? "";
+    const spoilerHidden = spoilers.round(r.race.round) !== null;
     return {
       round: r.race.round,
       season: r.race.season ?? String(year),
@@ -93,7 +100,8 @@ export default async function SchedulePage({ searchParams }: PageProps) {
       flagSrc: getCountryFlagPath(country),
       status: r.isPast ? "completed" : i === nextIdx ? "next" : "upcoming",
       isSprint: r.isSprint,
-      winner: r.race.winner,
+      winner: spoilerHidden ? undefined : r.race.winner,
+      spoilerHidden,
     };
   });
 
