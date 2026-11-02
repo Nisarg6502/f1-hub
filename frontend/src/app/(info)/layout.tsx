@@ -24,7 +24,7 @@ import Link from "next/link";
  * "last updated" line exists to prevent, so it must move only when a person
  * verifies the content again.
  */
-export const LAST_REVIEWED = "2026-08-22";
+export const LAST_REVIEWED = "2026-10-26";
 
 const SECTIONS = [
   { href: "/about", label: "About" },

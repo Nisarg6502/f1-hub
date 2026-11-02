@@ -152,8 +152,22 @@ const CSP = [
   "media-src 'self' https://livetiming.formula1.com",
   // `data:` and `blob:` are needed for canvas-derived and generated imagery
   // (the track renderer, the OG image route, chart exports).
+  //
+  // `lh3.googleusercontent.com` is where a Google account's profile photo
+  // lives. The account avatar (`components/account/avatar.tsx`) loads it
+  // directly as a plain `<img>`; without this host it is refused with
+  // `blockedReason: "csp"` and the avatar silently falls back to initials,
+  // which looks like the user simply has no photo. Named exactly rather than
+  // `*.googleusercontent.com`, which would also admit arbitrary user-hosted
+  // content on Google's other subdomains.
+  //
+  // Nothing else changes for sign-in. Better Auth's client starts both the
+  // Google redirect and the magic-link request with `fetch` to this origin
+  // (`connect-src 'self'`) and then sets `window.location`, which no CSP
+  // directive governs — so `form-action 'self'` and `connect-src` stay as
+  // they were.
   [
-    "img-src 'self' data: blob: https://storage.googleapis.com https://upload.wikimedia.org https://commons.wikimedia.org",
+    "img-src 'self' data: blob: https://storage.googleapis.com https://upload.wikimedia.org https://commons.wikimedia.org https://lh3.googleusercontent.com",
     ...GA_IMG,
   ].join(" "),
   [

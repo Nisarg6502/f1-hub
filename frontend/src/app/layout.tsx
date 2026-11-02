@@ -11,6 +11,8 @@ import SpoilerToggle from "@/components/spoiler-settings";
 import AppShell from "@/components/app-shell";
 import Analytics from "@/components/analytics";
 import ConsentBanner from "@/components/consent-banner";
+import AccountControl from "@/components/account/account-control";
+import { isAuthConfigured } from "@/lib/auth-db";
 import "./globals.css";
 
 /**
@@ -156,7 +158,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" data-accounts={isAuthConfigured() ? "on" : undefined}>
       <head>
         {/* `no-page-custom-font` is a Pages Router rule warning about a font
             that would only load on one page via `pages/_document.js` — this
@@ -272,6 +274,7 @@ export default function RootLayout({
               <Suspense fallback={<div className="font-semibold text-xs text-warm-300 w-[85px]" />}>
                 <SeasonBadge />
               </Suspense>
+              <AccountControl />
             </div>
           </div>
         </nav>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useModalDialog } from "@/lib/use-modal-dialog";
 import GlobalSearch from "./global-search";
+import AccountSheetRow from "./account/account-sheet-row";
 import { SpoilerSettingsPanel } from "./spoiler-settings";
 
 /**
@@ -140,6 +141,7 @@ export default function MobileMoreSheet({
               <GlobalSearch variant="sheet" onDetailOpenChange={setDetailOpen} />
             </div>
 
+            <AccountSheetRow onNavigate={onClose} />
             {/* Spoiler-free mode. The desktop header's eye control is
                 `hidden lg:block`, so on a phone this is its only home, and it
                 sits above the links because a visitor opening the menu to find
