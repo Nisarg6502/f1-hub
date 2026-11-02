@@ -1,5 +1,8 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
+
+const noopSubscribe = () => () => {};
 import { createAuthClient } from "better-auth/react";
 import { magicLinkClient } from "better-auth/client/plugins";
 
@@ -35,8 +38,41 @@ export type AccountState =
  * UI actually distinguishes. Kept in one place so the header, the mobile
  * sheet and the account page cannot disagree about what "unavailable" means.
  */
+/**
+ * The root layout marks `<html data-accounts="on">` when the server has the
+ * auth secrets. Without the mark the browser never asks `/api/auth/get-session`
+ * at all, so an unconfigured deployment logs no 404 to the console. Read once:
+ * the attribute is fixed for the life of the page, which keeps the hook choice
+ * below stable across renders.
+ */
+const accountsDisabledInBrowser =
+  typeof document !== "undefined" && document.documentElement.dataset.accounts !== "on";
+
+/**
+ * Stand-in for `useSession` when accounts are off. The first render matches
+ * the server's ("loading") so hydration agrees; after mount it reports the
+ * same 404 shape the session endpoint would have.
+ */
+function useNoSession(): {
+  data: null;
+  isPending: boolean;
+  error: { status: number } | null;
+} {
+  // false while rendering on the server and hydrating, true afterwards.
+  const mounted = useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false,
+  );
+  return mounted
+    ? { data: null, isPending: false, error: { status: 404 } }
+    : { data: null, isPending: true, error: null };
+}
+
+const useSessionSource = accountsDisabledInBrowser ? useNoSession : authClient.useSession;
+
 export function useAccountState(): AccountState {
-  const { data, isPending, error } = authClient.useSession();
+  const { data, isPending, error } = useSessionSource();
   if (isPending) return { status: "loading" };
   if (error) {
     return error.status === 404 ? { status: "unavailable" } : { status: "signed-out" };

@@ -167,6 +167,11 @@ const sharedCache = createAgentTokenCache();
 
 /** The signed-in user's agent token, or `null` for a guest. Never throws. */
 export function getAgentToken(options?: { forceRefresh?: boolean }): Promise<string | null> {
+  // With accounts off (no `data-accounts="on"` from the root layout) nobody
+  // can be signed in, so skip the request that could only answer 401.
+  if (typeof document !== "undefined" && document.documentElement.dataset.accounts !== "on") {
+    return Promise.resolve(null);
+  }
   return sharedCache.get(options);
 }
 
