@@ -22,7 +22,7 @@
     "mongodb": "7.7.0",
     "motion": "^12.42.2",
     "next": "^16.3.3",
-    "nodemailer": "10.1.0",
+    "nodemailer": "10.1.4",
     "qrcode": "^1.5.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
