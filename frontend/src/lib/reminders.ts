@@ -149,6 +149,17 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/** "45 minutes", "3 hours", "1 day": rounded to what a person would say. */
+export function timeLeftLabel(ms: number): string {
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes < 15) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  if (minutes < 90) return `${Math.round(minutes / 5) * 5} minutes`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 36) return `${hours} hours`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"}`;
+}
+
 function formatIn(ms: number, timeZone: string): string {
   return new Intl.DateTimeFormat("en-GB", {
     timeZone,
@@ -172,12 +183,15 @@ export function renderReminderEmail({
   timeZone,
   siteUrl,
   unsubscribe,
+  nowMs,
 }: {
   session: CalendarSession;
   leadMinutes: number;
   timeZone?: string;
   siteUrl: string;
   unsubscribe: string;
+  /** Send time. When given, "starts in …" is the time actually left. */
+  nowMs?: number;
 }): ReminderEmail {
   const base = siteUrl.replace(/\/+$/, "");
   const link = sessionUrl(base, session);
@@ -188,7 +202,11 @@ export function renderReminderEmail({
     : null;
   const where = [session.circuitName, session.locality, session.country].filter(Boolean).join(", ");
   const title = `${session.raceName} – ${session.label}`;
-  const subject = `${session.label} starts in ${leadLabel(leadMinutes)} · ${session.raceName}`;
+  // The time actually left, not the chosen lead: a reminder can go out late
+  // in its window (turned on 3 hours before a 1-day lead, or caught up after
+  // a missed run), and "starts in 1 day" three hours out would be wrong.
+  const startsIn = nowMs === undefined ? leadLabel(leadMinutes) : timeLeftLabel(session.startMs - nowMs);
+  const subject = `${session.label} starts in ${startsIn} · ${session.raceName}`;
 
   const text = [
     title,
@@ -220,7 +238,7 @@ export function renderReminderEmail({
 <span style="font-size:20px;font-weight:800;letter-spacing:-0.5px;color:#f6f1ea;vertical-align:middle;margin-left:8px;">APEX</span>
 </td></tr>
 <tr><td style="padding:12px 28px 0 28px;font-family:Helvetica,Arial,sans-serif;color:#f6f1ea;">
-<p style="margin:0 0 6px 0;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#ff5a1f;">Starts in ${escapeHtml(leadLabel(leadMinutes))}</p>
+<p style="margin:0 0 6px 0;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#ff5a1f;">Starts in ${escapeHtml(startsIn)}</p>
 <h1 style="margin:0 0 14px 0;font-size:22px;line-height:1.3;font-weight:700;">${escapeHtml(title)}</h1>
 <p style="margin:0 0 4px 0;font-size:15px;line-height:1.55;color:#f6f1ea;">${escapeHtml(utc)}</p>
 ${local ? `<p style="margin:0 0 4px 0;font-size:15px;line-height:1.55;color:#c9c0b4;">Your time: ${escapeHtml(local)}</p>` : ""}
@@ -357,11 +375,36 @@ export async function dispatchReminders(options: DispatchOptions): Promise<Dispa
       item.outcome = "already-sent";
       continue;
     }
-    if (budget <= 0) {
+    // Re-counted from the ledger before every real send, not only at the
+    // start of the run, so two overlapping runs (a Scheduler retry landing on
+    // a normal tick) cannot together spend twice what is left of the day.
+    const overCap =
+      budget <= 0 ||
+      (!dryRun && (await store.countSendsSince(new Date(nowMs - 86_400_000))) >= dailyCap);
+    if (overCap) {
       report.deferredByCap++;
       item.outcome = "deferred-cap";
       continue;
     }
+
+    // Built BEFORE claiming: if rendering or signing throws, nothing is
+    // claimed, so the reminder is not silently lost, and the run carries on.
+    let message: ReminderEmail;
+    try {
+      message = renderReminderEmail({
+        session,
+        leadMinutes: subscription.leadMinutes,
+        timeZone: subscription.timeZone,
+        siteUrl,
+        unsubscribe: unsubscribeUrl(siteUrl, signUnsubscribeToken(subscription.userId, tokenSecret)),
+        nowMs,
+      });
+    } catch {
+      report.failed++;
+      item.outcome = "render-failed";
+      continue;
+    }
+
     if (dryRun) {
       budget--;
       item.outcome = "would-send";
@@ -374,13 +417,6 @@ export async function dispatchReminders(options: DispatchOptions): Promise<Dispa
     }
     budget--;
 
-    const message = renderReminderEmail({
-      session,
-      leadMinutes: subscription.leadMinutes,
-      timeZone: subscription.timeZone,
-      siteUrl,
-      unsubscribe: unsubscribeUrl(siteUrl, signUnsubscribeToken(subscription.userId, tokenSecret)),
-    });
     try {
       await mailer.send({ to: subscription.email, ...message });
       await store.markSend(key, { status: "sent" });

@@ -182,6 +182,24 @@ describe("dispatchReminders", () => {
     expect(later.deferredByCap).toBe(2);
   });
 
+  it("does not claim (or lose) a reminder whose message cannot be built", async () => {
+    const { store, claims } = memoryStore([sub(), sub({ userId: "u2", email: "u2@example.com" })]);
+    const { mailer, sent } = recordingMailer();
+    const report = await dispatchReminders({ ...base, tokenSecret: "", sessions: [session()], store, mailer, nowMs: START - 30 * 60_000 });
+    expect(report.failed).toBe(2);
+    expect(claims.size).toBe(0);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("re-checks the cap against the ledger before each send", async () => {
+    const subs = Array.from({ length: 4 }, (_, i) => sub({ userId: `u${i}`, email: `u${i}@example.com` }));
+    const { store } = memoryStore(subs);
+    const { mailer } = recordingMailer();
+    const opts = { ...base, dailyCap: 2, sessions: [session()], store, mailer, nowMs: START - 30 * 60_000 };
+    const [a, b] = await Promise.all([dispatchReminders(opts), dispatchReminders(opts)]);
+    expect(a.sent + b.sent).toBeLessThanOrEqual(3);
+  });
+
   it("dry run claims and sends nothing", async () => {
     const { store, claims } = memoryStore([sub()]);
     const { mailer, sent } = recordingMailer();
@@ -219,6 +237,18 @@ describe("renderReminderEmail", () => {
     expect(message.text).toContain("17:00 UTC");
     expect(message.text).toContain("22:30 GMT+5:30");
     expect(message.text).toContain("https://apex.example/schedule/2026/21");
+  });
+
+  it("says the time actually left when sent late in the window", () => {
+    const late = renderReminderEmail({
+      session: session(),
+      leadMinutes: 1440,
+      siteUrl: "https://apex.example",
+      unsubscribe: "https://apex.example/u",
+      nowMs: START - 3 * HOUR,
+    });
+    expect(late.subject).toBe("Race starts in 3 hours · São Paulo Grand Prix");
+    expect(late.text).toContain("remind you 1 day before");
   });
 
   it("carries no result vocabulary (spoiler-safe)", () => {
