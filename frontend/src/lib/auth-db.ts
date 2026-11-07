@@ -36,6 +36,8 @@ export const AUTH_COLLECTIONS = {
   magicLinkSends: "auth_magic_link_sends",
   preferences: "user_preferences",
   conversations: "agent_conversations",
+  reminderSubscriptions: "reminder_subscriptions",
+  reminderSends: "reminder_sends",
 } as const;
 
 const DEFAULT_DB = "f1_scratch";

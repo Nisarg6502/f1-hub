@@ -80,6 +80,10 @@ export interface ExportSources {
   sessions: Doc[];
   preferences: Doc | null;
   conversations: Doc[];
+  /** Email reminder settings (`reminder_subscriptions`). */
+  reminders?: Doc | null;
+  /** The reminder dedupe ledger: which sessions you were emailed about. */
+  reminderSends?: Doc[];
   now?: Date;
 }
 
@@ -92,6 +96,8 @@ export interface AccountExport {
   sessions: Doc[];
   preferences: Preferences;
   chatConversations: Doc[];
+  reminders: Doc | null;
+  reminderEmailsSent: Doc[];
 }
 
 export function buildAccountExport({
@@ -100,6 +106,8 @@ export function buildAccountExport({
   sessions,
   preferences,
   conversations,
+  reminders = null,
+  reminderSends = [],
   now = new Date(),
 }: ExportSources): AccountExport {
   return {
@@ -111,6 +119,8 @@ export function buildAccountExport({
     sessions: sessions.map((session) => withhold(session, SESSION_SECRETS)),
     preferences: pickPreferences(preferences),
     chatConversations: conversations.map((conversation) => plain(conversation) as Doc),
+    reminders: reminders ? (plain(reminders) as Doc) : null,
+    reminderEmailsSent: reminderSends.map((send) => plain(send) as Doc),
   };
 }
 

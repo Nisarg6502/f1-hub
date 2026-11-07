@@ -36,6 +36,8 @@ export async function GET() {
     sessions: docs.sessions,
     preferences: docs.preferences,
     conversations: docs.conversations,
+    reminders: docs.reminders,
+    reminderSends: docs.reminderSends,
     now,
   });
 

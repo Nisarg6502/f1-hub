@@ -8,6 +8,7 @@ import FlagImg from "./flag-img";
 import SeasonSelector from "./season-selector";
 import LocalDateTime from "./local-datetime";
 import { SpoilerStub } from "./spoiler-shield";
+import CalendarSubscribe from "./calendar-subscribe";
 
 // Rows fade+rise in; completed rows settle at a dimmed rest opacity (the
 // `custom` boolean drives it) so the cascade doesn't leave them fully lit.
@@ -72,6 +73,11 @@ interface ScheduleBoardProps {
   nextCircuit: string | null;
   nextLocality: string | null;
   initialPhase?: "upcoming" | "completed";
+  /**
+   * Public origin for the calendar feed links. The feed serves the current
+   * season only, so the card shows only when that season is on screen.
+   */
+  calendarOrigin?: string | null;
 }
 
 function badgeFor(row: ScheduleRow) {
@@ -93,6 +99,7 @@ export default function ScheduleBoard({
   nextCircuit,
   nextLocality,
   initialPhase = "upcoming",
+  calendarOrigin = null,
 }: ScheduleBoardProps) {
   const [phase, setPhase] = useState<"upcoming" | "completed">(initialPhase);
   const [now, setNow] = useState(() => Date.now());
@@ -185,6 +192,10 @@ export default function ScheduleBoard({
                 </div>
               </div>
             </div>
+          )}
+
+          {calendarOrigin && year === maxYear && (
+            <CalendarSubscribe origin={calendarOrigin} season={year} />
           )}
         </div>
 

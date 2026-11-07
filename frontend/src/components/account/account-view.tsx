@@ -10,6 +10,7 @@ import { CLOCK_VALUES, type ClockPreference } from "@/lib/preferences";
 import { getTeamColor } from "@/lib/team-colors";
 import Avatar from "./avatar";
 import DeleteAccountDialog from "./delete-account-dialog";
+import RemindersSection from "./reminders-section";
 
 /**
  * `/account`: profile, favourites, preferences, sign-in methods, and the two
@@ -130,6 +131,7 @@ export default function AccountView({
           <ProfileSection user={user} />
           <FavouritesSection grid={grid} />
           <PreferencesSection />
+          <RemindersSection email={user.email} />
           <SignInMethodsSection
             email={user.email}
             providers={providers}
