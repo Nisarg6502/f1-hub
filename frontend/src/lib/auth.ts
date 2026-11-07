@@ -3,9 +3,18 @@ import { headers } from "next/headers";
 import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
 import { magicLink } from "better-auth/plugins/magic-link";
+// No `better-auth/plugins/one-tap` subpath is exported; the barrel is the
+// only entry point for this plugin.
+import { oneTap } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
 import { APIError } from "better-auth/api";
-import { AUTH_COLLECTIONS, getAuthDb, getMongoClient, isAuthConfigured } from "./auth-db";
+import {
+  AUTH_COLLECTIONS,
+  getAuthDb,
+  getMongoClient,
+  isAuthConfigured,
+  isGoogleConfigured,
+} from "./auth-db";
 import { deliverMagicLink, renderMagicLinkEmail } from "./auth-email";
 import { hashMagicLinkToken, MAGIC_LINK_TTL_SECONDS } from "./auth-magic-link";
 
@@ -46,9 +55,7 @@ import { hashMagicLinkToken, MAGIC_LINK_TTL_SECONDS } from "./auth-magic-link";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 const SESSION_REFRESH_SECONDS = 60 * 60 * 24;
 
-export function isGoogleConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
-  return Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
-}
+export { isGoogleConfigured };
 
 /**
  * Public origin for callback and magic-link URLs. Locally it defaults to
@@ -71,9 +78,11 @@ export function clientIpFromForwardedFor(value: string | null): string | null {
 /**
  * Extra origins allowed to start sign-in and receive callbacks, from
  * `AUTH_TRUSTED_ORIGINS` (comma-separated). Cloud Run answers on two URLs —
- * the canonical `f1-frontend-2w5wydk2ca-el.a.run.app` and the
- * project-number form `f1-frontend-1076575666662.asia-south1.run.app` —
- * and a request from the non-canonical one is refused unless listed here.
+ * the hashed `f1-frontend-<hash>-el.a.run.app` and the project-number form
+ * `f1-frontend-1076575666662.asia-south1.run.app` — and a request from
+ * whichever is not `BETTER_AUTH_URL` is refused unless listed here. In
+ * practice it never gets that far: `proxy.ts` redirects every page on the
+ * other hostname to the canonical one (see `lib/canonical-host.ts`).
  */
 function trustedOrigins(): string[] {
   return (process.env.AUTH_TRUSTED_ORIGINS ?? "")
@@ -230,6 +239,12 @@ function createAuth() {
           await deliverMagicLink(email, message, url);
         },
       }),
+      // Google One Tap ("Continue as …"). Verifies the ID token against the
+      // same Google client ID as the redirect flow (read from
+      // `socialProviders.google`), and creates or links the account exactly
+      // like a Google redirect sign-in. Without Google configured its one
+      // endpoint answers 400, and the client never shows the prompt anyway.
+      oneTap(),
       // Must stay last: lets server actions and route handlers set cookies.
       nextCookies(),
     ],

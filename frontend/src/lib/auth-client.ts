@@ -4,7 +4,7 @@ import { useSyncExternalStore } from "react";
 
 const noopSubscribe = () => () => {};
 import { createAuthClient } from "better-auth/react";
-import { magicLinkClient } from "better-auth/client/plugins";
+import { magicLinkClient, oneTapClient } from "better-auth/client/plugins";
 
 /**
  * The browser half of Better Auth.
@@ -18,8 +18,39 @@ import { magicLinkClient } from "better-auth/client/plugins";
  * reports an error, and those surfaces render nothing — see
  * `useAccountState` below.
  */
+/**
+ * The Google OAuth client ID for One Tap, from `<html data-google-client-id>`.
+ *
+ * Not a `NEXT_PUBLIC_*` value: on Cloud Run `GOOGLE_CLIENT_ID` is a RUNTIME
+ * secret, attached long after the bundle is built, so the root layout reads it
+ * per request and hands it to the page. (A client ID is public by design — it
+ * is in every Google sign-in URL — so exposing it in markup leaks nothing.)
+ * Empty when Google sign-in is not configured; `GoogleOneTap` then does
+ * nothing.
+ */
+export const googleClientIdInBrowser =
+  typeof document !== "undefined" ? document.documentElement.dataset.googleClientId ?? "" : "";
+
 export const authClient = createAuthClient({
-  plugins: [magicLinkClient()],
+  plugins: [
+    magicLinkClient(),
+    oneTapClient({
+      clientId: googleClientIdInBrowser,
+      // Never sign anyone in without a tap; this site is used on shared
+      // machines (same reason Google redirects use `select_account`).
+      autoSelect: false,
+      context: "signin",
+      promptOptions: {
+        // FedCM (`use_fedcm_for_prompt`): the browser-native account prompt,
+        // which Chrome requires for One Tap going forward.
+        fedCM: true,
+        // No retries. A prompt Google declined to show (cooldown after a
+        // dismissal, no Google session, unsupported browser) should stay
+        // declined; re-asking with backoff is how One Tap becomes a nag.
+        maxAttempts: 0,
+      },
+    }),
+  ],
 });
 
 export type AccountState =

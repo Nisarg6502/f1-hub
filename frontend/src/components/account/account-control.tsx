@@ -12,7 +12,7 @@ import Avatar from "./avatar";
  * The account control in the global header.
  *
  *   signed out   a "Sign in" pill (an icon below `sm`, where the bar has no
- *                room for a word)
+ *                room for a word), plus "Create account" from `md`
  *   signed in    the avatar, opening a two-item menu: Account, Sign out
  *   loading      a fixed 32px placeholder, so the bar does not jump when the
  *                session arrives
@@ -39,18 +39,29 @@ export default function AccountControl() {
     // Return here after signing in. The sign-in page itself is excluded so
     // the parameter cannot point back at the form.
     const next =
-      pathname && pathname !== "/signin" ? `?next=${encodeURIComponent(pathname)}` : "";
+      pathname && pathname !== "/signin" ? `next=${encodeURIComponent(pathname)}` : "";
+    // Both doors into the same /signin page (its tabs). "Create account" only
+    // from `md`: below that the bar has no room, and the phone sheet
+    // (`account-sheet-row.tsx`) carries both instead.
     return (
-      <Link
-        href={`/signin${next}`}
-        aria-label="Sign in"
-        className="relative inline-flex items-center gap-1.5 rounded-full border border-white/[0.14] px-2 sm:px-3.5 h-8 font-semibold text-xs text-warm-200 hover:text-on-background hover:bg-white/[0.05] transition-colors before:absolute before:-top-1 before:-bottom-1 before:-left-1 before:-right-1 before:content-['']"
-      >
-        <span className="material-symbols-outlined text-[18px] sm:hidden" aria-hidden="true">
-          person
-        </span>
-        <span className="hidden sm:inline">Sign in</span>
-      </Link>
+      <div className="flex items-center gap-2">
+        <Link
+          href={`/signin${next ? `?${next}` : ""}`}
+          aria-label="Sign in"
+          className="relative inline-flex items-center gap-1.5 rounded-full border border-white/[0.14] px-2 sm:px-3.5 h-8 font-semibold text-xs text-warm-200 hover:text-on-background hover:bg-white/[0.05] transition-colors before:absolute before:-top-1 before:-bottom-1 before:-left-1 before:-right-1 before:content-['']"
+        >
+          <span className="material-symbols-outlined text-[18px] sm:hidden" aria-hidden="true">
+            person
+          </span>
+          <span className="hidden sm:inline">Sign in</span>
+        </Link>
+        <Link
+          href={`/signin?mode=signup${next ? `&${next}` : ""}`}
+          className="relative hidden md:inline-flex items-center rounded-full bg-primary-container px-3.5 h-8 font-bold text-xs text-[#1a1210] hover:brightness-110 transition before:absolute before:-top-1 before:-bottom-1 before:-left-1 before:-right-1 before:content-['']"
+        >
+          Create account
+        </Link>
+      </div>
     );
   }
   return <AccountMenu user={account.user} />;

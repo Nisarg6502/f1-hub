@@ -13,16 +13,17 @@ import AppShell from "@/components/app-shell";
 import Analytics from "@/components/analytics";
 import ConsentBanner from "@/components/consent-banner";
 import AccountControl from "@/components/account/account-control";
-import { isAuthConfigured } from "@/lib/auth-db";
+import GoogleOneTap from "@/components/account/google-one-tap";
+import { isAuthConfigured, isGoogleConfigured } from "@/lib/auth-db";
 import "./globals.css";
 
 /**
  * Public origin, used for `metadataBase` and therefore for every absolute URL
  * in a link preview.
  *
- * The fallback is the service's CANONICAL Cloud Run URL -- the one
- * `gcloud run services describe f1-frontend` reports as `status.url`, verified
- * rather than assumed. Cloud Run answers on a second, project-number form as
+ * The fallback is the site's CANONICAL address -- the project-number Cloud Run
+ * URL, which is also `BETTER_AUTH_URL` in cloudbuild-frontend.yaml and the
+ * host `proxy.ts` redirects to. Cloud Run answers on a second, hashed form as
  * well (both are allowlisted for CORS), but only one is canonical, and putting
  * the other in a preview card or a sitemap advertises a host that is not the
  * site's own address. Without a `metadataBase` at all Next warns and
@@ -33,7 +34,7 @@ import "./globals.css";
  */
 const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ??
-  "https://f1-frontend-2w5wydk2ca-el.a.run.app";
+  "https://f1-frontend-1076575666662.asia-south1.run.app";
 
 const bricolage = Bricolage_Grotesque({
   subsets: ["latin"],
@@ -159,7 +160,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark" data-accounts={isAuthConfigured() ? "on" : undefined}>
+    <html
+      lang="en"
+      className="dark"
+      data-accounts={isAuthConfigured() ? "on" : undefined}
+      // One Tap's client ID. A runtime secret on Cloud Run, so it cannot be a
+      // NEXT_PUBLIC build value; see `googleClientIdInBrowser` in
+      // lib/auth-client.ts. Public by nature (it is in every Google sign-in
+      // URL); the client SECRET never leaves the server.
+      data-google-client-id={
+        isAuthConfigured() && isGoogleConfigured() ? process.env.GOOGLE_CLIENT_ID : undefined
+      }
+    >
       <head>
         {/* `no-page-custom-font` is a Pages Router rule warning about a font
             that would only load on one page via `pages/_document.js` — this
@@ -181,6 +193,8 @@ export default function RootLayout({
         {/* Signed-in only: keeps the home layout and spoiler settings in the
             account. Inert for guests and when accounts are not configured. */}
         <AccountSync />
+        {/* Signed-out only, and only with Google configured. */}
+        <GoogleOneTap />
 
         {/* Liquid-glass displacement filters referenced by .apex-glass* via url(#liquid) */}
         <svg

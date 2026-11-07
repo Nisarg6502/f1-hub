@@ -38,6 +38,10 @@ describe("Content-Security-Policy: share cards", () => {
 
   it("keeps the snapshot frame inside the frame-src the visible chart uses", async () => {
     // The snapshot is a srcdoc frame like the visible one; it needs no more.
-    expect(await directive("frame-src")).toBe("frame-src 'self'");
+    // The only other source is Google One Tap's prompt frame, path-scoped to
+    // /gsi/ (see csp-gis.test.ts) — still nothing a srcdoc frame can use.
+    expect(await directive("frame-src")).toBe(
+      "frame-src 'self' https://accounts.google.com/gsi/",
+    );
   });
 });

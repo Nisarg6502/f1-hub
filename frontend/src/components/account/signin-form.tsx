@@ -1,13 +1,34 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { authClient } from "@/lib/auth-client";
 import type { AuthErrorCopy } from "@/lib/auth-errors";
+import {
+  AUTH_MODES,
+  authModeHref,
+  isOriginRejection,
+  nextTabIndex,
+  originRejectionMessage,
+  parseAuthMode,
+  type AuthMode,
+} from "@/lib/auth-mode";
 
 /**
- * The sign-in card: Google, or an email link, then a "check your email"
- * state with a rate-limited resend.
+ * The /signin card: "Sign in" and "Create account" tabs over the same two
+ * flows — Google, or an email link — then a "check your email" state with a
+ * rate-limited resend.
+ *
+ * The two tabs are one mechanism on purpose. Better Auth's magic link and
+ * Google both create the account the first time an address is seen, so
+ * "sign up" is not a different endpoint; it is the same request with a
+ * display name attached and copy that says what is about to happen. Keeping
+ * them as two flows would only invent ways for them to drift apart.
+ *
+ * The tab is mirrored in `?mode=signup` (with `history.replaceState`, no
+ * navigation) so the header's "Create account" link and a shared URL both
+ * land on the right one, and Back does not walk through tab clicks.
  *
  * The resend cooldown here is a courtesy, not the limit. The real limits are
  * server-side (per IP in Better Auth, per address in `lib/auth.ts`); this
@@ -16,28 +37,85 @@ import type { AuthErrorCopy } from "@/lib/auth-errors";
  */
 
 const RESEND_COOLDOWN_SECONDS = 60;
+const NAME_MAX_LENGTH = 60;
 
 type Phase = { name: "form" } | { name: "sent"; email: string };
+
+const COPY: Record<
+  AuthMode,
+  {
+    tab: string;
+    heading: string;
+    intro: string;
+    google: string;
+    submit: string;
+    footnote: string;
+    sentHeading: string;
+  }
+> = {
+  signin: {
+    tab: "Sign in",
+    heading: "Sign in",
+    intro:
+      "Welcome back. Pick up your saved chat history, favourites and preferences on this device. No passwords.",
+    google: "Continue with Google",
+    submit: "Email me a sign-in link",
+    footnote:
+      "We'll email a link that signs you in — no password. A new address creates an account.",
+    sentHeading: "Check your email",
+  },
+  signup: {
+    tab: "Create account",
+    heading: "Create your account",
+    intro:
+      "Optional and free. Everything in APEX works without one — an account adds chat history, favourites and preferences that follow you across devices. No passwords.",
+    google: "Sign up with Google",
+    submit: "Create account with an email link",
+    footnote:
+      "We'll email a link that creates your account and signs you in. Already have one? The same link just signs you in.",
+    sentHeading: "Confirm your email",
+  },
+};
 
 export default function SignInForm({
   googleEnabled,
   next,
   error,
   expiresInMinutes,
+  initialMode,
+  canonicalUrl,
 }: {
   googleEnabled: boolean;
   next: string;
   error: AuthErrorCopy | null;
   expiresInMinutes: number;
+  initialMode: AuthMode;
+  /** `BETTER_AUTH_URL`, to point at when a sign-in is refused for its origin. */
+  canonicalUrl: string | null;
 }) {
   const reduce = useReducedMotion();
+  const baseId = useId();
+  // The URL is the source of truth for the tab, so the header's links and
+  // Back/Forward all agree with it. `initialMode` (parsed on the server)
+  // covers the first render; after that `replaceState` below feeds Next's
+  // router, which updates `useSearchParams`.
+  const searchParams = useSearchParams();
+  const mode: AuthMode = searchParams ? parseAuthMode(searchParams.get("mode")) : initialMode;
   const [phase, setPhase] = useState<Phase>({ name: "form" });
   const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [pending, setPending] = useState<"email" | "google" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [originRefused, setOriginRefused] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [resent, setResent] = useState(false);
+  const [showError, setShowError] = useState(Boolean(error));
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  const copy = COPY[mode];
+  const tabId = (value: AuthMode) => `${baseId}-tab-${value}`;
+  const panelId = `${baseId}-panel`;
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -51,28 +129,71 @@ export default function SignInForm({
     if (phase.name === "sent") headingRef.current?.focus();
   }, [phase.name]);
 
+  function selectMode(value: AuthMode) {
+    if (value === mode) return;
+    setPhase({ name: "form" });
+    setMessage(null);
+    setOriginRefused(false);
+    // A server-side error from the previous attempt belongs to that attempt.
+    setShowError(false);
+    // `null` state, NOT `window.history.state`: Next 16 treats a state object
+    // carrying its own `__NA` marker as one of its internal calls and skips
+    // syncing the URL into the router, so `useSearchParams` (and with it the
+    // selected tab) would never change. With `null` Next copies its internal
+    // state across itself and updates the router.
+    window.history.replaceState(null, "", authModeHref(value, window.location.search));
+  }
+
+  function onTabKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
+    const current = AUTH_MODES.indexOf(mode);
+    const target = nextTabIndex(event.key, current, AUTH_MODES.length);
+    if (target === null) return;
+    event.preventDefault();
+    // Automatic activation: the panels are cheap, so moving focus selects.
+    selectMode(AUTH_MODES[target]);
+    tabRefs.current[target]?.focus();
+  }
+
   const callbacks = {
     callbackURL: next,
     newUserCallbackURL: next === "/" ? "/account?welcome=1" : next,
     errorCallbackURL: "/signin",
   };
 
+  function reportFailure(
+    failure: { status?: number; message?: string; code?: string },
+    fallback: string,
+  ) {
+    if (isOriginRejection(failure)) {
+      setOriginRefused(true);
+      setMessage(originRejectionMessage(canonicalUrl));
+      return;
+    }
+    setMessage(fallback);
+  }
+
   async function sendLink(address: string): Promise<boolean> {
     setMessage(null);
+    setOriginRefused(false);
     setPending("email");
     try {
+      const name = mode === "signup" ? displayName.trim().slice(0, NAME_MAX_LENGTH) : "";
       const { error: sendError } = await authClient.signIn.magicLink({
         email: address,
+        // Only used when this address has no account yet; the plugin ignores
+        // it for an existing one, so a sign-in can never rename anybody.
+        ...(name ? { name } : {}),
         ...callbacks,
       });
       if (sendError) {
-        setMessage(
+        reportFailure(
+          sendError,
           sendError.status === 429
             ? sendError.message ||
                 "Too many sign-in links requested. Wait a few minutes and try again."
             : sendError.status === 400
               ? "That doesn't look like an email address."
-              : "We couldn't send the link just now. Please try again in a moment."
+              : "We couldn't send the link just now. Please try again in a moment.",
         );
         return false;
       }
@@ -92,6 +213,7 @@ export default function SignInForm({
     if (!address) return;
     if (await sendLink(address)) {
       setResent(false);
+      setShowError(false);
       setPhase({ name: "sent", email: address });
     }
   }
@@ -103,15 +225,24 @@ export default function SignInForm({
 
   async function onGoogle() {
     setMessage(null);
+    setOriginRefused(false);
     setPending("google");
-    const { error: googleError } = await authClient.signIn.social({
-      provider: "google",
-      ...callbacks,
-    });
-    // On success the browser is already navigating to Google.
-    if (googleError) {
+    try {
+      const { error: googleError } = await authClient.signIn.social({
+        provider: "google",
+        ...callbacks,
+      });
+      // On success the browser is already navigating to Google.
+      if (googleError) {
+        setPending(null);
+        reportFailure(
+          googleError,
+          "Google sign-in couldn't start. Please try again, or use an email link.",
+        );
+      }
+    } catch {
       setPending(null);
-      setMessage("Google sign-in couldn't start. Please try again, or use an email link.");
+      setMessage("We couldn't reach the server. Check your connection and try again.");
     }
   }
 
@@ -122,134 +253,229 @@ export default function SignInForm({
     transition: { duration: reduce ? 0.1 : 0.2, ease: "easeOut" as const },
   };
 
-  return (
-    <div className="apex-glass rounded-2xl p-5 sm:p-6">
-      {error && phase.name === "form" && (
-        <div
-          role="alert"
-          className="mb-5 rounded-xl border border-error/30 bg-error-container/30 px-4 py-3"
-        >
-          <p className="font-semibold text-sm text-on-background">{error.title}</p>
-          <p className="text-[13px] text-warm-200 leading-relaxed mt-1">{error.body}</p>
-        </div>
-      )}
+  // Where to send someone whose sign-in was refused for its origin: the same
+  // page, on the address sign-in is registered for.
+  const canonicalSignin = (() => {
+    if (!originRefused || !canonicalUrl || typeof window === "undefined") return null;
+    try {
+      return new URL(authModeHref(mode, window.location.search), canonicalUrl).toString();
+    } catch {
+      return null;
+    }
+  })();
 
-      <AnimatePresence mode="wait" initial={false}>
-        {phase.name === "form" ? (
-          <motion.div key="form" {...fade}>
-            {googleEnabled && (
-              <>
+  return (
+    <>
+      <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[44px] tracking-[-1.2px] mt-2">
+        {copy.heading}
+      </h1>
+      <p className="text-sm text-warm-300 leading-relaxed mt-3 mb-6">{copy.intro}</p>
+
+      <div
+        role="tablist"
+        aria-label="Account"
+        className="grid grid-cols-2 gap-1 rounded-xl bg-black/30 border border-white/[0.1] p-1 mb-4"
+      >
+        {AUTH_MODES.map((value, index) => {
+          const selected = value === mode;
+          return (
+            <button
+              key={value}
+              ref={(node) => {
+                tabRefs.current[index] = node;
+              }}
+              id={tabId(value)}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              aria-controls={panelId}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => selectMode(value)}
+              onKeyDown={onTabKeyDown}
+              className={`relative min-h-[40px] rounded-lg text-[13px] font-semibold transition-colors outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
+                selected
+                  ? "text-[#1a1210]"
+                  : "text-warm-300 hover:text-on-background hover:bg-white/[0.05]"
+              }`}
+            >
+              {selected && (
+                <motion.span
+                  layoutId={reduce ? undefined : `${baseId}-tab-pill`}
+                  aria-hidden="true"
+                  className="absolute inset-0 rounded-lg bg-primary-container shadow-[0_0_18px_rgb(var(--rgb-primary-container)_/_0.35)]"
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                />
+              )}
+              <span className="relative">{COPY[value].tab}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div
+        id={panelId}
+        role="tabpanel"
+        aria-labelledby={tabId(mode)}
+        className="apex-glass rounded-2xl p-5 sm:p-6"
+      >
+        {error && showError && phase.name === "form" && (
+          <div
+            role="alert"
+            className="mb-5 rounded-xl border border-error/30 bg-error-container/30 px-4 py-3"
+          >
+            <p className="font-semibold text-sm text-on-background">{error.title}</p>
+            <p className="text-[13px] text-warm-200 leading-relaxed mt-1">{error.body}</p>
+          </div>
+        )}
+
+        <AnimatePresence mode="wait" initial={false}>
+          {phase.name === "form" ? (
+            <motion.div key={`form-${mode}`} {...fade}>
+              {googleEnabled && (
+                <>
+                  <button
+                    type="button"
+                    onClick={onGoogle}
+                    disabled={pending !== null}
+                    className="w-full min-h-[44px] flex items-center justify-center gap-2.5 rounded-xl bg-[#f6f1ea] text-[#1a1210] font-semibold text-sm hover:brightness-95 transition disabled:opacity-60"
+                  >
+                    <GoogleMark />
+                    {pending === "google" ? "Opening Google…" : copy.google}
+                  </button>
+                  <div className="flex items-center gap-3 my-5" aria-hidden="true">
+                    <span className="h-px flex-1 bg-white/[0.1]" />
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-warm-500">
+                      or
+                    </span>
+                    <span className="h-px flex-1 bg-white/[0.1]" />
+                  </div>
+                </>
+              )}
+
+              <form onSubmit={onSubmit}>
+                {mode === "signup" && (
+                  <div className="mb-3">
+                    <label
+                      htmlFor={`${baseId}-name`}
+                      className="block text-xs font-semibold text-warm-300 mb-2"
+                    >
+                      Display name <span className="font-normal text-warm-500">(optional)</span>
+                    </label>
+                    <input
+                      id={`${baseId}-name`}
+                      type="text"
+                      autoComplete="nickname"
+                      maxLength={NAME_MAX_LENGTH}
+                      value={displayName}
+                      onChange={(event) => setDisplayName(event.target.value)}
+                      placeholder="What should we call you?"
+                      className="w-full min-h-[44px] rounded-xl bg-black/30 border border-white/[0.12] px-3.5 text-[15px] text-on-background placeholder:text-warm-600 outline-none focus-visible:border-primary/70 focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-primary/40"
+                    />
+                  </div>
+                )}
+                <label
+                  htmlFor={`${baseId}-email`}
+                  className="block text-xs font-semibold text-warm-300 mb-2"
+                >
+                  Email
+                </label>
+                <input
+                  id={`${baseId}-email`}
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full min-h-[44px] rounded-xl bg-black/30 border border-white/[0.12] px-3.5 text-[15px] text-on-background placeholder:text-warm-600 outline-none focus-visible:border-primary/70 focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-primary/40"
+                />
+                <button
+                  type="submit"
+                  disabled={pending !== null}
+                  className="mt-3 w-full min-h-[44px] rounded-xl bg-primary-container text-[#1a1210] font-bold text-sm hover:brightness-110 transition disabled:opacity-60"
+                >
+                  {pending === "email" ? "Sending…" : copy.submit}
+                </button>
+                <p className="text-xs text-warm-400 leading-relaxed mt-3">{copy.footnote}</p>
+              </form>
+            </motion.div>
+          ) : (
+            <motion.div key="sent" {...fade}>
+              <span
+                className="material-symbols-outlined text-[32px] text-primary"
+                aria-hidden="true"
+              >
+                mark_email_read
+              </span>
+              <h2
+                ref={headingRef}
+                tabIndex={-1}
+                className="font-[family-name:var(--font-headline)] font-bold text-xl text-on-background mt-2 outline-none"
+              >
+                {copy.sentHeading}
+              </h2>
+              <p className="text-sm text-warm-200 leading-relaxed mt-2">
+                We sent a {mode === "signup" ? "link that creates your account" : "sign-in link"} to{" "}
+                <strong className="text-on-background break-all">{phase.email}</strong>.
+              </p>
+              <p className="text-sm text-warm-300 leading-relaxed mt-2">
+                It expires in {expiresInMinutes} minutes and works once. Open it on
+                this device to sign in here.
+              </p>
+              <p className="text-xs text-warm-400 leading-relaxed mt-3">
+                Nothing after a minute or two? Check spam, or send another.
+              </p>
+
+              <div className="flex flex-col sm:flex-row gap-2.5 mt-5">
                 <button
                   type="button"
-                  onClick={onGoogle}
-                  disabled={pending !== null}
-                  className="w-full min-h-[44px] flex items-center justify-center gap-2.5 rounded-xl bg-[#f6f1ea] text-[#1a1210] font-semibold text-sm hover:brightness-95 transition disabled:opacity-60"
+                  onClick={onResend}
+                  disabled={cooldown > 0 || pending !== null}
+                  className="flex-1 min-h-[44px] rounded-xl border border-white/[0.14] font-semibold text-[13px] text-warm-200 hover:bg-white/[0.05] transition disabled:opacity-60"
                 >
-                  <GoogleMark />
-                  {pending === "google" ? "Opening Google…" : "Continue with Google"}
+                  {pending === "email"
+                    ? "Sending…"
+                    : cooldown > 0
+                      ? `Resend in ${cooldown}s`
+                      : "Resend link"}
                 </button>
-                <div className="flex items-center gap-3 my-5" aria-hidden="true">
-                  <span className="h-px flex-1 bg-white/[0.1]" />
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-warm-500">
-                    or
-                  </span>
-                  <span className="h-px flex-1 bg-white/[0.1]" />
-                </div>
-              </>
-            )}
-
-            <form onSubmit={onSubmit} noValidate={false}>
-              <label htmlFor="signin-email" className="block text-xs font-semibold text-warm-300 mb-2">
-                Email
-              </label>
-              <input
-                id="signin-email"
-                type="email"
-                inputMode="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@example.com"
-                className="w-full min-h-[44px] rounded-xl bg-black/30 border border-white/[0.12] px-3.5 text-[15px] text-on-background placeholder:text-warm-600 outline-none focus-visible:border-primary/70 focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-primary/40"
-              />
-              <button
-                type="submit"
-                disabled={pending !== null}
-                className="mt-3 w-full min-h-[44px] rounded-xl bg-primary-container text-[#1a1210] font-bold text-sm hover:brightness-110 transition disabled:opacity-60"
-              >
-                {pending === "email" ? "Sending…" : "Email me a sign-in link"}
-              </button>
-              <p className="text-xs text-warm-400 leading-relaxed mt-3">
-                We&apos;ll email a link that signs you in — no password. A new
-                address creates an account.
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPhase({ name: "form" });
+                    setMessage(null);
+                  }}
+                  className="flex-1 min-h-[44px] rounded-xl font-semibold text-[13px] text-warm-300 hover:text-on-background hover:bg-white/[0.05] transition"
+                >
+                  Use a different email
+                </button>
+              </div>
+              <p aria-live="polite" className="text-xs text-warm-300 mt-3 min-h-[1rem]">
+                {resent ? "Sent again. Any of the links will work once, until it expires." : ""}
               </p>
-            </form>
-          </motion.div>
-        ) : (
-          <motion.div key="sent" {...fade}>
-            <span
-              className="material-symbols-outlined text-[32px] text-primary"
-              aria-hidden="true"
-            >
-              mark_email_read
-            </span>
-            <h2
-              ref={headingRef}
-              tabIndex={-1}
-              className="font-[family-name:var(--font-headline)] font-bold text-xl text-on-background mt-2 outline-none"
-            >
-              Check your email
-            </h2>
-            <p className="text-sm text-warm-200 leading-relaxed mt-2">
-              We sent a sign-in link to{" "}
-              <strong className="text-on-background break-all">{phase.email}</strong>.
-            </p>
-            <p className="text-sm text-warm-300 leading-relaxed mt-2">
-              It expires in {expiresInMinutes} minutes and works once. Open it on
-              this device to sign in here.
-            </p>
-            <p className="text-xs text-warm-400 leading-relaxed mt-3">
-              Nothing after a minute or two? Check spam, or send another.
-            </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-            <div className="flex flex-col sm:flex-row gap-2.5 mt-5">
-              <button
-                type="button"
-                onClick={onResend}
-                disabled={cooldown > 0 || pending !== null}
-                className="flex-1 min-h-[44px] rounded-xl border border-white/[0.14] font-semibold text-[13px] text-warm-200 hover:bg-white/[0.05] transition disabled:opacity-60"
+        {message && (
+          <div role="alert" className="mt-4">
+            <p className="text-[13px] text-error leading-relaxed">{message}</p>
+            {canonicalSignin && (
+              <a
+                href={canonicalSignin}
+                className="inline-flex items-center gap-1 mt-2 text-[13px] font-semibold text-primary underline underline-offset-2 hover:text-on-background"
               >
-                {pending === "email"
-                  ? "Sending…"
-                  : cooldown > 0
-                    ? `Resend in ${cooldown}s`
-                    : "Resend link"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setPhase({ name: "form" });
-                  setMessage(null);
-                }}
-                className="flex-1 min-h-[44px] rounded-xl font-semibold text-[13px] text-warm-300 hover:text-on-background hover:bg-white/[0.05] transition"
-              >
-                Use a different email
-              </button>
-            </div>
-            <p aria-live="polite" className="text-xs text-warm-300 mt-3 min-h-[1rem]">
-              {resent ? "Sent again. Any of the links will work once, until it expires." : ""}
-            </p>
-          </motion.div>
+                Open sign-in on the main address
+                <span className="material-symbols-outlined text-[16px]" aria-hidden="true">
+                  arrow_forward
+                </span>
+              </a>
+            )}
+          </div>
         )}
-      </AnimatePresence>
-
-      {message && (
-        <p role="alert" className="text-[13px] text-error mt-4 leading-relaxed">
-          {message}
-        </p>
-      )}
-    </div>
+      </div>
+    </>
   );
 }
 

@@ -5,12 +5,13 @@ import { getCurrentUser, isGoogleConfigured } from "@/lib/auth";
 import { isAuthConfigured } from "@/lib/auth-db";
 import { describeAuthError } from "@/lib/auth-errors";
 import { MAGIC_LINK_TTL_SECONDS } from "@/lib/auth-magic-link";
+import { parseAuthMode } from "@/lib/auth-mode";
 import SignInForm from "@/components/account/signin-form";
 
 export const metadata: Metadata = {
-  title: "Sign in | APEX",
+  title: "Sign in or create an account | APEX",
   description:
-    "Optional APEX account: sign in with Google or an email link to sync favourites, preferences and chat history across devices.",
+    "Optional APEX account: sign in or sign up with Google or an email link to sync favourites, preferences and chat history across devices.",
   robots: { index: false },
 };
 
@@ -41,6 +42,9 @@ export default async function SignInPage({
   if (!isAuthConfigured()) {
     return (
       <Shell>
+        <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[44px] tracking-[-1.2px] mt-2 mb-6">
+          Sign in
+        </h1>
         <div className="apex-glass-soft rounded-2xl px-6 py-8 text-center">
           <p className="font-semibold text-on-background">Accounts aren&apos;t switched on here.</p>
           <p className="text-sm text-warm-400 mt-2">
@@ -57,6 +61,7 @@ export default async function SignInPage({
   if (await getCurrentUser()) redirect(next === "/" ? "/account" : next);
 
   const errorParam = Array.isArray(params.error) ? params.error[0] : params.error;
+  const mode = parseAuthMode(params.mode);
 
   return (
     <Shell>
@@ -65,6 +70,8 @@ export default async function SignInPage({
         next={next}
         error={describeAuthError(errorParam)}
         expiresInMinutes={Math.round(MAGIC_LINK_TTL_SECONDS / 60)}
+        initialMode={mode}
+        canonicalUrl={process.env.BETTER_AUTH_URL?.trim() || null}
       />
     </Shell>
   );
@@ -75,14 +82,8 @@ function Shell({ children }: { children: React.ReactNode }) {
     <div className="px-4 sm:px-6 md:px-10 pt-11 pb-16">
       <div className="mx-auto w-full max-w-[440px]">
         <span className="font-bold text-xs tracking-[0.18em] uppercase text-flame">Account</span>
-        <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[44px] tracking-[-1.2px] mt-2">
-          Sign in
-        </h1>
-        <p className="text-sm text-warm-300 leading-relaxed mt-3 mb-7">
-          Optional. Everything in APEX works without an account — signing in
-          adds saved chat history, favourites and preferences that follow you
-          across devices. No passwords.
-        </p>
+        {/* The heading and intro live in SignInForm, because they change with
+            the Sign in / Create account tab. */}
         {children}
       </div>
     </div>

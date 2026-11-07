@@ -29,20 +29,29 @@ export default function AccountSheetRow({ onNavigate }: { onNavigate: () => void
 
   if (account.status === "signed-out") {
     return (
-      <Link href="/signin" onClick={onNavigate} className={`${rowClass} mb-4`}>
-        <span
-          className="material-symbols-outlined text-[22px] text-primary flex-none"
-          aria-hidden="true"
-        >
-          account_circle
-        </span>
-        <span className="min-w-0">
-          <span className="block font-semibold text-sm text-on-background">Sign in</span>
-          <span className="block text-xs text-warm-400 leading-snug mt-0.5">
-            Optional — sync favourites and chat history across devices
+      <div className="flex gap-2 mb-4">
+        <Link href="/signin" onClick={onNavigate} className={`${rowClass} flex-1 min-w-0`}>
+          <span
+            className="material-symbols-outlined text-[22px] text-primary flex-none"
+            aria-hidden="true"
+          >
+            account_circle
           </span>
-        </span>
-      </Link>
+          <span className="min-w-0">
+            <span className="block font-semibold text-sm text-on-background">Sign in</span>
+            <span className="block text-xs text-warm-400 leading-snug mt-0.5">
+              Optional — sync favourites and chat history across devices
+            </span>
+          </span>
+        </Link>
+        <Link
+          href="/signin?mode=signup"
+          onClick={onNavigate}
+          className="flex-none flex items-center rounded-xl px-3 bg-primary-container text-[#1a1210] text-xs font-bold active:brightness-110"
+        >
+          Sign up
+        </Link>
+      </div>
     );
   }
 
