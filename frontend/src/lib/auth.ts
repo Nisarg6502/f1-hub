@@ -8,7 +8,13 @@ import { magicLink } from "better-auth/plugins/magic-link";
 import { oneTap } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
 import { APIError } from "better-auth/api";
-import { AUTH_COLLECTIONS, getAuthDb, getMongoClient, isAuthConfigured } from "./auth-db";
+import {
+  AUTH_COLLECTIONS,
+  getAuthDb,
+  getMongoClient,
+  isAuthConfigured,
+  isGoogleConfigured,
+} from "./auth-db";
 import { deliverMagicLink, renderMagicLinkEmail } from "./auth-email";
 import { hashMagicLinkToken, MAGIC_LINK_TTL_SECONDS } from "./auth-magic-link";
 
@@ -49,9 +55,7 @@ import { hashMagicLinkToken, MAGIC_LINK_TTL_SECONDS } from "./auth-magic-link";
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 const SESSION_REFRESH_SECONDS = 60 * 60 * 24;
 
-export function isGoogleConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
-  return Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
-}
+export { isGoogleConfigured };
 
 /**
  * Public origin for callback and magic-link URLs. Locally it defaults to

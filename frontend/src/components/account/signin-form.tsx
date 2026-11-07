@@ -136,7 +136,12 @@ export default function SignInForm({
     setOriginRefused(false);
     // A server-side error from the previous attempt belongs to that attempt.
     setShowError(false);
-    window.history.replaceState(window.history.state, "", authModeHref(value, window.location.search));
+    // `null` state, NOT `window.history.state`: Next 16 treats a state object
+    // carrying its own `__NA` marker as one of its internal calls and skips
+    // syncing the URL into the router, so `useSearchParams` (and with it the
+    // selected tab) would never change. With `null` Next copies its internal
+    // state across itself and updates the router.
+    window.history.replaceState(null, "", authModeHref(value, window.location.search));
   }
 
   function onTabKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {

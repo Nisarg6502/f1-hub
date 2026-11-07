@@ -37,7 +37,17 @@ export default function GoogleOneTap() {
     !pathname.startsWith("/signin");
 
   useEffect(() => {
-    if (!eligible || askedThisPageLoad) return;
+    if (!eligible) {
+      // A prompt still open from an earlier page (navigating to /signin, or
+      // signing in another way) should not sit on top of what comes next.
+      if (askedThisPageLoad) {
+        (
+          window as Window & { google?: { accounts?: { id?: { cancel?: () => void } } } }
+        ).google?.accounts?.id?.cancel?.();
+      }
+      return;
+    }
+    if (askedThisPageLoad) return;
     askedThisPageLoad = true;
     authClient
       .oneTap({

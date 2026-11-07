@@ -14,8 +14,7 @@ import Analytics from "@/components/analytics";
 import ConsentBanner from "@/components/consent-banner";
 import AccountControl from "@/components/account/account-control";
 import GoogleOneTap from "@/components/account/google-one-tap";
-import { isAuthConfigured } from "@/lib/auth-db";
-import { isGoogleConfigured } from "@/lib/auth";
+import { isAuthConfigured, isGoogleConfigured } from "@/lib/auth-db";
 import "./globals.css";
 
 /**

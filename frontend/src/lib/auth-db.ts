@@ -55,6 +55,15 @@ export function isAuthConfigured(env: NodeJS.ProcessEnv = process.env): boolean 
   return Boolean(env.MONGODB_URI && env.BETTER_AUTH_SECRET);
 }
 
+/**
+ * Google sign-in is offered only with both halves of the OAuth client. Lives
+ * here rather than in `auth.ts` so the root layout can ask without pulling
+ * Better Auth and its plugins into every route's server graph.
+ */
+export function isGoogleConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
+}
+
 export function getMongoClient(): MongoClient {
   const uri = process.env.MONGODB_URI;
   if (!uri) throw new Error("MONGODB_URI is not set");
