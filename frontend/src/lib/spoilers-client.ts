@@ -64,12 +64,33 @@ function serverSnapshot(): string | null {
   return null;
 }
 
+/** The cookie's current raw value, `""` when absent. Browser only. */
+export function readSpoilerCookie(): string {
+  return readRaw();
+}
+
+/**
+ * Listeners told about every cookie write made in THIS tab, with the value
+ * written. The account sync (`components/account-sync.tsx`) uses it to
+ * upload a signed-in visitor's change; the external store above is for
+ * re-rendering and fires on far more than writes.
+ */
+const writeListeners = new Set<(value: string) => void>();
+
+export function onSpoilerCookieWrite(listener: (value: string) => void): () => void {
+  writeListeners.add(listener);
+  return () => {
+    writeListeners.delete(listener);
+  };
+}
+
 /** Write the cookie. Returns false when the browser refused it. */
 export function writeSpoilerCookie(prefs: SpoilerPrefs): boolean {
   const value = serializeSpoilerPrefs(prefs);
   const secure = window.location.protocol === "https:" ? "; Secure" : "";
   document.cookie = `${SPOILER_COOKIE}=${value}; Path=/; Max-Age=${SPOILER_COOKIE_MAX_AGE_S}; SameSite=Lax${secure}`;
   emit();
+  for (const listener of writeListeners) listener(value);
   return readRaw() === value;
 }
 

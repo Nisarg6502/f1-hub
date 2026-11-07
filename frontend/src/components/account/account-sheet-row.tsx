@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { authClient, useAccountState } from "@/lib/auth-client";
+import { flushAccountSync } from "@/components/account-sync";
 import Avatar from "./avatar";
 
 /**
@@ -50,6 +51,8 @@ export default function AccountSheetRow({ onNavigate }: { onNavigate: () => void
   async function signOut() {
     setSigningOut(true);
     try {
+      // Send any change still in the sync debounce while the session can.
+      await flushAccountSync();
       await authClient.signOut();
     } finally {
       setSigningOut(false);

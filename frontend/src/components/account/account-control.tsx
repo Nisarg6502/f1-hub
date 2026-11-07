@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { authClient, useAccountState } from "@/lib/auth-client";
+import { flushAccountSync } from "@/components/account-sync";
 import Avatar from "./avatar";
 
 /**
@@ -106,6 +107,8 @@ function AccountMenu({
   async function signOut() {
     setSigningOut(true);
     try {
+      // Send any change still in the sync debounce while the session can.
+      await flushAccountSync();
       await authClient.signOut();
     } finally {
       setSigningOut(false);
