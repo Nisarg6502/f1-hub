@@ -429,7 +429,9 @@ export default function GlobalSearch({
           }
           value={query}
           onChange={(e) => {
-            ensureIndex();
+            // Only before the first load lands: a partial load is retried on
+            // the next focus, not on every keystroke while a backend is down.
+            if (!loaded) ensureIndex();
             setQuery(e.target.value);
             setOpen(true);
           }}
