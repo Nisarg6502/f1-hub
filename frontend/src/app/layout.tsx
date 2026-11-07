@@ -8,6 +8,7 @@ import SeasonBadge from "@/components/season-badge";
 import GlobalSearch from "@/components/global-search";
 import PitwallAssistantLauncher from "@/components/pitwall-assistant-launcher";
 import SpoilerToggle from "@/components/spoiler-settings";
+import AccountSync from "@/components/account-sync";
 import AppShell from "@/components/app-shell";
 import Analytics from "@/components/analytics";
 import ConsentBanner from "@/components/consent-banner";
@@ -177,6 +178,9 @@ export default function RootLayout({
       >
         <Analytics />
         <ConsentBanner />
+        {/* Signed-in only: keeps the home layout and spoiler settings in the
+            account. Inert for guests and when accounts are not configured. */}
+        <AccountSync />
 
         {/* Liquid-glass displacement filters referenced by .apex-glass* via url(#liquid) */}
         <svg
