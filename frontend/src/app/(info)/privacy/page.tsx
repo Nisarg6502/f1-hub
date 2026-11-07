@@ -181,6 +181,16 @@ export default function PrivacyPage() {
               <td>Until you delete them or the account</td>
             </tr>
             <tr>
+              <td>Session reminders</td>
+              <td>
+                Only if you switch email reminders on: which sessions to remind
+                you about, how far ahead, your time zone and the address to
+                send to, plus a record of each reminder sent so none is sent
+                twice.
+              </td>
+              <td>Settings until you delete the account; each sent-record 60 days</td>
+            </tr>
+            <tr>
               <td>Sign-in links</td>
               <td>
                 A hashed copy of each emailed link, and a record that a link
@@ -217,8 +227,8 @@ export default function PrivacyPage() {
         downloads everything listed above as a JSON file (with sign-in tokens
         withheld, since they are credentials rather than information about
         you). <em>Delete account</em> removes your account, every session,
-        your linked sign-in methods, your preferences and your saved chat
-        conversations immediately. If the database host is keeping backups,
+        your linked sign-in methods, your preferences, your reminder settings
+        and your saved chat conversations immediately. If the database host is keeping backups,
         a copy can survive in them until they expire.
       </p>
 

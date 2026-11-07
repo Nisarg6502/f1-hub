@@ -25,6 +25,8 @@ export interface UserDocuments {
   sessions: Record<string, unknown>[];
   preferences: Record<string, unknown> | null;
   conversations: Record<string, unknown>[];
+  reminders: Record<string, unknown> | null;
+  reminderSends: Record<string, unknown>[];
 }
 
 function userFilter(userId: string) {
@@ -34,14 +36,16 @@ function userFilter(userId: string) {
 export async function readUserDocuments(userId: string): Promise<UserDocuments> {
   const db = getAuthDb();
   const ids = userFilter(userId);
-  const [user, accounts, sessions, preferences, conversations] = await Promise.all([
+  const [user, accounts, sessions, preferences, conversations, reminders, reminderSends] = await Promise.all([
     db.collection(AUTH_COLLECTIONS.users).findOne({ _id: ids } as never),
     db.collection(AUTH_COLLECTIONS.accounts).find({ userId: ids }).toArray(),
     db.collection(AUTH_COLLECTIONS.sessions).find({ userId: ids }).toArray(),
     db.collection(AUTH_COLLECTIONS.preferences).findOne({ userId: ids }),
     db.collection(AUTH_COLLECTIONS.conversations).find({ user_id: ids }).toArray(),
+    db.collection(AUTH_COLLECTIONS.reminderSubscriptions).findOne({ userId: ids }),
+    db.collection(AUTH_COLLECTIONS.reminderSends).find({ userId: ids }).toArray(),
   ]);
-  return { user, accounts, sessions, preferences, conversations };
+  return { user, accounts, sessions, preferences, conversations, reminders, reminderSends };
 }
 
 export interface DeletionReport {
@@ -52,6 +56,8 @@ export interface DeletionReport {
   conversations: number;
   verifications: number;
   magicLinkSends: number;
+  reminderSubscriptions: number;
+  reminderSends: number;
 }
 
 /**
@@ -86,6 +92,12 @@ export async function deleteUserDocuments(
   const magicLinkSends = await db
     .collection(AUTH_COLLECTIONS.magicLinkSends)
     .deleteMany({ email: address });
+  const reminderSubscriptions = await db
+    .collection(AUTH_COLLECTIONS.reminderSubscriptions)
+    .deleteMany({ userId: ids });
+  const reminderSends = await db
+    .collection(AUTH_COLLECTIONS.reminderSends)
+    .deleteMany({ userId: ids });
   const users = await db
     .collection(AUTH_COLLECTIONS.users)
     .deleteMany({ _id: ids } as never);
@@ -98,6 +110,8 @@ export async function deleteUserDocuments(
     conversations: conversations.deletedCount,
     verifications: verifications.deletedCount,
     magicLinkSends: magicLinkSends.deletedCount,
+    reminderSubscriptions: reminderSubscriptions.deletedCount,
+    reminderSends: reminderSends.deletedCount,
   };
 }
 

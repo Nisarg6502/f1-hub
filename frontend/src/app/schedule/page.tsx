@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { getActiveSeasonYear, getSeasonRaces, resolveSeasonYear } from "@/lib/api";
 import { getCountryFlagPath } from "@/lib/flags";
 import ScheduleBoard, { type ScheduleRow } from "@/components/schedule-board";
@@ -30,6 +31,19 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
     openGraph: { title, description, url: `/schedule` },
     twitter: { title, description },
   };
+}
+
+/** The canonical public origin, else the one this request arrived on. */
+async function requestOrigin(): Promise<string | null> {
+  const configured = process.env.BETTER_AUTH_URL?.trim();
+  if (configured) return configured.replace(/\/+$/, "");
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  if (!host) return null;
+  const proto =
+    h.get("x-forwarded-proto")?.split(",")[0]?.trim() ??
+    (host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https");
+  return `${proto}://${host}`;
 }
 
 export default async function SchedulePage({ searchParams }: PageProps) {
@@ -105,6 +119,10 @@ export default async function SchedulePage({ searchParams }: PageProps) {
     };
   });
 
+  // Origin for the "Add to calendar" links, which must be absolute (webcal://
+  // and Google's `cid` both need the full URL).
+  const calendarOrigin = await requestOrigin();
+
   // A fully historical season has no upcoming race — default straight to the
   // completed list rather than opening on an empty "Upcoming" tab.
   const initialPhase = next === null && rows.length > 0 ? "completed" : "upcoming";
@@ -121,6 +139,7 @@ export default async function SchedulePage({ searchParams }: PageProps) {
       nextName={next?.race.raceName ?? null}
       nextCircuit={next?.race.Circuit?.circuitName ?? null}
       nextLocality={next?.race.Circuit?.Location?.locality ?? null}
+      calendarOrigin={calendarOrigin}
     />
     </>
   );
