@@ -13,6 +13,8 @@ steps:
       - 'build'
       - '-t'
       - 'gcr.io/f1-dashboard-493015/f1-agent'
+      - '-t'
+      - 'gcr.io/f1-dashboard-493015/f1-agent:$BUILD_ID'
       - '-f'
       - 'Dockerfile.agent'
       - '.'
@@ -20,16 +22,60 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
+      - '--all-tags'
       - 'gcr.io/f1-dashboard-493015/f1-agent'
 
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: gcloud
+  # 3. Is this build still the newest commit on main? (see the header of
+  #    cloudbuild-frontend.yaml, which explains the race and this fix)
+  #    Writes /workspace/.deploy-superseded if not; step 4 reads it.
+  #    `$$` is Cloud Build's escape for a literal `$` in shell code.
+  - name: 'gcr.io/cloud-builders/git'
+    entrypoint: bash
     args:
+      - '-c'
+      - |
+        if [ -z "$COMMIT_SHA" ]; then
+          echo "No COMMIT_SHA (not a trigger build): deploying without the freshness check."
+          exit 0
+        fi
+        tip=""
+        for attempt in 1 2 3; do
+          tip="$$(git ls-remote https://github.com/Nisarg6502/f1-hub.git refs/heads/main | cut -f1)"
+          [ -n "$$tip" ] && break
+          sleep 5
+        done
+        if [ -z "$$tip" ]; then
+          echo "WARNING: could not read main from GitHub; deploying $COMMIT_SHA anyway."
+        elif [ "$$tip" = "$COMMIT_SHA" ]; then
+          echo "$COMMIT_SHA is the tip of main; deploying."
+        else
+          echo "SUPERSEDED: main is now at $$tip, not $COMMIT_SHA. That commit's build deploys; skipping this one."
+          touch /workspace/.deploy-superseded
+        fi
+
+  # 4. Deploy this build's own image to Cloud Run, unless step 3 said a newer
+  #    commit exists. The wrapper only decides whether to run; everything after
+  #    'gcloud' below is passed to gcloud verbatim as "$$@".
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        if [ -f /workspace/.deploy-superseded ]; then
+          echo "Skipping deploy: superseded by a newer commit on main."
+          exit 0
+        fi
+        exec gcloud "$$@"
+      - 'gcloud'
       - 'run'
       - 'deploy'
       - 'f1-agent'
       - '--image'
-      - 'gcr.io/f1-dashboard-493015/f1-agent'
+      - 'gcr.io/f1-dashboard-493015/f1-agent:$BUILD_ID'
+      # Merged into the existing labels. commit-sha is empty for a manual
+      # `gcloud builds submit`.
+      - '--update-labels'
+      - 'commit-sha=$COMMIT_SHA,gcb-build-id=$BUILD_ID'
       - '--region'
       - 'asia-south1'
       - '--platform'
@@ -80,6 +126,7 @@ steps:
 
 images:
   - 'gcr.io/f1-dashboard-493015/f1-agent'
+  - 'gcr.io/f1-dashboard-493015/f1-agent:$BUILD_ID'
 
 substitutions:
   # Measured, not chosen from a table. The CP59 spike (agent/spikes/README.md)

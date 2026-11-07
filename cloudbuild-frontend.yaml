@@ -1,3 +1,29 @@
+# Newest commit wins. Every push to main starts this build, and builds run in
+# parallel, so two merges a minute apart race: the OLDER build can finish last
+# and redeploy over the newer one (it happened with #210/#212). Three things
+# below stop that, and cloudbuild-backend.yaml / cloudbuild-agent.yaml copy
+# them:
+#
+#   * The image is also tagged with $BUILD_ID and the deploy uses that tag.
+#     Deploying the bare `:latest` tag meant a build could ship whichever
+#     image another build had pushed most recently, not its own.
+#   * Step 3 asks GitHub (`git ls-remote`, no API rate limit, the repo is
+#     public) whether this build's $COMMIT_SHA is still the tip of main. If
+#     not, a newer push exists, and because these triggers have no path
+#     filters that push has its own build of this service, which will deploy.
+#     So this build skips its deploy and still reports SUCCESS. The check sits
+#     immediately before the deploy, not at the start, because the race is
+#     decided by which build FINISHES last.
+#   * The deploy labels the service and revision with commit-sha / gcb-build-id
+#     so "what is live?" is answerable:
+#       gcloud run services describe f1-frontend --region=asia-south1 \
+#         --format='value(metadata.labels.commit-sha)'
+#
+# The check fails OPEN: a build with no COMMIT_SHA (a manual
+# `gcloud builds submit`) or a GitHub hiccup deploys as before, so it can never
+# be the reason a deploy silently stops. Accepted trade-off: if the newest
+# commit's build fails, the commit before it is not deployed either; the fix
+# is to fix main (or re-run that trigger), which deploys the tip.
 steps:
   # 1. Build the Docker image
   - name: 'gcr.io/cloud-builders/docker'
@@ -5,6 +31,8 @@ steps:
       - 'build'
       - '-t'
       - 'gcr.io/f1-dashboard-493015/f1-frontend'
+      - '-t'
+      - 'gcr.io/f1-dashboard-493015/f1-frontend:$BUILD_ID'
       - '-f'
       - 'Dockerfile.frontend'
       - '--build-arg'
@@ -23,17 +51,59 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
+      - '--all-tags'
       - 'gcr.io/f1-dashboard-493015/f1-frontend'
 
-  # 3. Deploy the newly pushed image to Cloud Run
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: gcloud
+  # 3. Is this build still the newest commit on main? (see the header)
+  #    Writes /workspace/.deploy-superseded if not; step 4 reads it.
+  #    `$$` is Cloud Build's escape for a literal `$` in shell code.
+  - name: 'gcr.io/cloud-builders/git'
+    entrypoint: bash
     args:
+      - '-c'
+      - |
+        if [ -z "$COMMIT_SHA" ]; then
+          echo "No COMMIT_SHA (not a trigger build): deploying without the freshness check."
+          exit 0
+        fi
+        tip=""
+        for attempt in 1 2 3; do
+          tip="$$(git ls-remote https://github.com/Nisarg6502/f1-hub.git refs/heads/main | cut -f1)"
+          [ -n "$$tip" ] && break
+          sleep 5
+        done
+        if [ -z "$$tip" ]; then
+          echo "WARNING: could not read main from GitHub; deploying $COMMIT_SHA anyway."
+        elif [ "$$tip" = "$COMMIT_SHA" ]; then
+          echo "$COMMIT_SHA is the tip of main; deploying."
+        else
+          echo "SUPERSEDED: main is now at $$tip, not $COMMIT_SHA. That commit's build deploys; skipping this one."
+          touch /workspace/.deploy-superseded
+        fi
+
+  # 4. Deploy this build's own image to Cloud Run, unless step 3 said a newer
+  #    commit exists. The wrapper only decides whether to run; everything after
+  #    'gcloud' below is passed to gcloud verbatim as "$$@".
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        if [ -f /workspace/.deploy-superseded ]; then
+          echo "Skipping deploy: superseded by a newer commit on main."
+          exit 0
+        fi
+        exec gcloud "$$@"
+      - 'gcloud'
       - 'run'
       - 'deploy'
       - 'f1-frontend'
       - '--image'
-      - 'gcr.io/f1-dashboard-493015/f1-frontend'
+      - 'gcr.io/f1-dashboard-493015/f1-frontend:$BUILD_ID'
+      # Merged into the existing labels (the trigger's managed-by/gcb-trigger-id
+      # stay). commit-sha is empty for a manual `gcloud builds submit`.
+      - '--update-labels'
+      - 'commit-sha=$COMMIT_SHA,gcb-build-id=$BUILD_ID'
       - '--region'
       - 'asia-south1'
       - '--platform'
@@ -53,6 +123,7 @@ steps:
 
 images:
   - 'gcr.io/f1-dashboard-493015/f1-frontend'
+  - 'gcr.io/f1-dashboard-493015/f1-frontend:$BUILD_ID'
 
 substitutions:
   _NEXT_PUBLIC_API_BASE_URL: 'https://f1-backend-1076575666662.asia-south1.run.app'
