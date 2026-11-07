@@ -24,8 +24,17 @@ import CircuitDetailsModal from "./circuit-details-modal";
 import { track } from "@/lib/analytics";
 import { serializeSpoilerPrefs, type HiddenRound } from "@/lib/spoilers";
 import { useSpoilers } from "@/lib/spoilers-client";
+import { createSearchIndexLoader } from "@/lib/search-index";
 
 const EASE_OUT = [0.23, 1, 0.32, 1] as const;
+
+// Module scope so every GlobalSearch instance (nav + More sheet) shares it.
+const loadSearchIndex = createSearchIndexLoader({
+  driverStandings: getDriverStandings,
+  constructorStandings: getConstructorStandings,
+  seasonRaces: getSeasonRaces,
+  circuitDetails: getCircuitDetails,
+});
 
 interface DriverResult {
   kind: "driver";
@@ -124,10 +133,9 @@ export default function GlobalSearch({
    *
    * Without this the popup renders `No results for "hamilton"` while the data
    * is still in flight — a confident wrong answer, and the worst thing a
-   * search box can say. It was invisible in the nav, which mounts at page load
-   * and is warm long before anyone reaches for it; the More sheet mounts this
-   * component only when the sheet opens, so the very first search a phone user
-   * ever runs is the one that raced.
+   * search box can say. Now that the index is fetched lazily on first focus,
+   * every first search races the fetch (not just the More sheet's), so this
+   * matters on desktop too.
    */
   const [loaded, setLoaded] = useState(false);
 
@@ -166,32 +174,33 @@ export default function GlobalSearch({
     onDetailOpenChangeRef.current?.(detailOpen);
   }, [detailOpen]);
 
-  // Fetch once — the root layout persists across client-side navigations, so
-  // this only runs a single time per page load, reusing the same season data
-  // every other page already fetches (driver/constructor standings, races,
-  // circuit details) rather than standing up a new backend endpoint.
+  // Fetched lazily: nothing is requested until the user first focuses or types
+  // in the field (see `ensureIndex`), instead of on every page load. The loader
+  // caches per season at module scope, so the nav and the More sheet share one
+  // request, and the root layout persisting across navigations keeps it warm.
+  const unmountedRef = useRef(false);
+  const requestedRef = useRef(false);
   useEffect(() => {
-    let cancelled = false;
-    const year = getActiveSeasonYear();
-
-    Promise.allSettled([
-      getDriverStandings(year),
-      getConstructorStandings(year),
-      getSeasonRaces(year),
-      getCircuitDetails(year),
-    ]).then(([ds, cs, rc, cd]) => {
-      if (cancelled) return;
-      setDrivers(ds.status === "fulfilled" ? ds.value.driver_standings ?? [] : []);
-      setConstructors(cs.status === "fulfilled" ? cs.value.constructor_standings ?? [] : []);
-      setRaces(rc.status === "fulfilled" ? rc.value.races ?? [] : []);
-      setCircuitDetails(cd.status === "fulfilled" ? cd.value : []);
-      setLoaded(true);
-    });
-
+    unmountedRef.current = false;
     return () => {
-      cancelled = true;
+      unmountedRef.current = true;
     };
   }, []);
+  const ensureIndex = () => {
+    if (requestedRef.current) return;
+    requestedRef.current = true;
+    loadSearchIndex(getActiveSeasonYear()).then((index) => {
+      // A partial load (some list failed) is not cached by the loader; let the
+      // next focus retry it instead of keeping the empty list for the session.
+      if (!index.complete) requestedRef.current = false;
+      if (unmountedRef.current) return;
+      setDrivers(index.drivers);
+      setConstructors(index.constructors);
+      setRaces(index.races);
+      setCircuitDetails(index.circuitDetails);
+      setLoaded(true);
+    });
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -420,10 +429,14 @@ export default function GlobalSearch({
           }
           value={query}
           onChange={(e) => {
+            ensureIndex();
             setQuery(e.target.value);
             setOpen(true);
           }}
           onFocus={() => {
+            // Focus is the earliest sign of intent, so the fetch usually lands
+            // before the second character makes a query worth searching.
+            ensureIndex();
             if (query.trim().length >= 2) setOpen(true);
           }}
           onKeyDown={handleInputKeyDown}

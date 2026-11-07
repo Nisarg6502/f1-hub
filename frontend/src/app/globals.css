@@ -486,6 +486,20 @@ input::placeholder {
   animation: barIn 1s var(--ease-out-apex) both;
 }
 
+/* The route crossfade in `app/template.tsx`. Pure CSS on purpose: deciding it
+   in JS (`useReducedMotion`) rendered a bare fragment on the client and a
+   wrapper on the server for reduced-motion visitors — a hydration mismatch.
+   `backwards`, not `both`: once it ends the element carries no opacity at all,
+   so it never lingers as a stacking context over sticky descendants. */
+.route-fade {
+  animation: fadeOnly 0.35s var(--ease-out-apex) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .route-fade {
+    animation: none;
+  }
+}
+
 /* ============================================================
    Accessibility — honor reduced motion (added on top of APEX)
    ============================================================ */
