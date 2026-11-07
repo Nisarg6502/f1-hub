@@ -80,6 +80,24 @@ const GA_IMG = GA_ENABLED
  * modern browsers actually honour. Both are sent, since the older header still
  * covers older clients.
  */
+/**
+ * Google Identity Services, for the One Tap "Continue as …" prompt
+ * (`components/account/google-one-tap.tsx`). These are the exact paths
+ * Google's own CSP guidance lists for GIS:
+ *   script-src  .../gsi/client  the library
+ *   frame-src   .../gsi/        the prompt iframe (non-FedCM browsers)
+ *   connect-src .../gsi/        its status/credential calls
+ *   style-src   .../gsi/style   the prompt's stylesheet
+ * Path-scoped, not the whole `accounts.google.com` origin.
+ *
+ * Unconditional, unlike the GA hosts above: whether One Tap runs is decided by
+ * GOOGLE_CLIENT_ID, a RUNTIME secret on Cloud Run that does not exist when this
+ * header is built. A deployment without it simply never loads the script.
+ */
+const GIS_SCRIPT = "https://accounts.google.com/gsi/client";
+const GIS_PATH = "https://accounts.google.com/gsi/";
+const GIS_STYLE = "https://accounts.google.com/gsi/style";
+
 const CSP = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -110,10 +128,13 @@ const CSP = [
   // None of that is the security boundary. The missing `allow-same-origin` on
   // the sandbox attribute is; see `visual-frame.tsx`. This is defence in
   // depth.
-  "frame-src 'self'",
+  //
+  // The one third-party frame is Google's One Tap prompt (GIS_PATH above).
+  // It is a cross-origin document, so it gets nothing from this policy.
+  `frame-src 'self' ${GIS_PATH}`,
   "form-action 'self'",
-  ["script-src 'self' 'unsafe-inline'", ...GA_SCRIPT].join(" "),
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  ["script-src 'self' 'unsafe-inline'", GIS_SCRIPT, ...GA_SCRIPT].join(" "),
+  `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com ${GIS_STYLE}`,
   "font-src 'self' https://fonts.gstatic.com data:",
   /**
    * Team-radio audio. **This directive is the feature**, not housekeeping.
@@ -175,6 +196,7 @@ const CSP = [
     ...CONNECT_ORIGINS,
     "https://api.openf1.org",
     "https://www.opentopodata.org",
+    GIS_PATH,
     ...GA_CONNECT,
   ].join(" "),
   // The add-to-calendar control builds an .ics as a blob URL

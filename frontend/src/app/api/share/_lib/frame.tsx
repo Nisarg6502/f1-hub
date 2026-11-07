@@ -289,7 +289,7 @@ export function EmptyBody({ format, title, detail }: { format: ShareFormat; titl
 export function cardHost(): string {
   try {
     return new URL(
-      process.env.NEXT_PUBLIC_SITE_URL ?? "https://f1-frontend-2w5wydk2ca-el.a.run.app"
+      process.env.NEXT_PUBLIC_SITE_URL ?? "https://f1-frontend-1076575666662.asia-south1.run.app"
     ).host;
   } catch {
     return "APEX";
