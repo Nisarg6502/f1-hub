@@ -22,6 +22,9 @@
  *     (`createDebouncedPatch`), so dragging widgets around is one write, not
  *     twenty.
  *   - Guests, and deployments without accounts, never reach any of this.
+ *   - Local copies left by a DIFFERENT account on a shared browser
+ *     (`LAST_SYNCED_USER_KEY`) and an unreadable spoiler cookie are never
+ *     uploaded; the account still wins where it has a value.
  *
  * Favourites are not here: they have no local copy. They are an account-only
  * preference written through `useFavourites()`, so there is nothing to merge.
@@ -51,6 +54,14 @@ import {
 import type { Preferences, PreferencesPatch } from "./preferences";
 import { parseSpoilerCookie, serializeSpoilerPrefs } from "./spoilers";
 
+/**
+ * localStorage key naming the account this browser's local copies were last
+ * synced with. Lets a sign-in tell "a guest's own choices" (upload them) from
+ * "the previous user's leftovers on a shared browser" (never upload them into
+ * someone else's account).
+ */
+export const LAST_SYNCED_USER_KEY = "apex.account.lastUser";
+
 /* ------------------------------- converters ------------------------------- */
 
 export function homeLayoutToPreference(layout: HomeLayout): unknown {
@@ -79,6 +90,25 @@ export function normaliseSpoilerCookie(raw: string | null | undefined): string {
   return serializeSpoilerPrefs(parseSpoilerCookie(raw));
 }
 
+/**
+ * Whether a raw cookie is one this app wrote, as opposed to damage that
+ * `parseSpoilerCookie` reads as its fail-closed fallback. Damage protects the
+ * visitor on this device; it must not be uploaded and follow them everywhere.
+ */
+export function isReadableSpoilerCookie(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  let value: string;
+  try {
+    value = decodeURIComponent(raw);
+  } catch {
+    return false;
+  }
+  const parts = value.split("|");
+  const shaped =
+    (parts.length === 5 && parts[0] === "v1") || (parts.length === 6 && parts[0] === "v2");
+  return shaped && (parts[1] === "0" || parts[1] === "1");
+}
+
 /** The cookie value an account value stands for, or null when there is none. */
 export function spoilersFromPreference(value: unknown): string | null {
   if (typeof value !== "string" || value === "") return null;
@@ -91,6 +121,12 @@ export interface LocalState {
   homeLayout: HomeLayout;
   /** The raw `apex_spoilers` cookie value, "" when absent. */
   spoilerCookie: string;
+  /**
+   * False when the local copies were last synced with a DIFFERENT account
+   * (a shared browser). They are then never uploaded; the account still
+   * wins where it has a value. Defaults to true.
+   */
+  mayUpload?: boolean;
 }
 
 export interface SyncPlan {
@@ -104,11 +140,12 @@ export interface SyncPlan {
 
 export function planInitialSync(account: Preferences, local: LocalState): SyncPlan {
   const plan: SyncPlan = { homeLayout: null, spoilerCookie: null, upload: {} };
+  const mayUpload = local.mayUpload ?? true;
 
   const accountLayout = homeLayoutFromPreference(account.homeLayout);
   if (accountLayout) {
     if (!layoutsEqual(accountLayout, local.homeLayout)) plan.homeLayout = accountLayout;
-  } else if (!isDefaultLayout(local.homeLayout)) {
+  } else if (mayUpload && !isDefaultLayout(local.homeLayout)) {
     plan.upload.homeLayout = homeLayoutToPreference(local.homeLayout);
   }
 
@@ -116,7 +153,7 @@ export function planInitialSync(account: Preferences, local: LocalState): SyncPl
   const localSpoilers = normaliseSpoilerCookie(local.spoilerCookie);
   if (accountSpoilers !== null) {
     if (accountSpoilers !== localSpoilers) plan.spoilerCookie = accountSpoilers;
-  } else if (localSpoilers !== "") {
+  } else if (mayUpload && isReadableSpoilerCookie(local.spoilerCookie)) {
     plan.upload.spoilers = localSpoilers;
   }
 
@@ -128,8 +165,8 @@ export function planInitialSync(account: Preferences, local: LocalState): SyncPl
 export interface DebouncedPatch {
   /** Queue a namespace's new value; replaces any queued value for it. */
   schedule(patch: PreferencesPatch): void;
-  /** Send whatever is queued now. */
-  flush(): void;
+  /** Send whatever is queued now; resolves when the send has finished. */
+  flush(): Promise<void>;
   /** Drop whatever is queued without sending (sign-out). */
   cancel(): void;
 }
@@ -140,26 +177,26 @@ export interface DebouncedPatch {
  * replaces its namespace wholesale).
  */
 export function createDebouncedPatch(
-  send: (patch: PreferencesPatch) => void,
+  send: (patch: PreferencesPatch) => unknown,
   delayMs = 1000
 ): DebouncedPatch {
   let pending: PreferencesPatch = {};
   let timer: ReturnType<typeof setTimeout> | null = null;
 
-  const flush = () => {
+  const flush = async () => {
     if (timer !== null) clearTimeout(timer);
     timer = null;
     if (Object.keys(pending).length === 0) return;
     const patch = pending;
     pending = {};
-    send(patch);
+    await send(patch);
   };
 
   return {
     schedule(patch) {
       pending = { ...pending, ...patch };
       if (timer !== null) clearTimeout(timer);
-      timer = setTimeout(flush, delayMs);
+      timer = setTimeout(() => void flush(), delayMs);
     },
     flush,
     cancel() {

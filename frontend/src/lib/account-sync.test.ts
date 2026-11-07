@@ -4,6 +4,7 @@ import {
   createSyncedHomeLayoutStorage,
   homeLayoutFromPreference,
   homeLayoutToPreference,
+  isReadableSpoilerCookie,
   normaliseSpoilerCookie,
   planInitialSync,
   spoilersFromPreference,
@@ -125,6 +126,24 @@ describe("planInitialSync", () => {
     expect(plan).toEqual({ homeLayout: null, spoilerCookie: null, upload: {} });
   });
 
+  it("never uploads another account's leftovers, but still hydrates", () => {
+    const leftovers = { homeLayout: CUSTOM, spoilerCookie: SPOILERS_ON, mayUpload: false };
+    expect(planInitialSync({}, leftovers).upload).toEqual({});
+    const plan = planInitialSync({ spoilers: SPOILERS_OFF }, leftovers);
+    expect(plan.spoilerCookie).toBe(SPOILERS_OFF);
+    expect(plan.upload).toEqual({});
+  });
+
+  it("does not upload a corrupt cookie's fail-closed reading", () => {
+    expect(isReadableSpoilerCookie("garbage")).toBe(false);
+    expect(isReadableSpoilerCookie("v2|x|7|0|0|")).toBe(false);
+    expect(isReadableSpoilerCookie("%E0%A4%A")).toBe(false);
+    expect(isReadableSpoilerCookie(SPOILERS_ON)).toBe(true);
+    expect(isReadableSpoilerCookie("v1|1|7|0|2026-3")).toBe(true);
+    const plan = planInitialSync({}, { homeLayout: DEFAULT_HOME_LAYOUT, spoilerCookie: "garbage" });
+    expect(plan.upload).toEqual({});
+  });
+
   it("ignores favourites and clock: they have no local copy", () => {
     const plan = planInitialSync(
       { favourites: { driverId: "norris", teamId: null }, clock: "24h" },
@@ -152,13 +171,21 @@ describe("createDebouncedPatch", () => {
     expect(send).toHaveBeenCalledWith({ homeLayout: 2, spoilers: "a" });
   });
 
-  it("flush sends now, and only once", () => {
-    const send = vi.fn();
+  it("flush sends now, and only once, resolving after the send", async () => {
+    let resolveSend: () => void = () => {};
+    const send = vi.fn(() => new Promise<void>((r) => (resolveSend = r)));
     const saver = createDebouncedPatch(send, 1000);
-    saver.flush();
+    await saver.flush();
     expect(send).not.toHaveBeenCalled();
     saver.schedule({ spoilers: "x" });
-    saver.flush();
+    let done = false;
+    const flushed = saver.flush().then(() => (done = true));
+    expect(send).toHaveBeenCalledTimes(1);
+    await Promise.resolve();
+    expect(done).toBe(false);
+    resolveSend();
+    await flushed;
+    expect(done).toBe(true);
     vi.advanceTimersByTime(5000);
     expect(send).toHaveBeenCalledTimes(1);
   });
