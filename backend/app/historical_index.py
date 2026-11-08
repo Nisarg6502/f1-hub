@@ -380,13 +380,14 @@ async def get_constructor_seasons(
     # The eleven current teams' entries expire within minutes of each other,
     # so the first /teams render after that used to wait on eleven Jolpica
     # reads (four at a time, with retries against its rate limit) and took
-    # 23 s in production. A list that already includes this season is what a
-    # refresh would almost certainly return anyway, so it is served now and
-    # refreshed behind the response. A list that does NOT yet include this
-    # season (January) is still refreshed in line, so a new season is never
-    # served stale.
+    # 23 s in production. A list that reaches this season or the last one is
+    # what a refresh would almost certainly return anyway, so it is served now
+    # and refreshed behind the response. Last season counts because Jolpica
+    # only lists a team's new season once it has a result: from January to
+    # the first race, "this season" would send every current team back to the
+    # 23 s in-line walk. Anything older is refreshed in line.
     cached_seasons = (cached or {}).get("seasons") or []
-    if cached_seasons and max(cached_seasons) >= current_year:
+    if cached_seasons and max(cached_seasons) >= current_year - 1:
         _refresh_in_background(db, constructor_id)
         return JSONResponse(content=_seasons_response(cached))
 

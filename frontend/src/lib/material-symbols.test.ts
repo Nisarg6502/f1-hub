@@ -16,7 +16,8 @@ function sourceFiles(dir: string): string[] {
 /** Icon names drawn in source: the leading word or string literals inside an
  * element with the icon class, plus `icon: "x"` / `icon="x"` props. */
 function usedIconNames(): Set<string> {
-  const span = /material-symbols-outlined[^>]*>([\s\S]*?)<\//g;
+  // `=>` inside an attribute (onClick={() => …}) is not the tag's end.
+  const span = /material-symbols-outlined(?:=>|[^>])*>([\s\S]*?)<\//g;
   const lead = /^\s*([a-z][a-z0-9_]*)\s*(?:$|[{<])/;
   const lit = /["']([a-z][a-z0-9_]*)["']/g;
   const prop = /\bicon\w*\s*[:=]\s*\{?\s*["']([a-z][a-z0-9_]*)["']/g;

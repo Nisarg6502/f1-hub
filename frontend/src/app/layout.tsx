@@ -181,7 +181,7 @@ export default function RootLayout({
             support this font's variable weight/fill axes via the Google
             Fonts CSS API, so a stylesheet link is the correct approach here. */}
         {/* Only the glyphs the app draws, at the one weight/fill it uses:
-            ~16 KB instead of the whole 1.1 MB variable font. See
+            ~9 KB instead of the whole 1.1 MB variable font. See
             lib/material-symbols.ts before adding an icon. */}
         <link href={MATERIAL_SYMBOLS_HREF} rel="stylesheet" />
       </head>
