@@ -652,3 +652,52 @@ class RegressionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LeaderSectorTests(unittest.TestCase):
+    """`lap_sectors_ms`: the leader's splits, aligned to `lap_ms`."""
+
+    def sector_rows(self):
+        rows = [dict(row) for row in LAP_ROWS]
+        for row in rows:
+            row.update(duration_sector_1=30.1, duration_sector_2=29.9, duration_sector_3=30.0)
+        return rows
+
+    def test_each_lap_carries_the_leaders_splits_in_ms(self):
+        sectors = build(lap_rows=self.sector_rows())["lap_sectors_ms"]
+        self.assertEqual(sectors, [[30_100, 29_900, 30_000]] * 3)
+
+    def test_the_splits_follow_the_leader_when_the_lead_changes(self):
+        official = [dict(row) for row in OFFICIAL_ROWS]
+        # Car 44 leads lap 2 only.
+        official[1] = {"lap": 2, "timings": [
+            {"driverId": "hamilton", "position": 1, "cumulative_ms": 179_000},
+            {"driverId": "verstappen", "position": 2, "cumulative_ms": 180_000},
+        ]}
+        rows = self.sector_rows()
+        for row in rows:
+            if row["driver_number"] == 44 and row["lap_number"] == 2:
+                row["duration_sector_1"] = 25.0
+        sectors = race_timing.leader_sectors(official, DRIVER_NUMBERS, rows)
+        self.assertEqual(sectors[1], [25_000, 29_900, 30_000])
+        self.assertEqual(sectors[0], [30_100, 29_900, 30_000])
+
+    def test_a_lap_missing_any_sector_is_none_not_a_partial_split(self):
+        rows = self.sector_rows()
+        rows[0]["duration_sector_1"] = None  # lap 1 from the grid, as OpenF1 serves it
+        sectors = race_timing.leader_sectors(OFFICIAL_ROWS, DRIVER_NUMBERS, rows)
+        self.assertIsNone(sectors[0])
+        self.assertEqual(len(sectors), 3)
+
+    def test_no_openf1_feed_yields_all_none_and_stays_aligned(self):
+        self.assertEqual(race_timing.leader_sectors(OFFICIAL_ROWS, DRIVER_NUMBERS, []), [None] * 3)
+
+    def test_alignment_matches_lap_ms_when_a_lap_is_skipped(self):
+        official = [dict(row) for row in OFFICIAL_ROWS]
+        # Lap 2's cumulative goes backwards: `official_samples` skips it.
+        official[1] = {"lap": 2, "timings": [
+            {"driverId": "verstappen", "position": 1, "cumulative_ms": 80_000},
+        ]}
+        _, lap_ms, _ = race_timing.official_samples(official, DRIVER_NUMBERS)
+        sectors = race_timing.leader_sectors(official, DRIVER_NUMBERS, self.sector_rows())
+        self.assertEqual(len(sectors), len(lap_ms))

@@ -162,7 +162,7 @@ export default function NavLinks() {
      */
     <div
       ref={rowRef}
-      className="relative hidden lg:flex items-center gap-[30px] font-[family-name:var(--font-body)] font-semibold text-[13px]"
+      className="relative hidden lg:flex items-center gap-[18px] xl:gap-[24px] 2xl:gap-[26px] whitespace-nowrap font-[family-name:var(--font-body)] font-semibold text-[13px]"
     >
       {underline && (
         <motion.span

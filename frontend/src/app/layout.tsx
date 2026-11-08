@@ -259,7 +259,7 @@ export default function RootLayout({
           nav={
         <nav aria-label="Main" className="sticky top-0 z-50 bg-surface-container-low/55 backdrop-blur-[16px] backdrop-saturate-150 border-b border-white/[0.08] shadow-[0_1px_0_rgba(255,255,255,0.06)_inset,0_10px_40px_rgba(0,0,0,0.4)]">
           <div className="max-w-[1440px] mx-auto flex items-center justify-between px-6 md:px-10 py-[15px]">
-            <div className="flex items-center gap-8 md:gap-12">
+            <div className="flex items-center gap-8 md:gap-12 lg:gap-8">
               {/* 32px tall as drawn, 40px to a finger — the nav's own vertical
                   padding is what constrains it, and growing the wordmark to
                   suit would enlarge the one element setting the bar's
@@ -282,16 +282,21 @@ export default function RootLayout({
                   it or 768-1023px has no navigation at all. */}
               <NavLinks />
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 2xl:gap-4">
               <GlobalSearch />
               {/* Spoiler-free mode. Reads its cookie in the browser so this
                   layout never calls `cookies()`, which would turn every
                   static page in the app dynamic; see spoiler-settings.tsx. */}
               <SpoilerToggle />
               <PitwallAssistantLauncher />
-              <Suspense fallback={<div className="font-semibold text-xs text-warm-300 w-[85px]" />}>
-                <SeasonBadge />
-              </Suspense>
+              {/* Informational only, and the first thing the lg-xl row can
+                  spare: below xl the links, launcher and account pill need
+                  its width. */}
+              <div className="contents lg:hidden xl:contents">
+                <Suspense fallback={<div className="font-semibold text-xs text-warm-300 w-[85px]" />}>
+                  <SeasonBadge />
+                </Suspense>
+              </div>
               <AccountControl />
             </div>
           </div>

@@ -42,6 +42,7 @@ import {
   formatRaceClock,
   lapDurations,
 } from "@/lib/watch-clock";
+import { formatSector, sectorFractions, sectorStates, sectorsForLap } from "@/lib/watch-sectors";
 import {
   buildTimingIndex,
   formatTimingValue,
@@ -406,6 +407,19 @@ export default function WatchView({
     };
   }, [replayDurations, timing]);
   const cumulative = useMemo(() => cumulativeMs(durations.ms), [durations]);
+
+  /**
+   * The leader's sector times per lap, on the same index as `durations.ms`.
+   * Only laps the timing feed covers have them, since that feed is also what
+   * the clock runs on there; past it the bar stays unsplit, as it did before
+   * sectors existed. See `watch-sectors.ts`.
+   */
+  const lapSectors = useMemo(() => {
+    const covered = timing?.lap_ms?.length ?? 0;
+    const raw = timing?.lap_sectors_ms;
+    if (!covered || !raw?.length) return null;
+    return raw.slice(0, covered);
+  }, [timing]);
   const totalMs = cumulative[cumulative.length - 1] ?? 0;
 
   /**
@@ -514,6 +528,8 @@ export default function WatchView({
   // a rare change that genuinely re-renders the tower.
   const lapFillRef = useRef<HTMLDivElement>(null);
   const lapTimerRef = useRef<HTMLSpanElement>(null);
+  /** The S1/S2/S3 readouts, painted per frame like the lap timer. */
+  const sectorRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const raceClockRef = useRef<HTMLSpanElement>(null);
 
   /**
@@ -619,6 +635,18 @@ export default function WatchView({
       }
       if (lapTimerRef.current) {
         lapTimerRef.current.textContent = formatLapDuration(elapsedMs);
+      }
+      const sectors = sectorsForLap(lapSectors ?? undefined, index);
+      if (sectors) {
+        const states = sectorStates(sectors, lapMs, elapsedMs);
+        for (let s = 0; s < 3; s += 1) {
+          const el = sectorRefs.current[s];
+          if (!el) continue;
+          const state = states[s];
+          const text = state.kind === "pending" ? "—" : formatSector(state.ms);
+          if (el.textContent !== text) el.textContent = text;
+          if (el.dataset.state !== state.kind) el.dataset.state = state.kind;
+        }
       }
       const raceMs = (cumulative[index] ?? 0) + elapsedMs;
       if (raceClockRef.current) {
@@ -743,7 +771,7 @@ export default function WatchView({
         }
       }
     },
-    [cumulative, durations, perSecond, pitWindows, timingIndex, timingMode]
+    [cumulative, durations, lapSectors, perSecond, pitWindows, timingIndex, timingMode]
   );
 
   /**
@@ -1094,6 +1122,8 @@ export default function WatchView({
 
   const currentLapMs = durations.ms[lapIndex] ?? 0;
   const currentIsEstimated = durations.source[lapIndex] === "estimated";
+  const currentSectors = sectorsForLap(lapSectors ?? undefined, lapIndex);
+  const currentSplits = currentSectors ? sectorFractions(currentSectors) : null;
 
   // Rows are sized off the measured tower box so a full field fills a landscape
   // screen instead of being sized for a desk. Measured rather than computed
@@ -1370,6 +1400,32 @@ export default function WatchView({
           <span className="font-semibold text-xs md:text-sm tabular-nums text-warm-500">
             of {formatLapDuration(currentLapMs)}
           </span>
+          {currentSectors && (
+            // The leader's sectors for this lap. Finished ones hold their real
+            // time, the running one counts, the rest wait. Values are painted
+            // per frame by `paintProgress`, so these spans only carry the
+            // starting state. Off on the shortest screens, where this row is
+            // shared with the rail and has no room for a third readout.
+            <span
+              className="ml-auto hidden sm:flex items-baseline gap-3 [@media(max-height:520px)]:hidden"
+              aria-label="Leader's sector times this lap"
+            >
+              {[0, 1, 2].map((s) => (
+                <span key={s} className="flex items-baseline gap-1">
+                  <span className="font-bold text-[10px] tracking-[0.1em] text-warm-500">S{s + 1}</span>
+                  <span
+                    ref={(el) => {
+                      sectorRefs.current[s] = el;
+                    }}
+                    data-state={s === 0 ? "running" : "pending"}
+                    className="font-bold text-xs md:text-sm tabular-nums min-w-[3.2ch] data-[state=done]:text-warm-200 data-[state=running]:text-flame data-[state=pending]:text-warm-600"
+                  >
+                    {s === 0 ? "0.0" : "—"}
+                  </span>
+                </span>
+              ))}
+            </span>
+          )}
           {currentIsEstimated && (
             // Named on the lap it applies to, not buried in a legend: this lap
             // is running on an estimate and the viewer should know while it is
@@ -1387,7 +1443,7 @@ export default function WatchView({
             screen reader should be able to say so too. `aria-valuetext` gives
             the useful answer ("1:31.9 lap") instead of a bare percentage. */}
         <div
-          className={`h-1.5 rounded-full bg-white/[0.08] overflow-hidden ${
+          className={`relative h-1.5 rounded-full bg-white/[0.08] overflow-hidden ${
             compact ? "[@media(max-height:520px)]:flex-1" : ""
           }`}
           role="progressbar"
@@ -1401,6 +1457,17 @@ export default function WatchView({
             className="h-full rounded-full"
             style={{ width: "0%", background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
           />
+          {/* Sector boundaries: notches cut into the rail in the page
+              background colour, so they read over both the fill and the
+              unfilled track. */}
+          {currentSplits?.map((fraction, s) => (
+            <span
+              key={s}
+              aria-hidden="true"
+              className="absolute top-0 bottom-0 w-[3px] -translate-x-1/2 bg-background"
+              style={{ left: `${fraction * 100}%` }}
+            />
+          ))}
         </div>
       </div>
 
