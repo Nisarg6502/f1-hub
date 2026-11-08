@@ -24,13 +24,16 @@ export function LeaderWidget({ data, size }: WidgetProps) {
   const leader = data.drivers[0];
   const second = data.drivers[1];
   const points = leader?.points ?? 0;
+  // Once the title is mathematically decided the leader is the champion,
+  // and calling them "leader" undersold the one fact a fan most wants.
+  const champion = data.champion;
 
   if (size === "s") {
     return (
       <TiltCard className={`${CARD} block p-5 lg:p-[26px]`}>
         <BentoDriverArt given={leader?.givenName} family={leader?.familyName} accent compact />
         <div className="relative flex flex-col h-full">
-          <Kicker>Leader</Kicker>
+          <Kicker>{champion ? "Champion" : "Leader"}</Kicker>
           <div className="font-[family-name:var(--font-headline)] font-bold text-[20px] leading-[1.05] mt-3 truncate">
             {leader?.familyName || "TBC"}
           </div>
@@ -53,12 +56,21 @@ export function LeaderWidget({ data, size }: WidgetProps) {
     <TiltCard className={`${CARD} block p-[26px] min-h-[224px]`}>
       <BentoDriverArt given={leader?.givenName} family={leader?.familyName} accent />
       <div className="relative max-w-[62%]">
-        <span className="font-bold text-[11px] tracking-[0.14em] uppercase text-flame">Championship leader</span>
+        <span className="font-bold text-[11px] tracking-[0.14em] uppercase text-flame">
+          {champion ? `${data.seasonYear} World Champion` : "Championship leader"}
+        </span>
         <div className="font-[family-name:var(--font-headline)] font-bold text-[22px] leading-[1.05] my-[14px] mb-[3px]">
           {leader?.name || "TBC"}
         </div>
         <div className="font-semibold text-xs text-warm-400">{leader?.team || "—"}</div>
-        <div className="mt-5 flex items-baseline gap-2">
+        {champion && (
+          <p className="mt-2 font-semibold text-[11px] text-primary leading-snug">
+            {champion.pointsLeft > 0
+              ? `Title clinched — ${champion.gap} pts clear, ${champion.pointsLeft} left`
+              : `Champion by ${champion.gap} pts`}
+          </p>
+        )}
+        <div className={`${champion ? "mt-3" : "mt-5"} flex items-baseline gap-2`}>
           {points ? (
             <AnimatedNumber value={points} className="font-extrabold text-[44px] leading-none tabular-nums" />
           ) : (

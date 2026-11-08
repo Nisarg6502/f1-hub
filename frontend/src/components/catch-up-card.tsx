@@ -452,7 +452,7 @@ function Body({
           )}
         </div>
 
-        <Championship facts={facts} anyHidden={anyHidden} baselineRound={data.after_round} />
+        <Championship facts={facts} anyHidden={anyHidden} baselineRound={data.after_round} season={data.season} />
       </div>
     </div>
   );
@@ -521,10 +521,12 @@ function Championship({
   facts,
   anyHidden,
   baselineRound,
+  season,
 }: {
   facts: CatchUpFacts | null;
   anyHidden: boolean;
   baselineRound: number;
+  season: number;
 }) {
   if (anyHidden) {
     return (
@@ -540,7 +542,20 @@ function Championship({
     <div className="min-w-0 space-y-2.5 self-start">
       {standings ? (
         <>
-          {standings.leader_now && (
+          {standings.title && (
+            <Stat label={`${season} World Champion`}>
+              <span className="font-bold text-primary">{standings.title.champion.name}</span>
+              <span className="block text-xs text-warm-400 mt-0.5">
+                {standings.title.decided_in_span && standings.title.decided_at
+                  ? `Sealed at the ${standings.title.decided_at} — `
+                  : "Mathematically decided — "}
+                {standings.title.points_available > 0
+                  ? `${pts(standings.title.gap)} clear with ${pts(standings.title.points_available)} left`
+                  : `won by ${pts(standings.title.gap)}`}
+              </span>
+            </Stat>
+          )}
+          {standings.leader_now && !standings.title && (
             <Stat label="Championship leader">
               <span className="font-bold">{leaderLabel(standings.leader_now)}</span>
               <span className="text-warm-400"> · {pts(standings.leader_now.points)}</span>

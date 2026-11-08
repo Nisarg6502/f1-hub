@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from app import races as races_module
 from app import session_recap
+from app.championship_standings import round_of_table
+from app.title_clinch import remaining_after, title_status
 
 from ..ledger import EvidenceLedger
 from .base import (
@@ -297,6 +299,65 @@ def _leader_gaps(rows: list[dict]) -> list[dict]:
     return rows
 
 
+async def _standings_round(db, year: int, doc: dict | None, kind: str) -> int | None:
+    """The round a stored standings table describes.
+
+    Synced documents record it (`data_sync._sync_standings`); for one written
+    before that, the round whose cumulative results reproduce the table — the
+    same rule the standings endpoint uses (`championship_standings
+    .round_of_table`), never "the latest round with a result", which can run
+    ahead of the table.
+    """
+    stored = as_int((doc or {}).get("round"))
+    if stored is not None:
+        return stored
+    race_docs = await db.race_results.find({"season": year}).to_list(length=100)
+    sprint_docs = await db.sprint_results.find({"season": year}).to_list(length=100)
+    return round_of_table((doc or {}).get("standings") or [], race_docs, sprint_docs, kind)
+
+
+async def _title_block(db, year: int, kind: str, rows: list[dict], standings_round: int | None) -> dict | None:
+    """Whether this championship is mathematically decided, precomputed.
+
+    Without it the model sees "119 points clear" and is barred (rightly) from
+    doing the arithmetic that would tell it the title is won. Counted from the
+    table's own round so a race in progress is never treated as already run.
+    """
+    if standings_round is None or len(rows) < 2:
+        return None
+    leader, second = rows[0], rows[1]
+    if leader.get("points") is None or second.get("points") is None:
+        return None
+    schedule = await db.races.find(
+        {"season": year}, {"_id": 0, "round": 1, "Sprint": 1}
+    ).to_list(length=100)
+    if not schedule:
+        return None
+    races_left, sprints_left = remaining_after(schedule, standings_round)
+    status = title_status(
+        leader["points"], second["points"], races_left, sprints_left, year, kind
+    )
+    if status is None:
+        return None
+    name = leader.get("driver") if kind == "driver" else leader.get("constructor")
+    return {
+        "decided": status["clinched"],
+        "champion": name if status["clinched"] else None,
+        "leader": name,
+        "lead_over_second": status["gap"],
+        "points_still_available": status["points_available"],
+        "races_remaining": races_left,
+        "sprints_remaining": sprints_left,
+        "after_round": standings_round,
+        "note": (
+            f"{name} has mathematically won the {year} {kind}s' championship: "
+            "the lead is larger than the points still available."
+            if status["clinched"]
+            else "Not yet mathematically decided."
+        ),
+    }
+
+
 async def _standings_after_round(db, year: int, kind: str, after_round: int) -> tuple[list[dict], list[dict]]:
     """Rebuild a championship table as it stood after a given round.
 
@@ -377,13 +438,15 @@ async def get_standings(
             return unavailable(
                 f"no {year} results up to round {after_round} have been synced"
             )
+        rows = _leader_gaps(rows)
         return bundle(
             data={
                 "season": year,
                 "kind": kind,
                 "after_round": after_round,
                 "computed_from": "race_results + sprint_results",
-                "standings": _leader_gaps(rows),
+                "standings": rows,
+                "title": await _title_block(db, year, kind, rows, after_round),
             },
             source=mongo_source("race_results", year, f"through-r{after_round}"),
             docs=docs,
@@ -398,12 +461,16 @@ async def get_standings(
     if not standings:
         return unavailable(f"{year} {kind} standings have not been synced")
 
+    rows = _leader_gaps(_standing_rows(standings, kind))
     return bundle(
         data={
             "season": year,
             "kind": kind,
             "after_round": None,
-            "standings": _leader_gaps(_standing_rows(standings, kind)),
+            "standings": rows,
+            "title": await _title_block(
+                db, year, kind, rows, await _standings_round(db, year, doc, kind)
+            ),
         },
         source=mongo_source(collection, year),
         docs=[doc],

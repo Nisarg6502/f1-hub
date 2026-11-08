@@ -70,6 +70,7 @@ from fastapi.responses import JSONResponse
 
 from .db import get_db
 from .derived_cache import input_fingerprint
+from .title_clinch import remaining_after, title_status
 # The recap module's Ollama client, its row helpers and its definition of a
 # classified finisher, reused rather than copied: a fourth copy of the
 # streaming call would be one more place for a fix to miss, and
@@ -112,7 +113,7 @@ ABSOLUTE RULES — violating these makes the summary worthless:
 2. Every number you write must be copied exactly from the JSON. Do not perform arithmetic: never compute a difference, a total, a margin or a count yourself. The gaps and point totals are already computed.
 3. If a leader block has `"tied": true`, the drivers are level on points. Say so, and never name one of them as the leader.
 4. Only say the championship lead changed hands if `leader_changed` is true. If `leader_before` is null, the span starts at the beginning of the season: say nothing about the lead changing or staying the same.
-5. Do not predict or speculate about future races, the remaining rounds or the eventual champion.
+5. Do not predict or speculate about future races, the remaining rounds or the eventual champion. The one exception: if `standings.title` is present, the drivers' championship is mathematically decided. Then say that the driver in `champion` has won (clinched) the title, and, if `decided_in_span` is true, that it was sealed at `decided_at`. Never say or imply the title is decided when `standings.title` is absent.
 6. If `standings` is null, say nothing about the championship, the leader or the gap.
 7. A round whose race `status` is "missing" has no result on file: do not describe it. One whose status is "pending" has not been classified yet: do not describe its race.
 8. A sprint is not the Grand Prix. Never call a sprint winner the race winner.
@@ -123,6 +124,7 @@ FORMAT:
 - Plain text, 2-3 sentences, at most 70 words. No markdown, no headings, no lists, no citations.
 
 WHAT TO COVER, in priority order:
+0. If `standings.title` is present, open with the champion.
 1. Who won the missed Grands Prix, from `race_wins` (by count when there are several).
 2. The championship picture: whether the lead changed hands, and the title gap then and now.
 3. One notable fact from `notable` or `standings.movers`, if one is striking.
@@ -408,6 +410,74 @@ def _notable(
 # --------------------------------- builder ---------------------------------
 
 
+def _remaining_from(schedule: list[dict], round_number: int, race_by_round: dict) -> tuple[int, int]:
+    """Races and sprints still to score after the standings rebuilt to `round_number`.
+
+    A round classified only by its sprint so far still has its Grand Prix to
+    run, so that race counts as remaining too.
+    """
+    races, sprints = remaining_after(schedule, round_number)
+    scheduled = {_round_number(r) for r in schedule}
+    if round_number in scheduled and round_number not in race_by_round:
+        races += 1
+    return races, sprints
+
+
+def _title(
+    season: int,
+    schedule: list[dict],
+    sessions: list[tuple],
+    race_by_round: dict,
+    race_names: dict[int, str],
+    after_round: int,
+    latest_round: int,
+) -> dict | None:
+    """The drivers' title, if it is mathematically decided: who, and where it was sealed.
+
+    Every classified round is replayed in order and the first one after which
+    the eventual leader could no longer be caught is where it was decided. The
+    replay uses the same rebuilt standings the rest of the card states, so it
+    cannot disagree with the gap printed beside it.
+    """
+    if not schedule:
+        return None
+    now = _standings(sessions)
+    if len(now) < 2:
+        return None
+    status = title_status(
+        now[0]["points"], now[1]["points"],
+        *_remaining_from(schedule, latest_round, race_by_round), season,
+    )
+    if not status or not status["clinched"]:
+        return None
+
+    champion = now[0]["driver_id"]
+    decided = latest_round
+    for round_number in sorted({s[0] for s in sessions}):
+        table = _standings([s for s in sessions if s[0] <= round_number])
+        if len(table) < 2 or table[0]["driver_id"] != champion:
+            continue
+        then = title_status(
+            table[0]["points"], table[1]["points"],
+            *_remaining_from(schedule, round_number, race_by_round), season,
+        )
+        if then and then["clinched"]:
+            decided = round_number
+            break
+
+    return {
+        "clinched": True,
+        "champion": _who(now[0]),
+        "gap": status["gap"],
+        "points_available": status["points_available"],
+        "remaining_races": status["remaining_races"],
+        "remaining_sprints": status["remaining_sprints"],
+        "decided_round": decided,
+        "decided_at": race_names.get(decided),
+        "decided_in_span": after_round < decided <= latest_round,
+    }
+
+
 def build_catch_up(
     season: int,
     after_round: int,
@@ -522,6 +592,10 @@ def build_catch_up(
             # zero, which is not movement worth a line.
             "movers": _movers(before, now) if after_round else [],
             "top_scorer": _top_scorer(window_sessions),
+            "title": _title(
+                season, schedule, sessions, race_by_round, race_names,
+                after_round, latest_round,
+            ),
         } if verified else None,
         "grands_prix_classified": sum(1 for s in window_sessions if s[1] == "race"),
         "race_wins": _wins(window_sessions, "race", race_names),
@@ -663,6 +737,19 @@ def narrative_facts(payload: dict) -> dict:
                 }
                 if top_scorer
                 else None
+            ),
+            # Present only once the title is mathematically decided; the
+            # prompt forbids any claim about the champion otherwise.
+            **(
+                {"title": {
+                    "champion": person(title.get("champion")),
+                    "gap": title.get("gap"),
+                    "points_available": title.get("points_available"),
+                    "decided_at": title.get("decided_at"),
+                    "decided_in_span": title.get("decided_in_span"),
+                }}
+                if (title := standings.get("title"))
+                else {}
             ),
         } if facts.get("standings") else None,
         "notable": [
@@ -881,7 +968,7 @@ async def get_catch_up(
     db = get_db()
     schedule, race_docs, sprint_docs, standings_doc = await asyncio.gather(
         db.races.find(
-            {"season": season}, {"_id": 0, "round": 1, "raceName": 1, "date": 1}
+            {"season": season}, {"_id": 0, "round": 1, "raceName": 1, "date": 1, "Sprint": 1}
         ).to_list(length=100),
         db.race_results.find(
             {"season": season}, {"_id": 0, "round": 1, "race": 1, "results": 1}

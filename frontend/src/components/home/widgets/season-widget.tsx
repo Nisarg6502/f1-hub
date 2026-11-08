@@ -8,7 +8,7 @@ import type { WidgetProps } from "../widget-kit";
 
 const RING = 276; // 2πr for r=44
 
-function rings(season: HomeData["season"]) {
+function rings(season: HomeData["season"], champion: HomeData["champion"]) {
   return [
     {
       label: "Elapsed",
@@ -19,13 +19,16 @@ function rings(season: HomeData["season"]) {
       tooltip: "Share of this season's rounds that have been run so far.",
     },
     {
-      label: "Title gap",
+      label: champion ? "Title won" : "Title gap",
       center: `${season.ptsGap}`,
       unit: "pts",
-      offset: RING * (1 - season.gapPct),
-      color: "#c9c0b4",
-      tooltip:
-        "Points separating the championship leader from 2nd place — a smaller gap means a tighter title fight.",
+      offset: champion ? 0 : RING * (1 - season.gapPct),
+      color: champion ? "var(--color-primary)" : "#c9c0b4",
+      tooltip: champion
+        ? champion.pointsLeft > 0
+          ? `${champion.name} has clinched the title: a ${champion.gap}-point lead with only ${champion.pointsLeft} points left to win.`
+          : `${champion.name} won the title by ${champion.gap} points.`
+        : "Points separating the championship leader from 2nd place — a smaller gap means a tighter title fight.",
     },
   ];
 }
@@ -77,14 +80,17 @@ export function SeasonCard({ data }: { data: HomeData }) {
         </span>
       </div>
       <div className="flex justify-around mb-6">
-        {rings(season).map((ring) => (
+        {rings(season, data.champion).map((ring) => (
           <Ring key={ring.label} ring={ring} />
         ))}
       </div>
       <div>
         {[
-          { k: "Leader wins", v: season.leaderWins },
-          { k: "Rounds completed", v: `${season.done} / ${season.total}` },
+          ...(data.champion ? [{ k: "Champion", v: data.champion.familyName || data.champion.name }] : []),
+          { k: data.champion ? "Champion's wins" : "Leader wins", v: season.leaderWins },
+          // The header already says "19 / 23 rounds"; the champion row takes
+          // this one's place so the card keeps its height.
+          ...(data.champion ? [] : [{ k: "Rounds completed", v: `${season.done} / ${season.total}` }]),
           { k: "Rounds remaining", v: season.roundsLeft },
         ].map((row) => (
           <div
@@ -115,7 +121,7 @@ export default function SeasonWidget({ data, size }: WidgetProps) {
     );
   }
 
-  const all = rings(data.season);
+  const all = rings(data.season, data.champion);
   const shown = size === "s" ? all.slice(0, 1) : all;
   return (
     <div className="apex-glass apex-sheen rounded-panel overflow-hidden h-full p-5 flex flex-col">

@@ -166,14 +166,16 @@ function roundsLabel(result: TitleDeciderResult): string {
  * — only how many points they must make up and how many are left, which is
  * true whatever the countback does.
  */
-function contenderLines(entries: StandingEntry[], races: WidgetProps["data"]["titleRaces"], scope: "driver" | "constructor", nowMs: number, max: number) {
+function contenderLines(entries: StandingEntry[], data: WidgetProps["data"], scope: "driver" | "constructor", max: number) {
+  const { titleRaces: races, nowMs, seasonYear, standingsRound } = data;
   const leader = entries[0];
   if (!leader) return null;
   const now = new Date(nowMs);
-  const head = computeTitleDecider(entries, races, scope, now);
+  const options = { season: seasonYear, standingsRound };
+  const head = computeTitleDecider(entries, races, scope, now, options);
   if (!head) return null;
   const contenders = entries.slice(1, 1 + max).map((entry) => {
-    const pair = computeTitleDecider([leader, entry], races, scope, now)!;
+    const pair = computeTitleDecider([leader, entry], races, scope, now, options)!;
     return { name: entry.name, gap: pair.gap, out: pair.clinched, max: pair.maxRemainingPoints };
   });
   return { head, contenders };
@@ -227,7 +229,7 @@ const toEntries = (rows: { name: string; points: number }[]): StandingEntry[] =>
   rows.map((r) => ({ name: r.name, points: r.points }));
 
 export function TitleFightWidget({ data, size }: WidgetProps) {
-  const drivers = contenderLines(toEntries(data.drivers), data.titleRaces, "driver", data.nowMs, size === "l" ? 3 : 2);
+  const drivers = contenderLines(toEntries(data.drivers), data, "driver", size === "l" ? 3 : 2);
   // Constructors only at `l`: it is the one part of this widget that costs a
   // request, so the medium size — which has no room for it — never asks.
   const constructors = useConstructorStandings(data.seasonYear, size === "l");
@@ -262,9 +264,8 @@ export function TitleFightWidget({ data, size }: WidgetProps) {
                 (() => {
                   const lines = contenderLines(
                     constructorRows(constructors.data).map((r) => ({ name: r.label, points: r.points })),
-                    data.titleRaces,
+                    data,
                     "constructor",
-                    data.nowMs,
                     2
                   );
                   return lines ? <TitleBlock label="Constructors" lines={lines} /> : null;

@@ -14,6 +14,7 @@ import FlagImg from "@/components/flag-img";
 import { EASE_OUT, Stagger, StaggerItem } from "@/components/motion-primitives";
 import DriverModal from "@/components/driver-modal";
 import { SpoilerStub } from "@/components/spoiler-shield";
+import ChampionBadge from "@/components/champion-badge";
 
 interface DriversGridProps {
   drivers: DriverStanding[];
@@ -25,6 +26,10 @@ interface DriversGridProps {
   seasonFiguresHidden?: boolean;
   /** A round of any season in the window is hidden: the modal's career totals go. */
   careerFiguresHidden?: boolean;
+  /** `driverId` of the season's champion once the title is mathematically
+   * decided (never passed while spoiler mode hides a round). */
+  championId?: string | null;
+  seasonYear?: number;
 }
 
 /**
@@ -107,6 +112,8 @@ export default function DriversGrid({
   drivers,
   seasonFiguresHidden = false,
   careerFiguresHidden = seasonFiguresHidden,
+  championId = null,
+  seasonYear,
 }: DriversGridProps) {
   const [selected, setSelected] = useState<DriverStanding | null>(null);
   const reduce = useReducedMotion();
@@ -267,6 +274,9 @@ export default function DriversGrid({
                   <div className="font-[family-name:var(--font-headline)] font-extrabold text-[22px] leading-none">
                     {family}
                   </div>
+                  {championId && seasonYear && driver.Driver.driverId === championId && (
+                    <ChampionBadge year={seasonYear} className="mt-2" />
+                  )}
                 </div>
 
                 {/* stats footer */}

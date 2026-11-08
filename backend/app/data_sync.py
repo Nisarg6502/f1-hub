@@ -133,11 +133,12 @@ def _sync_standings(db, year: int, path: str, key: str, collection, label: str) 
         print(f"    no {label} returned")
         return
 
-    collection.update_one(
-        {"season": year},
-        {"$set": {"season": year, "standings": standings, "synced_at": _utcnow_iso()}},
-        upsert=True,
-    )
+    # The round this table describes, so "how many rounds are left" is counted
+    # from the table rather than from the clock (see `title_clinch.py`).
+    update = {"season": year, "standings": standings, "synced_at": _utcnow_iso()}
+    if str(lists[0].get("round", "")).isdigit():
+        update["round"] = int(lists[0]["round"])
+    collection.update_one({"season": year}, {"$set": update}, upsert=True)
     print(f"    synced {len(standings)} {label}")
 
 

@@ -46,6 +46,7 @@ export default async function Home() {
 
   let races: Race[] = [];
   let driverStandings: DriverStanding[] = [];
+  let standingsRound: number | null = null;
   try {
     const [racesRes, driverStandingsRes] = await Promise.all([
       getSeasonRaces(seasonYear),
@@ -53,6 +54,7 @@ export default async function Home() {
     ]);
     races = racesRes.races ?? [];
     driverStandings = driverStandingsRes.driver_standings ?? [];
+    standingsRound = driverStandingsRes.round ?? null;
   } catch {
     // Backend offline — render with empty data
   }
@@ -77,6 +79,7 @@ export default async function Home() {
     nowMs,
     races,
     driverStandings,
+    standingsRound,
     lastRaceResults,
     spoilers: { season: spoilers.hidden.map(ref), lastRace: lastHidden ? [ref(lastHidden)] : [] },
   });
