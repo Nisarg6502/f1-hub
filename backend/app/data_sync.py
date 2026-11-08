@@ -284,12 +284,16 @@ def _completed_rounds(db, year: int, *, settled: bool = False) -> list[dict]:
     return sorted(started, key=_round_key)
 
 
-def _already_stored(collection, query: dict, *, classified: bool = False) -> bool:
+def _already_stored(
+    collection, query: dict, *, classified: bool = False, final: bool = False
+) -> bool:
     """True if this fetch-once session is already stored and worth keeping.
 
     `classified=True` rejects rows without positions, so practice entries
     written before the classification was derived from laps get refetched
-    rather than skipped forever.
+    rather than skipped forever. `final=True` also rejects a provisional,
+    laps-derived practice ranking, so the official classification replaces it
+    once OpenF1 publishes it.
 
     Race, qualifying and sprint results deliberately do NOT use this: they
     change after publication and are reconciled every run instead (see
@@ -300,7 +304,13 @@ def _already_stored(collection, query: dict, *, classified: bool = False) -> boo
     doc = collection.find_one(query, {"_id": 1, "results": 1})
     if not doc or not doc.get("results"):
         return False
-    return has_classification(doc["results"]) if classified else True
+    if classified and not has_classification(doc["results"]):
+        return False
+    if final:
+        from .openf1_practice import is_provisional
+
+        return not is_provisional(doc["results"])
+    return True
 
 
 def fetch_season_table(year: int, path: str, key: str) -> dict[str, dict] | None:
@@ -485,13 +495,22 @@ def sync_session_results(db, year: int, races: list[dict]) -> None:
 
 
 def sync_practice_results(db, year: int, races: list[dict]) -> None:
-    """Practice and sprint-qualifying classifications via FastF1.
+    """Practice and sprint-qualifying classifications, OpenF1 first.
 
     Which sessions to ask for comes from the schedule, so a sprint weekend
     isn't asked for the FP2/FP3 it never had — and each is gated on having
     actually been run, so Friday practice is fetched on Friday rather than
     waiting for the race two days later.
+
+    OpenF1 is the source from 2023 (see `openf1_practice.py` for why FastF1
+    no longer is). FastF1 is only tried for seasons OpenF1 does not cover.
+    An empty answer from either — OpenF1 401s everything during a live
+    session — leaves the session for the next run.
     """
+    from .openf1_practice import build_practice_openf1, fetch_year_sessions
+
+    openf1 = year >= 2023
+    sessions = None
     synced = 0
     for race in races:
         round_number = int(race.get("round", 0))
@@ -502,14 +521,28 @@ def sync_practice_results(db, year: int, races: list[dict]) -> None:
                 db.practice_results,
                 {"season": year, "round": str(round_number), "session": session_code},
                 classified=True,
+                final=True,
             ):
                 continue
 
-            try:
-                event_name, results = load_session(year, round_number, session_code)
-            except Exception as error:
-                print(f"    {session_code} R{round_number} unavailable: {error}")
-                continue
+            if openf1:
+                if sessions is None:
+                    sessions = fetch_year_sessions(year) or []
+                    time.sleep(1)
+                event_name = race.get("raceName", "")
+                results = build_practice_openf1(
+                    year, race.get("date"), session_code, sessions=sessions
+                )
+                time.sleep(1)
+                if not results:
+                    print(f"    {session_code} R{round_number}: OpenF1 has no classification yet")
+                    continue
+            else:
+                try:
+                    event_name, results = load_session(year, round_number, session_code)
+                except Exception as error:
+                    print(f"    {session_code} R{round_number} unavailable: {error}")
+                    continue
 
             if not results:
                 continue
