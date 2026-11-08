@@ -1,5 +1,5 @@
 import type { DriverStanding, Race, RaceResult } from "@/lib/api";
-import { countRemainingRounds } from "@/lib/championship-math";
+import { computeTitleDecider, countRemainingRounds } from "@/lib/championship-math";
 import { getCircuitImagePath } from "@/lib/circuit-images";
 import { getRaceWeek } from "@/lib/race-week";
 import { buildRaceSessionTimeline, getUpcomingSessions } from "@/lib/sessions";
@@ -92,8 +92,13 @@ export interface HomeData {
     href: string;
     podium: HomePodiumRow[];
   } | null;
-  /** Only the fields `computeTitleDecider` reads: date, time, Sprint. */
+  /** Only the fields `computeTitleDecider` reads: round, date, time, Sprint. */
   titleRaces: Race[];
+  /** Round the standings describe, when the backend knows it. */
+  standingsRound: number | null;
+  /** The drivers' champion once the title is mathematically decided — the
+   * leader's margin is larger than every point still available. */
+  champion: { name: string; familyName: string; team: string; gap: number; pointsLeft: number } | null;
   remainingRaces: number;
   remainingSprints: number;
   /** Whether `RaceWeekGlimpse` will render anything. See `glimpseHasContent`. */
@@ -132,6 +137,7 @@ export function buildHomeData({
   nowMs,
   races,
   driverStandings,
+  standingsRound = null,
   lastRaceResults,
   spoilers = { season: [], lastRace: [] },
 }: {
@@ -139,6 +145,8 @@ export function buildHomeData({
   nowMs: number;
   races: Race[];
   driverStandings: DriverStanding[];
+  /** Round the standings describe; see `countRemainingRounds`. */
+  standingsRound?: number | null;
   /** Results of the most recent completed race, if they could be fetched. */
   lastRaceResults: RaceResult[];
   spoilers?: HomeData["spoilers"];
@@ -167,7 +175,14 @@ export function buildHomeData({
   const circuitName = nextRace?.Circuit?.circuitName ?? null;
   const country = nextRace?.Circuit?.Location?.country ?? null;
 
-  const { remainingRaces, remainingSprints } = countRemainingRounds(races, new Date(nowMs));
+  const { remainingRaces, remainingSprints } = countRemainingRounds(races, new Date(nowMs), standingsRound);
+  const title = computeTitleDecider(
+    driverStandings.slice(0, 2).map((d) => ({ name: fullName(d.Driver.givenName, d.Driver.familyName), points: Number(d.points) || 0 })),
+    races,
+    "driver",
+    new Date(nowMs),
+    { season: seasonYear, standingsRound }
+  );
 
   return {
     seasonYear,
@@ -230,6 +245,17 @@ export function buildHomeData({
       ...(r.time ? { time: r.time } : {}),
       ...(r.Sprint ? { Sprint: r.Sprint } : {}),
     })),
+    standingsRound,
+    champion:
+      title?.clinched && leader
+        ? {
+            name: title.leader.name,
+            familyName: leader.Driver.familyName ?? "",
+            team: leader.Constructors?.[0]?.name ?? "",
+            gap: title.gap,
+            pointsLeft: title.maxRemainingPoints,
+          }
+        : null,
     remainingRaces,
     remainingSprints,
     raceWeekActive: glimpseHasContent(races, nowMs),

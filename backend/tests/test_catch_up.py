@@ -776,3 +776,53 @@ class SeasonBoundsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TitleDecidedTests(unittest.TestCase):
+    """The title is stated only once it is mathematically decided, with where."""
+
+    SCHED = schedule(
+        "Australian Grand Prix", "Chinese Grand Prix", "Japanese Grand Prix",
+        "Miami Grand Prix",
+    )
+
+    def _docs(self, rounds=3):
+        orders = [
+            ["ant", "rus", "ver", "nor", "lec"],
+            ["ant", "ver", "rus", "nor", "lec"],
+            ["ant", "rus", "ver", "nor", "lec"],
+        ]
+        races = [race_doc(i + 1, self.SCHED[i]["raceName"], orders[i]) for i in range(rounds)]
+        sprints = [sprint_doc(3, "Japanese Grand Prix", ["ant", "nor", "lec", "ver", "rus"])] if rounds >= 3 else []
+        return races, sprints
+
+    def test_decided_round_is_where_it_became_certain(self):
+        # After R2: 50 v 33 with 50 left. After R3: 83 v 55 with 25 left.
+        races, sprints = self._docs()
+        payload = catch_up.build_catch_up(2026, 1, self.SCHED, races, sprints)
+        title = payload["facts"]["standings"]["title"]
+        self.assertEqual(title["champion"]["driver_id"], "antonelli")
+        self.assertEqual(title["gap"], 28)
+        self.assertEqual(title["points_available"], 25)
+        self.assertEqual(title["decided_round"], 3)
+        self.assertEqual(title["decided_at"], "Japanese Grand Prix")
+        self.assertTrue(title["decided_in_span"])
+
+        facts = catch_up.narrative_facts(payload)["standings"]["title"]
+        self.assertEqual(facts["champion"]["name"], "Andrea Kimi Antonelli")
+        self.assertEqual(facts["decided_at"], "Japanese Grand Prix")
+
+    def test_an_open_title_is_never_stated(self):
+        races, _ = self._docs(rounds=2)
+        payload = catch_up.build_catch_up(2026, 1, self.SCHED, races, [])
+        self.assertIsNone(payload["facts"]["standings"]["title"])
+        self.assertNotIn("title", catch_up.narrative_facts(payload)["standings"])
+
+    def test_a_sprint_only_round_still_has_its_race_to_run(self):
+        races, _ = self._docs(rounds=2)
+        by_round = {1: races[0]["results"], 2: races[1]["results"]}
+        self.assertEqual(catch_up._remaining_from(self.SCHED, 3, by_round), (2, 0))
+        self.assertEqual(catch_up._remaining_from(self.SCHED, 2, by_round), (2, 0))
+
+    def test_prompt_only_allows_the_champion_when_decided(self):
+        self.assertIn("standings.title", catch_up.SYSTEM_PROMPT)

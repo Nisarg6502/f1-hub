@@ -232,6 +232,8 @@ export async function getSeasonRaces(year: number) {
 export async function getDriverStandings(year: number) {
   return fetchJson<{
     driver_standings?: DriverStanding[];
+    /** Round the table describes; null for documents synced before it was stored. */
+    round?: number | null;
   }>("/api/driverstandings", {
     year,
     fields: "standings",
@@ -243,6 +245,7 @@ export async function getDriverStandings(year: number) {
 export async function getConstructorStandings(year: number) {
   return fetchJson<{
     constructor_standings?: ConstructorStanding[];
+    round?: number | null;
   }>("/api/constructorstandings", {
     year,
     fields: "standings",
@@ -1146,6 +1149,20 @@ export interface CatchUpNotable {
   status?: string;
 }
 
+export interface CatchUpTitle {
+  clinched: true;
+  champion: CatchUpPerson;
+  gap: number;
+  points_available: number;
+  remaining_races: number;
+  remaining_sprints: number;
+  /** The round after which nobody could catch the champion. */
+  decided_round: number;
+  decided_at: string | null;
+  /** Whether that happened inside the span this visitor missed. */
+  decided_in_span: boolean;
+}
+
 export interface CatchUpFacts {
   /** False when the standings rebuilt from results disagreed with the stored
    * standings; `standings` is then null rather than possibly wrong. */
@@ -1159,6 +1176,8 @@ export interface CatchUpFacts {
     title_gap_now: CatchUpTitleGap | null;
     movers: CatchUpMover[];
     top_scorer: { drivers: CatchUpPerson[]; points: number } | null;
+    /** Present only once the drivers' title is mathematically decided. */
+    title?: CatchUpTitle | null;
   } | null;
   grands_prix_classified: number;
   race_wins: CatchUpWins[];

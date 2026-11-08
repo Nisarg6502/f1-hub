@@ -5,7 +5,7 @@ import LocalDateTime from "./local-datetime";
 import Image from "next/image";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ChevronRight } from "lucide-react";
-import type { DriverStanding, ConstructorStanding } from "@/lib/api";
+import type { DriverStanding, ConstructorStanding, Race } from "@/lib/api";
 import { getTeamColor } from "@/lib/team-colors";
 import { getDriverImagePath, hasDriverImage } from "@/lib/driver-images";
 import { getFlagPath } from "@/lib/flags";
@@ -35,6 +35,12 @@ interface StandingsViewProps {
   /** Round-by-round points, keyed by `constructorId`. Also server-derived. */
   constructorLogs: Record<string, ConstructorSeasonLog>;
   year: number;
+  /** The season's schedule, for the title decider; null if it failed to load. */
+  races: Race[] | null;
+  /** Round the standings describe, when the backend knows it. */
+  standingsRound: number | null;
+  /** Round the constructors' table describes. */
+  constructorRound: number | null;
   maxYear: number;
   /**
    * When the server rendered this table, as a timestamp.
@@ -66,6 +72,9 @@ export default function StandingsView({
   seasonLogs,
   constructorLogs,
   year,
+  races,
+  standingsRound,
+  constructorRound,
   maxYear,
   renderedAtMs,
 }: StandingsViewProps) {
@@ -180,6 +189,9 @@ export default function StandingsView({
           drivers={drivers}
           constructors={constructors}
           year={year}
+          races={races}
+          standingsRound={standingsRound}
+          constructorRound={constructorRound}
         />
       )}
 

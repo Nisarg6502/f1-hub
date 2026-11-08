@@ -3,7 +3,9 @@ import {
   getConstructorStandings,
   getDriverStandings,
   getActiveSeasonYear,
+  getSeasonRaces,
   resolveSeasonYear,
+  type Race,
 } from "@/lib/api";
 import StandingsView from "@/components/standings-view";
 import {
@@ -92,6 +94,16 @@ export default async function StandingsPage({ searchParams }: PageProps) {
   let drivers: Awaited<ReturnType<typeof getDriverStandings>>["driver_standings"] = [];
   let constructors: Awaited<ReturnType<typeof getConstructorStandings>>["constructor_standings"] = [];
 
+  // The schedule rides along for the title decider, which used to fetch it
+  // from the browser after mount — one more round trip and a loading shimmer
+  // on the one panel most readers open this page for. Settled on its own so a
+  // schedule failure costs only that panel.
+  let standingsRound: number | null = null;
+  let constructorRound: number | null = null;
+  const racesPromise: Promise<Race[] | null> = getSeasonRaces(year)
+    .then((res) => res.races ?? [])
+    .catch(() => null);
+
   try {
     const [driverRes, constructorRes] = await Promise.all([
       getDriverStandings(year),
@@ -99,9 +111,13 @@ export default async function StandingsPage({ searchParams }: PageProps) {
     ]);
     drivers = driverRes.driver_standings ?? [];
     constructors = constructorRes.constructor_standings ?? [];
+    standingsRound = driverRes.round ?? null;
+    // Synced separately, so it can be a round behind the drivers' table.
+    constructorRound = constructorRes.round ?? null;
   } catch {
     // Backend offline
   }
+  const races = await racesPromise;
 
   // The teammate battle used to fetch a whole season of results from the
   // browser on every mount, which is why it showed a loading state every single
@@ -152,6 +168,9 @@ export default async function StandingsPage({ searchParams }: PageProps) {
       seasonLogs={seasonLogs}
       constructorLogs={constructorLogs}
       year={year}
+      races={races}
+      standingsRound={standingsRound}
+      constructorRound={constructorRound}
       maxYear={getActiveSeasonYear()}
       renderedAtMs={renderedAtMs}
     />

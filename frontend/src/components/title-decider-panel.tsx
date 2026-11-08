@@ -1,33 +1,34 @@
-"use client";
-
-import { useEffect, useState } from "react";
 import type { DriverStanding, ConstructorStanding, Race } from "@/lib/api";
-import { getSeasonRaces } from "@/lib/api";
 import {
   computeTitleDecider,
   type StandingEntry,
   type TitleDeciderResult,
 } from "@/lib/championship-math";
+import ChampionBadge from "@/components/champion-badge";
 
 interface TitleDeciderPanelProps {
   drivers: DriverStanding[];
   constructors: ConstructorStanding[];
   year: number;
+  /** The season's schedule, rendered on the server; null if it failed. It
+   * used to be fetched from the browser after mount, which put a loading
+   * shimmer on this panel on every visit. */
+  races: Race[] | null;
+  /** Round the drivers' table describes; see `countRemainingRounds`. */
+  standingsRound: number | null;
+  /** Round the constructors' table describes. Synced separately, so it can lag. */
+  constructorRound: number | null;
 }
 
 function driverName(d: DriverStanding): string {
   return `${d.Driver.givenName ?? ""} ${d.Driver.familyName ?? ""}`.trim() || "—";
 }
 
-function toStandingEntries(
-  drivers: DriverStanding[]
-): StandingEntry[] {
+function toStandingEntries(drivers: DriverStanding[]): StandingEntry[] {
   return drivers.map((d) => ({ name: driverName(d), points: Number(d.points) || 0 }));
 }
 
-function toConstructorEntries(
-  constructors: ConstructorStanding[]
-): StandingEntry[] {
+function toConstructorEntries(constructors: ConstructorStanding[]): StandingEntry[] {
   return constructors.map((c) => ({
     name: c.Constructor.name ?? "—",
     points: Number(c.points) || 0,
@@ -38,36 +39,24 @@ export default function TitleDeciderPanel({
   drivers,
   constructors,
   year,
+  races,
+  standingsRound,
+  constructorRound,
 }: TitleDeciderPanelProps) {
-  const [races, setRaces] = useState<Race[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    getSeasonRaces(year)
-      .then((res) => {
-        if (!cancelled) setRaces(res.races ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [year]);
-
   if (drivers.length < 2) return null;
 
   const driverResult = races
-    ? computeTitleDecider(toStandingEntries(drivers), races, "driver")
+    ? computeTitleDecider(toStandingEntries(drivers), races, "driver", undefined, {
+        season: year,
+        standingsRound,
+      })
     : null;
   const constructorResult =
     races && constructors.length >= 2
-      ? computeTitleDecider(toConstructorEntries(constructors), races, "constructor")
+      ? computeTitleDecider(toConstructorEntries(constructors), races, "constructor", undefined, {
+          season: year,
+          standingsRound: constructorRound,
+        })
       : null;
 
   const seasonOver =
@@ -80,11 +69,9 @@ export default function TitleDeciderPanel({
   const roundsSummary = driverResult ? roundsLabel(driverResult) : null;
 
   return (
-    // A full-width band above the table rather than the third card down a
-    // sidebar. It reports on both championships and it answers the question
-    // most readers open this page with -- "is this still a contest?" -- so it
-    // sits where that answer is read first, and stays visible on the
-    // Constructors tab, which previously could not see it at all.
+    // A full-width band above the table: it answers the question most readers
+    // open this page with -- "is this still a contest?" -- so it sits where
+    // that answer is read first, on both tabs.
     <section
       className="apex-glass apex-sheen rounded-card p-5 md:p-6 mb-7 overflow-hidden"
       aria-label="Title decider"
@@ -101,13 +88,7 @@ export default function TitleDeciderPanel({
           )}
         </div>
 
-        {loading ? (
-          <div className="flex-1 grid md:grid-cols-2 gap-5 lg:gap-9 animate-pulse">
-            {Array.from({ length: 2 }).map((_, i) => (
-              <div key={i} className="h-[64px] rounded-xl bg-veil/5" />
-            ))}
-          </div>
-        ) : failed || !races || !driverResult ? (
+        {!races || !driverResult ? (
           <p className="flex-1 text-xs text-warm-400 font-medium">
             Title-decider math unavailable right now.
           </p>
@@ -117,9 +98,9 @@ export default function TitleDeciderPanel({
           </p>
         ) : (
           <div className="flex-1 min-w-0 grid md:grid-cols-2 gap-5 lg:gap-9">
-            <TitleDeciderRow label="Drivers" result={driverResult} />
+            <TitleDeciderRow label="Drivers" result={driverResult} year={year} />
             {constructorResult && (
-              <TitleDeciderRow label="Constructors" result={constructorResult} />
+              <TitleDeciderRow label="Constructors" result={constructorResult} year={year} />
             )}
           </div>
         )}
@@ -144,9 +125,11 @@ function roundsLabel(result: TitleDeciderResult): string {
 function TitleDeciderRow({
   label,
   result,
+  year,
 }: {
   label: string;
   result: TitleDeciderResult;
+  year: number;
 }) {
   const { leader, runnerUp, gap, maxRemainingPoints } = result;
   const rounds = roundsLabel(result);
@@ -161,18 +144,26 @@ function TitleDeciderRow({
           {gap} pt{gap === 1 ? "" : "s"} clear
         </span>
       </div>
-      <div className="text-[13px] font-bold text-warm-100 truncate">{leader.name}</div>
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-[13px] font-bold text-warm-100 truncate">{leader.name}</span>
+        {result.clinched && (
+          <ChampionBadge year={year} label={label === "Drivers" ? "Champion" : "Champions"} />
+        )}
+      </div>
       {result.clinched ? (
         <p className="mt-1 text-xs font-medium text-primary">
-          Title mathematically clinched — {runnerUp.name} cannot close a {gap}-point
-          gap over the {maxRemainingPoints} points left in play
+          {year} {label === "Drivers" ? "World Champion" : "Constructors' Champions"} —
+          the title is mathematically won. {runnerUp.name} cannot close a {gap}-point
+          gap with only {maxRemainingPoints} points left in play
           {rounds ? ` across ${rounds}` : ""}.
         </p>
       ) : (
         <p className="mt-1 text-xs font-medium text-warm-400">
           Still open — {maxRemainingPoints} points still available
-          {rounds ? ` across ${rounds}` : ""}; {leader.name} needs{" "}
-          {result.pointsToClinch} more (or a {runnerUp.name} slip) to clinch.
+          {rounds ? ` across ${rounds}` : ""};{" "}
+          {result.pointsToClinch > 0
+            ? `${leader.name} needs ${result.pointsToClinch} more (or a ${runnerUp.name} slip) to clinch.`
+            : "the lead looks decisive, but waits on the latest standings to confirm."}
         </p>
       )}
     </div>

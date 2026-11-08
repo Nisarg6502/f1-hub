@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { getActiveSeasonYear, getDriverStandings, resolveSeasonYear } from "@/lib/api";
+import { getActiveSeasonYear, getDriverStandings, getSeasonRaces, resolveSeasonYear, type Race } from "@/lib/api";
+import { computeTitleDecider } from "@/lib/championship-math";
 import DriversGrid from "@/components/drivers-grid";
 import SeasonSelector from "@/components/season-selector";
 import CompareDriversPanel from "@/components/compare-drivers-panel";
@@ -36,12 +37,20 @@ export default async function DriversPage({ searchParams }: PageProps) {
   const year = resolveSeasonYear(season);
   let drivers: Awaited<ReturnType<typeof getDriverStandings>>["driver_standings"] =
     [];
+  let standingsRound: number | null = null;
+  // The schedule is only needed to tell whether the title is decided; it is
+  // fetched alongside the standings, never after them.
+  const racesPromise: Promise<Race[]> = getSeasonRaces(year)
+    .then((res) => res.races ?? [])
+    .catch(() => []);
   try {
     const res = await getDriverStandings(year);
     drivers = res.driver_standings ?? [];
+    standingsRound = res.round ?? null;
   } catch {
     // Backend offline
   }
+  const races = await racesPromise;
 
   // Spoiler-free mode. The grid is still the grid, but its order, points,
   // wins and positions all include the hidden round. So the drivers are
@@ -70,6 +79,23 @@ export default async function DriversPage({ searchParams }: PageProps) {
         .map((d) => ({ ...d, position: "", positionText: "", points: "", wins: "" }))
     : drivers ?? [];
 
+  // The champion, once the title is mathematically decided. A result like any
+  // other, so spoiler mode withholds it with the rest of the season figures.
+  const title =
+    !figuresHidden && races.length > 0 && (drivers ?? []).length >= 2
+      ? computeTitleDecider(
+          (drivers ?? []).slice(0, 2).map((d) => ({
+            name: `${d.Driver.givenName ?? ""} ${d.Driver.familyName ?? ""}`.trim(),
+            points: Number(d.points) || 0,
+          })),
+          races,
+          "driver",
+          undefined,
+          { season: year, standingsRound }
+        )
+      : null;
+  const champion = title?.clinched ? (drivers ?? [])[0] : null;
+
   return (
     <div className="px-6 md:px-10 pt-11 pb-16">
       {list.length === 0 && <DegradedBeacon route="/drivers" />}
@@ -84,6 +110,17 @@ export default async function DriversPage({ searchParams }: PageProps) {
           <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[52px] tracking-[-1.5px] mt-2">
             The Grid
           </h1>
+          {champion && title && (
+            <p className="mt-3 font-semibold text-sm text-warm-300">
+              <span className="text-primary">
+                {champion.Driver.givenName} {champion.Driver.familyName}
+              </span>{" "}
+              is the {year} World Champion
+              {title.maxRemainingPoints > 0
+                ? ` — ${title.gap} points clear with only ${title.maxRemainingPoints} left to win.`
+                : "."}
+            </p>
+          )}
         </div>
         <SeasonSelector currentYear={year} maxYear={getActiveSeasonYear()} />
       </div>
@@ -112,6 +149,8 @@ export default async function DriversPage({ searchParams }: PageProps) {
         drivers={list}
         seasonFiguresHidden={figuresHidden}
         careerFiguresHidden={careerHidden}
+        championId={champion?.Driver.driverId ?? null}
+        seasonYear={year}
       />
     </div>
   );

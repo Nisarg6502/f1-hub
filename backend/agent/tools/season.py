@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from app import races as races_module
 from app import session_recap
+from app.championship_standings import _standings_round as standings_round_of
+from app.title_clinch import remaining_after, title_status
 
 from ..ledger import EvidenceLedger
 from .base import (
@@ -297,7 +299,75 @@ def _leader_gaps(rows: list[dict]) -> list[dict]:
     return rows
 
 
-async def _standings_after_round(db, year: int, kind: str, after_round: int) -> tuple[list[dict], list[dict]]:
+async def _standings_round(db, year: int, doc: dict | None, kind: str) -> int | None:
+    """The last round whose Grand Prix a stored standings table includes.
+
+    The standings endpoint's rule, shared so the assistant and the site can
+    never disagree about whether a title is decided.
+    """
+    return await standings_round_of(db, year, doc, kind)
+
+
+def _complete_through(race_docs: list[dict], after_round: int) -> int | None:
+    """The last round up to `after_round` with every Grand Prix up to it present.
+
+    A re-tallied table holds only the results that exist. Counting the rounds
+    left from the round *asked for* would drop every race not yet run (or not
+    yet synced) from the points still available, and a sprint-only round from
+    its Grand Prix, either of which can announce a champion early.
+    """
+    race_rounds = {as_int(doc.get("round")) for doc in race_docs}
+    complete = 0
+    while complete < after_round and complete + 1 in race_rounds:
+        complete += 1
+    return complete or None
+
+
+async def _title_block(db, year: int, kind: str, rows: list[dict], standings_round: int | None) -> dict | None:
+    """Whether this championship is mathematically decided, precomputed.
+
+    Without it the model sees "119 points clear" and is barred (rightly) from
+    doing the arithmetic that would tell it the title is won. Counted from the
+    table's own round so a race in progress is never treated as already run.
+    """
+    if standings_round is None or len(rows) < 2:
+        return None
+    leader, second = rows[0], rows[1]
+    if leader.get("points") is None or second.get("points") is None:
+        return None
+    schedule = await db.races.find(
+        {"season": year}, {"_id": 0, "round": 1, "Sprint": 1}
+    ).to_list(length=100)
+    if not schedule:
+        return None
+    races_left, sprints_left = remaining_after(schedule, standings_round)
+    status = title_status(
+        leader["points"], second["points"], races_left, sprints_left, year, kind
+    )
+    if status is None:
+        return None
+    name = leader.get("driver") if kind == "driver" else leader.get("constructor")
+    return {
+        "decided": status["clinched"],
+        "champion": name if status["clinched"] else None,
+        "leader": name,
+        "lead_over_second": status["gap"],
+        "points_still_available": status["points_available"],
+        "races_remaining": races_left,
+        "sprints_remaining": sprints_left,
+        "after_round": standings_round,
+        "note": (
+            f"{name} has mathematically won the {year} {kind}s' championship: "
+            "the lead is larger than the points still available."
+            if status["clinched"]
+            else "Not yet mathematically decided."
+        ),
+    }
+
+
+async def _standings_after_round(
+    db, year: int, kind: str, after_round: int
+) -> tuple[list[dict], list[dict], list[dict]]:
     """Rebuild a championship table as it stood after a given round.
 
     The `driver_standings`/`constructor_standings` collections hold only the
@@ -346,7 +416,7 @@ async def _standings_after_round(db, year: int, kind: str, after_round: int) -> 
     for index, row in enumerate(rows, start=1):
         row["position"] = index
         row["points"] = round(row["points"], 2)
-    return rows, list(race_docs) + list(sprint_docs)
+    return rows, list(race_docs) + list(sprint_docs), list(race_docs)
 
 
 @fact_tool("get_standings")
@@ -372,18 +442,22 @@ async def get_standings(
     db = resolve_db(db)
 
     if after_round is not None:
-        rows, docs = await _standings_after_round(db, year, kind, after_round)
+        rows, docs, race_docs = await _standings_after_round(db, year, kind, after_round)
         if not rows:
             return unavailable(
                 f"no {year} results up to round {after_round} have been synced"
             )
+        rows = _leader_gaps(rows)
         return bundle(
             data={
                 "season": year,
                 "kind": kind,
                 "after_round": after_round,
                 "computed_from": "race_results + sprint_results",
-                "standings": _leader_gaps(rows),
+                "standings": rows,
+                "title": await _title_block(
+                    db, year, kind, rows, _complete_through(race_docs, after_round)
+                ),
             },
             source=mongo_source("race_results", year, f"through-r{after_round}"),
             docs=docs,
@@ -398,12 +472,16 @@ async def get_standings(
     if not standings:
         return unavailable(f"{year} {kind} standings have not been synced")
 
+    rows = _leader_gaps(_standing_rows(standings, kind))
     return bundle(
         data={
             "season": year,
             "kind": kind,
             "after_round": None,
-            "standings": _leader_gaps(_standing_rows(standings, kind)),
+            "standings": rows,
+            "title": await _title_block(
+                db, year, kind, rows, await _standings_round(db, year, doc, kind)
+            ),
         },
         source=mongo_source(collection, year),
         docs=[doc],

@@ -420,7 +420,12 @@ def langsmith_configured() -> bool:
 # versions 7/8's runtime hardening). A cached version-9 answer to a
 # comparison-shaped question may hold this same stray-image pattern and must
 # not replay as settled.
-PROMPT_VERSION = 10
+#
+# Version 11: `get_standings` now carries a precomputed `title` block (is the
+# championship mathematically decided, and who won it). Every cached "who
+# leads the championship?" answer predates it and called the 2026 champion
+# merely the leader, so they must regenerate rather than replay.
+PROMPT_VERSION = 11
 
 # Defaults to local dev origins, NOT "*". Starlette echoes the caller's origin
 # rather than emitting a literal `*`, so a wildcard default on a public,
