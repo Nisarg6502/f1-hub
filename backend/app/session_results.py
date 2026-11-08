@@ -1,5 +1,7 @@
+import asyncio
 import datetime
 import json
+import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -14,6 +16,8 @@ from .f1_results import (
     sanitize_result,
     sanitize_results,
 )
+from .openf1_practice import SESSION_NAMES as OPENF1_PRACTICE_SESSIONS
+from .openf1_practice import build_practice_openf1
 
 router = APIRouter(prefix="/api")
 
@@ -243,6 +247,71 @@ async def get_sprint_results(
     return JSONResponse(content={"race": race, "results": mark_lapped_finishers(results)})
 
 
+# OpenF1 has every session from 2023; before that FastF1 is the only source.
+OPENF1_FIRST_SEASON = 2023
+
+# How long a session that had nothing to serve is not asked for again. The
+# fetch behind a miss is several upstream calls (or a FastF1 load), and during
+# a race weekend every visitor opening a not-yet-published tab would repeat it.
+MISS_TTL_SECONDS = 300
+_misses: dict[tuple, float] = {}
+
+
+def _recently_missed(key: tuple) -> bool:
+    expiry = _misses.get(key)
+    if expiry is None:
+        return False
+    if expiry < time.monotonic():
+        _misses.pop(key, None)
+        return False
+    return True
+
+
+def _remember_miss(key: tuple) -> None:
+    if len(_misses) > 512:
+        now = time.monotonic()
+        for stale in [k for k, v in _misses.items() if v < now]:
+            _misses.pop(stale, None)
+    _misses[key] = time.monotonic() + MISS_TTL_SECONDS
+
+
+async def _fetch_uncached(db, year: int, round_number: int, session_code: str):
+    """`(event_name, results)` for a session nothing has stored yet.
+
+    Both sources are blocking network/CPU work and run in a worker thread.
+    They used to run inline in this async handler, so a single FastF1 load —
+    which now fails only after fetching for seconds, see `openf1_practice.py` —
+    stalled every other request on the instance while it ran.
+
+    Practice and sprint qualifying come from OpenF1 for every season it
+    covers. When OpenF1 was asked and had nothing, FastF1 is NOT tried: it
+    cannot reach its source from anywhere any more, and trying would only make
+    the request slow before returning the same empty answer.
+    """
+    if session_code in OPENF1_PRACTICE_SESSIONS and year >= OPENF1_FIRST_SEASON:
+        race = None
+        races = getattr(db, "races", None)
+        if races is not None:
+            race = await races.find_one(
+                {"season": year, "round": str(round_number)},
+                {"_id": 0, "date": 1, "raceName": 1},
+            )
+        if race and race.get("date"):
+            rows = await asyncio.to_thread(
+                build_practice_openf1, year, race["date"], session_code
+            )
+            return race.get("raceName", ""), rows or []
+
+    try:
+        return await asyncio.to_thread(load_session, year, round_number, session_code)
+    except Exception as error:
+        # Most often this is a session the event never had, e.g. FP2 on a
+        # sprint weekend. The caller renders tabs from the schedule, so an
+        # empty list is the right answer rather than a 500.
+        print(f"FastF1 load failed for {year} R{round_number} {session_code}: {error}")
+        return "", []
+
+
 @router.get("/session_classification")
 async def get_session_classification(
     year: int = Query(..., description="Season year"),
@@ -288,43 +357,40 @@ async def get_session_classification(
                 }
             )
 
-    try:
-        event_name, results = load_session(year, round, session_code)
-    except Exception as error:
-        # Most often this is a session the event never had, e.g. FP2 on a
-        # sprint weekend. The caller renders tabs from the schedule, so an
-        # empty list is the right answer rather than a 500.
-        print(f"FastF1 load failed for {year} R{round} {session_code}: {error}")
-        return JSONResponse(
-            content={"session": session_code, "event_name": "", "results": []}
-        )
+    miss_key = (year, round, session_code)
+    if _recently_missed(miss_key):
+        return JSONResponse(content={"session": session_code, "event_name": "", "results": []})
 
-    if results:
-        if session_code in ("FP1", "FP2", "FP3", "SQ"):
-            try:
-                await db.practice_results.update_one(
-                    {"season": year, "round": str(round), "session": session_code},
-                    {"$set": {
-                        "season": year,
-                        "round": str(round),
-                        "session": session_code,
-                        "event_name": event_name,
-                        "results": results,
-                        "synced_at": _utcnow_iso(),
-                    }},
-                    upsert=True,
-                )
-            except Exception as error:
-                print(f"Failed to cache {session_code} for {year} R{round}: {error}")
-        elif session_code in ergast_backed:
-            collection, _ = ergast_backed[session_code]
-            await _cache_results(
-                collection,
-                {"season": year, "round": str(round)},
-                {"raceName": event_name},
-                results,
-                "fastf1",
+    event_name, results = await _fetch_uncached(db, year, round, session_code)
+    if not results:
+        _remember_miss(miss_key)
+        return JSONResponse(content={"session": session_code, "event_name": "", "results": []})
+
+    if session_code in ("FP1", "FP2", "FP3", "SQ"):
+        try:
+            await db.practice_results.update_one(
+                {"season": year, "round": str(round), "session": session_code},
+                {"$set": {
+                    "season": year,
+                    "round": str(round),
+                    "session": session_code,
+                    "event_name": event_name,
+                    "results": results,
+                    "synced_at": _utcnow_iso(),
+                }},
+                upsert=True,
             )
+        except Exception as error:
+            print(f"Failed to cache {session_code} for {year} R{round}: {error}")
+    elif session_code in ergast_backed:
+        collection, _ = ergast_backed[session_code]
+        await _cache_results(
+            collection,
+            {"season": year, "round": str(round)},
+            {"raceName": event_name},
+            results,
+            "fastf1",
+        )
 
     return JSONResponse(
         content={
