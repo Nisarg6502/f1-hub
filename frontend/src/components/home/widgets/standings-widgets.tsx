@@ -166,8 +166,15 @@ function roundsLabel(result: TitleDeciderResult): string {
  * — only how many points they must make up and how many are left, which is
  * true whatever the countback does.
  */
-function contenderLines(entries: StandingEntry[], data: WidgetProps["data"], scope: "driver" | "constructor", max: number) {
-  const { titleRaces: races, nowMs, seasonYear, standingsRound } = data;
+function contenderLines(
+  entries: StandingEntry[],
+  data: WidgetProps["data"],
+  scope: "driver" | "constructor",
+  max: number,
+  // Each table's own round: constructors are synced separately and can lag.
+  standingsRound: number | null = data.standingsRound
+) {
+  const { titleRaces: races, nowMs, seasonYear } = data;
   const leader = entries[0];
   if (!leader) return null;
   const now = new Date(nowMs);
@@ -266,7 +273,8 @@ export function TitleFightWidget({ data, size }: WidgetProps) {
                     constructorRows(constructors.data).map((r) => ({ name: r.label, points: r.points })),
                     data,
                     "constructor",
-                    2
+                    2,
+                    constructors.round ?? null
                   );
                   return lines ? <TitleBlock label="Constructors" lines={lines} /> : null;
                 })()

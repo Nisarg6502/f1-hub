@@ -39,6 +39,8 @@ interface StandingsViewProps {
   races: Race[] | null;
   /** Round the standings describe, when the backend knows it. */
   standingsRound: number | null;
+  /** Round the constructors' table describes. */
+  constructorRound: number | null;
   maxYear: number;
   /**
    * When the server rendered this table, as a timestamp.
@@ -72,6 +74,7 @@ export default function StandingsView({
   year,
   races,
   standingsRound,
+  constructorRound,
   maxYear,
   renderedAtMs,
 }: StandingsViewProps) {
@@ -188,6 +191,7 @@ export default function StandingsView({
           year={year}
           races={races}
           standingsRound={standingsRound}
+          constructorRound={constructorRound}
         />
       )}
 

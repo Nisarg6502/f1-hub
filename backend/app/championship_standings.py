@@ -64,13 +64,20 @@ def _points(value) -> float:
 
 
 def round_of_table(standings: list[dict], race_docs: list[dict], sprint_docs: list[dict], kind: str) -> int | None:
-    """The round after which cumulative results reproduce `standings` exactly.
+    """The last round whose Grand Prix the table includes, by exact points match.
 
-    Points are summed round by round from the stored race and sprint results
-    and compared with the table's top two. Only an exact match is returned:
-    "the last round with a result" is not good enough, because results and
-    standings are published separately and the former can run a round ahead,
-    which would undercount the rounds left to score.
+    Points are summed session by session (each round's sprint, then its race)
+    from the stored results and compared with the table's top two. Only an
+    exact match is returned: "the last round with a result" is not good
+    enough, because results and standings are published separately and the
+    former can run a round ahead, which would undercount the rounds left.
+
+    A table that matches after a round's sprint but before its race describes
+    a weekend half run. That round's Grand Prix is still to score, so the round
+    before is returned: counting the whole round as run dropped its race from
+    the points left and could call a live title decided on Saturday night.
+    Counting its sprint as still to come overstates what is left by one
+    sprint, which only ever delays a call.
     """
     def key(row: dict) -> str | None:
         if kind == "constructor":
@@ -80,32 +87,44 @@ def round_of_table(standings: list[dict], race_docs: list[dict], sprint_docs: li
     top = [(key(row), _points(row.get("points"))) for row in standings[:2]]
     if len(top) < 2 or any(k is None for k, _ in top):
         return None
-    by_round: dict[int, list[list[dict]]] = {}
-    for doc in list(race_docs) + list(sprint_docs):
-        if str(doc.get("round", "")).isdigit():
-            by_round.setdefault(int(doc["round"]), []).append(doc.get("results") or [])
+    def by_round(docs: list[dict]) -> dict[int, list[dict]]:
+        return {
+            int(doc["round"]): doc.get("results") or []
+            for doc in docs
+            if str(doc.get("round", "")).isdigit()
+        }
+
+    races, sprints = by_round(race_docs), by_round(sprint_docs)
     totals: dict[str, float] = {}
-    for round_number in sorted(by_round):
-        for results in by_round[round_number]:
-            for row in results:
-                k = key(row)
-                if k:
-                    totals[k] = totals.get(k, 0.0) + _points(row.get("points"))
-        if all(totals.get(k, 0.0) == pts for k, pts in top):
+
+    def add(results: list[dict]) -> bool:
+        for row in results:
+            k = key(row)
+            if k:
+                totals[k] = totals.get(k, 0.0) + _points(row.get("points"))
+        return all(totals.get(k, 0.0) == pts for k, pts in top)
+
+    for round_number in sorted(set(races) | set(sprints)):
+        if round_number in sprints and add(sprints[round_number]):
+            return round_number - 1
+        if round_number in races and add(races[round_number]):
             return round_number
     return None
 
 
 async def _standings_round(db, year: int, doc: dict | None, kind: str) -> int | None:
-    """The round a stored table describes; see `round_of_table` for the fallback.
+    """The last round whose Grand Prix a standings table includes.
 
-    Synced documents record it. The round matters: the frontend counts the
-    rounds still to score from it, and a clock-based count paired with a stale
-    table once called a live title fight decided.
+    The round matters: the frontend and the assistant count the rounds still
+    to score from it, and a clock-based count paired with a stale table once
+    called a live title fight decided.
+
+    The points match (`round_of_table`) is preferred because it is evidence
+    about this exact table. When it finds nothing (a result document missing,
+    as with 2025's sprints), the round recorded at sync is used, less one if
+    that round's Grand Prix has no result yet: Ergast numbers a table published
+    after a sprint with the weekend's round.
     """
-    stored = (doc or {}).get("round")
-    if isinstance(stored, int):
-        return stored
     standings = (doc or {}).get("standings") or []
     if not standings:
         return None
@@ -115,7 +134,16 @@ async def _standings_round(db, year: int, doc: dict | None, kind: str) -> int | 
         db.race_results.find({"season": year}, projection).to_list(length=100),
         db.sprint_results.find({"season": year}, projection).to_list(length=100),
     )
-    return round_of_table(standings, race_docs, sprint_docs, kind)
+    derived = round_of_table(standings, race_docs, sprint_docs, kind)
+    if derived is not None:
+        return derived
+    stored = (doc or {}).get("round")
+    if not isinstance(stored, int) or isinstance(stored, bool):
+        return None
+    race_rounds = {
+        int(d["round"]) for d in race_docs if str(d.get("round", "")).isdigit()
+    }
+    return stored if stored in race_rounds else stored - 1
 
 
 @router.get("/driverstandings")
@@ -133,8 +161,11 @@ async def get_driver_standings(
     standings_round = await _standings_round(db, year, doc, "driver") if doc else None
 
     if not driver_standings:
-        driver_standings, standings_round = await _fetch_and_cache_standings(
+        driver_standings, fetched_round = await _fetch_and_cache_standings(
             db.driver_standings, year, "driverstandings", "DriverStandings"
+        )
+        standings_round = await _standings_round(
+            db, year, {"standings": driver_standings, "round": fetched_round}, "driver"
         )
 
     drivers_list = [
@@ -171,8 +202,14 @@ async def get_constructor_standings(
     standings_round = await _standings_round(db, year, doc, "constructor") if doc else None
 
     if not constructor_standings:
-        constructor_standings, standings_round = await _fetch_and_cache_standings(
+        constructor_standings, fetched_round = await _fetch_and_cache_standings(
             db.constructor_standings, year, "constructorstandings", "ConstructorStandings"
+        )
+        standings_round = await _standings_round(
+            db,
+            year,
+            {"standings": constructor_standings, "round": fetched_round},
+            "constructor",
         )
 
     constructors_list = [c.get('Constructor', {}).get('name', '') for c in constructor_standings]

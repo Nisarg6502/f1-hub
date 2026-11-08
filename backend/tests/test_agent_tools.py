@@ -738,6 +738,20 @@ class StandingsTests(BundleAssertions):
         self.assertEqual(by_id["piastri"]["wins"], 0)
         self.assertEqual(by_id["max_verstappen"]["wins"], 1)
 
+    def test_title_is_counted_from_complete_rounds_not_the_round_asked_for(self):
+        # Asking past the data must not drop unrun races from the points left.
+        self.assertEqual(season._complete_through([{"round": str(r)} for r in (1, 2, 3)], 22), 3)
+        # A gap stops the count: round 3's points are missing from the table.
+        self.assertEqual(season._complete_through([{"round": str(r)} for r in (1, 2, 4)], 4), 2)
+        self.assertIsNone(season._complete_through([{"round": "6"}], 6))
+
+    def test_no_title_verdict_from_a_table_with_missing_rounds(self):
+        data = self.assertBundle(
+            run(season.get_standings(2026, "driver", after_round=6, db=full_db()))
+        )
+        # Only rounds 6 and 13 are synced; rounds 1-5 are missing.
+        self.assertIsNone(data["title"])
+
     def test_after_round_excludes_later_rounds(self):
         data = self.assertBundle(
             run(season.get_standings(2026, "driver", after_round=6, db=full_db()))

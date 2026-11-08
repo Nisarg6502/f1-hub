@@ -14,8 +14,10 @@ interface TitleDeciderPanelProps {
    * used to be fetched from the browser after mount, which put a loading
    * shimmer on this panel on every visit. */
   races: Race[] | null;
-  /** Round the standings describe; see `countRemainingRounds`. */
+  /** Round the drivers' table describes; see `countRemainingRounds`. */
   standingsRound: number | null;
+  /** Round the constructors' table describes. Synced separately, so it can lag. */
+  constructorRound: number | null;
 }
 
 function driverName(d: DriverStanding): string {
@@ -39,16 +41,22 @@ export default function TitleDeciderPanel({
   year,
   races,
   standingsRound,
+  constructorRound,
 }: TitleDeciderPanelProps) {
   if (drivers.length < 2) return null;
 
-  const options = { season: year, standingsRound };
   const driverResult = races
-    ? computeTitleDecider(toStandingEntries(drivers), races, "driver", undefined, options)
+    ? computeTitleDecider(toStandingEntries(drivers), races, "driver", undefined, {
+        season: year,
+        standingsRound,
+      })
     : null;
   const constructorResult =
     races && constructors.length >= 2
-      ? computeTitleDecider(toConstructorEntries(constructors), races, "constructor", undefined, options)
+      ? computeTitleDecider(toConstructorEntries(constructors), races, "constructor", undefined, {
+          season: year,
+          standingsRound: constructorRound,
+        })
       : null;
 
   const seasonOver =

@@ -17,12 +17,21 @@ import { getConstructorStandings, type ConstructorStanding } from "@/lib/api";
  * A failed request is forgotten rather than cached, so the next mount tries
  * again instead of showing the failure for the rest of the session.
  */
-const cache = new Map<number, Promise<ConstructorStanding[]>>();
+interface Loaded {
+  data: ConstructorStanding[];
+  /** Round this table describes; the drivers' table can be a round ahead. */
+  round: number | null;
+}
 
-function load(year: number): Promise<ConstructorStanding[]> {
+const cache = new Map<number, Promise<Loaded>>();
+
+function load(year: number): Promise<Loaded> {
   let pending = cache.get(year);
   if (!pending) {
-    pending = getConstructorStandings(year).then((res) => res.constructor_standings ?? []);
+    pending = getConstructorStandings(year).then((res) => ({
+      data: res.constructor_standings ?? [],
+      round: res.round ?? null,
+    }));
     pending.catch(() => cache.delete(year));
     cache.set(year, pending);
   }
@@ -32,7 +41,7 @@ function load(year: number): Promise<ConstructorStanding[]> {
 export type Resource<T> =
   | { status: "loading" }
   | { status: "error" }
-  | { status: "ready"; data: T };
+  | { status: "ready"; data: T; round?: number | null };
 
 export function useConstructorStandings(year: number, enabled = true): Resource<ConstructorStanding[]> {
   const [state, setState] = useState<{ year: number; resource: Resource<ConstructorStanding[]> } | null>(
@@ -43,7 +52,8 @@ export function useConstructorStandings(year: number, enabled = true): Resource<
     if (!enabled) return;
     let cancelled = false;
     load(year).then(
-      (data) => !cancelled && setState({ year, resource: { status: "ready", data } }),
+      ({ data, round }) =>
+        !cancelled && setState({ year, resource: { status: "ready", data, round } }),
       () => !cancelled && setState({ year, resource: { status: "error" } })
     );
     return () => {

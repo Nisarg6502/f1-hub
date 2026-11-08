@@ -99,6 +99,7 @@ export default async function StandingsPage({ searchParams }: PageProps) {
   // on the one panel most readers open this page for. Settled on its own so a
   // schedule failure costs only that panel.
   let standingsRound: number | null = null;
+  let constructorRound: number | null = null;
   const racesPromise: Promise<Race[] | null> = getSeasonRaces(year)
     .then((res) => res.races ?? [])
     .catch(() => null);
@@ -111,6 +112,8 @@ export default async function StandingsPage({ searchParams }: PageProps) {
     drivers = driverRes.driver_standings ?? [];
     constructors = constructorRes.constructor_standings ?? [];
     standingsRound = driverRes.round ?? null;
+    // Synced separately, so it can be a round behind the drivers' table.
+    constructorRound = constructorRes.round ?? null;
   } catch {
     // Backend offline
   }
@@ -167,6 +170,7 @@ export default async function StandingsPage({ searchParams }: PageProps) {
       year={year}
       races={races}
       standingsRound={standingsRound}
+      constructorRound={constructorRound}
       maxYear={getActiveSeasonYear()}
       renderedAtMs={renderedAtMs}
     />

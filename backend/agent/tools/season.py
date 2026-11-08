@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from app import races as races_module
 from app import session_recap
-from app.championship_standings import round_of_table
+from app.championship_standings import _standings_round as standings_round_of
 from app.title_clinch import remaining_after, title_status
 
 from ..ledger import EvidenceLedger
@@ -300,20 +300,27 @@ def _leader_gaps(rows: list[dict]) -> list[dict]:
 
 
 async def _standings_round(db, year: int, doc: dict | None, kind: str) -> int | None:
-    """The round a stored standings table describes.
+    """The last round whose Grand Prix a stored standings table includes.
 
-    Synced documents record it (`data_sync._sync_standings`); for one written
-    before that, the round whose cumulative results reproduce the table — the
-    same rule the standings endpoint uses (`championship_standings
-    .round_of_table`), never "the latest round with a result", which can run
-    ahead of the table.
+    The standings endpoint's rule, shared so the assistant and the site can
+    never disagree about whether a title is decided.
     """
-    stored = as_int((doc or {}).get("round"))
-    if stored is not None:
-        return stored
-    race_docs = await db.race_results.find({"season": year}).to_list(length=100)
-    sprint_docs = await db.sprint_results.find({"season": year}).to_list(length=100)
-    return round_of_table((doc or {}).get("standings") or [], race_docs, sprint_docs, kind)
+    return await standings_round_of(db, year, doc, kind)
+
+
+def _complete_through(race_docs: list[dict], after_round: int) -> int | None:
+    """The last round up to `after_round` with every Grand Prix up to it present.
+
+    A re-tallied table holds only the results that exist. Counting the rounds
+    left from the round *asked for* would drop every race not yet run (or not
+    yet synced) from the points still available, and a sprint-only round from
+    its Grand Prix, either of which can announce a champion early.
+    """
+    race_rounds = {as_int(doc.get("round")) for doc in race_docs}
+    complete = 0
+    while complete < after_round and complete + 1 in race_rounds:
+        complete += 1
+    return complete or None
 
 
 async def _title_block(db, year: int, kind: str, rows: list[dict], standings_round: int | None) -> dict | None:
@@ -358,7 +365,9 @@ async def _title_block(db, year: int, kind: str, rows: list[dict], standings_rou
     }
 
 
-async def _standings_after_round(db, year: int, kind: str, after_round: int) -> tuple[list[dict], list[dict]]:
+async def _standings_after_round(
+    db, year: int, kind: str, after_round: int
+) -> tuple[list[dict], list[dict], list[dict]]:
     """Rebuild a championship table as it stood after a given round.
 
     The `driver_standings`/`constructor_standings` collections hold only the
@@ -407,7 +416,7 @@ async def _standings_after_round(db, year: int, kind: str, after_round: int) -> 
     for index, row in enumerate(rows, start=1):
         row["position"] = index
         row["points"] = round(row["points"], 2)
-    return rows, list(race_docs) + list(sprint_docs)
+    return rows, list(race_docs) + list(sprint_docs), list(race_docs)
 
 
 @fact_tool("get_standings")
@@ -433,7 +442,7 @@ async def get_standings(
     db = resolve_db(db)
 
     if after_round is not None:
-        rows, docs = await _standings_after_round(db, year, kind, after_round)
+        rows, docs, race_docs = await _standings_after_round(db, year, kind, after_round)
         if not rows:
             return unavailable(
                 f"no {year} results up to round {after_round} have been synced"
@@ -446,7 +455,9 @@ async def get_standings(
                 "after_round": after_round,
                 "computed_from": "race_results + sprint_results",
                 "standings": rows,
-                "title": await _title_block(db, year, kind, rows, after_round),
+                "title": await _title_block(
+                    db, year, kind, rows, _complete_through(race_docs, after_round)
+                ),
             },
             source=mongo_source("race_results", year, f"through-r{after_round}"),
             docs=docs,

@@ -7,7 +7,8 @@ import type { Race } from "./api";
  * Race points P1-P10 have been 25-18-15-12-10-8-6-4-2-1 since 2010. The +1
  * fastest-lap point existed only from 2019 to 2024: counting it in 2026 put
  * the ceiling at 26 a race (104 over four races instead of 100). Sprint
- * points are 8-7-…-1 from 2022, 3-2-1 in 2021.
+ * points are 8-7-…-1 from 2022, 3-2-1 in 2021. 2014's double-points finale is
+ * not modelled, so nothing is claimed for that season.
  */
 export const RACE_POINTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 export const SPRINT_POINTS = [8, 7, 6, 5, 4, 3, 2, 1];
@@ -26,7 +27,7 @@ export interface Ceilings {
  * modelled, and nothing is claimed for them.
  */
 export function pointsCeilings(season: number, scope: "driver" | "constructor"): Ceilings | null {
-  if (!Number.isFinite(season) || season < 2010) return null;
+  if (!Number.isFinite(season) || season < 2010 || season === 2014) return null;
   const fastestLap = season >= FASTEST_LAP_FIRST && season <= FASTEST_LAP_LAST ? 1 : 0;
   const [sprintWin, sprintSecond] = season >= 2022 ? [8, 7] : season === 2021 ? [3, 2] : [0, 0];
   return scope === "constructor"
@@ -96,7 +97,9 @@ export interface TitleDeciderResult {
   remainingRaces: number;
   remainingSprints: number;
   /** True once the runner-up cannot catch the leader even by winning every
-   * remaining round. Strict: a possible tie on points is not a clinch. */
+   * remaining round. Strict: a possible tie on points is not a clinch. Never
+   * true while rounds remain unless the standings' round is known: a clock
+   * count beside a stale table can miss whole rounds of points. */
   clinched: boolean;
   /** Extra points the leader needs on top of the current gap to guarantee
    * the title regardless of what the runner-up does. 0 once clinched. */
@@ -129,7 +132,8 @@ export function computeTitleDecider(
   now: Date = new Date(),
   options: TitleDeciderOptions = {}
 ): TitleDeciderResult | null {
-  if (standings.length < 2) return null;
+  // No schedule would count as "nothing left", and any lead as decisive.
+  if (standings.length < 2 || races.length === 0) return null;
   const ceilings = pointsCeilings(seasonOf(races, now, options.season), scope);
   if (!ceilings) return null;
   const [leader, runnerUp] = standings;
@@ -141,8 +145,9 @@ export function computeTitleDecider(
 
   const maxRemainingPoints = remainingRaces * ceilings.race + remainingSprints * ceilings.sprint;
   const gap = leader.points - runnerUp.points;
-  const clinched = gap > maxRemainingPoints;
-  const pointsToClinch = clinched ? 0 : maxRemainingPoints - gap + 1;
+  const roundKnown = options.standingsRound != null && Number.isFinite(options.standingsRound);
+  const clinched = gap > maxRemainingPoints && (roundKnown || maxRemainingPoints === 0);
+  const pointsToClinch = clinched ? 0 : Math.max(0, maxRemainingPoints - gap + 1);
 
   return {
     leader,

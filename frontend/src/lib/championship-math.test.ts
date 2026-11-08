@@ -65,5 +65,24 @@ describe("computeTitleDecider", () => {
 
   it("returns null for unmodelled seasons", () => {
     expect(computeTitleDecider(standings, RACES, "driver", NOW, { season: 2005 })).toBeNull();
+    // 2014's double-points finale is not modelled.
+    expect(computeTitleDecider(standings, RACES, "driver", NOW, { season: 2014, standingsRound: 19 })).toBeNull();
+  });
+
+  it("returns null without a schedule rather than calling any lead decisive", () => {
+    expect(computeTitleDecider(standings, [], "driver", NOW, { season: 2026, standingsRound: 19 })).toBeNull();
+  });
+
+  it("never claims a clinch mid-season when the standings' round is unknown", () => {
+    // A clock count beside a stale table can miss whole rounds of points.
+    const result = computeTitleDecider(standings, RACES, "driver", NOW, { season: 2026 })!;
+    expect(result.gap).toBeGreaterThan(result.maxRemainingPoints);
+    expect(result.clinched).toBe(false);
+    expect(result.pointsToClinch).toBe(0);
+  });
+
+  it("does call it without a round once nothing is left to run", () => {
+    const after = new Date("2026-12-31T00:00:00Z");
+    expect(computeTitleDecider(standings, RACES, "driver", after, { season: 2026 })!.clinched).toBe(true);
   });
 });

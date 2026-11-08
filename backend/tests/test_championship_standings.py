@@ -183,12 +183,50 @@ class StandingsRoundTests(unittest.TestCase):
         # Results a round ahead of the table must not be mistaken for it.
         self.assertIsNone(championship_standings.round_of_table(self.table(30, 10), self.RACES, self.SPRINTS, "driver"))
 
-    def test_stored_round_wins_and_is_returned(self):
-        doc = {"standings": self.table(25, 18), "round": 7}
-        db = FakeDb(driver_standings=FakeCollection(doc))
+    def test_a_table_after_a_sprint_is_the_round_before(self):
+        # Round 2's sprint is in (25+8, 18+7) but its Grand Prix is not: that
+        # race is still to score, so the table describes round 1.
+        self.assertEqual(
+            championship_standings.round_of_table(self.table(33, 25), self.RACES, self.SPRINTS, "driver"), 1
+        )
+        # Before round 2's race result is even stored, the same holds.
+        self.assertEqual(
+            championship_standings.round_of_table(self.table(33, 25), self.RACES[:1], self.SPRINTS, "driver"), 1
+        )
+
+    def test_stored_round_is_used_when_no_points_match(self):
+        doc = {"standings": self.table(30, 10), "round": 2}
+        db = FakeDb(
+            driver_standings=FakeCollection(doc),
+            race_results=ResultsCollection(self.RACES),
+            sprint_results=ResultsCollection(self.SPRINTS),
+        )
         with patch.object(championship_standings, "get_db", return_value=db):
             response = asyncio.run(championship_standings.get_driver_standings(year=2026, fields="standings"))
-        self.assertEqual(json.loads(response.body)["round"], 7)
+        self.assertEqual(json.loads(response.body)["round"], 2)
+
+    def test_stored_round_without_its_race_result_is_the_round_before(self):
+        # Ergast numbers a table published after a sprint with the weekend's round.
+        doc = {"standings": self.table(30, 10), "round": 2}
+        db = FakeDb(
+            driver_standings=FakeCollection(doc),
+            race_results=ResultsCollection(self.RACES[:1]),
+            sprint_results=ResultsCollection(self.SPRINTS),
+        )
+        with patch.object(championship_standings, "get_db", return_value=db):
+            response = asyncio.run(championship_standings.get_driver_standings(year=2026, fields="standings"))
+        self.assertEqual(json.loads(response.body)["round"], 1)
+
+    def test_points_evidence_beats_the_stored_round(self):
+        doc = {"standings": self.table(25, 18), "round": 2}
+        db = FakeDb(
+            driver_standings=FakeCollection(doc),
+            race_results=ResultsCollection(self.RACES),
+            sprint_results=ResultsCollection(self.SPRINTS),
+        )
+        with patch.object(championship_standings, "get_db", return_value=db):
+            response = asyncio.run(championship_standings.get_driver_standings(year=2026, fields="standings"))
+        self.assertEqual(json.loads(response.body)["round"], 1)
 
     def test_missing_round_is_derived_from_results(self):
         doc = {"standings": self.table(51, 50)}

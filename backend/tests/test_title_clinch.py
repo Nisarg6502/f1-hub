@@ -27,6 +27,8 @@ class CeilingTests(unittest.TestCase):
 
     def test_older_points_systems_are_not_modelled(self):
         self.assertIsNone(ceilings(2009))
+        # 2014's double-points finale is not modelled either.
+        self.assertIsNone(ceilings(2014))
         self.assertIsNone(title_status(100, 0, 1, 0, 2009))
 
 

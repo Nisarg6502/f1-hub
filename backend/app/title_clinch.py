@@ -22,8 +22,8 @@ have not yet been updated with its points, so the runner-up's 25 points from
 that race would be missing from both sides of the comparison and a live title
 fight could be declared over. Callers pass the round the standings describe.
 
-Points systems before 2010 are not modelled; `ceilings` returns None for them
-and nothing is claimed.
+Points systems before 2010 are not modelled, nor is 2014 (double points at the
+final round); `ceilings` returns None for them and nothing is claimed.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ def ceilings(season: int, scope: str = "driver") -> tuple[int, int] | None:
     A constructor's ceiling is its two cars first and second (plus the single
     fastest-lap point, generously assumed to be theirs).
     """
-    if season < 2010:
+    if season < 2010 or season == 2014:
         return None
     fastest_lap = 1 if season in FASTEST_LAP_SEASONS else 0
     if season >= 2022:
