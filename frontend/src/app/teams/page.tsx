@@ -179,9 +179,18 @@ export default async function TeamsPage({ searchParams }: PageProps) {
   // See constructor-profiles.ts's provenance header for which rendered facts
   // are computed from these and which are hand-authored.
 
+  // The three are independent, so they are started together rather than one
+  // after another; each still fails soft on its own below.
+  const raceIndexPromise = getHistoricalRaceIndex("full");
+  const lineagesPromise = mapWithConcurrency(getAllErgastIds(), 4, fetchSeasonsWithRetry);
+  const titlesPromise = getConstructorTitles();
+  // Settled up front so a rejection is never left unobserved while an
+  // earlier await is pending.
+  void Promise.allSettled([raceIndexPromise, lineagesPromise, titlesPromise]);
+
   let fullRaces: Awaited<ReturnType<typeof getHistoricalRaceIndex>>["races"] = [];
   try {
-    const { races } = await getHistoricalRaceIndex("full");
+    const { races } = await raceIndexPromise;
     fullRaces = windowHidden.length
       ? races.filter(
           (race) =>
@@ -195,8 +204,7 @@ export default async function TeamsPage({ searchParams }: PageProps) {
 
   let lineages: ReturnType<typeof resolveLineages> = [];
   try {
-    const ids = getAllErgastIds();
-    const results = await mapWithConcurrency(ids, 4, fetchSeasonsWithRetry);
+    const results = await lineagesPromise;
     lineages = resolveLineages(Object.fromEntries(results));
   } catch {
     // Backend offline — cards render without their heritage block.
@@ -209,7 +217,7 @@ export default async function TeamsPage({ searchParams }: PageProps) {
   // stand behind.
   let titles: ConstructorTitlesResponse | null = null;
   try {
-    const payload = await getConstructorTitles();
+    const payload = await titlesPromise;
     titles = payload.complete ? payload : null;
   } catch {
     // Endpoint unavailable — championship rows are hidden.
