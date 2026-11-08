@@ -15,6 +15,7 @@ import ConsentBanner from "@/components/consent-banner";
 import AccountControl from "@/components/account/account-control";
 import GoogleOneTap from "@/components/account/google-one-tap";
 import { isAuthConfigured, isGoogleConfigured } from "@/lib/auth-db";
+import { MATERIAL_SYMBOLS_HREF } from "@/lib/material-symbols";
 import "./globals.css";
 
 /**
@@ -179,11 +180,10 @@ export default function RootLayout({
             root layout, so this loads for every page. `next/font` doesn't
             support this font's variable weight/fill axes via the Google
             Fonts CSS API, so a stylesheet link is the correct approach here. */}
-        {/* eslint-disable-next-line @next/next/no-page-custom-font */}
-        <link
-          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
-          rel="stylesheet"
-        />
+        {/* Only the glyphs the app draws, at the one weight/fill it uses:
+            ~9 KB instead of the whole 1.1 MB variable font. See
+            lib/material-symbols.ts before adding an icon. */}
+        <link href={MATERIAL_SYMBOLS_HREF} rel="stylesheet" />
       </head>
       <body
         className={`${bricolage.variable} ${hanken.variable} bg-background text-on-background font-[family-name:var(--font-body)] antialiased`}

@@ -366,6 +366,13 @@ class HistoricalRaceIndexEndpointTests(unittest.TestCase):
 
 
 class ConstructorSeasonsEndpointTests(unittest.TestCase):
+    def setUp(self):
+        # Background refreshes are tracked module-wide; never leak between tests.
+        historical_index._refreshing.clear()
+        historical_index._refresh_tasks.clear()
+
+    tearDown = setUp
+
     def test_a_finished_constructor_is_cached(self):
         cache = FakeCollection(find_one_result=None)
         fake_db = FakeDb(constructor_seasons_cache=cache)
@@ -415,26 +422,79 @@ class ConstructorSeasonsEndpointTests(unittest.TestCase):
         fetch_mock.assert_not_called()
         self.assertEqual(json.loads(response.body)["seasons"], [year - 1, year])
 
+    def _call_and_drain(self, cached, fetch_result):
+        """Like `_call`, but waits for any background refresh to finish."""
+        cache = FakeCollection(find_one_result=cached)
+        fake_db = FakeDb(constructor_seasons_cache=cache)
+
+        async def fake_fetch(constructor_id):
+            return fetch_result
+
+        async def scenario():
+            response = await historical_index.get_constructor_seasons(constructor_id="red_bull")
+            await asyncio.gather(*list(historical_index._refresh_tasks))
+            return response
+
+        with patch.object(historical_index, "get_db", return_value=fake_db), patch.object(
+            historical_index, "_fetch_constructor_seasons", side_effect=fake_fetch
+        ) as fetch_mock:
+            response = asyncio.run(scenario())
+        return response, cache, fetch_mock
+
     def test_a_failed_refresh_serves_the_last_good_list_not_an_empty_one(self):
         # Production 2026-10-23: a throttled red_bull read answered [] and the
         # Teams page rendered Red Bull as "1 all-time win" (Stewart's).
         year = historical_index.datetime.datetime.now(historical_index.datetime.timezone.utc).year
         cached = {"constructor_id": "red_bull", "seasons": [2005, year], "fetched_at": self._years_ago(48)}
-        response, cache, fetch_mock = self._call(cached, None)
+        response, cache, fetch_mock = self._call_and_drain(cached, None)
 
         fetch_mock.assert_called_once()
         self.assertEqual(json.loads(response.body)["seasons"], [2005, year])
         self.assertEqual(cache.update_one_calls, [])
 
+    def test_a_stale_current_team_is_served_at_once_and_refreshed_behind(self):
+        # The daily refresh of eleven current teams made /teams take 23 s.
+        year = historical_index.datetime.datetime.now(historical_index.datetime.timezone.utc).year
+        cached = {"constructor_id": "red_bull", "seasons": [2005, year], "fetched_at": self._years_ago(48)}
+        cache = FakeCollection(find_one_result=cached)
+        fake_db = FakeDb(constructor_seasons_cache=cache)
+        release = asyncio.Event()
+
+        async def slow_fetch(constructor_id):
+            await release.wait()
+            return [2005, 2006, year]
+
+        async def scenario():
+            response = await historical_index.get_constructor_seasons(constructor_id="red_bull")
+            # Answered from cache while the upstream read is still blocked.
+            self.assertEqual(json.loads(response.body)["seasons"], [2005, year])
+            self.assertEqual(cache.update_one_calls, [])
+            # A second request does not start a second refresh.
+            await historical_index.get_constructor_seasons(constructor_id="red_bull")
+            release.set()
+            await asyncio.gather(*list(historical_index._refresh_tasks))
+
+        with patch.object(historical_index, "get_db", return_value=fake_db), patch.object(
+            historical_index, "_fetch_constructor_seasons", side_effect=slow_fetch
+        ) as fetch_mock:
+            asyncio.run(scenario())
+
+        fetch_mock.assert_called_once()
+        self.assertEqual(len(cache.update_one_calls), 1)
+        self.assertIn("2006", str(cache.update_one_calls[0]))
+
     def test_a_current_team_cached_last_year_is_refreshed_not_frozen(self):
         # Review of #205: "finished" decided at read time as max < this year
         # froze every 2026 team on 1 January 2027 and dropped the whole grid.
         year = historical_index.datetime.datetime.now(historical_index.datetime.timezone.utc).year
+        # Until the new season's first race Jolpica does not list it, so a
+        # list ending last season is served at once and refreshed behind.
         cached = {"constructor_id": "red_bull", "seasons": [2005, year - 1], "fetched_at": self._years_ago(48)}
-        response, _, fetch_mock = self._call(cached, [2005, year - 1, year])
+        response, cache, fetch_mock = self._call_and_drain(cached, [2005, year - 1, year])
 
         fetch_mock.assert_called_once()
-        self.assertEqual(json.loads(response.body)["seasons"], [2005, year - 1, year])
+        self.assertEqual(json.loads(response.body)["seasons"], [2005, year - 1])
+        self.assertIn(str(year), str(cache.update_one_calls[0]))
 
     def test_a_constructor_that_sat_out_a_whole_season_is_finished(self):
         year = historical_index.datetime.datetime.now(historical_index.datetime.timezone.utc).year

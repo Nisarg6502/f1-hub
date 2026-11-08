@@ -376,6 +376,21 @@ async def get_constructor_seasons(
     if cached and _seasons_cache_fresh(cached, current_year):
         return JSONResponse(content=_seasons_response(cached))
 
+    # Stale-while-revalidate for the daily refresh of a team still racing.
+    # The eleven current teams' entries expire within minutes of each other,
+    # so the first /teams render after that used to wait on eleven Jolpica
+    # reads (four at a time, with retries against its rate limit) and took
+    # 23 s in production. A list that reaches this season or the last one is
+    # what a refresh would almost certainly return anyway, so it is served now
+    # and refreshed behind the response. Last season counts because Jolpica
+    # only lists a team's new season once it has a result: from January to
+    # the first race, "this season" would send every current team back to the
+    # 23 s in-line walk. Anything older is refreshed in line.
+    cached_seasons = (cached or {}).get("seasons") or []
+    if cached_seasons and max(cached_seasons) >= current_year - 1:
+        _refresh_in_background(db, constructor_id)
+        return JSONResponse(content=_seasons_response(cached))
+
     seasons = await _fetch_constructor_seasons(constructor_id)
     if seasons is None:
         if cached:
@@ -394,6 +409,47 @@ async def get_constructor_seasons(
             print(f"Failed to cache constructor_seasons for {constructor_id}: {error}")
 
     return JSONResponse(content=response)
+
+
+# Ids with a background refresh in flight, and strong references to their
+# tasks (the event loop holds only weak ones, so an unreferenced task can be
+# collected mid-run).
+_refreshing: set[str] = set()
+_refresh_tasks: set[asyncio.Task] = set()
+
+
+async def _store_constructor_seasons(db, constructor_id: str, seasons: list[int]) -> None:
+    try:
+        await db.constructor_seasons_cache.update_one(
+            {"constructor_id": constructor_id},
+            {"$set": {"constructor_id": constructor_id, "seasons": seasons, "fetched_at": _utcnow_iso()}},
+            upsert=True,
+        )
+    except Exception as error:
+        print(f"Failed to cache constructor_seasons for {constructor_id}: {error}")
+
+
+def _refresh_in_background(db, constructor_id: str) -> None:
+    """Re-read one constructor's seasons after the response, once at a time per id.
+
+    A failed or empty read keeps the cached list (see the endpoint docstring
+    for what serving an empty one did).
+    """
+    if constructor_id in _refreshing:
+        return
+    _refreshing.add(constructor_id)
+
+    async def refresh() -> None:
+        try:
+            seasons = await _fetch_constructor_seasons(constructor_id)
+            if seasons:
+                await _store_constructor_seasons(db, constructor_id, seasons)
+        finally:
+            _refreshing.discard(constructor_id)
+
+    task = asyncio.create_task(refresh())
+    _refresh_tasks.add(task)
+    task.add_done_callback(_refresh_tasks.discard)
 
 
 # How long a still-racing constructor's season list is served from cache. Its
