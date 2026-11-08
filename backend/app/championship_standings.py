@@ -143,7 +143,11 @@ async def _standings_round(db, year: int, doc: dict | None, kind: str) -> int | 
     race_rounds = {
         int(d["round"]) for d in race_docs if str(d.get("round", "")).isdigit()
     }
-    return stored if stored in race_rounds else stored - 1
+    # No race results stored at all: an older season the sync never covered,
+    # where the table's own round is the only evidence there is.
+    if not race_rounds or stored in race_rounds:
+        return stored
+    return stored - 1
 
 
 @router.get("/driverstandings")

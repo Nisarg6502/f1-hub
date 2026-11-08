@@ -217,6 +217,15 @@ class StandingsRoundTests(unittest.TestCase):
             response = asyncio.run(championship_standings.get_driver_standings(year=2026, fields="standings"))
         self.assertEqual(json.loads(response.body)["round"], 1)
 
+    def test_a_season_without_stored_results_keeps_its_round(self):
+        # Older seasons have standings but no race_results: the final round
+        # must not lose one and read "1 race left".
+        doc = {"standings": self.table(30, 10), "round": 22}
+        db = FakeDb(driver_standings=FakeCollection(doc))
+        with patch.object(championship_standings, "get_db", return_value=db):
+            response = asyncio.run(championship_standings.get_driver_standings(year=2021, fields="standings"))
+        self.assertEqual(json.loads(response.body)["round"], 22)
+
     def test_points_evidence_beats_the_stored_round(self):
         doc = {"standings": self.table(25, 18), "round": 2}
         db = FakeDb(

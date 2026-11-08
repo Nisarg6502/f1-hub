@@ -160,8 +160,10 @@ function TitleDeciderRow({
       ) : (
         <p className="mt-1 text-xs font-medium text-warm-400">
           Still open — {maxRemainingPoints} points still available
-          {rounds ? ` across ${rounds}` : ""}; {leader.name} needs{" "}
-          {result.pointsToClinch} more (or a {runnerUp.name} slip) to clinch.
+          {rounds ? ` across ${rounds}` : ""};{" "}
+          {result.pointsToClinch > 0
+            ? `${leader.name} needs ${result.pointsToClinch} more (or a ${runnerUp.name} slip) to clinch.`
+            : "the lead looks decisive, but waits on the latest standings to confirm."}
         </p>
       )}
     </div>

@@ -212,7 +212,7 @@ function TitleBlock({
           ? "Season complete."
           : head.clinched
             ? `Champion — no one can close the gap over the ${head.maxRemainingPoints} points left.`
-            : `${head.maxRemainingPoints} pts left${rounds ? ` across ${rounds}` : ""}; clinches by stretching the lead ${head.pointsToClinch} more.`}
+            : `${head.maxRemainingPoints} pts left${rounds ? ` across ${rounds}` : ""}; ${head.pointsToClinch > 0 ? `clinches by stretching the lead ${head.pointsToClinch} more.` : "waiting on the latest standings to confirm."}`}
       </p>
       {!seasonOver && !head.clinched && (
         <ul className="mt-2.5 grid gap-1.5">
