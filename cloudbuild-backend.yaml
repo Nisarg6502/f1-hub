@@ -87,16 +87,39 @@ steps:
       - '2'
       - '--quiet'
 
+  # 5. Rebuild watch mode's caches for the season's finished rounds.
+  #    `race_replay` and `race_timing` are keyed by a fingerprint of the code
+  #    that builds them, so a deploy touching that code retires every cached
+  #    round at once, and each round's next viewer paid for the rebuild inside
+  #    their page load (21s on 2026-11-08). Never fails the build: a cold
+  #    cache is a slow page, not a broken deploy.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        if [ -f /workspace/.deploy-superseded ]; then
+          echo "Skipping cache warm: this build did not deploy."
+          exit 0
+        fi
+        python3 backend/app/watch_cache_warm.py --base "${_BACKEND_URL}" || true
+
 substitutions:
   # Both Cloud Run URLs the frontend is served from, matching
   # `_AGENT_ALLOWED_ORIGINS` in cloudbuild-agent.yaml. The delimiter is
   # overridden to `;` above because this value contains commas, which gcloud
   # would otherwise read as separators between variables.
   _API_ALLOWED_ORIGINS: 'https://f1-frontend-1076575666662.asia-south1.run.app,https://f1-frontend-2w5wydk2ca-el.a.run.app'
+  # The service this build deploys, for the cache warm in step 5.
+  _BACKEND_URL: 'https://f1-backend-1076575666662.asia-south1.run.app'
 
 images:
   - 'gcr.io/f1-dashboard-493015/f1-backend'
   - 'gcr.io/f1-dashboard-493015/f1-backend:$BUILD_ID'
+
+# Default is 600s. A cold warm (step 5) after a full image build can pass it:
+# each rebuilt round can take up to ~15s against OpenF1, sequentially.
+timeout: '1200s'
 
 options:
   logging: CLOUD_LOGGING_ONLY

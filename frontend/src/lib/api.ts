@@ -685,6 +685,13 @@ export interface RaceTiming {
    * Empty on an unsynced round, where there is no timing to be in step with.
    */
   lap_ms: number[];
+  /**
+   * The race leader's `[s1, s2, s3]` in ms for each lap, index-aligned to
+   * `lap_ms`; `null` for a lap OpenF1 has no complete split for (always lap 1,
+   * which starts from the grid). Optional: payloads cached before it existed
+   * do not carry it, and absent means an unsplit bar, never an error.
+   */
+  lap_sectors_ms?: (number[] | null)[];
 }
 
 export async function getRaceTiming(year: number, round: number) {

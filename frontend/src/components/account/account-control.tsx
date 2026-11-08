@@ -50,14 +50,21 @@ export default function AccountControl() {
           aria-label="Sign in"
           className="relative inline-flex items-center gap-1.5 rounded-full border border-white/[0.14] px-2 sm:px-3.5 h-8 font-semibold text-xs text-warm-200 hover:text-on-background hover:bg-white/[0.05] transition-colors before:absolute before:-top-1 before:-bottom-1 before:-left-1 before:-right-1 before:content-['']"
         >
-          <span className="material-symbols-outlined text-[18px] sm:hidden" aria-hidden="true">
-            person
+          {/* `sm:hidden` sits on a wrapper, not on the glyph: the Material
+              Symbols stylesheet loads after Tailwind and its own `display`
+              on `.material-symbols-outlined` wins the tie, which drew the
+              icon beside "Sign in" on desktop and wrapped the pill onto two
+              lines. */}
+          <span className="sm:hidden" aria-hidden="true">
+            <span className="material-symbols-outlined text-[18px]">person</span>
           </span>
-          <span className="hidden sm:inline">Sign in</span>
+          <span className="hidden sm:inline whitespace-nowrap">Sign in</span>
         </Link>
         <Link
           href={`/signin?mode=signup${next ? `&${next}` : ""}`}
-          className="relative hidden md:inline-flex items-center rounded-full bg-primary-container px-3.5 h-8 font-bold text-xs text-[#1a1210] hover:brightness-110 transition before:absolute before:-top-1 before:-bottom-1 before:-left-1 before:-right-1 before:content-['']"
+          /* md-lg has no desktop links and room to spare; lg-xl has the
+             links and none, so it steps back out until xl. */
+          className="relative hidden md:inline-flex lg:hidden xl:inline-flex items-center whitespace-nowrap rounded-full bg-primary-container px-3.5 h-8 font-bold text-xs text-[#1a1210] hover:brightness-110 transition before:absolute before:-top-1 before:-bottom-1 before:-left-1 before:-right-1 before:content-['']"
         >
           Create account
         </Link>

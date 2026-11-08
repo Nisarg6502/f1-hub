@@ -38,6 +38,7 @@ from .f1_results import (
 from .historical_index import normalize_races
 
 from .local_env import load_local_env
+from .watch_cache_warm import DEFAULT_BASE as WATCH_WARM_BASE, warm_season
 
 # See `local_env`: the repo has two `.env` files and the nearer one lacks the
 # database URI. A no-op in the deployed job, where there is no `.env` at all.
@@ -46,6 +47,9 @@ load_local_env()
 MONGODB_URI = os.getenv("MONGODB_URI") or os.getenv("mongodburi") or "mongodb://localhost:27017"
 DB_NAME = os.getenv("MONGODB_DB_NAME") or os.getenv("mongodb_db_name") or "f1_scratch"
 FORCE_RESYNC = os.getenv("FORCE_RESYNC", "").lower() in ("1", "true", "yes")
+# Backend whose watch caches to warm after syncing. Empty disables it (local
+# runs against a dev database have no deployed API to warm).
+WATCH_WARM_BASE_URL = os.environ.get("WATCH_WARM_BASE_URL", WATCH_WARM_BASE)
 
 ERGAST_BASE = "https://api.jolpi.ca/ergast/f1"
 OPENF1_BASE = "https://api.openf1.org/v1"
@@ -979,6 +983,14 @@ def main() -> int:
         sync_pit_stops(db, year, finished)
         sync_race_laps(db, year, finished)
         sync_weather(db, year, finished)
+
+        # Last, once the round's laps are written: a newly synced round has
+        # no cached replay or timing yet, and without this the first person
+        # to open it in watch mode (most likely on race evening) waits ~20s
+        # while the backend builds both. See watch_cache_warm.py.
+        if WATCH_WARM_BASE_URL:
+            print("\n--- watch caches ---")
+            warm_season(WATCH_WARM_BASE_URL, year, [int(race["round"]) for race in finished])
 
     client.close()
     print("\n=== sync complete ===")

@@ -238,6 +238,62 @@ def official_samples(
     return samples, lap_ms, leader_cumulative
 
 
+def leader_sectors(
+    official_rows: list[dict],
+    driver_numbers: dict[str, str],
+    lap_rows: list[dict] | None,
+) -> list[list[int] | None]:
+    """The leader's three sector times for each lap, index-aligned to `lap_ms`.
+
+    Each entry is `[s1_ms, s2_ms, s3_ms]` or `None`. The leader is the car the
+    official archive has crossing the line first on that lap, which is exactly
+    whose duration `official_samples` puts in `lap_ms`, so the splits describe
+    the very lap the watch-mode progress bar is timing.
+
+    The sectors themselves come from OpenF1's `/laps` (`duration_sector_*`),
+    the only free source of them. `None` whenever any of the three is missing
+    or non-positive: OpenF1 has no sector 1 on lap 1 (the car starts from the
+    grid, not the line) and drops sectors on the odd pit lap, and two of three
+    sectors drawn on a bar would imply the third. The consumer draws an
+    unsplit bar for `None`, which is what it drew before this existed.
+
+    Alignment replays `official_samples`'s rule exactly, including skipping a
+    lap whose cumulative time went backwards, so index `i` here is index `i`
+    there with no second definition of "lap" to drift.
+    """
+    leader_at: dict[int, tuple[int, str]] = {}
+    for row in official_rows or []:
+        lap = _as_int(row.get("lap"))
+        if lap is None:
+            continue
+        for timing in row.get("timings") or []:
+            number = driver_numbers.get(str(timing.get("driverId")))
+            elapsed = _as_int(timing.get("cumulative_ms"))
+            if number is None or elapsed is None or _as_int(timing.get("position")) is None:
+                continue
+            if lap not in leader_at or elapsed < leader_at[lap][0]:
+                leader_at[lap] = (elapsed, number)
+
+    by_lap: dict[tuple[str, int], list[int] | None] = {}
+    for row in lap_rows or []:
+        number = _as_int(row.get("driver_number"))
+        lap = _as_int(row.get("lap_number"))
+        if number is None or lap is None:
+            continue
+        values = [row.get(f"duration_sector_{k}") for k in (1, 2, 3)]
+        if all(isinstance(v, (int, float)) and v > 0 for v in values):
+            by_lap[(str(number), lap)] = [round(v * 1000) for v in values]
+
+    sectors: list[list[int] | None] = []
+    previous = 0
+    for lap in sorted(leader_at):
+        current, number = leader_at[lap]
+        if current > previous:
+            sectors.append(by_lap.get((number, lap)))
+            previous = current
+    return sectors
+
+
 def _laps_down_label(laps_down: int) -> str:
     """`1 -> "+1 LAP"`, `11 -> "+11 LAPS"`. OpenF1's exact spelling.
 
@@ -693,6 +749,7 @@ def build_timing(
     return {
         "drivers": drivers,
         "lap_ms": lap_ms,
+        "lap_sectors_ms": leader_sectors(official_rows, driver_numbers, lap_rows),
         "race_start": race_start.isoformat() if race_start is not None else None,
     }
 
@@ -771,10 +828,10 @@ def fetch_openf1_feeds(race_date: str) -> tuple[list, list, list]:
     starts. The caller still has the official skeleton in that case and serves a
     lap-boundary-accurate tower without intra-lap fill.
 
-    `/laps` is fetched even though this module serves no per-lap data: it is the
-    only source of wall-clock line crossings, which is what `race_start_offset`
-    measures the start against. Without it the other two feeds cannot be placed
-    on the timeline at all.
+    `/laps` is the only source of wall-clock line crossings, which is what
+    `race_start_offset` measures the start against; without it the other two
+    feeds cannot be placed on the timeline at all. It also carries the sector
+    times `leader_sectors` reads.
     """
     from .race_stints import fetch_openf1_session_key
 
@@ -881,6 +938,7 @@ async def get_race_timing(
             "round": round_number,
             "drivers": cached["drivers"],
             "lap_ms": cached.get("lap_ms") or [],
+            "lap_sectors_ms": cached.get("lap_sectors_ms") or [],
             "synced": True,
         })
 
@@ -921,10 +979,12 @@ async def get_race_timing(
             "round": round_number,
             "drivers": {},
             "lap_ms": [],
+            "lap_sectors_ms": [],
             "synced": False,
         })
 
     lap_ms = payload.get("lap_ms") or []
+    lap_sectors_ms = payload.get("lap_sectors_ms") or []
     # The OpenF1 feeds are fetched live and are not in the input fingerprint.
     # An OpenF1-era race with none of them is a failed fetch, and cached it
     # would pin an official-only payload until the code next changes.
@@ -935,6 +995,7 @@ async def get_race_timing(
             "round": round_number,
             "drivers": drivers,
             "lap_ms": lap_ms,
+            "lap_sectors_ms": lap_sectors_ms,
             "synced": True,
         })
     try:
@@ -954,6 +1015,7 @@ async def get_race_timing(
             {
                 "drivers": drivers,
                 "lap_ms": lap_ms,
+                "lap_sectors_ms": lap_sectors_ms,
                 # Stored but not served: the wire payload is read by the
                 # watch tower, which has no use for a wall-clock anchor,
                 # while `race_radio` reads this collection directly.
@@ -968,5 +1030,6 @@ async def get_race_timing(
         "round": round_number,
         "drivers": drivers,
         "lap_ms": lap_ms,
+        "lap_sectors_ms": lap_sectors_ms,
         "synced": True,
     })

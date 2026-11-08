@@ -140,12 +140,12 @@ export default function PitwallAssistantLauncher() {
              every side and moves nothing visually — it only pads the hit
              target past the 40px floor without widening the icon-only
              disc that has to sit in a dense nav row. */
-          className="relative flex h-9 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-[var(--color-surface-container-low)] px-2 text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[var(--color-surface-container)] active:scale-[0.95] xl:w-auto xl:px-3.5 w-9 before:absolute before:-inset-1 before:content-['']"
+          className="relative flex h-9 items-center justify-center gap-1.5 rounded-full border border-white/10 bg-[var(--color-surface-container-low)] px-2 text-warm-200 transition-[background-color,transform] duration-150 hover:bg-[var(--color-surface-container)] active:scale-[0.95] 2xl:w-auto 2xl:px-3.5 w-9 before:absolute before:-inset-1 before:content-['']"
         >
           <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
             forum
           </span>
-          <span className="hidden xl:inline text-[12px] font-semibold whitespace-nowrap">
+          <span className="hidden 2xl:inline text-[12px] font-semibold whitespace-nowrap">
             Ask AI
           </span>
         </button>

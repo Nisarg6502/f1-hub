@@ -500,6 +500,75 @@ input::placeholder {
   }
 }
 
+/* ---- Watch-mode loading screen: start lights (app/watch/[raceId]/loading.tsx)
+   One 5s cycle: the five lamps come on 0.55s apart, hold, then all go out
+   together at 72% (3.6s), the "lights out" beat, and the gantry sits dark until
+   the loop restarts. Each lamp needs its own keyframes because only the
+   switch-on moment differs; a shared keyframe with `animation-delay` would
+   shift the lights-out moment too, and the whole point is that they go out as
+   one. Pure CSS so it animates from the first streamed byte, before any JS.
+   Each rule carries the full shorthand: a nameless `animation: 5s ...` on a
+   shared class is rewritten to the defaults by the CSS pipeline, so a split
+   shorthand-plus-`animation-name` silently never animates. */
+.apex-start-lamp {
+  background: rgb(255 255 255 / 0.06);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.6);
+}
+.apex-start-pod:nth-child(1) .apex-start-lamp { animation: apex-lamp-1 5s linear infinite both; }
+.apex-start-pod:nth-child(2) .apex-start-lamp { animation: apex-lamp-2 5s linear infinite both; }
+.apex-start-pod:nth-child(3) .apex-start-lamp { animation: apex-lamp-3 5s linear infinite both; }
+.apex-start-pod:nth-child(4) .apex-start-lamp { animation: apex-lamp-4 5s linear infinite both; }
+.apex-start-pod:nth-child(5) .apex-start-lamp { animation: apex-lamp-5 5s linear infinite both; }
+
+@keyframes apex-lamp-1 { 0%, 1.9% { background: rgb(255 255 255 / 0.06); box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.6); } 2%, 71.9% { background: #ff2d1a; box-shadow: 0 0 18px 2px rgb(255 45 26 / 0.65), inset 0 -2px 4px rgb(0 0 0 / 0.35); } 72%, 100% { background: rgb(255 255 255 / 0.06); box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.6); } }
+@keyframes apex-lamp-2 { 0%, 12.9% { background: rgb(255 255 255 / 0.06); box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.6); } 13%, 71.9% { background: #ff2d1a; box-shadow: 0 0 18px 2px rgb(255 45 26 / 0.65), inset 0 -2px 4px rgb(0 0 0 / 0.35); } 72%, 100% { background: rgb(255 255 255 / 0.06); box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.6); } }
+@keyframes apex-lamp-3 { 0%, 23.9% { background: rgb(255 255 255 / 0.06); box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.6); } 24%, 71.9% { background: #ff2d1a; box-shadow: 0 0 18px 2px rgb(255 45 26 / 0.65), inset 0 -2px 4px rgb(0 0 0 / 0.35); } 72%, 100% { background: rgb(255 255 255 / 0.06); box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.6); } }
+@keyframes apex-lamp-4 { 0%, 34.9% { background: rgb(255 255 255 / 0.06); box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.6); } 35%, 71.9% { background: #ff2d1a; box-shadow: 0 0 18px 2px rgb(255 45 26 / 0.65), inset 0 -2px 4px rgb(0 0 0 / 0.35); } 72%, 100% { background: rgb(255 255 255 / 0.06); box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.6); } }
+@keyframes apex-lamp-5 { 0%, 45.9% { background: rgb(255 255 255 / 0.06); box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.6); } 46%, 71.9% { background: #ff2d1a; box-shadow: 0 0 18px 2px rgb(255 45 26 / 0.65), inset 0 -2px 4px rgb(0 0 0 / 0.35); } 72%, 100% { background: rgb(255 255 255 / 0.06); box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.6); } }
+
+/* The caption under the gantry flips to "Lights out" for the dark beat. */
+.apex-start-caption > span:first-child { animation: apex-caption-wait 5s linear infinite both; }
+.apex-start-caption > span:last-child { animation: apex-caption-go 5s linear infinite both; }
+@keyframes apex-caption-wait { 0%, 71.9% { opacity: 1; } 72%, 97.9% { opacity: 0; } 98%, 100% { opacity: 1; } }
+@keyframes apex-caption-go { 0%, 71.9% { opacity: 0; transform: translateY(4px); } 72%, 76% { opacity: 1; transform: translateY(0); } 92%, 100% { opacity: 0; transform: translateY(0); } }
+
+/* Four lines about what is loading, each held 4s, in a 16s loop. */
+.apex-start-fact {
+  opacity: 0;
+  animation: apex-fact 16s var(--ease-out-apex) infinite both;
+}
+.apex-start-fact:nth-child(2) { animation-delay: 4s; }
+.apex-start-fact:nth-child(3) { animation-delay: 8s; }
+.apex-start-fact:nth-child(4) { animation-delay: 12s; }
+@keyframes apex-fact {
+  0% { opacity: 0; transform: translateY(6px); }
+  4%, 21% { opacity: 1; transform: translateY(0); }
+  25%, 100% { opacity: 0; transform: translateY(-6px); }
+}
+
+/* Reduced motion: a still gantry with all five lit and the first line only.
+   `animation: none` rather than leaning on the global 0.001ms rule, which
+   would park every lamp on its final keyframe (dark) and every line on its
+   last one (hidden). */
+@media (prefers-reduced-motion: reduce) {
+  .apex-start-pod .apex-start-lamp,
+  .apex-start-caption > span,
+  .apex-start-fact {
+    animation: none !important;
+  }
+  .apex-start-pod .apex-start-lamp {
+    background: #ff2d1a;
+    box-shadow: 0 0 18px 2px rgb(255 45 26 / 0.65);
+  }
+  .apex-start-caption > span:last-child,
+  .apex-start-fact:not(:first-child) {
+    opacity: 0;
+  }
+  .apex-start-fact:first-child {
+    opacity: 1;
+  }
+}
+
 /* ============================================================
    Accessibility — honor reduced motion (added on top of APEX)
    ============================================================ */

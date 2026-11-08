@@ -398,14 +398,34 @@ export default function GlobalSearch({
 
   return (
     <div
-      className={isSheet ? "relative" : "relative hidden lg:block"}
+      /* Below 2xl the nav row cannot fit a 208px field beside eight links,
+         the launcher, the season badge and both account pills: measured at
+         1440px the links ran into the field, and at 1280px "Create account"
+         was cut off the right edge. So below 2xl the field is a 36px icon
+         that widens leftwards over the links while it has focus or a query,
+         and the reserved slot in the row stays 36px either way. */
+      className={
+        isSheet ? "relative" : "relative hidden lg:block w-9 h-[35px] 2xl:w-auto 2xl:h-auto"
+      }
       ref={rootRef}
     >
       <div
-        className={`flex items-center gap-[9px] bg-veil/6 backdrop-blur-[10px] border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] rounded-xl px-[14px] focus-within:border-flame-bright/50 transition-colors duration-150 ${
+        onMouseDown={(e) => {
+          // The collapsed field leaves the input 0px wide, so a click on the
+          // icon must focus it explicitly. preventDefault keeps the click from
+          // landing on the box and immediately blurring what it just focused.
+          if (isSheet || e.target === inputRef.current) return;
+          e.preventDefault();
+          inputRef.current?.focus();
+        }}
+        className={`flex items-center gap-[9px] backdrop-blur-[10px] border border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] rounded-xl focus-within:border-flame-bright/50 duration-150 ${
           /* 44px tall in the sheet: this is the one search field people will
              hit with a thumb, and the nav's 9px padding leaves it at 33. */
-          isSheet ? "py-3 w-full" : "py-[9px] w-[208px]"
+          isSheet
+            ? "py-3 w-full px-[14px] bg-veil/6 transition-colors"
+            : `py-[9px] absolute right-0 top-0 z-10 cursor-text transition-[width,background-color,border-color] 2xl:static 2xl:w-[208px] 2xl:px-[14px] 2xl:bg-veil/6 focus-within:px-[14px] focus-within:w-[260px] focus-within:bg-surface-container ${
+                query ? "w-[260px] px-[14px] bg-surface-container" : "w-9 px-[11px] bg-veil/6"
+              }`
         }`}
       >
         <Search className="w-3 h-3 text-warm-400 flex-none" strokeWidth={2} />

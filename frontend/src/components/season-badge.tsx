@@ -21,7 +21,7 @@ export default function SeasonBadge() {
       : resolveSeasonYear(searchParams.get("season") ?? undefined);
 
   return (
-    <div className="font-semibold text-xs text-warm-300">
+    <div className="font-semibold text-xs text-warm-300 whitespace-nowrap">
       Season <span className="text-on-background">{year || getActiveSeasonYear()}</span>
     </div>
   );
