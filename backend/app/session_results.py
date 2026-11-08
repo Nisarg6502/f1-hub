@@ -17,7 +17,7 @@ from .f1_results import (
     sanitize_results,
 )
 from .openf1_practice import SESSION_NAMES as OPENF1_PRACTICE_SESSIONS
-from .openf1_practice import build_practice_openf1
+from .openf1_practice import build_practice_openf1, is_provisional
 
 router = APIRouter(prefix="/api")
 
@@ -275,6 +275,26 @@ def _remember_miss(key: tuple) -> None:
     _misses[key] = time.monotonic() + MISS_TTL_SECONDS
 
 
+_inflight: dict[tuple, asyncio.Future] = {}
+
+
+async def _fetch_shared(db, year: int, round_number: int, session_code: str):
+    """`_fetch_uncached`, with concurrent requests for one session sharing a fetch.
+
+    The miss cache only takes effect once a fetch has finished; without this,
+    N visitors opening a tab together made N times the OpenF1 calls, which is
+    how a free-tier rate limit gets hit.
+    """
+    key = (year, round_number, session_code)
+    task = _inflight.get(key)
+    if task is None:
+        task = asyncio.ensure_future(_fetch_uncached(db, year, round_number, session_code))
+        _inflight[key] = task
+        task.add_done_callback(lambda _done: _inflight.pop(key, None))
+    # Shielded so one visitor closing the tab doesn't cancel everyone's fetch.
+    return await asyncio.shield(task)
+
+
 async def _fetch_uncached(db, year: int, round_number: int, session_code: str):
     """`(event_name, results)` for a session nothing has stored yet.
 
@@ -301,6 +321,8 @@ async def _fetch_uncached(db, year: int, round_number: int, session_code: str):
                 build_practice_openf1, year, race["date"], session_code
             )
             return race.get("raceName", ""), rows or []
+        # No race date to find the meeting by: FastF1 could not help either.
+        return "", []
 
     try:
         return await asyncio.to_thread(load_session, year, round_number, session_code)
@@ -327,19 +349,25 @@ async def get_session_classification(
         "R": (db.race_results, "raceName"),
     }
 
+    miss_key = (year, round, session_code)
+    empty = {"session": session_code, "event_name": "", "results": []}
+    stored = None
+
     if session_code in ("FP1", "FP2", "FP3", "SQ"):
         doc = await db.practice_results.find_one(
             {"season": year, "round": str(round), "session": session_code}
         )
         # Reject cache entries written before practice was classified from laps.
         if doc and has_classification(doc.get("results")):
-            return JSONResponse(
-                content={
-                    "session": session_code,
-                    "event_name": doc.get("event_name", ""),
-                    "results": sanitize_results(doc.get("results", [])),
-                }
-            )
+            stored = {
+                "session": session_code,
+                "event_name": doc.get("event_name", ""),
+                "results": sanitize_results(doc.get("results", [])),
+            }
+            # A laps-derived ranking is served, but OpenF1 is asked again for
+            # the official classification, at most once per MISS_TTL_SECONDS.
+            if not is_provisional(doc.get("results")) or _recently_missed(miss_key):
+                return JSONResponse(content=stored)
     elif session_code in ergast_backed:
         collection, _ = ergast_backed[session_code]
         doc = await collection.find_one({"season": year, "round": str(round)})
@@ -357,14 +385,17 @@ async def get_session_classification(
                 }
             )
 
-    miss_key = (year, round, session_code)
-    if _recently_missed(miss_key):
-        return JSONResponse(content={"session": session_code, "event_name": "", "results": []})
+    if stored is None and _recently_missed(miss_key):
+        return JSONResponse(content=empty)
 
-    event_name, results = await _fetch_uncached(db, year, round, session_code)
+    event_name, results = await _fetch_shared(db, year, round, session_code)
     if not results:
         _remember_miss(miss_key)
-        return JSONResponse(content={"session": session_code, "event_name": "", "results": []})
+        return JSONResponse(content=stored or empty)
+    if is_provisional(results):
+        # Stored below so the tab isn't blank; the official result is looked
+        # for again after the miss window rather than on every request.
+        _remember_miss(miss_key)
 
     if session_code in ("FP1", "FP2", "FP3", "SQ"):
         try:

@@ -284,12 +284,16 @@ def _completed_rounds(db, year: int, *, settled: bool = False) -> list[dict]:
     return sorted(started, key=_round_key)
 
 
-def _already_stored(collection, query: dict, *, classified: bool = False) -> bool:
+def _already_stored(
+    collection, query: dict, *, classified: bool = False, final: bool = False
+) -> bool:
     """True if this fetch-once session is already stored and worth keeping.
 
     `classified=True` rejects rows without positions, so practice entries
     written before the classification was derived from laps get refetched
-    rather than skipped forever.
+    rather than skipped forever. `final=True` also rejects a provisional,
+    laps-derived practice ranking, so the official classification replaces it
+    once OpenF1 publishes it.
 
     Race, qualifying and sprint results deliberately do NOT use this: they
     change after publication and are reconciled every run instead (see
@@ -300,7 +304,13 @@ def _already_stored(collection, query: dict, *, classified: bool = False) -> boo
     doc = collection.find_one(query, {"_id": 1, "results": 1})
     if not doc or not doc.get("results"):
         return False
-    return has_classification(doc["results"]) if classified else True
+    if classified and not has_classification(doc["results"]):
+        return False
+    if final:
+        from .openf1_practice import is_provisional
+
+        return not is_provisional(doc["results"])
+    return True
 
 
 def fetch_season_table(year: int, path: str, key: str) -> dict[str, dict] | None:
@@ -511,6 +521,7 @@ def sync_practice_results(db, year: int, races: list[dict]) -> None:
                 db.practice_results,
                 {"season": year, "round": str(round_number), "session": session_code},
                 classified=True,
+                final=True,
             ):
                 continue
 

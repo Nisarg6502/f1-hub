@@ -3,6 +3,7 @@ import datetime
 import json
 import math
 import sys
+import time
 import types
 import unittest
 from pathlib import Path
@@ -472,11 +473,12 @@ class SessionClassificationTests(unittest.TestCase):
                  session_results, "load_session",
                  return_value=("British Grand Prix", fresh),
              ) as load:
+            # A pre-OpenF1 season: 2023+ practice comes from OpenF1 instead.
             response = asyncio.run(
-                session_results.get_session_classification(year=2026, round=9, session="FP1")
+                session_results.get_session_classification(year=2022, round=9, session="FP1")
             )
 
-        load.assert_called_once_with(2026, 9, "FP1")
+        load.assert_called_once_with(2022, 9, "FP1")
         body = json.loads(response.body)
         self.assertEqual(body["results"][0]["Driver"]["code"], "VER")
         # ...and the repaired classification replaces the bad cache entry.
@@ -549,6 +551,64 @@ class OpenF1PracticeEndpointTests(unittest.TestCase):
                 )
         self.assertEqual(openf1.call_count, 1)
 
+    def test_a_provisional_ranking_is_replaced_by_the_official_result(self):
+        db = self._db()
+        db.practice_results = FakeCollection({
+            "event_name": "Brazilian Grand Prix",
+            "results": [{"position": "1", "Driver": {"code": "VER"}, "provisional": True}],
+        })
+        official = [{"position": "1", "Driver": {"code": "ANT"}}]
+        with patch.object(session_results, "get_db", return_value=db),              patch.object(session_results, "build_practice_openf1", return_value=official) as openf1:
+            response = asyncio.run(
+                session_results.get_session_classification(year=2026, round=20, session="FP1")
+            )
+        openf1.assert_called_once()
+        self.assertEqual(json.loads(response.body)["results"][0]["Driver"]["code"], "ANT")
+        self.assertEqual(db.practice_results.update["update"]["$set"]["results"], official)
+
+    def test_a_provisional_ranking_is_served_while_the_official_one_is_missing(self):
+        db = self._db()
+        stored = [{"position": "1", "Driver": {"code": "VER"}, "provisional": True}]
+        db.practice_results = FakeCollection({"event_name": "Brazilian Grand Prix", "results": stored})
+        with patch.object(session_results, "get_db", return_value=db),              patch.object(session_results, "build_practice_openf1", return_value=None) as openf1:
+            for _ in range(3):
+                response = asyncio.run(
+                    session_results.get_session_classification(year=2026, round=20, session="FP1")
+                )
+                self.assertEqual(json.loads(response.body)["results"][0]["Driver"]["code"], "VER")
+        # Asked once, then not again inside the miss window; nothing overwritten.
+        self.assertEqual(openf1.call_count, 1)
+        self.assertIsNone(db.practice_results.update)
+
+    def test_concurrent_misses_share_one_fetch(self):
+        db = self._db()
+        calls = []
+
+        def slow_build(*args):
+            calls.append(args)
+            time.sleep(0.05)
+            return None
+
+        async def burst():
+            return await asyncio.gather(*[
+                session_results.get_session_classification(year=2026, round=20, session="FP2")
+                for _ in range(5)
+            ])
+
+        with patch.object(session_results, "get_db", return_value=db),              patch.object(session_results, "build_practice_openf1", side_effect=slow_build):
+            asyncio.run(burst())
+        self.assertEqual(len(calls), 1)
+
+    def test_no_race_date_does_not_fall_through_to_fastf1(self):
+        db = FakeDb()
+        db.races = RacesCollection(None)
+        with patch.object(session_results, "get_db", return_value=db),              patch.object(session_results, "load_session") as fastf1:
+            response = asyncio.run(
+                session_results.get_session_classification(year=2026, round=20, session="FP1")
+            )
+        fastf1.assert_not_called()
+        self.assertEqual(json.loads(response.body)["results"], [])
+
     def test_pre_openf1_seasons_still_use_fastf1(self):
         db = self._db()
         rows = [{"position": "1", "Driver": {"code": "HAM"}}]
@@ -590,6 +650,15 @@ class AlreadyStoredTests(unittest.TestCase):
     def test_true_for_a_stored_document(self):
         collection = SyncCollection([{"round": "1", "results": [{"position": "1"}]}])
         self.assertTrue(data_sync._already_stored(collection, {"round": "1"}))
+
+    def test_a_provisional_ranking_is_not_final(self):
+        collection = SyncCollection([
+            {"round": "1", "results": [{"position": "1", "provisional": True}]}
+        ])
+        self.assertTrue(data_sync._already_stored(collection, {"round": "1"}, classified=True))
+        self.assertFalse(
+            data_sync._already_stored(collection, {"round": "1"}, classified=True, final=True)
+        )
 
     def test_unclassified_rows_are_not_treated_as_stored(self):
         collection = SyncCollection([{"round": "1", "results": [{"position": ""}]}])

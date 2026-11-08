@@ -24,7 +24,12 @@ loaded to avoid.
 during any live session it 401s *every* unauthenticated request, past sessions
 included. Both surface here as `None` from `fetch_json`, and every builder
 returns `None` for "nothing usable" — callers treat that as "try again later",
-never as a result to cache.
+never as a result to cache. A classification without driver names (`/drivers`
+failed) is "nothing usable" too: stored, it would never be refetched.
+
+A laps-derived ranking is marked `provisional` on every row (see
+`is_provisional`). Callers store it so the session isn't blank, but keep asking
+for the official classification and replace it when it arrives.
 
 Kept free of pandas/FastF1 for the reason `openf1_sessions.py` documents.
 """
@@ -36,8 +41,8 @@ import time
 
 from .openf1_sessions import OPENF1_BASE, as_int, fetch_json
 
-# OpenF1 `session_name` values, oldest naming last. 2023 called sprint
-# qualifying the "Sprint Shootout".
+# OpenF1 `session_name` values. OpenF1 names it "Sprint Qualifying" from 2023
+# on; "Sprint Shootout" is accepted defensively in case a session is relabelled.
 SESSION_NAMES: dict[str, tuple[str, ...]] = {
     "FP1": ("Practice 1",),
     "FP2": ("Practice 2",),
@@ -45,8 +50,9 @@ SESSION_NAMES: dict[str, tuple[str, ...]] = {
     "SQ": ("Sprint Qualifying", "Sprint Shootout"),
 }
 
-# Pause between OpenF1 calls. Three calls a second is the documented free
-# allowance; a 429 would fail soft into "try again next run" anyway.
+# Pause between OpenF1 calls. The free allowance is 3 requests a second and 30
+# a minute; a 429 surfaces as None, which every builder below turns into
+# "nothing usable", so it is retried rather than stored.
 REQUEST_GAP_SECONDS = 0.4
 
 
@@ -182,7 +188,10 @@ def deleted_laps(messages: list[dict]) -> set[tuple[int, str]]:
     15 for him is a legal 1:12.953 that the official classification counts.
     """
     deleted: set[tuple[int, str]] = set()
-    for message in messages or []:
+    # OpenF1 does not always return race control in time order (2026 Brazil
+    # FP2 did not), and a reinstatement must be applied after its deletion.
+    ordered = sorted(messages or [], key=lambda m: str(m.get("date") or ""))
+    for message in ordered:
         text = str(message.get("message") or "")
         car, lap_time = _CAR.search(text), _TIME.search(text)
         if not car or not lap_time:
@@ -226,8 +235,14 @@ def classification_from_laps(
             "Driver": driver,
             "Constructor": constructor,
             "Time": {"time": format_lap(duration)},
+            "provisional": True,
         })
     return rows
+
+
+def is_provisional(results: list[dict] | None) -> bool:
+    """True for a laps-derived ranking still waiting on the official classification."""
+    return any(row.get("provisional") for row in (results or []))
 
 
 def fetch_year_sessions(year: int) -> list[dict] | None:
@@ -261,10 +276,14 @@ def build_practice_openf1(
 
     params = {"session_key": key}
     drivers = fetch_json(f"{OPENF1_BASE}/drivers", params)
+    if not isinstance(drivers, list) or not drivers:
+        # Rows without names would be stored and, carrying positions, never
+        # refetched. Better to show nothing until the next try.
+        return None
     time.sleep(REQUEST_GAP_SECONDS)
     results = fetch_json(f"{OPENF1_BASE}/session_result", params)
     if isinstance(results, list) and results:
-        rows = classification_from_results(results, drivers or [], session_code)
+        rows = classification_from_results(results, drivers, session_code)
         if any(row["position"] for row in rows):
             return rows
 
@@ -283,4 +302,4 @@ def build_practice_openf1(
         # Without race control there is no way to tell a deleted lap from a
         # legal one; a wrong order is worse than "not published yet".
         return None
-    return classification_from_laps(laps, drivers or [], messages) or None
+    return classification_from_laps(laps, drivers, messages) or None

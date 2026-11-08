@@ -124,6 +124,21 @@ class ClassificationFromLapsTests(unittest.TestCase):
         ]
         self.assertEqual(op.deleted_laps(messages), set())
 
+    def test_messages_are_applied_in_time_order_not_list_order(self):
+        # OpenF1 does not always return race control sorted by date.
+        messages = [
+            {"date": "2026-11-07T15:20:00", "message": "CAR 12 (ANT) TIME 1:10.100 WILL BE REINSTATED"},
+            {"date": "2026-11-07T15:02:11", "message": "CAR 12 (ANT) TIME 1:10.100 DELETED - TRACK LIMITS"},
+        ]
+        self.assertEqual(op.deleted_laps(messages), set())
+
+    def test_laps_ranking_is_marked_provisional(self):
+        laps = [{"driver_number": 3, "lap_number": 2, "lap_duration": 71.0}]
+        rows = op.classification_from_laps(laps, DRIVERS, [])
+        self.assertTrue(op.is_provisional(rows))
+        self.assertFalse(op.is_provisional([{"position": "1"}]))
+        self.assertFalse(op.is_provisional(None))
+
     def test_deletions_are_keyed_on_time(self):
         messages = [{"message": "CAR 23 (ALB) TIME 1:26.203 DELETED - TRACK LIMITS AT TURN 1 LAP 15 16:26:41"}]
         self.assertEqual(op.deleted_laps(messages), {(23, "1:26.203")})
@@ -159,6 +174,24 @@ class BuildPracticeTests(unittest.TestCase):
         with patch.object(op, "fetch_json", self._fake(responses)), patch.object(op.time, "sleep"):
             rows = op.build_practice_openf1(2026, "2026-11-08", "FP1", sessions=SESSIONS)
         self.assertEqual(rows[0]["Driver"]["code"], "VER")
+
+    def test_no_names_means_no_classification(self):
+        # A failed /drivers call would otherwise store nameless rows that,
+        # carrying positions, are never refetched.
+        responses = {
+            "session_result": [{"position": 1, "driver_number": 44, "duration": 70.0}],
+        }
+        with patch.object(op, "fetch_json", self._fake(responses)), patch.object(op.time, "sleep"):
+            self.assertIsNone(op.build_practice_openf1(2026, "2026-11-08", "FP3", sessions=SESSIONS))
+
+    def test_official_result_is_not_provisional(self):
+        responses = {
+            "drivers": DRIVERS,
+            "session_result": [{"position": 1, "driver_number": 44, "duration": 70.0}],
+        }
+        with patch.object(op, "fetch_json", self._fake(responses)), patch.object(op.time, "sleep"):
+            rows = op.build_practice_openf1(2026, "2026-11-08", "FP3", sessions=SESSIONS)
+        self.assertFalse(op.is_provisional(rows))
 
     def test_no_laps_fallback_without_race_control(self):
         responses = {
