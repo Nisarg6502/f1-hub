@@ -93,7 +93,10 @@ steps:
   #    round at once, and each round's next viewer paid for the rebuild inside
   #    their page load (21s on 2026-11-08). Never fails the build: a cold
   #    cache is a slow page, not a broken deploy.
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  #    Runs on a plain Python image: the cloud-sdk image has no `python3`
+  #    (the first run, for #232, died on `python3: command not found`). The
+  #    script is stdlib only, so nothing needs installing.
+  - name: 'python:3.12-slim'
     entrypoint: bash
     args:
       - '-c'
