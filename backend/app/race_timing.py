@@ -74,6 +74,7 @@ from fastapi.responses import JSONResponse
 
 from .db import get_db
 from .derived_cache import (
+    CACHE_HIT_HEADERS,
     OPENF1_FIRST_SEASON,
     code_fingerprint,
     input_fingerprint,
@@ -940,7 +941,7 @@ async def get_race_timing(
             "lap_ms": cached.get("lap_ms") or [],
             "lap_sectors_ms": cached.get("lap_sectors_ms") or [],
             "synced": True,
-        })
+        }, headers=CACHE_HIT_HEADERS)
 
     payload: dict = {}
     openf1_rows = 0
