@@ -162,6 +162,14 @@ def is_current(doc: dict | None, code: str, inputs: str) -> bool:
     return bool(doc) and doc.get("code") == code and doc.get("inputs") == inputs
 
 
+# Sent with a response served from a current cached document, and only then.
+# `watch_cache_warm` reads it to tell a cache hit from a rebuild that was
+# served but not stored (OpenF1 refused, so the backend declined to cache).
+# Timing cannot tell them apart: from a Cloud Build worker a hit takes ~2s,
+# and the refused rebuild answers about as fast.
+CACHE_HIT_HEADERS = {"X-Derived-Cache": "hit"}
+
+
 # First season OpenF1 covers. From here on every race has race-control
 # messages and live feeds, so an empty answer for one means the fetch failed.
 OPENF1_FIRST_SEASON = 2023

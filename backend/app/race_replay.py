@@ -53,6 +53,7 @@ from fastapi.responses import JSONResponse
 
 from .db import get_db
 from .derived_cache import (
+    CACHE_HIT_HEADERS,
     OPENF1_FIRST_SEASON,
     code_fingerprint,
     input_fingerprint,
@@ -375,7 +376,7 @@ async def get_race_replay(
             "round": round_number,
             **cached["replay"],
             "synced": True,
-        })
+        }, headers=CACHE_HIT_HEADERS)
 
     results_doc = await db.race_results.find_one(
         {"season": year, "round": str(round_number)}, {"_id": 0}

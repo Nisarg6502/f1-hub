@@ -14,7 +14,7 @@ def test_finished_rounds_takes_only_races_before_today(monkeypatch):
             {"round": "4"},  # no date: skipped, not a crash
         ]
     }
-    monkeypatch.setattr(warm, "_get", lambda url: (races, 0.1))
+    monkeypatch.setattr(warm, "_get", lambda url: (races, 0.1, False))
     assert warm.finished_rounds("http://x", 2026, datetime.date(2026, 3, 29)) == [1, 2]
 
 
@@ -23,20 +23,37 @@ def test_unsynced_round_skips_timing(monkeypatch):
 
     def fake_get(url):
         calls.append(url)
-        return {"synced": False}, 0.1
+        return {"synced": False}, 0.1, False
 
     monkeypatch.setattr(warm, "_get", fake_get)
     assert "no replay yet" in warm.warm_round("http://x", 2026, 20)
     assert len(calls) == 1 and "race_replay" in calls[0]
 
 
-def test_warm_season_reports_rounds_still_slow(monkeypatch):
+def test_warm_season_reports_rounds_not_served_from_cache(monkeypatch):
+    # Judged by the cache-hit header, not by speed: R1's slow hit is warm
+    # (a distant build worker), R2's fast miss is cold (OpenF1 refused).
     def fake_get(url):
-        slow = "race_timing" in url and "round=2" in url
-        return {"synced": True}, 5.0 if slow else 0.1
+        if "round=2" in url and "race_timing" in url:
+            return {"synced": True}, 1.2, False
+        return {"synced": True}, 2.5, True
 
     monkeypatch.setattr(warm, "_get", fake_get)
-    assert warm.warm_season("http://x/", 2026, [1, 2]) == ["R2 race_timing 5.0s"]
+    assert warm.warm_season("http://x/", 2026, [1, 2]) == ["R2 race_timing 1.2s"]
+
+
+def test_warm_season_does_not_report_an_unsynced_round_as_cold(monkeypatch):
+    # No laps yet: nothing to cache, so no hit header, and nothing to report.
+    monkeypatch.setattr(warm, "_get", lambda url: ({"synced": False}, 0.3, False))
+    assert warm.warm_season("http://x", 2026, [20]) == []
+
+
+def test_warm_season_reports_a_failed_request_as_cold(monkeypatch):
+    monkeypatch.setattr(warm, "_get", lambda url: (None, 180.0, False))
+    assert warm.warm_season("http://x", 2026, [1]) == [
+        "R1 race_replay 180.0s",
+        "R1 race_timing 180.0s",
+    ]
 
 
 def test_warm_season_never_raises(monkeypatch):

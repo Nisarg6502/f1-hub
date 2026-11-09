@@ -278,12 +278,14 @@ class ReplayCacheTests(unittest.TestCase):
                 patch.object(race_replay, "summarize_race_control", return_value={}), \
                 patch.object(race_replay, "build_replay", return_value=rebuilt):
             response = run(race_replay.get_race_replay(year=2026, round_number=6))
+        self.cache_header = response.headers.get("x-derived-cache")
         return json.loads(response.body)["marker"]
 
     def test_an_unchanged_replay_is_served_from_cache(self):
         db = FakeDb(**_sources(self.PROVISIONAL))
         self._cached(db, self.PROVISIONAL)
         self.assertEqual(self._get(db), "cached")
+        self.assertEqual(self.cache_header, "hit")
 
     def test_a_revised_classification_rebuilds_the_replay(self):
         db = FakeDb(**_sources(self.PROVISIONAL))
@@ -291,10 +293,12 @@ class ReplayCacheTests(unittest.TestCase):
         db.race_results.docs[0]["results"] = self.FINAL
 
         self.assertEqual(self._get(db), "rebuilt")
+        self.assertIsNone(self.cache_header)  # a rebuild is not a hit
         stored = [d for d in db.race_replay.docs if d["round"] == "6"]
         self.assertEqual(len(stored), 1)
         self.assertEqual(stored[0]["replay"]["marker"], "rebuilt")
         self.assertEqual(self._get(db), "rebuilt")  # and is then served cached
+        self.assertEqual(self.cache_header, "hit")
 
     def test_a_replay_built_by_other_code_is_rebuilt(self):
         db = FakeDb(**_sources(self.PROVISIONAL))
@@ -334,8 +338,8 @@ class TimingInputTests(unittest.TestCase):
 class TimingCacheTests(unittest.TestCase):
     """`race_timing` must not cache a build whose OpenF1 feeds failed."""
 
-    def _get(self, feeds):
-        db = FakeDb(
+    def _get(self, feeds, db=None):
+        db = db or FakeDb(
             race_results=[{"season": 2026, "round": "6", "results": [{"number": "4", "grid": "1"}]}],
             official_laps=[{"season": 2026, "round": "6", "version": race_timing.OFFICIAL_VERSION, "laps": [{"lap": 1}]}],
             races=[{"season": 2026, "round": "6", "date": "2026-06-07"}],
@@ -347,17 +351,25 @@ class TimingCacheTests(unittest.TestCase):
         payload = {"drivers": {"4": {"positions": []}}, "lap_ms": [90000], "race_start": None}
         with patch.object(race_timing, "get_db", return_value=db),                 patch.object(race_timing, "official_laps_for", side_effect=official),                 patch.object(race_timing, "_race_date", side_effect=lambda *a: asyncio.sleep(0, "2026-06-07")),                 patch.object(race_timing, "fetch_openf1_feeds", return_value=feeds),                 patch.object(race_timing, "build_timing", return_value=payload):
             response = run(race_timing.get_race_timing(year=2026, round_number=6))
+        self.cache_header = response.headers.get("x-derived-cache")
         return json.loads(response.body), db
 
     def test_a_failed_openf1_fetch_is_served_but_not_cached(self):
         body, db = self._get(([], [], []))
         self.assertTrue(body["synced"])
         self.assertEqual(db.race_timing.docs, [])
+        # The cache warmer reads this header to see that the round is still cold.
+        self.assertIsNone(self.cache_header)
 
     def test_a_complete_build_is_cached(self):
-        body, db = self._get(([{"lap": 1}], [{"gap": 1}], [{"position": 1}]))
+        feeds = ([{"lap": 1}], [{"gap": 1}], [{"position": 1}])
+        body, db = self._get(feeds)
         self.assertTrue(body["synced"])
         self.assertEqual(len(db.race_timing.docs), 1)
+        self.assertIsNone(self.cache_header)
+
+        self._get(feeds, db)
+        self.assertEqual(self.cache_header, "hit")
 
 
 if __name__ == "__main__":
