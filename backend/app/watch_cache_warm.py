@@ -105,7 +105,11 @@ def warm_season(base: str, year: int, rounds: list[int] | None = None) -> list[s
         cold = []
         for round_number in rounds:
             for name in ("race_replay", "race_timing"):
-                _, seconds, hit = _get(f"{base}/api/{name}?year={year}&round={round_number}")
+                body, seconds, hit = _get(f"{base}/api/{name}?year={year}&round={round_number}")
+                # An unsynced answer has nothing to cache yet (the round's laps
+                # are not in), so it is never a hit and is not a cold cache.
+                if body is not None and not body.get("synced"):
+                    continue
                 if not hit:
                     cold.append(f"R{round_number} {name} {seconds:.1f}s")
         if cold:

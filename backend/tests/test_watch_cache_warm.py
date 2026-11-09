@@ -42,6 +42,20 @@ def test_warm_season_reports_rounds_not_served_from_cache(monkeypatch):
     assert warm.warm_season("http://x/", 2026, [1, 2]) == ["R2 race_timing 1.2s"]
 
 
+def test_warm_season_does_not_report_an_unsynced_round_as_cold(monkeypatch):
+    # No laps yet: nothing to cache, so no hit header, and nothing to report.
+    monkeypatch.setattr(warm, "_get", lambda url: ({"synced": False}, 0.3, False))
+    assert warm.warm_season("http://x", 2026, [20]) == []
+
+
+def test_warm_season_reports_a_failed_request_as_cold(monkeypatch):
+    monkeypatch.setattr(warm, "_get", lambda url: (None, 180.0, False))
+    assert warm.warm_season("http://x", 2026, [1]) == [
+        "R1 race_replay 180.0s",
+        "R1 race_timing 180.0s",
+    ]
+
+
 def test_warm_season_never_raises(monkeypatch):
     def boom(url):
         raise RuntimeError("network down")
