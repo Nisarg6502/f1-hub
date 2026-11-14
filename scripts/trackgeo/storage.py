@@ -195,6 +195,25 @@ def resolve_sink(destination: str) -> PayloadSink:
     return LocalSink(destination)
 
 
+SCENERY_SUBDIR = "scenery"
+
+
+def scenery_destination(destination: str) -> str:
+    """Where a circuit's scenery goes, given where its track payload goes.
+
+    Scenery sits in a `scenery/` folder beside the payloads: `<dir>/scenery`
+    locally, `gs://bucket/prefix/scenery` in the job. The frontend looks in
+    exactly that place (`trackSceneryUrls` in frontend/src/lib/track-scenery.ts),
+    so this is the one function that has to agree with it.
+    """
+    if destination.startswith(GCS_SCHEME):
+        remainder = destination[len(GCS_SCHEME) :].strip("/")
+        if not remainder:
+            raise ValueError("a gs:// destination needs a bucket name")
+        return f"{GCS_SCHEME}{remainder}/{SCENERY_SUBDIR}"
+    return str(pathlib.Path(destination) / SCENERY_SUBDIR)
+
+
 # --------------------------------------------------------------------------
 # Build progress
 # --------------------------------------------------------------------------
