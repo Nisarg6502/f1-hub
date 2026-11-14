@@ -51,7 +51,27 @@ const SKY_FRAG = /* glsl */ `
   }
 `;
 
-export function SkyDome({ radius }: { radius: number }) {
+export interface SkyPalette {
+  horizon: string;
+  zenith: string;
+  ground: string;
+}
+
+// Warm ember glow at the horizon, resolving to the app background.
+const EMBER_SKY: SkyPalette = {
+  horizon: "#2a1a12",
+  zenith: "#0a0908",
+  ground: "#070605",
+};
+
+export function SkyDome({
+  radius,
+  palette = EMBER_SKY,
+}: {
+  radius: number;
+  /** Defaults to the schematic view's ember dusk. Pass a stable object. */
+  palette?: SkyPalette;
+}) {
   const material = useMemo(
     () =>
       new ShaderMaterial({
@@ -59,15 +79,14 @@ export function SkyDome({ radius }: { radius: number }) {
         depthWrite: false,
         fog: false,
         uniforms: {
-          // Warm ember glow at the horizon, resolving to the app background.
-          uHorizon: { value: new Color("#2a1a12") },
-          uZenith: { value: new Color("#0a0908") },
-          uGround: { value: new Color("#070605") },
+          uHorizon: { value: new Color(palette.horizon) },
+          uZenith: { value: new Color(palette.zenith) },
+          uGround: { value: new Color(palette.ground) },
         },
         vertexShader: SKY_VERT,
         fragmentShader: SKY_FRAG,
       }),
-    [],
+    [palette],
   );
 
   const geometry = useMemo(() => new SphereGeometry(radius, 32, 20), [radius]);

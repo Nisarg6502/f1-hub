@@ -363,6 +363,56 @@ the Turn 1 grandstands and tower. The bare-earth number is the racing surface, s
 it is kept — clean data that disagrees with a published scalar is still clean
 data, and the UI should show both.
 
+## Real-world scenery (`build_track_scenery.py`)
+
+The viewer's **Real world** mode shows the circuit as it stands: satellite
+imagery draped over a DEM, with OpenStreetMap buildings and woodland stood on
+top. The technique is [MapNG](https://github.com/nikkiluzader/mapng)'s (MIT);
+none of its code is used. Three data sources, and only one of them is baked:
+
+| what | source | when |
+|---|---|---|
+| Imagery | Esri World Imagery tiles | fetched by the browser |
+| Elevation | Terrarium tiles (`elevation-tiles-prod` on AWS) | fetched by the browser |
+| Buildings, woods, trees | OpenStreetMap, © contributors, ODbL | **baked by this script** |
+
+```bash
+python scripts/build_track_scenery.py --all          # every circuit with a track payload
+python scripts/build_track_scenery.py --only spa
+```
+
+Output is `frontend/public/tracks/scenery/<key>.json`, in the track payload's
+own ENU frame. A circuit needs its track payload first — the scenery rectangle
+is the lap's bounding box plus a margin (at least 320 m), which is what
+guarantees the whole circuit is always inside it. Raw OSM responses are cached
+under `.cache/trackgeo/osm/`, so re-running costs no requests. The rules that
+decide what appears live in `trackgeo/scenery.py` and are unit-tested in
+`tests/test_trackgeo_scenery.py`.
+
+Things that are non-obvious:
+
+- **OSM is baked because Overpass cannot be relied on at view time.** Every
+  public instance was timing out or returning 502 while this was written. The
+  script uses the main OSM API's `map?bbox=` call instead, quartering the box
+  when it holds more than the API's 50,000-node limit (Monaco, Albert Park).
+- **Most building heights are guesses.** OSM rarely records height, so a
+  building gets its `height` tag, else `building:levels`, else a per-kind
+  default. Each payload counts which in `height_provenance` — at Silverstone
+  220 of 227 are guesses, at Interlagos 109 of 2852.
+- **The current imagery is not always the best imagery.** Esri's live mosaic
+  over Silverstone has cloud on it from the 2026-04-30 release onwards. Such a
+  circuit is pinned to an older "Wayback" release in `IMAGERY_RELEASE`, chosen
+  by eye; the other 13 baked circuits were checked on 2026-11-14 and are clear.
+  Pick the newest clear release — older ones predate layout changes.
+- **A circuit with no baked scenery still works**: photo and terrain, no
+  buildings. The frontend looks in `public/tracks/scenery/` first and then in
+  `$NEXT_PUBLIC_ASSET_BASE_URL/tracks/scenery/`, so scenery for a circuit
+  generated on demand can be dropped in the bucket without a frontend deploy.
+  The Cloud Run Job does **not** bake scenery yet.
+- **The tile hosts are in the CSP.** `connect-src` in `frontend/next.config.ts`
+  lists both Esri tile services and the elevation bucket; a new tile source
+  that is not added there fails silently as a blocked request.
+
 ## Golden-set curation (CP69)
 
 `curate_goldens.py` mines LangSmith thumbs-down feedback (CP69's `POST
