@@ -59,7 +59,7 @@ describe("catalogue", () => {
 
   it("reserves the full-width size for the countdown and the old full-width strips", () => {
     const full = WIDGET_TYPES.filter((t) => WIDGET_CATALOGUE[t].sizes.includes("full"));
-    expect(full.sort()).toEqual(["catch-up", "countdown", "explore", "race-week", "tips"]);
+    expect(full.sort()).toEqual(["catch-up", "countdown", "explore", "race-week", "real-world", "tips"]);
   });
 
   it("flags every result-bearing widget for spoiler mode", () => {
@@ -86,6 +86,7 @@ describe("catalogue", () => {
       "leader",
       "last-race",
       "next-circuit",
+      "real-world",
       "explore",
       "tips",
     ]);
@@ -121,7 +122,7 @@ describe("reducers", () => {
     const next = addWidget(DEFAULT_HOME_LAYOUT, "driver-standings");
     expect(types(next).at(-1)).toBe("driver-standings");
     expect(next.items.at(-1)).toMatchObject({ id: "driver-standings", size: "m" });
-    expect(DEFAULT_HOME_LAYOUT.items).toHaveLength(8); // not mutated
+    expect(DEFAULT_HOME_LAYOUT.items).toHaveLength(9); // not mutated
   });
 
   it("adds at a requested index and coerces the requested size", () => {
@@ -206,8 +207,9 @@ describe("placeLayout (reflow)", () => {
       ["leader", 3, 0],
       ["last-race", 3, 2],
       ["next-circuit", 3, 3],
-      ["explore", 4, 0],
-      ["tips", 5, 0],
+      ["real-world", 4, 0],
+      ["explore", 5, 0],
+      ["tips", 6, 0],
     ]);
     const phone = placeLayout(DEFAULT_HOME_LAYOUT.items, 2);
     expect(phone.find((p) => p.id === "last-race")).toMatchObject({ row: 4, column: 0 });
