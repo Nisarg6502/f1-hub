@@ -13,6 +13,9 @@ import type {
 } from "@/lib/circuit-geometry";
 import CameraRig, { type CameraPresetId, type CameraRigHandle } from "./camera-rig";
 import ElevationProfile from "./elevation-profile";
+import RealWorldScene from "./real-world/real-world-scene";
+import type { ImageryQuality } from "./real-world/load-real-world";
+import { useRealWorld } from "./real-world/use-real-world";
 import TrackScene from "./track-scene";
 import type { TrackColorMode } from "./track-shader";
 import {
@@ -24,6 +27,14 @@ import {
   type TrackScrubStore,
 } from "./use-track-geometry";
 import { track } from "@/lib/analytics";
+import { IMAGERY_ATTRIBUTION } from "@/lib/track-scenery";
+
+/**
+ * `schematic` is the original elevation model: a stylised ribbon over contour
+ * terrain. `real` is the circuit as it stands — satellite imagery on a DEM with
+ * OpenStreetMap buildings and woodland (see `real-world/`).
+ */
+type ViewMode = "schematic" | "real";
 
 const PRESETS: { id: CameraPresetId; label: string; hint: string }[] = [
   { id: "three-quarter", label: "Three-quarter", hint: "1" },
@@ -59,7 +70,16 @@ export default function TrackViewer({
 }: TrackViewerProps) {
   const { payload, error } = useTrackPayload(geometryId, payloadUrl);
   const [widthScale, setWidthScale] = useState(3);
-  const bundle = useTrackGeometry(payload, widthScale);
+  const [mode, setMode] = useState<ViewMode>("schematic");
+  const [imageryQuality, setImageryQuality] = useState<ImageryQuality>("standard");
+  const realWorld = useRealWorld(payload, mode === "real", imageryQuality);
+  // The schematic scene stays up until the tiles have landed, so choosing
+  // "Real world" never blanks the canvas while ~150 requests are in flight.
+  const real = mode === "real" ? realWorld.data : null;
+  // Real-world mode swaps in a payload draped on the scenery DEM and always
+  // draws the track at its true width: it has to sit on the photographed
+  // tarmac, and a 3x ribbon would bury the kerbs it is meant to line up with.
+  const bundle = useTrackGeometry(real ? real.draped : payload, real ? 1 : widthScale);
   const scrub = useScrubStore();
   const reducedMotion = usePrefersReducedMotion();
   const webgl = useWebglSupported();
@@ -93,6 +113,16 @@ export default function TrackViewer({
   const [showCorners, setShowCorners] = useState(true);
   const [lowPower, setLowPower] = useState(false);
   const [followScrub, setFollowScrub] = useState(true);
+  const [showBuildings, setShowBuildings] = useState(true);
+  const [showTrees, setShowTrees] = useState(true);
+  const [showTrackTint, setShowTrackTint] = useState(true);
+
+  const chooseMode = useCallback((next: ViewMode) => {
+    setMode(next);
+    // A building at 2x vertical is a tower. Real-world opens at true scale; the
+    // schematic view goes back to the exaggeration that makes gradients legible.
+    setExaggeration(next === "real" ? 1 : 2);
+  }, []);
 
   const selectHighlight = useCallback((highlight: TrackHighlight) => {
     setActiveHighlight(highlight.id);
@@ -214,30 +244,51 @@ export default function TrackViewer({
             camera={{ fov: 42, near: 1, far: bundle.frames.diagonal * 6 }}
             gl={{ antialias: !lowPower, powerPreference: "high-performance" }}
             onCreated={({ gl }) => gl.setClearColor("#0a0908")}
+            // Always on: only the real-world sun casts, so the schematic scene
+            // never runs a shadow pass, and flipping the renderer flag at
+            // runtime would not recompile materials already on the GPU.
+            shadows
           >
             <PerformanceMonitor
               onDecline={() => setLowPower(true)}
               onIncline={() => setLowPower(false)}
             />
-            <TrackScene
-              bundle={bundle}
-              exaggeration={exaggeration}
-              widthScale={widthScale}
-              colorMode={colorMode}
-              showTerrain={showTerrain && !lowPower}
-              showRaceline={showRaceline}
-              showPosts={!lowPower}
-              // Corner labels are NOT dropped under load. They are ten DOM nodes
-              // and the only way to reach a corner flythrough — dropping them
-              // takes the feature away on exactly the machines that most need a
-              // guided tour, while saving nothing next to terrain and bloom.
-              showCorners={showCorners}
-              activeCornerName={activeCorner}
-              onSelectCorner={selectCorner}
-              onHoverDistance={handleHoverDistance}
-              reducedMotion={reducedMotion}
-              scrub={scrub}
-            />
+            {real ? (
+              <RealWorldScene
+                data={real}
+                bundle={bundle}
+                exaggeration={exaggeration}
+                showBuildings={showBuildings}
+                showTrees={showTrees && !lowPower}
+                showTrackTint={showTrackTint}
+                showRaceline={showRaceline}
+                showCorners={showCorners}
+                activeCornerName={activeCorner}
+                onSelectCorner={selectCorner}
+                onHoverDistance={handleHoverDistance}
+                scrub={scrub}
+              />
+            ) : (
+              <TrackScene
+                bundle={bundle}
+                exaggeration={exaggeration}
+                widthScale={widthScale}
+                colorMode={colorMode}
+                showTerrain={showTerrain && !lowPower}
+                showRaceline={showRaceline}
+                showPosts={!lowPower}
+                // Corner labels are NOT dropped under load. They are ten DOM nodes
+                // and the only way to reach a corner flythrough — dropping them
+                // takes the feature away on exactly the machines that most need a
+                // guided tour, while saving nothing next to terrain and bloom.
+                showCorners={showCorners}
+                activeCornerName={activeCorner}
+                onSelectCorner={selectCorner}
+                onHoverDistance={handleHoverDistance}
+                reducedMotion={reducedMotion}
+                scrub={scrub}
+              />
+            )}
             <CameraRig
               frames={bundle.frames}
               exaggeration={exaggeration}
@@ -256,7 +307,7 @@ export default function TrackViewer({
               it. The threshold sits above the tarmac's self-illumination floor
               so only the gradient glow and kerbs bloom, not the whole surface.
             */}
-            {!lowPower && (
+            {!lowPower && !real && (
               <EffectComposer>
                 <Bloom
                   intensity={0.85}
@@ -281,15 +332,50 @@ export default function TrackViewer({
           >
             {exaggeration === 1 ? "True scale" : `${exaggeration.toFixed(1)}× vertical`}
           </span>
-          {widthScale !== 1 && (
+          {!real && widthScale !== 1 && (
             <span className="apex-glass-soft rounded-lg px-2.5 py-1.5 font-medium text-[10px] tracking-[0.12em] uppercase text-warm-400">
               {widthScale}× width
             </span>
           )}
-          <span className="apex-glass-soft rounded-lg px-2.5 py-1.5 font-medium text-[10px] tracking-[0.06em] uppercase text-warm-500">
-            {stats.source} · {stats.confidence}
-          </span>
+          {/* Solid in real-world mode: a glass chip over a sunlit photo is
+              unreadable, the same reason the flythrough control is filled. */}
+          {real ? (
+            <span className="rounded-lg px-2.5 py-1.5 font-medium text-[10px] tracking-[0.06em] uppercase bg-[#181310]/90 border border-white/12 text-warm-300">
+              Satellite {real.metresPerPixel.toFixed(2)} m/px ·{" "}
+              {real.dem.real ? "measured terrain" : "flat terrain"}
+              {real.scenery ? ` · ${real.scenery.buildings.length} buildings` : ""}
+            </span>
+          ) : (
+            <span className="apex-glass-soft rounded-lg px-2.5 py-1.5 font-medium text-[10px] tracking-[0.06em] uppercase text-warm-500">
+              {stats.source} · {stats.confidence}
+            </span>
+          )}
+          {mode === "real" && (realWorld.loading || realWorld.error) && (
+            <span
+              role="status"
+              className="rounded-lg px-2.5 py-1.5 font-semibold text-[10px] tracking-[0.06em] uppercase bg-[#181310]/90 border border-[rgba(255,174,106,0.4)] text-[#ffae6a] tabular-nums"
+            >
+              {realWorld.loading
+                ? `Loading ${imageryQuality === "hd" ? "HD " : ""}satellite imagery ${Math.round(realWorld.progress * 100)}%`
+                : "Real-world view unavailable"}
+            </span>
+          )}
         </div>
+
+        {/* Required credit for the imagery and map data, and it has to be ON
+            the map, not in a footer somewhere else on the page. */}
+        {real && (
+          <p
+            className={`pointer-events-none absolute right-4 max-w-[52%] text-right rounded-md px-2 py-1 bg-[#181310]/80 font-medium text-[9px] leading-snug text-warm-400 ${
+              // Sits above the "click to orbit" hint until that goes away.
+              activated ? "bottom-4" : "bottom-14"
+            }`}
+          >
+            {IMAGERY_ATTRIBUTION}
+            {real.scenery?.imagery_date ? ` (${real.scenery.imagery_date} release)` : ""}
+            {real.scenery ? ` · ${real.scenery.attribution}` : ""}
+          </p>
+        )}
 
         {/*
           The flythrough control is a solid, opaque button rather than another
@@ -328,6 +414,15 @@ export default function TrackViewer({
 
       {/* Controls */}
       <div className="apex-glass apex-sheen rounded-card p-4 flex flex-wrap items-center gap-x-6 gap-y-4">
+        <ControlGroup label="Mode">
+          <Chip active={mode === "schematic"} onClick={() => chooseMode("schematic")}>
+            Schematic
+          </Chip>
+          <Chip active={mode === "real"} onClick={() => chooseMode("real")}>
+            Real world
+          </Chip>
+        </ControlGroup>
+
         <ControlGroup label="View">
           {PRESETS.map((item) => (
             <Chip
@@ -340,17 +435,19 @@ export default function TrackViewer({
           ))}
         </ControlGroup>
 
-        <ControlGroup label="Colour">
-          {COLOR_MODES.map((item) => (
-            <Chip
-              key={item.id}
-              active={colorMode === item.id}
-              onClick={() => setColorMode(item.id)}
-            >
-              {item.label}
-            </Chip>
-          ))}
-        </ControlGroup>
+        {!real && (
+          <ControlGroup label="Colour">
+            {COLOR_MODES.map((item) => (
+              <Chip
+                key={item.id}
+                active={colorMode === item.id}
+                onClick={() => setColorMode(item.id)}
+              >
+                {item.label}
+              </Chip>
+            ))}
+          </ControlGroup>
+        )}
 
         <ControlGroup label={`Vertical ${exaggeration.toFixed(1)}×`}>
           <input
@@ -368,19 +465,57 @@ export default function TrackViewer({
           </Chip>
         </ControlGroup>
 
-        <ControlGroup label="Track width">
-          <Chip active={widthScale === 3} onClick={() => setWidthScale(3)}>
-            Readable
-          </Chip>
-          <Chip active={widthScale === 1} onClick={() => setWidthScale(1)}>
-            True width
-          </Chip>
-        </ControlGroup>
+        {!real && (
+          <ControlGroup label="Track width">
+            <Chip active={widthScale === 3} onClick={() => setWidthScale(3)}>
+              Readable
+            </Chip>
+            <Chip active={widthScale === 1} onClick={() => setWidthScale(1)}>
+              True width
+            </Chip>
+          </ControlGroup>
+        )}
+
+        {mode === "real" && (
+          <ControlGroup label="Imagery">
+            <Chip
+              active={imageryQuality === "standard"}
+              onClick={() => setImageryQuality("standard")}
+            >
+              Standard
+            </Chip>
+            <Chip active={imageryQuality === "hd"} onClick={() => setImageryQuality("hd")}>
+              HD
+            </Chip>
+          </ControlGroup>
+        )}
 
         <ControlGroup label="Layers">
-          <Chip active={showTerrain} onClick={() => setShowTerrain((v) => !v)}>
-            Terrain
-          </Chip>
+          {real ? (
+            <>
+              <Chip
+                active={showBuildings}
+                onClick={() => setShowBuildings((v) => !v)}
+                disabled={!real.scenery?.buildings.length}
+              >
+                Buildings
+              </Chip>
+              <Chip
+                active={showTrees}
+                onClick={() => setShowTrees((v) => !v)}
+                disabled={!real.scenery}
+              >
+                Trees
+              </Chip>
+              <Chip active={showTrackTint} onClick={() => setShowTrackTint((v) => !v)}>
+                Track tint
+              </Chip>
+            </>
+          ) : (
+            <Chip active={showTerrain} onClick={() => setShowTerrain((v) => !v)}>
+              Terrain
+            </Chip>
+          )}
           <Chip
             active={showRaceline}
             onClick={() => setShowRaceline((v) => !v)}

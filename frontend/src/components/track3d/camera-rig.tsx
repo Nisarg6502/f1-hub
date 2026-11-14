@@ -134,9 +134,18 @@ function fitDistance(
 
   // Camera basis for a camera at `dir` looking back at the origin with world
   // +Y as up — the convention OrbitControls settles into. A near-vertical
-  // `dir` (the overhead preset) makes `right` degenerate against +Y, so fall
-  // back to +X as the reference there.
-  const up = Math.abs(dir.y) > 0.98 ? new Vector3(1, 0, 0) : new Vector3(0, 1, 0);
+  // `dir` (the overhead preset) makes `right` degenerate against +Y, so a
+  // different reference is needed there, and it has to be the one that
+  // reproduces what the camera really does: looking straight down with +Y as
+  // its up vector, screen-up is world -Z (north) and screen-right is +X (east).
+  //
+  // This used to be +X, which solved the fit with the two screen axes swapped
+  // — the circuit's east-west extent was fitted against the vertical field of
+  // view and its north-south extent against the wider horizontal one. That is
+  // harmless for a circuit wider than it is tall and wrong for the rest:
+  // Silverstone runs 1.7 km north-south and 1.0 km east-west, and opened in
+  // Overhead with Copse off the top of the canvas and Stowe off the bottom.
+  const up = Math.abs(dir.y) > 0.98 ? new Vector3(0, 0, -1) : new Vector3(0, 1, 0);
   const right = new Vector3().crossVectors(up, dir).normalize();
   const trueUp = new Vector3().crossVectors(dir, right).normalize();
 

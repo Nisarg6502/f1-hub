@@ -377,7 +377,7 @@ export default function TrackScene({
  * mutable `current`. Routing a 60 Hz pointer stream through React state instead
  * would re-render the whole scene tree on every pointer move.
  */
-function ScrubMarker({
+export function ScrubMarker({
   frames,
   exaggeration,
   scrub,

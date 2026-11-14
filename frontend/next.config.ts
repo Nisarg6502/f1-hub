@@ -196,6 +196,16 @@ const CSP = [
     ...CONNECT_ORIGINS,
     "https://api.openf1.org",
     "https://www.opentopodata.org",
+    // The 3D viewer's "Real world" mode fetches map tiles directly:
+    // satellite imagery and Terrarium elevation. They are read with `fetch` +
+    // `createImageBitmap`, not `<img>`, so they belong here rather than in
+    // `img-src` — the elevation tiles are data, and an `<img>` decode would
+    // colour-manage the heights. Path-scoped to the two tile sets.
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/",
+    // Same imagery, pinned to a dated release for circuits whose current
+    // mosaic has cloud over it (see IMAGERY_RELEASE in build_track_scenery.py).
+    "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/",
+    "https://s3.amazonaws.com/elevation-tiles-prod/",
     GIS_PATH,
     ...GA_CONNECT,
   ].join(" "),
