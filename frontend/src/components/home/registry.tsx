@@ -6,6 +6,7 @@ import CountdownWidget from "./widgets/countdown-widget";
 import SeasonWidget from "./widgets/season-widget";
 import { LastRaceWidget, LeaderWidget, NextCircuitWidget } from "./widgets/bento-widgets";
 import { ConstructorStandingsWidget, DriverStandingsWidget, TitleFightWidget } from "./widgets/standings-widgets";
+import { RealWorldWidget } from "./widgets/real-world-widget";
 import { AskPitwallWidget, CatchUpWidget, ExploreWidget, RaceWeekWidget, TipsWidget } from "./widgets/misc-widgets";
 import type { WidgetProps } from "./widget-kit";
 
@@ -79,6 +80,12 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDefinition> = {
     description: "Where the next race is. Larger sizes add the map and the weekend.",
     icon: "route",
     Component: NextCircuitWidget,
+  },
+  "real-world": {
+    title: "Real-world circuits",
+    description: "A looping flyover of a circuit as it stands today: satellite photo, true terrain and the buildings around it.",
+    icon: "landscape",
+    Component: RealWorldWidget,
   },
   "driver-standings": {
     title: "Driver standings",

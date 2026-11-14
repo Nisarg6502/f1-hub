@@ -17,6 +17,12 @@ import RealWorldScene from "./real-world/real-world-scene";
 import type { ImageryQuality } from "./real-world/load-real-world";
 import { useRealWorld } from "./real-world/use-real-world";
 import TrackScene from "./track-scene";
+import {
+  defaultViewMode,
+  exaggerationFor,
+  type ConnectionHint,
+  type ViewMode,
+} from "./view-mode";
 import type { TrackColorMode } from "./track-shader";
 import {
   usePrefersReducedMotion,
@@ -28,13 +34,6 @@ import {
 } from "./use-track-geometry";
 import { track } from "@/lib/analytics";
 import { IMAGERY_ATTRIBUTION } from "@/lib/track-scenery";
-
-/**
- * `schematic` is the original elevation model: a stylised ribbon over contour
- * terrain. `real` is the circuit as it stands — satellite imagery on a DEM with
- * OpenStreetMap buildings and woodland (see `real-world/`).
- */
-type ViewMode = "schematic" | "real";
 
 const PRESETS: { id: CameraPresetId; label: string; hint: string }[] = [
   { id: "three-quarter", label: "Three-quarter", hint: "1" },
@@ -70,7 +69,13 @@ export default function TrackViewer({
 }: TrackViewerProps) {
   const { payload, error } = useTrackPayload(geometryId, payloadUrl);
   const [widthScale, setWidthScale] = useState(3);
-  const [mode, setMode] = useState<ViewMode>("schematic");
+  // Real world is the default (see view-mode.ts). This component is mounted
+  // with `ssr: false`, so `navigator` always exists here.
+  const [mode, setMode] = useState<ViewMode>(() =>
+    defaultViewMode(
+      (navigator as Navigator & { connection?: ConnectionHint }).connection,
+    ),
+  );
   const [imageryQuality, setImageryQuality] = useState<ImageryQuality>("standard");
   const realWorld = useRealWorld(payload, mode === "real", imageryQuality);
   // The schematic scene stays up until the tiles have landed, so choosing
@@ -101,7 +106,7 @@ export default function TrackViewer({
   }, [geometryId, webgl]);
 
   const rig = useRef<CameraRigHandle>(null);
-  const [exaggeration, setExaggeration] = useState(2);
+  const [exaggeration, setExaggeration] = useState(() => exaggerationFor(mode));
   const [colorMode, setColorMode] = useState<TrackColorMode>("gradient");
   const [preset, setPreset] = useState<CameraPresetId>("three-quarter");
   const [flying, setFlying] = useState(false);
@@ -119,9 +124,7 @@ export default function TrackViewer({
 
   const chooseMode = useCallback((next: ViewMode) => {
     setMode(next);
-    // A building at 2x vertical is a tower. Real-world opens at true scale; the
-    // schematic view goes back to the exaggeration that makes gradients legible.
-    setExaggeration(next === "real" ? 1 : 2);
+    setExaggeration(exaggerationFor(next));
   }, []);
 
   const selectHighlight = useCallback((highlight: TrackHighlight) => {
