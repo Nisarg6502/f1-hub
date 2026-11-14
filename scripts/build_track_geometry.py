@@ -6,8 +6,10 @@
     python scripts/build_track_geometry.py --dry-run
     python scripts/build_track_geometry.py --list-remote
 
-Writes <out>/<key>.json, where <out> defaults to frontend/public/tracks for a
-local run and is `gs://f1-scratch-assets/tracks` in the Cloud Run Job (see
+Writes <out>/<key>.json, then bakes that circuit's real-world scenery to
+<out>/scenery/<key>.json (see build_track_scenery.py; skipped by --no-scenery,
+and never able to fail the build). <out> defaults to frontend/public/tracks for
+a local run and is `gs://f1-scratch-assets/tracks` in the Cloud Run Job (see
 Dockerfile.trackgeo). See scripts/README.md for the data sources, the
 OpenTopoData quota rules, why re-running is free, and the deploy/IAM steps.
 """
@@ -19,6 +21,7 @@ import contextlib
 import os
 import pathlib
 import sys
+import time
 
 import numpy as np
 
@@ -37,6 +40,8 @@ from trackgeo.sources import (
     fetch_tumftm_track,
 )
 
+import build_track_scenery  # noqa: E402 - sibling script; scripts/ is on sys.path above
+
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 LOCAL_OUT = REPO_ROOT / "frontend" / "public" / "tracks"
 
@@ -50,6 +55,14 @@ GEOM_SPACING_M = 5.0
 DEM_SPACING_M = 10.0
 PLAN_SMOOTH_WINDOW = 7
 LENGTH_WARN_PCT = 4.0
+
+# Wall-clock allowance for the scenery bake that follows a written payload.
+# The Cloud Run Job is created with --task-timeout 30m and the geometry build
+# itself takes a few minutes. If scenery overran, the job would be killed before
+# progress.done() and a finished, published track would sit in the UI as still
+# building. Eight minutes covers a quartered city circuit (a few dozen
+# requests) many times over and leaves most of the timeout unspent.
+SCENERY_TIME_BUDGET_S = 480.0
 
 
 # --------------------------------------------------------------------------
@@ -701,6 +714,33 @@ def _relative(location: str) -> str:
         return str(shown)
 
 
+def bake_scenery(key: str, payload: dict, sink, progress) -> str | None:
+    """Bake real-world scenery for a circuit whose track payload is already written.
+
+    Returns where the scenery was written, or None when the bake failed. Never
+    raises: the track payload is the product and the viewer works without
+    scenery (photo and terrain, no buildings), so an OpenStreetMap outage, a
+    bbox that will not split, or an unwritable destination is logged and the
+    build still finishes as done. Re-running the build, or
+    `build_track_scenery.py --only <key>`, bakes it later.
+    """
+    progress.phase("Adding scenery", 94, "Adding buildings and trees…")
+    try:
+        return build_track_scenery.bake(
+            key,
+            payload,
+            sink,
+            log=lambda line: print(f"  scenery: {line}"),
+            deadline=time.monotonic() + SCENERY_TIME_BUDGET_S,
+        )
+    except Exception as exc:  # noqa: BLE001 - scenery is optional; see the docstring
+        print(
+            f"{key}: scenery FAILED — {exc!r} (the track payload is unaffected)",
+            file=sys.stderr,
+        )
+        return None
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--only", help="comma-separated circuit keys")
@@ -719,6 +759,12 @@ def main(argv: list[str] | None = None) -> int:
         "--no-progress",
         action="store_true",
         help="never write track_geometry_builds progress documents",
+    )
+    parser.add_argument(
+        "--no-scenery",
+        action="store_true",
+        help="do not bake real-world scenery (OpenStreetMap buildings and "
+        "woodland) after writing a payload",
     )
     args = parser.parse_args(argv)
 
@@ -767,6 +813,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     sink = storage.resolve_sink(args.out)
+    scenery_sink = (
+        None
+        if args.no_scenery or args.no_write
+        else storage.resolve_sink(storage.scenery_destination(args.out))
+    )
     failures = 0
     for spec in specs:
         progress = (
@@ -791,7 +842,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
 
         if not args.no_write:
-            progress.phase("Publishing", 96, "Publishing the 3D track…")
+            progress.phase("Publishing", 92, "Publishing the 3D track…")
             try:
                 location = sink.write(payload)
             except Exception as exc:  # noqa: BLE001
@@ -800,6 +851,13 @@ def main(argv: list[str] | None = None) -> int:
                 failures += 1
                 continue
             payload_note = f"  -> {_relative(location)}"
+            if scenery_sink is not None:
+                scenery_location = bake_scenery(spec.key, payload, scenery_sink, progress)
+                payload_note += (
+                    f"\n  scenery -> {_relative(scenery_location)}"
+                    if scenery_location
+                    else "\n  scenery: not baked (see the error above; the track is unaffected)"
+                )
         else:
             payload_note = "  (not written)"
 
