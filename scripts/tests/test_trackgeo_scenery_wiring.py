@@ -32,6 +32,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 from trackgeo import storage  # noqa: E402
 from trackgeo.project import to_geo  # noqa: E402
+import build_track_scenery as scenery_cli  # noqa: E402
 
 LAT0, LON0 = 52.0718241, -1.0163502
 
@@ -97,6 +98,68 @@ class TestSceneryDestination(unittest.TestCase):
             destination = storage.scenery_destination(tmp)
             self.assertEqual(pathlib.Path(destination), pathlib.Path(tmp) / "scenery")
             self.assertIsInstance(storage.resolve_sink(destination), storage.LocalSink)
+
+
+class TestBake(unittest.TestCase):
+    """bake() is what the job calls: an in-memory payload in, a written file out."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = pathlib.Path(self._tmp.name)
+        self.sink = storage.resolve_sink(storage.scenery_destination(str(self.tmp)))
+
+    def test_writes_scenery_beside_the_track_payload(self):
+        with mock.patch.object(scenery_cli, "fetch_osm", return_value=[osm_document()]):
+            location = scenery_cli.bake("test", track_payload(), self.sink, log=lambda line: None)
+        target = self.tmp / "scenery" / "test.json"
+        self.assertEqual(pathlib.Path(location), target)
+        written = json.loads(target.read_text(encoding="utf-8"))
+        self.assertEqual(written["id"], "test")
+        self.assertEqual(written["origin"], {"lat": LAT0, "lon": LON0})
+        self.assertEqual(len(written["buildings"]), 1)
+        self.assertEqual(written["buildings"][0]["kind"], "grandstand")
+
+    def test_an_osm_failure_propagates_and_writes_nothing(self):
+        """bake() raises; deciding that a failure is survivable is the caller's job."""
+        boom = RuntimeError("OSM API kept failing")
+        with mock.patch.object(scenery_cli, "fetch_osm", side_effect=boom):
+            with self.assertRaises(RuntimeError):
+                scenery_cli.bake("test", track_payload(), self.sink, log=lambda line: None)
+        self.assertFalse((self.tmp / "scenery" / "test.json").exists())
+
+    def test_the_deadline_reaches_the_fetch(self):
+        fetch = mock.Mock(return_value=[osm_document()])
+        with mock.patch.object(scenery_cli, "fetch_osm", fetch):
+            scenery_cli.bake("test", track_payload(), self.sink, log=lambda line: None, deadline=123.0)
+        self.assertEqual(fetch.call_args.kwargs["deadline"], 123.0)
+
+
+class TestFetchDeadline(unittest.TestCase):
+    """A slow OSM API must not be able to run the job into its task timeout."""
+
+    BOX = (-1.02, 52.07, -1.01, 52.08)
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        tmp = pathlib.Path(self._tmp.name)
+        patcher = mock.patch.object(scenery_cli, "cache_dir", lambda *parts: tmp)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_spent_deadline_raises_before_any_request(self):
+        with mock.patch.object(scenery_cli.urllib.request, "urlopen") as urlopen:
+            with self.assertRaises(scenery_cli.SceneryDeadline):
+                scenery_cli.fetch_osm(*self.BOX, deadline=time.monotonic() - 1.0)
+        urlopen.assert_not_called()
+
+    def test_a_cached_box_is_free_even_after_the_deadline(self):
+        scenery_cli.osm_cache_path(*self.BOX).write_bytes(b"<osm/>")
+        with mock.patch.object(scenery_cli.urllib.request, "urlopen") as urlopen:
+            documents = scenery_cli.fetch_osm(*self.BOX, deadline=time.monotonic() - 1.0)
+        self.assertEqual(documents, [b"<osm/>"])
+        urlopen.assert_not_called()
 
 
 if __name__ == "__main__":
