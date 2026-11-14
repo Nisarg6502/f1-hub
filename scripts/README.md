@@ -9,6 +9,10 @@ places, and never at request time in the API:
   `gs://f1-scratch-assets/tracks/<key>.json` and reporting progress to Mongo —
   see [Running as a Cloud Run Job](#running-as-a-cloud-run-job).
 
+Either way, a written payload is followed by that circuit's real-world scenery
+at `<out>/scenery/<key>.json` — see
+[Real-world scenery](#real-world-scenery-build_track_scenerypy).
+
 ```bash
 pip install -r scripts/requirements.txt
 python scripts/build_track_geometry.py --terrain --report
@@ -26,6 +30,7 @@ Useful flags:
 | `--no-write` | build and validate without writing JSON |
 | `--out <dir\|gs://bucket/prefix>` | where the payload goes (default `$TRACKGEO_OUT`, else `frontend/public/tracks`) |
 | `--no-progress` | never write `track_geometry_builds` documents |
+| `--no-scenery` | do not bake real-world scenery after writing a payload |
 
 Environment:
 
@@ -202,6 +207,12 @@ is ~23 rate-limited HTTP calls and dominates everything else, so it owns 15→55
 and is ticked once per real API call. A fully cached rebuild jumps straight to
 the top of that range, which is honest: there is genuinely no waiting to report.
 
+The last phase before `done` is `Adding scenery` (94%), the OpenStreetMap bake
+described under [Real-world scenery](#real-world-scenery-build_track_scenerypy).
+It runs after the payload is published and cannot fail the build: if it errors
+or runs out of its 8-minute allowance, the reason goes to the job log and the
+row still ends `done`.
+
 The document is keyed `_id: <circuit_id>` as well as carrying `circuit_id` as a
 field, so there is exactly one row per circuit and either can be queried. The job
 itself only ever writes `running` / `done` / `failed`; `queued` belongs to the
@@ -219,7 +230,7 @@ The job runs as the default compute service account
 
 | grant | why |
 |---|---|
-| `roles/storage.objectAdmin` on `gs://f1-scratch-assets` | write `tracks/<key>.json`. `objectCreator` alone is not enough — rebuilding a circuit **overwrites** an existing object, which needs delete as well as create |
+| `roles/storage.objectAdmin` on `gs://f1-scratch-assets` | write `tracks/<key>.json` and `tracks/scenery/<key>.json`. `objectCreator` alone is not enough — rebuilding a circuit **overwrites** an existing object, which needs delete as well as create |
 | `roles/secretmanager.secretAccessor` on the `MONGODB_URI` secret | read the connection string at start-up |
 | Mongo Atlas network access for the egress IP | Atlas is outside GCP IAM. Either allow `0.0.0.0/0` (as the existing services already do) or attach a VPC connector with a static NAT IP and allowlist that |
 
@@ -379,15 +390,27 @@ none of its code is used. Three data sources, and only one of them is baked:
 ```bash
 python scripts/build_track_scenery.py --all          # every circuit with a track payload
 python scripts/build_track_scenery.py --only spa
+python scripts/build_track_scenery.py --only baku --out gs://f1-scratch-assets/tracks/scenery
 ```
 
-Output is `frontend/public/tracks/scenery/<key>.json`, in the track payload's
-own ENU frame. A circuit needs its track payload first — the scenery rectangle
-is the lap's bounding box plus a margin (at least 320 m), which is what
-guarantees the whole circuit is always inside it. Raw OSM responses are cached
-under `.cache/trackgeo/osm/`, so re-running costs no requests. The rules that
-decide what appears live in `trackgeo/scenery.py` and are unit-tested in
-`tests/test_trackgeo_scenery.py`.
+Output is `<out>/<key>.json`, in the track payload's own ENU frame. `--out` is a
+directory or a `gs://bucket/prefix` and defaults to
+`frontend/public/tracks/scenery`. A circuit needs its track payload first — the
+scenery rectangle is the lap's bounding box plus a margin (at least 320 m),
+which is what guarantees the whole circuit is always inside it. Raw OSM
+responses are cached under `.cache/trackgeo/osm/` (`$TRACKGEO_CACHE_DIR/osm`),
+so re-running costs no requests. The rules that decide what appears live in
+`trackgeo/scenery.py` and are unit-tested in `tests/test_trackgeo_scenery.py`.
+
+**The track-geometry build bakes scenery itself.** After
+`build_track_geometry.py` writes `<out>/<key>.json` it calls this script's
+`bake()` with the payload it just built and writes `<out>/scenery/<key>.json`:
+`frontend/public/tracks/scenery/` locally,
+`gs://f1-scratch-assets/tracks/scenery/` in the Cloud Run Job. So a circuit
+generated on demand gets buildings and woodland with no extra step. Pass
+`--no-scenery` to skip it. This script is still the way to re-bake one circuit
+without rebuilding its geometry, for example after changing a rule in
+`trackgeo/scenery.py` or pinning an `IMAGERY_RELEASE`.
 
 Things that are non-obvious:
 
@@ -406,9 +429,20 @@ Things that are non-obvious:
   Pick the newest clear release — older ones predate layout changes.
 - **A circuit with no baked scenery still works**: photo and terrain, no
   buildings. The frontend looks in `public/tracks/scenery/` first and then in
-  `$NEXT_PUBLIC_ASSET_BASE_URL/tracks/scenery/`, so scenery for a circuit
-  generated on demand can be dropped in the bucket without a frontend deploy.
-  The Cloud Run Job does **not** bake scenery yet.
+  `$NEXT_PUBLIC_ASSET_BASE_URL/tracks/scenery/`, which is where the job writes.
+- **Scenery can never fail a track build.** In the geometry build the payload is
+  published first, then scenery is attempted inside `bake_scenery()`, which
+  catches everything: the OSM API being down, a 400 that will not split, an
+  unwritable destination. The error goes to stderr (the job log) and the build
+  finishes `done`. Rebuild the circuit, or run this script with `--only`, to
+  bake it later.
+- **The job gives scenery 8 minutes** (`SCENERY_TIME_BUDGET_S`). OSM requests
+  retry three times at up to 180 s each, and a city circuit quarters into many
+  boxes; without a limit a slow API could run the job into its 30-minute task
+  timeout, which kills it before it can mark an already-published track as done.
+  The offline CLI has no limit. What the limit cannot cover is memory: the OSM
+  XML is parsed in-process, and an out-of-memory kill is not an exception. If a
+  dense circuit ever dies in this phase, raise the job's `--memory`.
 - **The tile hosts are in the CSP.** `connect-src` in `frontend/next.config.ts`
   lists both Esri tile services and the elevation bucket; a new tile source
   that is not added there fails silently as a blocked request.
