@@ -2,11 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getActiveSeasonYear, getSeasonRaces, resolveSeasonYear } from "@/lib/api";
 import { completedRacesNewestFirst, raceDayLabel, toRaceId, withoutWinners } from "@/lib/watch-races";
+import { socialMetadata } from "@/lib/social-metadata";
+
+const TITLE = "APEX | Watch party";
+const DESCRIPTION =
+  "Replay a completed Formula 1 race at the pace it was actually run, full screen, for watching alongside a broadcast.";
 
 export const metadata: Metadata = {
-  title: "APEX | Watch party",
-  description:
-    "Replay a completed Formula 1 race at the pace it was actually run, full screen, for watching alongside a broadcast.",
+  title: TITLE,
+  description: DESCRIPTION,
+  ...socialMetadata({ title: TITLE, description: DESCRIPTION, path: "/watch" }),
 };
 
 // Which rounds have finished depends on the current time, and the round most

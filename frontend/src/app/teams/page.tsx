@@ -1,5 +1,6 @@
 import Image from "next/image";
 import type { Metadata } from "next";
+import { socialMetadata, standingsImage } from "@/lib/social-metadata";
 import {
   getActiveSeasonYear,
   getConstructorSeasons,
@@ -118,8 +119,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   return {
     title,
     description,
-    openGraph: { title, description, url: `/teams` },
-    twitter: { title, description },
+    ...socialMetadata({ title, description, path: "/teams", image: standingsImage(year, "constructors") }),
   };
 }
 

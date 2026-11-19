@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { socialMetadata, standingsImage } from "@/lib/social-metadata";
 import { getActiveSeasonYear, getDriverStandings, getSeasonRaces, resolveSeasonYear, type Race } from "@/lib/api";
 import { computeTitleDecider } from "@/lib/championship-math";
 import DriversGrid from "@/components/drivers-grid";
@@ -27,8 +28,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   return {
     title,
     description,
-    openGraph: { title, description, url: `/drivers` },
-    twitter: { title, description },
+    ...socialMetadata({ title, description, path: "/drivers", image: standingsImage(year, "drivers") }),
   };
 }
 

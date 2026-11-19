@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { raceResultImage, socialMetadata } from "@/lib/social-metadata";
 import { notFound } from "next/navigation";
 import { parseDateTimeToMs, type RaceSessionField } from "@/lib/sessions";
 import Link from "next/link";
@@ -72,11 +73,16 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
      preview but a working page. */
   let raceName: string | null = null;
   let circuit: string | null = null;
+  let hasResult = false;
   try {
     const { races } = await getSeasonRaces(Number(season));
     const race = (races ?? []).find((r) => r.round === String(Number(round)));
     raceName = race?.raceName ?? null;
     circuit = race?.Circuit?.circuitName ?? null;
+    // The calendar attaches a winner only to a round with a classification,
+    // and the result card 404s without one, so this is the right gate for
+    // pointing the preview at it.
+    hasResult = Boolean(race?.winner);
   } catch {
     // Backend offline — fall through to the generic title below.
   }
@@ -96,8 +102,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   return {
     title,
     description,
-    openGraph: { title, description, url: `/schedule/${season}/${round}` },
-    twitter: { title, description },
+    ...socialMetadata({
+      title,
+      description,
+      path: `/schedule/${season}/${round}`,
+      // The podium when there is one; the site card for a round not yet run.
+      image: hasResult ? raceResultImage(Number(season), Number(round), raceName) : undefined,
+    }),
   };
 }
 

@@ -212,6 +212,33 @@ export function parseRaceParams(
   };
 }
 
+export interface WatchCardParams {
+  season: number;
+  round: number;
+  format: ShareFormat;
+}
+
+/**
+ * `/api/share/watch/2026/20`: the replay link's preview card. It takes only
+ * `format`, and says nothing about the result, so there is no `session`: a
+ * replay is shared with people who have not seen the race.
+ */
+export function parseWatchParams(
+  segments: { season: string; round: string },
+  params: ParamSource,
+  activeSeason: number
+): ParseResult<WatchCardParams> {
+  const known = rejectUnknownParams(params, ["format"]);
+  if (!known.ok) return known;
+  const season = parseSeason(segments.season, activeSeason, { required: true });
+  if (!season.ok) return season;
+  const round = parseRound(segments.round);
+  if (!round.ok) return round;
+  const format = parseShareFormat(params.get("format"));
+  if (!format.ok) return format;
+  return { ok: true, value: { season: season.value, round: round.value, format: format.value } };
+}
+
 /* ==========================================================================
    URLs — built in one place so the sheet, the tests and the routes agree.
    ========================================================================== */

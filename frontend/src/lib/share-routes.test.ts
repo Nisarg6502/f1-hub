@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET as standingsGET } from "@/app/api/share/standings/route";
 import { GET as raceGET } from "@/app/api/share/race/[season]/[round]/route";
 import { GET as progressionGET } from "@/app/api/share/progression/route";
+import { GET as watchGET } from "@/app/api/share/watch/[season]/[round]/route";
 import { clearCardMemo } from "@/app/api/share/_lib/respond";
 import { cardHost } from "@/app/api/share/_lib/frame";
 import {
@@ -265,6 +266,57 @@ describe("GET /api/share/progression", () => {
 
   it("rejects a bad kind with 400", async () => {
     const res = await progressionGET(req("/api/share/progression?kind=both"));
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("GET /api/share/watch/[season]/[round]", () => {
+  const ctx = (season: string, round: string) => ({ params: Promise.resolve({ season, round }) });
+
+  it("renders a 1200x630 card for a round on the calendar", async () => {
+    stubBackend({ "/api/races": () => jsonResponse({ races: races2026 }) });
+    const res = await watchGET(req("/api/share/watch/2026/1"), ctx("2026", "1"));
+    await expectPng(res, 1200, 630, "fixture-watch-landscape");
+  }, 60_000);
+
+  it("never requests results", async () => {
+    // A replay link is shared with people who have not seen the race. The
+    // calendar carries each round's winner, so the card must also not be handed it.
+    stubBackend({ "/api/races": () => jsonResponse({ races: races2026 }) });
+
+    await watchGET(req("/api/share/watch/2026/1"), ctx("2026", "1"));
+
+    const calls = (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const paths = calls.map(([input]) => {
+      const value = input as string | URL | Request;
+      return new URL(typeof value === "string" ? value : value instanceof URL ? value.href : value.url).pathname;
+    });
+    expect(paths).toContain("/api/races");
+    for (const forbidden of ["/api/race_results", "/api/sprint_results", "/api/qualifying_results"]) {
+      expect(paths).not.toContain(forbidden);
+    }
+  }, 60_000);
+
+  it("answers 404 for a round not on the calendar", async () => {
+    stubBackend({ "/api/races": () => jsonResponse({ races: races2026 }) });
+    const res = await watchGET(req("/api/share/watch/2026/9"), ctx("2026", "9"));
+    expect(res.status).toBe(404);
+  });
+
+  it("answers 503 when the calendar cannot be fetched", async () => {
+    stubBackend({ "/api/races": () => jsonResponse({}, 500) });
+    const res = await watchGET(req("/api/share/watch/2026/1"), ctx("2026", "1"));
+    expect(res.status).toBe(503);
+  });
+
+  it("rejects parameters it does not take", async () => {
+    stubBackend({ "/api/races": () => jsonResponse({ races: races2026 }) });
+    const res = await watchGET(req("/api/share/watch/2026/1?session=race"), ctx("2026", "1"));
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a malformed round", async () => {
+    const res = await watchGET(req("/api/share/watch/2026/0"), ctx("2026", "0"));
     expect(res.status).toBe(400);
   });
 });

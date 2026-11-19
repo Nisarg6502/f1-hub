@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { socialMetadata, standingsImage } from "@/lib/social-metadata";
 import {
   getConstructorStandings,
   getDriverStandings,
@@ -43,8 +44,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   return {
     title,
     description,
-    openGraph: { title, description, url: `/standings` },
-    twitter: { title, description },
+    ...socialMetadata({ title, description, path: "/standings", image: standingsImage(year, "drivers") }),
   };
 }
 
