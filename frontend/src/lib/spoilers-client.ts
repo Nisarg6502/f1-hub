@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { track } from "./analytics";
+import { signalAccountMoment } from "./one-tap";
 import {
   DEFAULT_SPOILER_PREFS,
   SPOILER_COOKIE,
@@ -173,6 +174,9 @@ export function useSpoilers(): UseSpoilers {
     (on: boolean) => {
       commit((current) => withOn(current, on, Date.now()));
       track("spoiler_mode_toggled", { state: on ? "on" : "off" });
+      // Turning it on is the moment an account would be worth having: the
+      // setting is only useful if it follows them to their other devices.
+      if (on) signalAccountMoment();
     },
     [commit]
   );

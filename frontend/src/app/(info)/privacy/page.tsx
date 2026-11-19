@@ -234,12 +234,15 @@ export default function PrivacyPage() {
 
       <h2>Stored in your browser only</h2>
       <p>
-        Two things are kept locally and never sent anywhere: your display
+        A few things are kept locally and never sent anywhere: your display
         preferences on the Watch page (pinned drivers, density, timing mode),
         and a marker letting a watch session resume if you reload. Your answer
-        to the analytics banner is kept the same way. Clearing site data in your
-        browser removes all three — and, in the EU and UK, means you will be
-        asked about analytics again.
+        to the analytics banner is kept the same way, as are the layout of your
+        home page and, if you are not signed in, up to ten recent dates you
+        visited, which are used only to decide when it is worth offering the
+        optional Google sign-in prompt. Clearing site data in your browser
+        removes all of it — and, in the EU and UK, means you will be asked about
+        analytics again.
       </p>
 
       <h2>Chat messages — the real disclosure</h2>
