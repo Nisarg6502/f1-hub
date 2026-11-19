@@ -117,7 +117,7 @@ export default function SessionTabs({
       {/* One scrolling row on a phone: five tabs wrapped onto a second line,
           leaving FP1 alone under the rest. The negative margin lets the row
           run to the screen edge, and `sm:` puts it back to a wrapping row. */}
-      <div className="flex gap-2 mb-5 overflow-x-auto sm:flex-wrap -mx-6 px-6 sm:mx-0 sm:px-0">
+      <div className="flex gap-2 mb-5 overflow-x-auto sm:flex-wrap -mx-6 px-6 py-1 -my-1 sm:mx-0 sm:px-0">
         {availableSessions.map((key) => {
           const active = activeSession === key;
           return (
@@ -227,18 +227,16 @@ export default function SessionTabs({
           back to the top-level (race) figures for every tab is exactly the bug
           this replaced, so the fallback covers the Race tab only and other tabs
           simply show no tile until the hourly sync back-fills the round. */}
-      <div className="mt-6">
-        <ConditionsTile
-          weather={
-            weather?.sessions
-              ? weather.sessions[activeSession] ?? null
-              : activeSession === "Race"
-                ? weather ?? null
-                : null
-          }
-          sessionLabel={SESSION_LABELS[activeSession]}
-        />
-      </div>
+      <ConditionsTile
+        weather={
+          weather?.sessions
+            ? weather.sessions[activeSession] ?? null
+            : activeSession === "Race"
+              ? weather ?? null
+              : null
+        }
+        sessionLabel={SESSION_LABELS[activeSession]}
+      />
     </div>
   );
 }

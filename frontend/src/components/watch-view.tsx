@@ -88,15 +88,21 @@ import { track } from "@/lib/analytics";
  * The word under a control's icon, on a phone only.
  *
  * Seven icon-only buttons in a row are a guessing game on the device this mode
- * is built for (a phone propped against a television). From `md` up, and on a
- * short landscape screen where height is scarce, the icons stand alone as they
- * always did. `data-control-label` is how the browser check finds them.
+ * is built for (a phone propped against a television). From `md` up the icons
+ * stand alone as they always did, and below 360px they do too: the labelled
+ * buttons are wider and push the bar onto an extra row, measured at +56px on a
+ * 320x568 screen that already gives the bar 46% of its height. On a short
+ * landscape phone the text is hidden
+ * but the buttons keep their phone size, because a 44px target is worth more
+ * than the few pixels of tower. Each label is contained in its button's
+ * `aria-label`, so what is seen is what a screen reader or voice control hears.
+ * `data-control-label` is how the browser check finds them.
  */
 function ControlLabel({ children }: { children: ReactNode }) {
   return (
     <span
       data-control-label
-      className="md:hidden [@media(max-height:520px)]:hidden text-[10px] font-semibold leading-none mt-1"
+      className="md:hidden max-[360px]:hidden [@media(max-height:520px)]:hidden text-[10px] font-semibold leading-none mt-1"
     >
       {children}
     </span>
@@ -2179,14 +2185,14 @@ export default function WatchView({
                   ? "Whole field as large as it will go: no names, race control on one line, two columns when there is width for them"
                   : "Names, and race control in full"
               }
-              className="flex items-center justify-center w-9 h-9 rounded-control transition-colors duration-150 max-md:flex-col max-md:h-auto max-md:w-auto max-md:min-w-11 max-md:px-2 max-md:py-1"
+              className="flex items-center justify-center w-9 h-9 rounded-control transition-colors duration-150 max-md:flex-col max-md:h-auto max-md:min-h-11 max-md:w-auto max-md:min-w-11 max-md:px-2 max-md:py-1"
               style={{
                 background: density === value ? "rgb(var(--rgb-primary-container) / 0.20)" : "transparent",
                 color: density === value ? "var(--color-primary)" : "var(--color-warm-400)",
               }}
             >
               <Icon size={16} />
-              <ControlLabel>{value === "compact" ? "Compact" : "Names"}</ControlLabel>
+              <ControlLabel>{label}</ControlLabel>
             </button>
           ))}
         </div>
@@ -2559,11 +2565,11 @@ export default function WatchView({
         <button
           type="button"
           onClick={() => void toggleFullscreen()}
-          aria-label={fullscreen ? "Leave fullscreen" : "Go fullscreen"}
+          aria-label={fullscreen ? "Exit full screen" : "Full screen"}
           className="flex items-center justify-center w-11 h-11 [@media(max-height:520px)]:w-9 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft text-warm-300 hover:text-primary transition-[color,transform] duration-150 active:scale-[0.97] flex-none max-md:flex-col max-md:h-auto max-md:min-h-11 max-md:w-auto max-md:min-w-11 max-md:px-2.5 max-md:py-1.5"
         >
           {fullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
-          <ControlLabel>{fullscreen ? "Exit" : "Full screen"}</ControlLabel>
+          <ControlLabel>{fullscreen ? "Exit full screen" : "Full screen"}</ControlLabel>
         </button>
       </footer>
     </div>

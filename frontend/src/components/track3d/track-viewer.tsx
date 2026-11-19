@@ -34,6 +34,13 @@ import {
 } from "./use-track-geometry";
 import { track } from "@/lib/analytics";
 import { orbitHint } from "@/lib/track-viewer-hints";
+
+/** Module scope so React keeps one subscription instead of re-making it per render. */
+function subscribeCoarsePointer(notify: () => void) {
+  const query = window.matchMedia("(pointer: coarse)");
+  query.addEventListener("change", notify);
+  return () => query.removeEventListener("change", notify);
+}
 import { IMAGERY_ATTRIBUTION } from "@/lib/track-scenery";
 
 const PRESETS: { id: CameraPresetId; label: string; hint: string }[] = [
@@ -117,11 +124,7 @@ export default function TrackViewer({
   // Which hint to show. Server snapshot is `false` so the first client render
   // matches the server's HTML; a phone then switches to the touch wording.
   const coarsePointer = useSyncExternalStore(
-    (notify) => {
-      const query = window.matchMedia("(pointer: coarse)");
-      query.addEventListener("change", notify);
-      return () => query.removeEventListener("change", notify);
-    },
+    subscribeCoarsePointer,
     () => window.matchMedia("(pointer: coarse)").matches,
     () => false
   );

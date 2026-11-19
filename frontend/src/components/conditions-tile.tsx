@@ -79,7 +79,7 @@ export default function ConditionsTile({ weather, sessionLabel }: ConditionsTile
   if (stats.length === 0) return null;
 
   return (
-    <div className="mb-6">
+    <div className="mt-6">
       <p className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-500 mb-2.5">
         {sessionLabel} conditions
       </p>

@@ -325,9 +325,9 @@ export default async function RaceDetailPage({ params }: PageProps) {
               back in the controls, unchanged. */}
           <Link
             href="/schedule"
-            className="sm:hidden inline-block mb-3 font-bold text-xs tracking-[0.14em] uppercase text-warm-400 hover:text-on-background"
+            className="sm:hidden inline-flex items-center min-h-11 -mt-3 font-bold text-xs tracking-[0.14em] uppercase text-warm-400 hover:text-on-background"
           >
-            ← Schedule
+            <span aria-hidden="true">←&nbsp;</span>Schedule
           </Link>
           <div className="flex items-center gap-3 mb-3">
             <span
@@ -368,6 +368,9 @@ export default async function RaceDetailPage({ params }: PageProps) {
               seasonYear={seasonYear}
             />
           </div>
+          {/* Not rendered at all for an upcoming round with nothing to share:
+              an empty flex row would still add its gap under the selectors. */}
+          {(isPast || (hiddenRound === null && (hasClassification(results) || hasClassification(sprintResults)))) && (
           <div className="flex gap-3 sm:contents">
             {/* Watch-party mode, offered from the round it replays. Only for a
                 round that has actually run — there is nothing to replay
@@ -395,6 +398,7 @@ export default async function RaceDetailPage({ params }: PageProps) {
               ]}
             />
           </div>
+          )}
           <Link
             href="/schedule"
             className="hidden sm:flex font-bold text-xs px-5 h-[46px] rounded-control apex-glass-soft items-center justify-center hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-95"
