@@ -52,6 +52,8 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   streamChat,
   postFeedback,
+  getAgentHealth,
+  assistantAvailability,
   ERROR_COPY,
   type AgentAnchor,
   type AgentDone,
@@ -572,6 +574,22 @@ export default function PitwallAssistantPanel({
     };
   }, [visibility]);
 
+  // Whether the model provider has said its allowance is spent, asked each
+  // time the panel opens so a reader is told BEFORE they type, not after a wait
+  // (`backend/agent/capacity.py`). Fails open: no answer means "go ahead".
+  const [resting, setResting] = useState<{ retryAt: Date | null } | null>(null);
+  useEffect(() => {
+    if (visibility !== "open") return;
+    const controller = new AbortController();
+    getAgentHealth(controller.signal)
+      .then((health) => {
+        const status = assistantAvailability(health, Date.now());
+        setResting(status.available ? null : { retryAt: status.retryAt });
+      })
+      .catch(() => setResting(null));
+    return () => controller.abort();
+  }, [visibility]);
+
   // The turn's abort is intentionally NOT in the effect above anymore.
   // Aborting has to survive exactly as long as this component is actually
   // mounted — which now spans open↔minimized — and only fire on a genuine
@@ -1058,6 +1076,22 @@ export default function PitwallAssistantPanel({
           </motion.div>
         ) : (
         <>
+        {resting && (
+          <div
+            role="status"
+            className="mx-5 mt-3 rounded-lg border border-white/10 bg-[var(--color-surface-container-low)] px-3 py-2.5 text-[12px] leading-snug"
+          >
+            <p className="font-semibold text-[var(--color-on-surface)]">
+              {resting.retryAt
+                ? `Back at about ${resting.retryAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                : "Resting for now"}
+            </p>
+            <p className="mt-0.5 text-[var(--color-on-surface-variant)]">
+              The assistant has used up its inference allowance for now.
+              Questions it has answered before still work instantly.
+            </p>
+          </div>
+        )}
         <div
           ref={messageListRef}
           onScroll={handleMessageListScroll}

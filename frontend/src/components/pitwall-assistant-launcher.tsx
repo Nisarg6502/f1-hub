@@ -24,6 +24,7 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import PitwallAssistantPanel from "./pitwall-assistant-panel";
 import { usePitwallNudge } from "@/lib/use-pitwall-nudge";
+import { assistantAvailability, getAgentHealth } from "@/lib/agent-api";
 import { track } from "@/lib/analytics";
 
 type Visibility = "closed" | "open" | "minimized";
@@ -63,6 +64,20 @@ export default function PitwallAssistantLauncher() {
   const [hasUnread, setHasUnread] = useState(false);
   const reduce = useReducedMotion();
   const nudge = usePitwallNudge();
+  // Don't advertise "ask the assistant" while it is resting: the hint would
+  // send the first-time visitor straight to a "back at ..." banner. Asked only
+  // once the nudge is about to show, so a visitor who never sees it costs the
+  // agent no request. Fails open (no answer = show it).
+  const [resting, setResting] = useState(false);
+  useEffect(() => {
+    if (!nudge.visible) return;
+    const controller = new AbortController();
+    getAgentHealth(controller.signal)
+      .then((health) => setResting(!assistantAvailability(health, Date.now()).available))
+      .catch(() => setResting(false));
+    return () => controller.abort();
+  }, [nudge.visible]);
+  const showNudge = nudge.visible && !resting;
   // Once a conversation has started, the panel stays mounted across
   // minimize/restore — only an explicit Close tears it down. This is what
   // lets `abortRef`, `messages` and `threadId` inside the panel survive a
@@ -150,7 +165,7 @@ export default function PitwallAssistantLauncher() {
           </span>
         </button>
         <AnimatePresence>
-          {nudge.visible && !mounted && (
+          {showNudge && !mounted && (
             <motion.div
               role="status"
               initial={reduce ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.96 }}
@@ -207,7 +222,7 @@ export default function PitwallAssistantLauncher() {
         createPortal(
           <div className="lg:hidden fixed z-[70] bottom-20 right-4">
             <AnimatePresence>
-              {nudge.visible && (
+              {showNudge && (
                 <motion.div
                   role="status"
                   initial={reduce ? { opacity: 0 } : { opacity: 0, y: 6, scale: 0.96 }}
@@ -241,7 +256,7 @@ export default function PitwallAssistantLauncher() {
               title="Ask the Pitwall Assistant"
               className="relative flex h-14 w-14 items-center justify-center rounded-full border border-white/10 bg-[var(--color-primary)] text-[var(--color-on-primary)] shadow-[0_10px_30px_rgba(0,0,0,0.45)] transition-transform duration-150 active:scale-[0.94]"
             >
-              {!reduce && nudge.visible && (
+              {!reduce && showNudge && (
                 <motion.span
                   aria-hidden="true"
                   className="absolute inset-0 rounded-full bg-[var(--color-primary)]"

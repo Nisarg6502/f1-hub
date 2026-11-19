@@ -5,6 +5,10 @@ import ReactMarkdown from "react-markdown";
 import { useReducedMotion } from "motion/react";
 import { getDriverComparisonRecapUrl } from "@/lib/api";
 
+// Shown when the request finished and nothing came back. The numbers the
+// narrative would summarise are on the page regardless.
+const EMPTY_LABEL = "The written head-to-head isn't available right now. The numbers above are complete.";
+
 interface DriverComparisonRecapProps {
   year: number;
   driver1: string;
@@ -16,8 +20,8 @@ interface DriverComparisonRecapProps {
 // backend/app/driver_comparison_recap.py's cache key -- every request after
 // that replays the cached text, still through the same streaming response).
 // If nothing ever arrives -- no OLLAMA_API_KEY configured, no shared rounds
-// yet, or the call failed -- this renders nothing rather than an error,
-// matching session-recap-card.tsx's convention.
+// yet, or the call failed -- this says so in the card's own frame, as
+// session-recap-card.tsx does.
 export default function DriverComparisonRecap({
   year,
   driver1,
@@ -66,8 +70,6 @@ export default function DriverComparisonRecap({
     };
   }, [year, driver1, driver2]);
 
-  if (!isStreaming && !text) return null;
-
   return (
     <div className="bg-veil/5 rounded-xl px-4 py-3.5">
       <div className="flex items-center gap-2 mb-2">
@@ -97,7 +99,9 @@ export default function DriverComparisonRecap({
             {text}
           </ReactMarkdown>
         ) : (
-          <span className="text-warm-400">Generating comparison…</span>
+          <span className="text-warm-400">
+            {isStreaming ? "Generating comparison…" : EMPTY_LABEL}
+          </span>
         )}
       </div>
     </div>

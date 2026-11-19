@@ -243,6 +243,29 @@ export interface AgentHealth {
   langsmith_tracing: boolean;
   prompt_version: number;
   runs: { running: number; waiting: number; limit: number };
+  /** Absent on an agent that predates it. See `backend/agent/capacity.py`. */
+  capacity?: { available: boolean; retry_at: string | null };
+}
+
+/**
+ * Whether the assistant is worth offering right now, from the agent's health.
+ *
+ * Fails open on every doubt: no health reply, an agent without the field, a
+ * retry time that has passed or cannot be read. Each of those means "go ahead
+ * and ask", because a wrong "resting" banner costs a question that would have
+ * worked, while a wrong "available" costs one error message the agent already
+ * words well.
+ */
+export function assistantAvailability(
+  health: AgentHealth | null,
+  nowMs: number
+): { available: boolean; retryAt: Date | null } {
+  const capacity = health?.capacity;
+  if (!capacity || capacity.available) return { available: true, retryAt: null };
+  if (capacity.retry_at === null) return { available: false, retryAt: null };
+  const retryMs = Date.parse(capacity.retry_at);
+  if (!Number.isFinite(retryMs) || retryMs <= nowMs) return { available: true, retryAt: null };
+  return { available: false, retryAt: new Date(retryMs) };
 }
 
 export async function getAgentHealth(
