@@ -22,7 +22,12 @@ export default function robots(): MetadataRoute.Robots {
   return {
     rules: {
       userAgent: "*",
-      allow: "/",
+      // `/api/share/` is the one part of the API that is meant to be fetched
+      // by crawlers: every link-preview image for a result, a table or a
+      // replay is served from it, and Twitterbot and LinkedInBot honour
+      // robots.txt for image URLs. The more specific rule wins over `/api/`
+      // (RFC 9309: longest match), and `robots.test.ts` pins that.
+      allow: ["/", "/api/share/"],
       disallow: ["/agent-check", "/pitwall-chat", "/api/"],
     },
     sitemap: `${SITE_URL}/sitemap.xml`,

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { raceResultImage, socialMetadata } from "@/lib/social-metadata";
 import { notFound } from "next/navigation";
 import { parseDateTimeToMs, type RaceSessionField } from "@/lib/sessions";
 import Link from "next/link";
@@ -18,6 +19,7 @@ import RaceSelector from "@/components/race-selector";
 import SeasonSelector from "@/components/season-selector";
 import { RaceShareButton } from "@/components/share/share-button";
 import { hasClassification } from "@/lib/share-results";
+import { parseRaceParams } from "@/lib/share";
 import SpoilerShield from "@/components/spoiler-shield";
 import { getSpoilerContext } from "@/lib/spoilers-server";
 import { redactWinners } from "@/lib/spoilers";
@@ -72,11 +74,25 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
      preview but a working page. */
   let raceName: string | null = null;
   let circuit: string | null = null;
+  let hasResult = false;
   try {
     const { races } = await getSeasonRaces(Number(season));
     const race = (races ?? []).find((r) => r.round === String(Number(round)));
     raceName = race?.raceName ?? null;
     circuit = race?.Circuit?.circuitName ?? null;
+    // The calendar's `winner` is only a hint: the backend takes it from the
+    // first result row without checking that the row is classified, and the
+    // result card 404s for a round whose rows exist with no positions. So ask
+    // for the classification itself before pointing the preview at the card.
+    // The page body fetches the same thing a moment later, and identical
+    // fetches are deduped within one render pass.
+    if (race?.winner) {
+      try {
+        hasResult = hasClassification((await getRaceResults(Number(season), Number(round))).results);
+      } catch {
+        // No result card; the preview falls back to the site card.
+      }
+    }
   } catch {
     // Backend offline — fall through to the generic title below.
   }
@@ -93,11 +109,30 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     ? `Every session of the ${season} ${raceName} at ${circuit} — practice, qualifying and race classification, weather, and an AI recap grounded in the results.`
     : `Every session of the ${season} ${raceName} — practice, qualifying and race classification, weather, and an AI recap grounded in the results.`;
 
+  // Numbers, not the raw segments: `/schedule/2026/05` is the same page as
+  // `/schedule/2026/5` and should name one address. The card route's own
+  // validator decides whether it can draw this round (seasons 2018 to the
+  // active one), so a season it would refuse gets the site card, not a 400.
+  const seasonNumber = Number(season);
+  const roundNumber = Number(round);
+  const cardDrawable =
+    hasResult &&
+    parseRaceParams(
+      { season: String(seasonNumber), round: String(roundNumber) },
+      new URLSearchParams(),
+      getActiveSeasonYear()
+    ).ok;
+
   return {
     title,
     description,
-    openGraph: { title, description, url: `/schedule/${season}/${round}` },
-    twitter: { title, description },
+    ...socialMetadata({
+      title,
+      description,
+      path: `/schedule/${seasonNumber}/${roundNumber}`,
+      // The podium when there is one; the site card for a round not yet run.
+      image: cardDrawable ? raceResultImage(seasonNumber, roundNumber, raceName) : undefined,
+    }),
   };
 }
 

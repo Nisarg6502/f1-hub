@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { socialMetadata } from "@/lib/social-metadata";
 import { headers } from "next/headers";
 import { getActiveSeasonYear, getSeasonRaces, resolveSeasonYear } from "@/lib/api";
 import { getCountryFlagPath } from "@/lib/flags";
@@ -25,11 +26,10 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   return {
     title,
     description,
-    // Without an explicit `openGraph` block a page inherits the root layout's,
-    // so every shared link previewed as the same generic card no matter which
-    // page it pointed at. The title is the whole value of a preview.
-    openGraph: { title, description, url: `/schedule` },
-    twitter: { title, description },
+    // A page's `openGraph` REPLACES the layout's rather than merging with it,
+    // so the image has to be named here or the shared link has none. See
+    // `social-metadata.ts`.
+    ...socialMetadata({ title, description, path: "/schedule" }),
   };
 }
 
