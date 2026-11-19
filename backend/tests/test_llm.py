@@ -242,6 +242,107 @@ class LlmTests(unittest.TestCase):
         self.assertEqual(text, "Cut")
         self.assertFalse(result.complete)
 
+    def test_ollama_length_stop_is_not_complete(self):
+        """`done` with `done_reason: length` is a token-limit cut, not a finished recap."""
+
+        def handler(request):
+            return httpx.Response(
+                200,
+                content=ndjson({"message": {"content": "Cut"}}, {"done": True, "done_reason": "length"}),
+            )
+
+        text, result = self.run_stream(handler)
+
+        self.assertEqual(text, "Cut")
+        self.assertFalse(result.complete)
+        self.assertEqual(result.failure, "error")
+
+    def test_ollama_stop_reason_is_complete(self):
+        def handler(request):
+            return httpx.Response(
+                200,
+                content=ndjson({"message": {"content": "Done"}}, {"done": True, "done_reason": "stop"}),
+            )
+
+        _, result = self.run_stream(handler)
+
+        self.assertTrue(result.complete)
+
+    def test_fallback_content_filter_is_not_complete(self):
+        self.use_fallback()
+        os.environ.pop("OLLAMA_API_KEY", None)
+
+        def handler(request):
+            return httpx.Response(200, content=sse(delta("Partial"), delta(finish="content_filter")))
+
+        text, result = self.run_stream(handler)
+
+        self.assertEqual(text, "Partial")
+        self.assertFalse(result.complete)
+
+    def test_non_object_json_from_ollama_is_skipped_not_raised(self):
+        def handler(request):
+            return httpx.Response(
+                200,
+                content=ndjson(
+                    123,
+                    {"message": "just a string"},
+                    {"message": {"content": "ok"}},
+                    {"done": True},
+                ),
+            )
+
+        text, result = self.run_stream(handler)
+
+        self.assertEqual(text, "ok")
+        self.assertTrue(result.complete)
+
+    def test_non_object_json_from_the_fallback_is_skipped_not_raised(self):
+        self.use_fallback()
+        os.environ.pop("OLLAMA_API_KEY", None)
+
+        def handler(request):
+            return httpx.Response(
+                200,
+                content=sse([1, 2], {"choices": [None]}, {"choices": [{"delta": "x"}]}, delta("ok"), delta(finish="stop")),
+            )
+
+        text, result = self.run_stream(handler)
+
+        self.assertEqual(text, "ok")
+        self.assertTrue(result.complete)
+
+    def test_an_unexpected_exception_mid_stream_never_escapes(self):
+        class Exploding(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield ndjson({"message": {"content": "Hi"}})
+                raise RuntimeError("transport blew up")
+
+        text, result = self.run_stream(lambda request: httpx.Response(200, stream=Exploding()))
+
+        self.assertEqual(text, "Hi")
+        self.assertFalse(result.complete)
+        self.assertEqual(result.failure, "error")
+
+    def test_stray_whitespace_in_the_ollama_key_is_stripped(self):
+        os.environ["OLLAMA_API_KEY"] = "  primary-key\n"
+
+        def handler(request):
+            return httpx.Response(200, content=ndjson({"message": {"content": "x"}}, {"done": True}))
+
+        self.run_stream(handler)
+
+        self.assertEqual(self.requests[0].headers["authorization"], "Bearer primary-key")
+
+    def test_a_blank_ollama_key_counts_as_unconfigured(self):
+        os.environ["OLLAMA_API_KEY"] = "   "
+
+        text, result = self.run_stream(lambda request: httpx.Response(200))
+
+        self.assertEqual(text, "")
+        self.assertEqual(result.failure, "unconfigured")
+        self.assertEqual(self.requests, [])
+
     def test_fallback_configured_needs_all_three_variables(self):
         self.assertFalse(llm.fallback_configured())
         os.environ["LLM_FALLBACK_BASE_URL"] = "https://fallback.test/v1"

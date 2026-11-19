@@ -776,8 +776,14 @@ async def get_session_recap(
                 # Kept even if it still fails: a second violation is rare, and
                 # a wrong word beats no recap at all. `complete` follows
                 # whichever text is kept.
-                if retried:
+                if retried and (retried_complete or not complete):
                     full_text, complete = retried, retried_complete
+                elif retried:
+                    # The retry was cut off but the draft was not. Show the
+                    # finished draft rather than a stub, but do not cache text
+                    # that is known to break the rules: the next reader gets a
+                    # fresh attempt.
+                    complete = False
             if full_text:
                 yield full_text
         else:

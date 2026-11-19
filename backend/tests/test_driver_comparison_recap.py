@@ -280,6 +280,34 @@ class GenerateRecapTests(unittest.TestCase):
         self.assertEqual(text, "")
 
 
+def fake_stream(complete, chunks=("A",)):
+    """A stand-in for `llm.stream_text` that finishes cleanly or is cut off."""
+
+    async def fake(system_prompt, user_content, *, model=None, temperature=0.2, result=None, timeout_s=180.0):
+        for chunk in chunks:
+            yield chunk
+        result.complete = complete
+
+    return fake
+
+
+class GenerateRecapOnDoneTests(unittest.TestCase):
+    """The glue between `llm.StreamResult` and `on_done`, which the endpoint
+    tests bypass by patching `_generate_recap` itself."""
+
+    def _run(self, complete):
+        done = []
+        with patch.object(dcr.llm, "stream_text", fake_stream(complete)):
+            text = asyncio.run(_drain(dcr._generate_recap({}, on_done=lambda: done.append(True))))
+        return text, done
+
+    def test_on_done_fires_when_the_provider_finished(self):
+        self.assertEqual(self._run(True), ("A", [True]))
+
+    def test_on_done_is_silent_when_the_stream_was_cut_off(self):
+        self.assertEqual(self._run(False), ("A", []))
+
+
 class DriverComparisonRecapEndpointTests(unittest.TestCase):
     async def _drain_response(self, response):
         return "".join([chunk async for chunk in response.body_iterator])

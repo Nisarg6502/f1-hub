@@ -275,6 +275,36 @@ class GenerateRecapTests(unittest.TestCase):
         self.assertEqual(text, "")
 
 
+def fake_stream(complete, chunks=("A",)):
+    """A stand-in for `llm.stream_text` that finishes cleanly or is cut off."""
+
+    async def fake(system_prompt, user_content, *, model=None, temperature=0.2, result=None, timeout_s=180.0):
+        for chunk in chunks:
+            yield chunk
+        result.complete = complete
+
+    return fake
+
+
+class GenerateRecapOnDoneTests(unittest.TestCase):
+    """The glue between `llm.StreamResult` and `on_done`, which the endpoint
+    tests bypass by patching `_generate_recap` itself."""
+
+    def test_on_done_fires_when_the_provider_finished(self):
+        done = []
+        with patch.object(session_recap.llm, "stream_text", fake_stream(True)):
+            text = asyncio.run(_drain(session_recap._generate_recap({}, on_done=lambda: done.append(True))))
+
+        self.assertEqual((text, done), ("A", [True]))
+
+    def test_on_done_is_silent_when_the_stream_was_cut_off(self):
+        done = []
+        with patch.object(session_recap.llm, "stream_text", fake_stream(False)):
+            text = asyncio.run(_drain(session_recap._generate_recap({}, on_done=lambda: done.append(True))))
+
+        self.assertEqual((text, done), ("A", []))
+
+
 class QualifyingVocabularyTests(unittest.TestCase):
     """Qualifying must not be narrated as a race.
 
@@ -341,6 +371,37 @@ class SessionRecapEndpointTests(unittest.TestCase):
 
         self.assertEqual(len(attempts), 2)
         self.assertEqual(body, "He qualified third.")
+
+    def test_a_cut_off_retry_shows_the_complete_original_but_caches_neither(self):
+        """The retry that replaces a banned-vocabulary draft must be at least
+        as finished as the draft; and a text known to break the rules is never
+        cached, so the next reader gets a fresh attempt."""
+        quali = FakeCollection(
+            find_one_result={"race": {"raceName": "British GP"}, "results": [result_row(1, "Kimi", "Antonelli")]}
+        )
+        cache = FakeCollection(find_one_result=None)
+        fake_db = FakeDb(session_recap=cache)
+        fake_db.qualifying_results = quali
+        attempts = []
+
+        async def fake_generate(facts, system_prompt=None, on_done=None):
+            attempts.append(system_prompt)
+            if len(attempts) == 1:
+                yield "He completed the podium."
+                if on_done:
+                    on_done()
+            else:
+                yield "He qual"  # cut off: on_done never fires
+
+        with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
+            session_recap, "fetch_race_control", return_value=[]
+        ), patch.object(session_recap, "_generate_recap", side_effect=fake_generate):
+            response = asyncio.run(session_recap.get_session_recap(year=2026, round=9, session="qualifying"))
+            body = asyncio.run(self._drain_response(response))
+
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(body, "He completed the podium.")
+        self.assertEqual(cache.update_one_calls, [])
 
     def test_a_clean_qualifying_recap_is_not_regenerated(self):
         quali = FakeCollection(

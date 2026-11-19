@@ -46,8 +46,9 @@ _CAPACITY_RE = re.compile(r"quota|rate.?limit|too many requests|usage limit|capa
 class StreamResult:
     """What happened, readable once the stream has ended."""
 
-    # Which provider is responsible for the text: "ollama", "fallback", or
-    # None when neither produced a successful response.
+    # The provider whose HTTP 200 response the text came from: "ollama",
+    # "fallback", or None when neither answered 200. It says nothing about
+    # whether that stream then finished; read `complete` for that.
     provider: str | None = None
     # True only when the provider closed its stream cleanly. Never cache text
     # while this is False.
@@ -55,6 +56,12 @@ class StreamResult:
     # The last failure seen: "unconfigured", "capacity" or "error". It can be
     # set even when the fallback then succeeded (the primary's failure).
     failure: str | None = None
+
+
+def _ollama_key() -> str:
+    # Stripped: a secret manager's trailing newline otherwise makes httpx raise
+    # on the header and the card silently goes blank.
+    return (os.getenv("OLLAMA_API_KEY") or "").strip()
 
 
 def fallback_configured() -> bool:
@@ -95,7 +102,7 @@ async def _stream_ollama(
     result: StreamResult,
 ) -> AsyncIterator[str]:
     payload = {
-        "model": model or os.getenv("OLLAMA_MODEL") or DEFAULT_MODEL,
+        "model": (model or os.getenv("OLLAMA_MODEL") or "").strip() or DEFAULT_MODEL,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
@@ -105,7 +112,7 @@ async def _stream_ollama(
         # what produced the original recap hallucination.
         "options": {"temperature": temperature},
     }
-    headers = {"Authorization": f"Bearer {os.getenv('OLLAMA_API_KEY')}"}
+    headers = {"Authorization": f"Bearer {_ollama_key()}"}
     try:
         async with _make_client(timeout_s) as client:
             async with client.stream("POST", f"{OLLAMA_BASE}/api/chat", json=payload, headers=headers) as response:
@@ -120,22 +127,33 @@ async def _stream_ollama(
                         chunk = json.loads(line)
                     except json.JSONDecodeError:
                         continue
+                    if not isinstance(chunk, dict):
+                        continue
                     if chunk.get("error"):
                         message = str(chunk["error"])
                         _fail(result, "ollama", _classify_message(message), detail=message)
                         return
                     # Only `content`. `thinking` is raw chain-of-thought and
                     # must never reach a reader.
-                    content = (chunk.get("message") or {}).get("content") or ""
-                    if content:
+                    message = chunk.get("message")
+                    content = message.get("content") if isinstance(message, dict) else None
+                    if isinstance(content, str) and content:
                         yield content
                     if chunk.get("done"):
-                        result.complete = True
+                        reason = chunk.get("done_reason")
+                        if reason in (None, "stop"):
+                            result.complete = True
+                        else:
+                            # `length` is the token limit: finished talking,
+                            # not finished the recap.
+                            _fail(result, "ollama", "error", detail=f"stopped early: {reason}")
                         break
                 else:
                     _fail(result, "ollama", "error", detail="stream ended before done")
     except httpx.HTTPError as error:
         _fail(result, "ollama", "error", detail=str(error))
+    except Exception as error:  # noqa: BLE001 - this module never raises
+        _fail(result, "ollama", "error", detail=f"{type(error).__name__}: {error}")
 
 
 async def _stream_fallback(
@@ -178,23 +196,34 @@ async def _stream_fallback(
                         chunk = json.loads(data)
                     except json.JSONDecodeError:
                         continue
+                    if not isinstance(chunk, dict):
+                        continue
                     if chunk.get("error"):
                         message = json.dumps(chunk["error"]) if not isinstance(chunk["error"], str) else chunk["error"]
                         _fail(result, "fallback", _classify_message(message), detail=message)
                         return
-                    choice = (chunk.get("choices") or [{}])[0]
+                    choices = chunk.get("choices")
+                    choice = choices[0] if isinstance(choices, list) and choices else None
+                    if not isinstance(choice, dict):
+                        continue
                     # Only `content`: `reasoning` / `reasoning_content` are
                     # chain-of-thought and are dropped, as for the primary.
-                    content = (choice.get("delta") or {}).get("content") or ""
-                    if content:
+                    delta = choice.get("delta")
+                    content = delta.get("content") if isinstance(delta, dict) else None
+                    if isinstance(content, str) and content:
                         yield content
                     finish = choice.get("finish_reason")
-                    if finish == "length":
-                        truncated = True
-                    elif finish:
+                    if finish == "stop":
                         finished = True
+                    elif finish:
+                        # `length`, `content_filter`, ...: the model stopped
+                        # for a reason other than being done.
+                        truncated = True
     except httpx.HTTPError as error:
         _fail(result, "fallback", "error", detail=str(error))
+        return
+    except Exception as error:  # noqa: BLE001 - this module never raises
+        _fail(result, "fallback", "error", detail=f"{type(error).__name__}: {error}")
         return
     if finished and not truncated:
         result.complete = True
@@ -220,7 +249,7 @@ async def stream_text(
     result = result if result is not None else StreamResult()
     emitted = False
 
-    if not os.getenv("OLLAMA_API_KEY"):
+    if not _ollama_key():
         result.failure = "unconfigured"
     else:
         async for text in _stream_ollama(
