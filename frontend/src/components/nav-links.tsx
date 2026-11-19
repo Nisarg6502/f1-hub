@@ -7,19 +7,6 @@ import { motion, useReducedMotion } from "motion/react";
 import MobileMoreSheet from "./mobile-more-sheet";
 import { useSpoilers } from "@/lib/spoilers-client";
 
-/**
- * `/telemetry` is deliberately NOT here.
- *
- * It was the only word in this row promising something happening right now,
- * and the page behind it cannot deliver that: the paid timing feed it was
- * built against was never provisioned, so it renders two small cards and a
- * screenful of empty space. A first-time visitor reads that as "this site is
- * half-built" and carries the impression into every page after it — an
- * expensive thing to pay for a nav item that is honest but empty.
- *
- * The route still exists and is still linked from the footer, so nothing is
- * orphaned and no URL breaks. Put it back in this list the day it has a feed.
- */
 const navItems = [
   { href: "/", label: "Home" },
   { href: "/schedule", label: "Schedule" },
@@ -294,8 +281,7 @@ export function MobileNav() {
   const moreActive =
     pathname.startsWith("/circuits") ||
     pathname.startsWith("/teams") ||
-    pathname.startsWith("/history") ||
-    pathname.startsWith("/telemetry");
+    pathname.startsWith("/history");
 
   return (
     <>

@@ -42,16 +42,6 @@ const items = [
     label: "History",
     blurb: "Every championship race since 1950 as one colour barcode",
   },
-  {
-    /* `/telemetry` is reachable here and from the footer, but deliberately not
-       from the primary nav on either breakpoint — the feed behind it was never
-       provisioned. Listed last, and described honestly, so a visitor who taps
-       it knows what they are getting before the page loads. */
-    href: "/telemetry",
-    icon: "sensors",
-    label: "Live timing",
-    blurb: "Session status and a countdown — no live feed yet",
-  },
 ];
 
 export default function MobileMoreSheet({

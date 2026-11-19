@@ -22,7 +22,7 @@ it and cites where each answer came from.
 
 ## What's in it
 
-Thirteen navigable routes. The two most interesting things are the last two rows.
+Twelve navigable routes. The two most interesting things are the last two rows.
 
 | Route | What it is |
 | --- | --- |
@@ -34,7 +34,6 @@ Thirteen navigable routes. The two most interesting things are the last two rows
 | `/drivers` | The grid, each driver's season, and a career bio. |
 | `/teams` | Every constructor: where it is based, what its lineage has won, and the chain of teams it grew out of — most of the grid is a renamed, resold version of something much older. |
 | `/circuits`, `/circuits/[circuitId]` | Circuit gallery and detail, including a **3D WebGL track viewer** built from real geometry. |
-| `/telemetry` | Labelled **Live** in the navigation, and currently the weakest page in the app: it detects correctly whether a session is running and counts down to the next one, but it has **never rendered a row of timing data in production** — the paid feed it was built against was never provisioned. See *Known gaps*. |
 | `/history` | Every championship race since 1950, as a season-by-season colour barcode, plus a constructor genealogy chart. |
 | `/watch`, `/watch/[raceId]` | **Race replay** — a lap-indexed timing tower that plays a finished race back at real pace, with a phone-as-second-screen pairing mode (scan a QR code to drive the replay from another device). |
 | *(panel, not a route)* | **The Pitwall Assistant** — a retrieval-grounded chat agent over this app's own data, with a verifier that checks claims before they are shown. |
@@ -76,7 +75,6 @@ publishes built 3D payloads to `gs://f1-scratch-assets/tracks/<key>.json`.
 | **Jolpica** (`api.jolpi.ca`) | Schedule, standings, race/qualifying/sprint results. This is the maintained mirror of the Ergast API — **Ergast itself is retired**, and nothing here calls it. |
 | **FastF1** | Practice and sprint-qualifying classification, tyre stints, circuit details, lap data. |
 | **OpenF1** | Lap times, positions, intervals, tyre stints and race-control messages — what the race replay and the Pitwall are built on. |
-| **RapidAPI** (`f1-live-pulse`) | Intended feed for `/telemetry`. Not subscribed — see *Known gaps*. |
 | **Tavily** | The chat agent's web search tool. |
 | **Ollama Cloud** | The LLM behind session recaps, strategy commentary, driver-comparison narratives, and the agent. |
 
@@ -181,15 +179,14 @@ npm install
 npm run dev
 ```
 
-`frontend/.env.local` — **all five matter**; the last three are the difference
-between a working app and one where the Live page and the assistant are dead:
+`frontend/.env.local` — **all three matter**; the last two are the difference
+between a working app and one where every car and team image is a blank
+rectangle and the assistant is dead:
 
 ```env
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 NEXT_PUBLIC_ASSET_BASE_URL=https://storage.googleapis.com/f1-scratch-assets
 NEXT_PUBLIC_AGENT_BASE_URL=http://localhost:8100
-NEXT_PUBLIC_RAPIDAPI_KEY=your_rapidapi_key
-NEXT_PUBLIC_RAPIDAPI_HOST=f1-live-pulse.p.rapidapi.com
 ```
 
 The app runs at `http://localhost:3000`. Pointing `NEXT_PUBLIC_API_BASE_URL` at
@@ -267,13 +264,7 @@ gcloud run jobs describe f1-data-sync --region asia-south1 \
 ```
 
 **The frontend bakes its config in at build time.** Every `NEXT_PUBLIC_*` value
-is a Docker build arg, so changing one means rebuilding, not restarting. The
-RapidAPI key is deliberately not committed — pass it per build:
-
-```bash
-gcloud builds submit --config cloudbuild-frontend.yaml . \
-  --substitutions=_NEXT_PUBLIC_RAPIDAPI_KEY=<key>
-```
+is a Docker build arg, so changing one means rebuilding, not restarting.
 
 **`cloudbuild-backend.yaml` deploys the image but sets no environment
 variables.** Anything new has to be added to the Cloud Run service separately,
@@ -325,7 +316,7 @@ banner and stay denied until they answer. Region comes from the browser's IANA
 timezone, because a bare `run.app` URL has no geo headers to read.
 
 Eight named events sit alongside page views, each chosen to answer a question
-this README could not: whether `/telemetry` is ever clicked, whether the
+this README could not: whether the
 second-screen pairing is ever used, whether the mobile navigation's six-item cap
 is a real problem, and where the traffic comes from. **Nothing a user types is
 ever sent** — the chat event is a count, the search event carries the result
@@ -365,14 +356,6 @@ record are in `docs/superpowers/specs/2026-08-22-google-analytics-design.md`.
 
 Recorded here rather than left to be discovered:
 
-- **`/telemetry` does not work, and never has.** It calls a paid RapidAPI feed
-  directly from the browser, and `_NEXT_PUBLIC_RAPIDAPI_KEY` defaults to `''`
-  so builds do not fail. Because Next inlines `NEXT_PUBLIC_*` at build time,
-  the deployed bundle contains the *dead-code-eliminated* stub — the fetch is
-  not in the shipped JavaScript at all, so setting the variable at runtime
-  would change nothing. Roughly three-quarters of the page is empty
-  background, and its idle message ("polling is paused") implies a feed that
-  resumes; it does not. The route is also excluded from the mobile navigation.
 - **Session windows are guessed, not sourced.** `frontend/src/lib/sessions.ts`
   assumes fixed durations, and some are wrong — a sprint is given 30 minutes
   against a real 60 — so a live session can be treated as over halfway

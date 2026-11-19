@@ -176,10 +176,6 @@ ROUTE_SUGGESTIONS: tuple[str, ...] = (
     "Who has the most wins at Monaco in F1 history?",
     "Which circuit has produced the most overtakes?",
     "What's the fastest circuit on the calendar?",
-    # /telemetry
-    "What's happening in the session right now?",
-    "Who's currently fastest on track?",
-    "Explain what these telemetry traces show",
     # /history
     "Who has the most world championships?",
     "What was the closest title fight in F1 history?",
