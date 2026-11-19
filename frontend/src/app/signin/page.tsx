@@ -5,7 +5,7 @@ import { getCurrentUser, isGoogleConfigured } from "@/lib/auth";
 import { isAuthConfigured } from "@/lib/auth-db";
 import { describeAuthError } from "@/lib/auth-errors";
 import { MAGIC_LINK_TTL_SECONDS } from "@/lib/auth-magic-link";
-import { parseAuthMode } from "@/lib/auth-mode";
+import { parseAuthMode, safeNextPath } from "@/lib/auth-mode";
 import SignInForm from "@/components/account/signin-form";
 
 export const metadata: Metadata = {
@@ -22,22 +22,13 @@ export const metadata: Metadata = {
  */
 export const dynamic = "force-dynamic";
 
-/** Only same-site paths. `//evil.example` is protocol-relative, so excluded. */
-function safeNext(value: string | string[] | undefined): string {
-  const next = Array.isArray(value) ? value[0] : value;
-  if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/signin")) {
-    return "/";
-  }
-  return next;
-}
-
 export default async function SignInPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
-  const next = safeNext(params.next);
+  const next = safeNextPath(params.next);
 
   if (!isAuthConfigured()) {
     return (

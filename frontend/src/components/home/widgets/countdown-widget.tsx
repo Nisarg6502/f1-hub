@@ -1,5 +1,6 @@
 "use client";
 
+import ReminderCta from "@/components/account/reminder-cta";
 import CountdownTimer from "@/components/countdown-timer";
 import HeroFX from "@/components/hero-fx";
 import LocalDateTime from "@/components/local-datetime";
@@ -106,6 +107,7 @@ function CountdownHero({ data }: { data: HomeData }) {
               <SessionChips sessions={upcomingSessions} />
             </div>
           )}
+          <ReminderCta />
         </div>
 
         <TiltCard

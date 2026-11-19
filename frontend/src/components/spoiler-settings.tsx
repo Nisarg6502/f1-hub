@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   AUTO_REVEAL_CHOICES,
   serializeSpoilerPrefs,
   type HiddenRound,
 } from "@/lib/spoilers";
+import { useAccountState } from "@/lib/auth-client";
 import { useSpoilerCrossTabSync, useSpoilers } from "@/lib/spoilers-client";
 
 /**
@@ -87,10 +90,21 @@ function Switch({
   );
 }
 
-export function SpoilerSettingsPanel({ active = true }: { active?: boolean }) {
+export function SpoilerSettingsPanel({
+  active = true,
+  onNavigate,
+}: {
+  active?: boolean;
+  /** Called when a link inside the panel is followed, so the popover or sheet
+   * showing it can close: the header is mounted across client navigation, and
+   * a surface left open would sit over the page the link leads to. */
+  onNavigate?: () => void;
+}) {
   const { prefs, ready, pending, setOn, setAutoRevealDays, reveal } = useSpoilers();
   const titleId = useId();
   const autoId = useId();
+  const account = useAccountState();
+  const pathname = usePathname();
 
   const hiddenState = useHiddenRounds(active && ready && prefs.on, serializeSpoilerPrefs(prefs));
 
@@ -205,6 +219,24 @@ export function SpoilerSettingsPanel({ active = true }: { active?: boolean }) {
         Saved in a cookie on this device. It keeps results off the screen; the
         data can still reach your browser.
       </p>
+      {/* The setting only helps if it follows the reader to their other
+          devices, and an account is what carries it. Said once, here, where
+          the need is felt, and only to someone who has none. */}
+      {account.status === "signed-out" && (
+        <p className="font-medium text-[11px] text-warm-400 mt-2 leading-relaxed">
+          Keep this on all your devices —{" "}
+          <Link
+            href={`/signin?mode=signup&reason=spoilers${
+              pathname && pathname !== "/signin" ? `&next=${encodeURIComponent(pathname)}` : ""
+            }`}
+            onClick={onNavigate}
+            className="font-semibold text-primary hover:underline"
+          >
+            create a free account
+          </Link>
+          .
+        </p>
+      )}
     </div>
   );
 }
@@ -284,7 +316,7 @@ export default function SpoilerToggle() {
             style={{ transformOrigin: "top right" }}
             className="absolute right-0 top-[calc(100%+12px)] z-[70] w-[340px] rounded-2xl bg-surface-container-low/97 backdrop-blur-2xl border border-white/[0.1] shadow-[0_24px_60px_rgba(0,0,0,0.55)] p-4"
           >
-            <SpoilerSettingsPanel active={open} />
+            <SpoilerSettingsPanel active={open} onNavigate={() => setOpen(false)} />
           </motion.div>
         )}
       </AnimatePresence>

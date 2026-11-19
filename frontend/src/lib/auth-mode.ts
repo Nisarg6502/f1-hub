@@ -14,6 +14,49 @@ export function parseAuthMode(value: string | string[] | null | undefined): Auth
 }
 
 /**
+ * Why the visitor was sent to the sign-up tab, from `?reason=`. A link from a
+ * place that wants an account (the race reminder prompt, the spoiler-free
+ * panel) says so, and the form repeats it in one line, so the page answers
+ * "why am I being asked?" before showing a form.
+ */
+export type SignupReason = "reminders" | "spoilers";
+
+export const SIGNUP_REASON_COPY: Record<SignupReason, string> = {
+  reminders: "Create a free account to get an email before every race.",
+  spoilers: "Create a free account to keep spoiler-free mode on all your devices.",
+};
+
+/** Anything but a known reason is `null`; this is a URL parameter, so it is untrusted. */
+export function parseSignupReason(value: string | string[] | null | undefined): SignupReason | null {
+  const raw = (Array.isArray(value) ? value[0] : value)?.trim().toLowerCase();
+  return raw === "reminders" || raw === "spoilers" ? raw : null;
+}
+
+/**
+ * Where to send the visitor after signing in, from the untrusted `?next=`.
+ * Only a same-site path survives; anything else is the home page.
+ *
+ * "Starts with `/` and not `//`" is not enough. Browsers normalise before they
+ * navigate, so `/\evil.example` and a slash followed by a tab or newline and a
+ * second slash both become `//evil.example`, a protocol-relative redirect to
+ * someone else's site. Backslashes (raw or `%5C`) and control characters are
+ * therefore refused outright, and the result must still resolve to this origin
+ * when parsed. `/signin` is refused so a sign-in cannot bounce back to itself.
+ */
+export function safeNextPath(value: string | string[] | null | undefined): string {
+  const next = Array.isArray(value) ? value[0] : value;
+  if (!next || !next.startsWith("/") || next.startsWith("//")) return "/";
+  if (/[\\\u0000-\u001f\u007f]/.test(next) || /%5c/i.test(next)) return "/";
+  if (next.startsWith("/signin")) return "/";
+  try {
+    if (new URL(next, "http://same.site").origin !== "http://same.site") return "/";
+  } catch {
+    return "/";
+  }
+  return next;
+}
+
+/**
  * The `/signin` URL for a mode, keeping the other query parameters (`next`,
  * but not a stale `error`, which belongs to the attempt that produced it).
  */
