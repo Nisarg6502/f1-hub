@@ -47,7 +47,7 @@ export default function DataSourcesPage() {
                 </a>
               </td>
               <td>
-                Near-live timing on Live and Watch, and the per-session weather
+                Near-live timing on Watch, and the per-session weather
                 on every race page
               </td>
               <td>Seconds to minutes behind</td>
