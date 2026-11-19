@@ -25,6 +25,7 @@ model itself gets exercised, sparingly, against the free-tier quota.
 import asyncio
 import json
 import sys
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -441,13 +442,27 @@ class FailureTests(unittest.TestCase):
     @patch.object(main.config, "api_key", lambda: "test-key")
     def test_quota_failure_opens_the_breaker(self):
         async def boom(*_a, **_k):
-            raise model.ModelAtCapacity("HTTP 402")
+            raise model.ModelAtCapacity("HTTP 402", exhausted=True)
             yield  # pragma: no cover
 
         with patch.object(main.graph, "astream_answer", boom):
             post()
 
         self.assertIsNotNone(capacity.exhausted_until())
+
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_a_transient_rate_limit_does_not_open_the_breaker(self):
+        """One 429 or out-of-memory blip, or a collision with the prewarm job,
+        must not refuse every question for 15 minutes."""
+        async def blip(*_a, **_k):
+            raise model.ModelAtCapacity("HTTP 429")  # exhausted defaults to False
+            yield  # pragma: no cover
+
+        with patch.object(main.graph, "astream_answer", blip):
+            error = post().payload_of("error")
+
+        self.assertEqual(error["code"], "at_capacity")
+        self.assertIsNone(capacity.exhausted_until())
 
     @patch.object(main.config, "api_key", lambda: "test-key")
     def test_a_slow_question_does_not_open_the_breaker(self):
@@ -463,16 +478,57 @@ class FailureTests(unittest.TestCase):
     @patch.object(main.config, "api_key", lambda: "test-key")
     def test_resting_refuses_without_running_the_model(self):
         capacity.record_exhausted()
-        astream = MagicMock()
+        ran = []
 
-        with patch.object(main.graph, "astream_answer", astream):
+        async def must_not_run(*_a, **_k):
+            ran.append(True)
+            raise AssertionError("the model must not run while resting")
+            yield  # pragma: no cover
+
+        with patch.object(main.graph, "astream_answer", must_not_run), patch.object(
+            main.rate_limit, "settle", wraps=main.rate_limit.settle
+        ) as settle:
             response = post()
 
         self.assertEqual(response.names(), ["error"])
         error = response.payload_of("error")
         self.assertEqual(error["code"], "at_capacity")
         self.assertEqual(error["message"], main.RESTING_MESSAGE)
-        astream.assert_not_called()
+        self.assertEqual(ran, [])
+        # The up-front charge is refunded down to the cost of a refusal, as for
+        # every other early exit in `_stream`.
+        refund = main.rate_limit.measured_cost(tier=None, refused=True)
+        self.assertEqual(settle.call_args.kwargs["actual_cost"], refund)
+
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_a_question_that_waited_in_the_queue_is_refused_once_the_breaker_opened(self):
+        """Askers already queued when the first quota failure lands would each
+        still make a slow, failing model call; the check repeats after the slot."""
+        ran = []
+
+        class SlotThatOpensTheBreaker:
+            async def __aenter__(self):
+                capacity.record_exhausted()  # the question ahead of us just failed
+                return types.SimpleNamespace(waited=0.0)
+
+            async def __aexit__(self, *exc):
+                return False
+
+        async def must_not_run(*_a, **_k):
+            ran.append(True)
+            raise AssertionError("the model must not run while resting")
+            yield  # pragma: no cover
+
+        with patch.object(main.concurrency, "run_slot", lambda: SlotThatOpensTheBreaker()), patch.object(
+            main.graph, "astream_answer", must_not_run
+        ), patch.object(main.rate_limit, "settle", wraps=main.rate_limit.settle) as settle:
+            response = post()
+
+        self.assertEqual(response.names(), ["error"])
+        self.assertEqual(response.payload_of("error")["message"], main.RESTING_MESSAGE)
+        self.assertEqual(ran, [])
+        refund = main.rate_limit.measured_cost(tier=None, refused=True)
+        self.assertEqual(settle.call_args.kwargs["actual_cost"], refund)
 
     @patch.object(main.config, "api_key", lambda: "test-key")
     @patch.object(main.config, "mongodb_uri", lambda: "mongodb://stub")

@@ -322,11 +322,16 @@ export default function DriverCompareModal({
                 )}
               </div>
 
-              <DriverComparisonRecap
-                year={seasonYear}
-                driver1={driverAId ?? ""}
-                driver2={driverBId ?? ""}
-              />
+              {/* With no shared round there is nothing to narrate, and the card's
+                  "numbers above are complete" line would point at numbers that
+                  are not there. */}
+              {(summary.raceCommonCount > 0 || summary.qualiCommonCount > 0) && (
+                <DriverComparisonRecap
+                  year={seasonYear}
+                  driver1={driverAId ?? ""}
+                  driver2={driverBId ?? ""}
+                />
+              )}
             </div>
           )}
         </div>

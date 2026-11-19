@@ -54,17 +54,39 @@ class ModelAtCapacity(ModelError):
     Free-tier session limits reset every 5 hours and weekly limits every 7
     days, so this is an expected operating state rather than an exception —
     failure mode 6b in the plan. The caller degrades; it never shows a trace.
+
+    `exhausted` separates the two things this covers. It is true only when the
+    provider said the usage allowance is spent (HTTP 402, or wording such as
+    "quota" or "usage limit"), which stays true for hours. It is false for a
+    rate limit, a collision with another run, or an out-of-memory blip, which
+    clear in seconds. `capacity.py` only remembers the first kind: treating one
+    transient 429 as a spent allowance would refuse every question for fifteen
+    minutes while the quota was fine.
     """
+
+    def __init__(self, message: str, *, status: int | None = None, exhausted: bool = False):
+        super().__init__(message, status=status)
+        self.exhausted = exhausted
 
 
 class ModelTimeout(ModelError):
     """The model did not finish inside the wall-clock budget."""
 
 
+# Wording that says the allowance itself is used up, as opposed to the provider
+# being busy. 402 is always this; a 429 or an in-stream error only when it says so.
+_ALLOWANCE_PATTERNS = re.compile(
+    r"quota|usage limit|usage cap|weekly|session limit|allowance|payment required|subscription",
+    re.I,
+)
+
+
 def _classify(status: int, body: str) -> ModelError:
     if status in (402, 429):
         return ModelAtCapacity(
-            f"inference quota or rate limit reached (HTTP {status})", status=status
+            f"inference quota or rate limit reached (HTTP {status})",
+            status=status,
+            exhausted=status == 402 or bool(_ALLOWANCE_PATTERNS.search(body or "")),
         )
     if status in (401, 403):
         # A bad key is not "at capacity" — surfacing it as such would send us
@@ -86,7 +108,10 @@ _CAPACITY_PATTERNS = re.compile(
 def _classify_stream_error(message: str) -> ModelError:
     """Map an error reported inside an already-200 stream to a typed failure."""
     if _CAPACITY_PATTERNS.search(message):
-        return ModelAtCapacity(f"inference unavailable mid-stream: {message}")
+        return ModelAtCapacity(
+            f"inference unavailable mid-stream: {message}",
+            exhausted=bool(_ALLOWANCE_PATTERNS.search(message)),
+        )
     return ModelError(f"inference failed mid-stream: {message}")
 
 

@@ -589,6 +589,15 @@ export default function PitwallAssistantPanel({
       .catch(() => setResting(null));
     return () => controller.abort();
   }, [visibility]);
+  // The banner promises a time, so it must not outlive it.
+  useEffect(() => {
+    if (!resting?.retryAt) return;
+    const timer = setTimeout(
+      () => setResting(null),
+      Math.max(0, resting.retryAt.getTime() - Date.now())
+    );
+    return () => clearTimeout(timer);
+  }, [resting]);
 
   // The turn's abort is intentionally NOT in the effect above anymore.
   // Aborting has to survive exactly as long as this component is actually
@@ -1083,7 +1092,7 @@ export default function PitwallAssistantPanel({
           >
             <p className="font-semibold text-[var(--color-on-surface)]">
               {resting.retryAt
-                ? `Back at about ${resting.retryAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                ? `Checking again at about ${resting.retryAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
                 : "Resting for now"}
             </p>
             <p className="mt-0.5 text-[var(--color-on-surface-variant)]">

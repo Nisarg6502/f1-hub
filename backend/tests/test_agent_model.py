@@ -166,6 +166,22 @@ class StatusClassificationTests(unittest.TestCase):
         with self.assertRaises(model.ModelAtCapacity):
             run_stream(b'{"error":"payment required"}', status=402)
 
+    def test_402_means_the_allowance_is_exhausted(self):
+        self.assertTrue(model._classify(402, "payment required").exhausted)
+
+    def test_a_plain_429_is_busy_not_exhausted(self):
+        """A rate limit or a collision with another run clears in seconds; it
+        must not be treated as the allowance being spent."""
+        self.assertFalse(model._classify(429, "too many requests").exhausted)
+
+    def test_a_429_that_says_the_usage_limit_is_reached_is_exhausted(self):
+        self.assertTrue(model._classify(429, "you have reached your weekly usage limit").exhausted)
+
+    def test_stream_errors_split_into_exhausted_and_transient(self):
+        self.assertTrue(model._classify_stream_error("quota exceeded for this session").exhausted)
+        self.assertFalse(model._classify_stream_error("model requires more system memory").exhausted)
+        self.assertFalse(model._classify_stream_error("rate limit exceeded, try again later").exhausted)
+
     def test_401_is_not_at_capacity(self):
         """A bad key must not be dressed up as a quota problem.
 

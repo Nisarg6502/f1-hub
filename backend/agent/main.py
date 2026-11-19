@@ -606,6 +606,16 @@ async def _stream(
                         kind="system",
                         at=_now_iso(),
                     )
+                # The question ahead of this one may have been the one that
+                # found the allowance spent. Askers already queued behind it
+                # would each otherwise make a slow, failing model call, so the
+                # breaker is checked again now that a turn has been granted.
+                if capacity.exhausted_until() is not None:
+                    settle_cost = refund_only
+                    yield sse.error("at_capacity", RESTING_MESSAGE)
+                    tracing.end(run, {"error": "resting"})
+                    return
+
                 yield sse.activity(
                     "Thinking…", "start", kind="system", at=_now_iso()
                 )
@@ -902,8 +912,12 @@ async def _stream(
             tracing.end(run, {"error": "queue_timeout", "waited": error.waited})
 
         except model.ModelAtCapacity as error:
-            # The next askers are refused at once, and `/health` says so.
-            capacity.record_exhausted()
+            # The next askers are refused at once, and `/health` says so, but
+            # only when the provider said the allowance is spent. A rate limit
+            # or a collision with another run clears in seconds, and must not
+            # refuse everyone for fifteen minutes.
+            if error.exhausted:
+                capacity.record_exhausted()
             yield sse.error(
                 "at_capacity",
                 "The assistant has run out of inference quota for now — this is "

@@ -65,10 +65,12 @@ export default function PitwallAssistantLauncher() {
   const reduce = useReducedMotion();
   const nudge = usePitwallNudge();
   // Don't advertise "ask the assistant" while it is resting: the hint would
-  // send the first-time visitor straight to a "back at ..." banner. Asked only
-  // once the nudge is about to show, so a visitor who never sees it costs the
-  // agent no request. Fails open (no answer = show it).
-  const [resting, setResting] = useState(false);
+  // send the first-time visitor straight to a "checking again at ..." banner.
+  // `null` until the agent answers, and the nudge waits for it, so it never
+  // shows and then vanishes. Asked only once the nudge is due, so a visitor who
+  // never sees it costs the agent no request. Fails open: no answer means the
+  // nudge is shown.
+  const [resting, setResting] = useState<boolean | null>(null);
   useEffect(() => {
     if (!nudge.visible) return;
     const controller = new AbortController();
@@ -77,7 +79,7 @@ export default function PitwallAssistantLauncher() {
       .catch(() => setResting(false));
     return () => controller.abort();
   }, [nudge.visible]);
-  const showNudge = nudge.visible && !resting;
+  const showNudge = nudge.visible && resting === false;
   // Once a conversation has started, the panel stays mounted across
   // minimize/restore — only an explicit Close tears it down. This is what
   // lets `abortRef`, `messages` and `threadId` inside the panel survive a
