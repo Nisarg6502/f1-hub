@@ -27,11 +27,11 @@ import json
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agent import concurrency, followups, main, model
+from agent import capacity, concurrency, followups, main, model
 
 
 _SUGGEST_PATCH = None
@@ -392,6 +392,10 @@ class EchoFallbackTests(unittest.TestCase):
 class FailureTests(unittest.TestCase):
     def setUp(self):
         concurrency.reset_for_tests()
+        # A quota failure opens a process-wide breaker; it must not outlive the
+        # test and refuse the next one's question.
+        capacity.clear()
+        self.addCleanup(capacity.clear)
 
     def test_empty_message_is_an_error_event_not_an_http_error(self):
         """The failure rides the stream, because the status is already 200.
@@ -433,6 +437,61 @@ class FailureTests(unittest.TestCase):
         self.assertEqual(error["code"], "at_capacity")
         self.assertNotIn("429", error["message"])
         self.assertNotIn("ollama.com", error["message"])
+
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_quota_failure_opens_the_breaker(self):
+        async def boom(*_a, **_k):
+            raise model.ModelAtCapacity("HTTP 402")
+            yield  # pragma: no cover
+
+        with patch.object(main.graph, "astream_answer", boom):
+            post()
+
+        self.assertIsNotNone(capacity.exhausted_until())
+
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_a_slow_question_does_not_open_the_breaker(self):
+        async def slow(*_a, **_k):
+            raise model.ModelTimeout("too slow")
+            yield  # pragma: no cover
+
+        with patch.object(main.graph, "astream_answer", slow):
+            post()
+
+        self.assertIsNone(capacity.exhausted_until())
+
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    def test_resting_refuses_without_running_the_model(self):
+        capacity.record_exhausted()
+        astream = MagicMock()
+
+        with patch.object(main.graph, "astream_answer", astream):
+            response = post()
+
+        self.assertEqual(response.names(), ["error"])
+        error = response.payload_of("error")
+        self.assertEqual(error["code"], "at_capacity")
+        self.assertEqual(error["message"], main.RESTING_MESSAGE)
+        astream.assert_not_called()
+
+    @patch.object(main.config, "api_key", lambda: "test-key")
+    @patch.object(main.config, "mongodb_uri", lambda: "mongodb://stub")
+    def test_cached_answer_still_served_while_resting(self):
+        """A cache hit costs nothing, so a resting model must not block it."""
+        capacity.record_exhausted()
+        cached = {"text": "Norris won.", "tier": 1, "sources": []}
+        astream = MagicMock()
+
+        with patch.object(main.answer_cache, "get_cached", return_value=cached), patch.object(
+            main.graph, "astream_answer", astream
+        ):
+            response = post("Who won the Brazilian Grand Prix?")
+
+        names = response.names()
+        self.assertIn("token", names)
+        self.assertIn("done", names)
+        self.assertNotIn("error", names)
+        astream.assert_not_called()
 
     @patch.object(main.config, "api_key", lambda: "test-key")
     def test_timeout_maps_to_the_timeout_code(self):
@@ -762,6 +821,18 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(body["service"], "f1-agent")
         for key in ("model", "inference_configured", "langsmith_tracing", "runs"):
             self.assertIn(key, body)
+
+    def test_health_reports_capacity(self):
+        capacity.clear()
+        self.addCleanup(capacity.clear)
+
+        body = json.loads(asyncio.run(_drive("GET", "/health")).body)
+        self.assertEqual(body["capacity"], {"available": True, "retry_at": None})
+
+        capacity.record_exhausted()
+        body = json.loads(asyncio.run(_drive("GET", "/health")).body)
+        self.assertFalse(body["capacity"]["available"])
+        self.assertTrue(body["capacity"]["retry_at"].endswith("Z"))
 
 
 if __name__ == "__main__":
