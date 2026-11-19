@@ -26,6 +26,12 @@ const GENERATING_LABEL: Record<RecapSession, string> = {
   sprint: "Generating sprint recap…",
 };
 
+// Shown when the request finished and nothing came back: the recap has not been
+// written yet (the sync writes them after each session), or the model was
+// unavailable when it tried.
+const EMPTY_LABEL =
+  "This recap hasn't been written yet. Recaps are generated automatically after each session — check back later.";
+
 // The recap cites the data behind each claim inline: [P1] for a classification
 // row, [FL] for the fastest lap, [RC 66] for a race-control event on that lap,
 // or — in the Qualifying recap — [Q3 P4] for a segment time. Rendering them as
@@ -90,8 +96,9 @@ function decorateCitations(children: ReactNode, replayHref?: (lap: number) => st
 // given session — every request after that replays the cached text from
 // Mongo, still through the same streaming response). If nothing ever arrives
 // — no OLLAMA_API_KEY configured, no cached results for this session, or the
-// call failed — this renders nothing rather than an error, matching the
-// app's other empty states.
+// call failed — this says so in the card's own frame. It used to render
+// nothing, which made a recap that had failed to generate look like a page
+// that never had one.
 export default function SessionRecapCard({
   year,
   round,
@@ -140,8 +147,6 @@ export default function SessionRecapCard({
     };
   }, [year, round, session]);
 
-  if (!isStreaming && !text) return null;
-
   // The race replay's lap timeline is built from the Race session only
   // (see race_replay.py) — a qualifying or sprint recap's `[RC L#]` laps
   // belong to a different session and don't correspond to it, so only the
@@ -184,14 +189,18 @@ export default function SessionRecapCard({
             {text}
           </ReactMarkdown>
         ) : (
-          <span className="text-warm-400">{GENERATING_LABEL[session]}</span>
+          <span className="text-warm-400">
+            {isStreaming ? GENERATING_LABEL[session] : EMPTY_LABEL}
+          </span>
         )}
       </div>
 
-      <p className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500 mt-4 pt-3.5 border-t border-white/[0.06]">
-        Generated commentary · grounded in {session === "qualifying" ? "session" : "race"} results
-        and FIA race control · citations reference the {session === "qualifying" ? "segment times" : "classification"} below
-      </p>
+      {text && (
+        <p className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500 mt-4 pt-3.5 border-t border-white/[0.06]">
+          Generated commentary · grounded in {session === "qualifying" ? "session" : "race"} results
+          and FIA race control · citations reference the {session === "qualifying" ? "segment times" : "classification"} below
+        </p>
+      )}
     </div>
   );
 }

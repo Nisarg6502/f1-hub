@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from . import (
     answer_cache,
+    capacity,
     checkpointer,
     concurrency,
     config,
@@ -83,6 +84,15 @@ async def _heartbeat_until_done(
         await asyncio.wait({task}, timeout=wait_seconds)
         if not task.done():
             yield sse.comment("heartbeat")
+
+
+# Said to anyone who asks while `capacity` knows the provider is out of
+# allowance. Deliberately free of "free tier" and "quota": the reader's takeaway
+# is "come back shortly", and cached answers still working is the useful part.
+RESTING_MESSAGE = (
+    "The assistant has used up its inference allowance for now and will be back "
+    "shortly. Questions it has answered before still work instantly."
+)
 
 
 def _now_iso() -> str:
@@ -220,6 +230,10 @@ async def health() -> dict:
         # bound rather than a total, which is worth knowing from the endpoint
         # rather than inferring from a dashboard.
         "rate_limit": rate_limit.budget_snapshot(),
+        # Whether the model provider has refused for lack of allowance, and when
+        # we will next try. The frontend reads this to say so before anyone
+        # types a question (see `capacity.py`).
+        "capacity": capacity.snapshot(),
     }
 
 
@@ -493,6 +507,16 @@ async def _stream(
         )
         return
 
+    # The provider has already said its allowance is spent. Refuse now rather
+    # than make this reader wait out a model call that will fail the same way.
+    # After the cache lookup above, which costs no inference and so is still
+    # served. The fast path and the graph both run inside `graph.astream_answer`,
+    # so skipping here skips both.
+    if capacity.exhausted_until() is not None:
+        await rate_limit.settle(decision, actual_cost=refund_only)
+        yield sse.error("at_capacity", RESTING_MESSAGE)
+        return
+
     history = await _seed_history(auth, thread_id, stored)
 
     with tracing.traced_run(
@@ -582,6 +606,16 @@ async def _stream(
                         kind="system",
                         at=_now_iso(),
                     )
+                # The question ahead of this one may have been the one that
+                # found the allowance spent. Askers already queued behind it
+                # would each otherwise make a slow, failing model call, so the
+                # breaker is checked again now that a turn has been granted.
+                if capacity.exhausted_until() is not None:
+                    settle_cost = refund_only
+                    yield sse.error("at_capacity", RESTING_MESSAGE)
+                    tracing.end(run, {"error": "resting"})
+                    return
+
                 yield sse.activity(
                     "Thinking…", "start", kind="system", at=_now_iso()
                 )
@@ -878,6 +912,12 @@ async def _stream(
             tracing.end(run, {"error": "queue_timeout", "waited": error.waited})
 
         except model.ModelAtCapacity as error:
+            # The next askers are refused at once, and `/health` says so, but
+            # only when the provider said the allowance is spent. A rate limit
+            # or a collision with another run clears in seconds, and must not
+            # refuse everyone for fifteen minutes.
+            if error.exhausted:
+                capacity.record_exhausted()
             yield sse.error(
                 "at_capacity",
                 "The assistant has run out of inference quota for now — this is "

@@ -5,6 +5,11 @@ import ReactMarkdown from "react-markdown";
 import { useReducedMotion } from "motion/react";
 import { getStrategyCommentaryUrl } from "@/lib/api";
 
+// Shown when the request finished and nothing came back: not written yet (the
+// sync writes it after each race), or the model was unavailable when it tried.
+const EMPTY_LABEL =
+  "Strategy commentary for this race hasn't been written yet. It's generated automatically after the race — check back later.";
+
 interface StrategyCommentaryCardProps {
   year: number;
   round: number;
@@ -14,8 +19,8 @@ interface StrategyCommentaryCardProps {
 // for a given race — every request after that replays the cached text from
 // Mongo, still through the same streaming response). If nothing ever arrives
 // — no OLLAMA_API_KEY configured, no cached race_stints/race_laps for this
-// round, or the call failed — this renders nothing rather than an error,
-// matching SessionRecapCard's empty behaviour. Simplified from that card: no
+// round, or the call failed — this says so in the card's own frame, as
+// SessionRecapCard does. Simplified from that card: no
 // citation decoration or replay-link machinery, since the strategy prompt
 // doesn't emit `[P1]`-style markers — plain Markdown is enough here.
 export default function StrategyCommentaryCard({ year, round }: StrategyCommentaryCardProps) {
@@ -62,8 +67,6 @@ export default function StrategyCommentaryCard({ year, round }: StrategyCommenta
     };
   }, [year, round]);
 
-  if (!isStreaming && !text) return null;
-
   return (
     <div className="apex-glass-soft rounded-2xl p-[22px] mb-6">
       <div className="flex items-center gap-2 mb-3.5">
@@ -95,13 +98,17 @@ export default function StrategyCommentaryCard({ year, round }: StrategyCommenta
             {text}
           </ReactMarkdown>
         ) : (
-          <span className="text-warm-400">Generating strategy commentary…</span>
+          <span className="text-warm-400">
+            {isStreaming ? "Generating strategy commentary…" : EMPTY_LABEL}
+          </span>
         )}
       </div>
 
-      <p className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500 mt-4 pt-3.5 border-t border-white/[0.06]">
-        Generated commentary · grounded in tyre stint and pit-stop data
-      </p>
+      {text && (
+        <p className="font-semibold text-[10px] tracking-[0.1em] uppercase text-warm-500 mt-4 pt-3.5 border-t border-white/[0.06]">
+          Generated commentary · grounded in tyre stint and pit-stop data
+        </p>
+      )}
     </div>
   );
 }

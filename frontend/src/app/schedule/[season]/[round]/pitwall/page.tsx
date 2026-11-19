@@ -265,11 +265,11 @@ export default async function PitwallPage({ params, searchParams }: PageProps) {
             id: "strategy-commentary",
             label: "Strategy Commentary",
             // StrategyCommentaryCard self-fetches/streams (like SessionRecapCard)
-            // and renders null once it's clear there's nothing to show, but that
-            // reads as a blank panel below the sidebar for a module a reader might
-            // click before the backing data exists — an explicit empty state,
-            // gated on the same stints/laps data this endpoint requires, reads
-            // better here than a silently blank card.
+            // and says so in its own frame when nothing comes back. The data
+            // this endpoint needs (stints and laps) is checked here first: a
+            // round that has none gets a module-level explanation with a way
+            // forward, which reads better than a card that can only say
+            // "not written yet".
             panel: stints.length && laps.length ? (
               <StrategyCommentaryCard year={seasonYear} round={roundNumber} />
             ) : (
