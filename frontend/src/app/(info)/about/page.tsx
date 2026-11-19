@@ -4,7 +4,7 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "About | APEX",
   description:
-    "APEX is an independent Formula 1 hub: schedule, standings, drivers, teams, circuits, telemetry and a cited chat assistant. An independent personal project.",
+    "APEX is an independent Formula 1 hub: schedule, standings, drivers, teams, circuits, race replays and a cited chat assistant. An independent personal project.",
 };
 
 export default function AboutPage() {

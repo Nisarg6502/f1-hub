@@ -88,7 +88,7 @@ export default async function Image() {
             marginTop: "34px",
           }}
         >
-          Schedule · Standings · Telemetry · History
+          Schedule · Standings · Replays · History
         </div>
       </div>
     ),

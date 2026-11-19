@@ -16,8 +16,7 @@
  *   - It never advertises anything unverified. Every tip below points at a
  *     route confirmed to render: `/circuits/spa` is one of the four geometry
  *     payloads bundled in `frontend/public/tracks/`, so the 3D viewer loads
- *     with no bucket and no backend. `/telemetry` is excluded on purpose — it
- *     has never rendered a row of timing data (see FEATURES.md, "Known gaps").
+ *     with no bucket and no backend.
  *   - It never rotates during server render. The first tip is seeded from the
  *     round number, so server and client HTML agree; rotation only begins in an
  *     effect after mount. `Math.random()` here would be a hydration mismatch on

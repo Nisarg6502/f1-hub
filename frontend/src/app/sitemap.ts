@@ -23,7 +23,6 @@ const ROUTES = [
   { path: "/drivers", priority: 0.8 },
   { path: "/teams", priority: 0.8 },
   { path: "/circuits", priority: 0.8 },
-  { path: "/telemetry", priority: 0.7 },
   { path: "/history", priority: 0.7 },
   { path: "/watch", priority: 0.6 },
   { path: "/about", priority: 0.5 },

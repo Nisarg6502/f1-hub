@@ -287,14 +287,6 @@ const ROUTE_SUGGESTIONS: { pattern: RegExp; suggestions: string[] }[] = [
     ],
   },
   {
-    pattern: /^\/telemetry\/?$/,
-    suggestions: [
-      "What's happening in the session right now?",
-      "Who's currently fastest on track?",
-      "Explain what these telemetry traces show",
-    ],
-  },
-  {
     pattern: /^\/history\/?$/,
     suggestions: [
       "Who has the most world championships?",

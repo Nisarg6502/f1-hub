@@ -222,6 +222,13 @@ const nextConfig: NextConfig = {
   // Next advertises its version in a response header by default; it is free
   // reconnaissance and nothing depends on it.
   poweredByHeader: false,
+  async redirects() {
+    return [
+      // The Live page never had a feed and is gone. Permanent, so an old link,
+      // or anything that indexed it, lands on the home page rather than a 404.
+      { source: "/telemetry/:path*", destination: "/", permanent: true },
+    ];
+  },
   async headers() {
     return [
       {

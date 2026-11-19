@@ -64,7 +64,7 @@ const hanken = Hanken_Grotesk({
 export async function generateMetadata(): Promise<Metadata> {
   const season = getActiveSeasonYear();
   const title = `APEX | ${season} F1 Season Hub`;
-  const description = `APEX — a warm, high-clarity home for the ${season} Formula 1 season: schedule, standings, drivers, teams, circuits and telemetry.`;
+  const description = `APEX — a home for the ${season} Formula 1 season: schedule, standings, drivers, teams, circuits, race replays and history.`;
 
   return {
     // Required for the relative OG image path below to resolve, and for any
@@ -347,7 +347,7 @@ export default function RootLayout({
                 </div>
                 <p className="font-medium text-xs leading-relaxed text-warm-500">
                   A season hub for Formula 1 — every round, every session,
-                  every driver, with the timing and telemetry behind them.
+                  every driver, and every race replayed lap by lap.
                 </p>
                 {/* This line already existed and already made the right claim;
                     it just had nowhere to go. It is now the entry point to the
@@ -377,7 +377,6 @@ export default function RootLayout({
                     { href: "/drivers", label: "Drivers" },
                     { href: "/teams", label: "Teams" },
                     { href: "/circuits", label: "Circuits" },
-                    { href: "/telemetry", label: "Live" },
                     { href: "/watch", label: "Watch" },
                     { href: "/history", label: "History" },
                   ]}
