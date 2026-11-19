@@ -1008,14 +1008,20 @@ def main() -> int:
             print("\n--- watch caches ---")
             warm_season(WATCH_WARM_BASE_URL, year, [int(race["round"]) for race in finished])
 
-            # Recaps and strategy commentary, so the newest race has its text
-            # before anyone opens it. See ai_warm.py.
-            print("\n--- AI text ---")
+    client.close()
+
+    # Recaps and strategy commentary, so the newest race has its text before
+    # anyone opens it. Last, and outside the per-year loop, on purpose: it is
+    # the slowest step (a model call per text) and the only one that can run
+    # long, so it must not delay another year's data. It has its own time
+    # budget (see ai_warm.py), and the next hourly sync continues what it left.
+    if WATCH_WARM_BASE_URL:
+        print("\n--- AI text ---")
+        for year in years:
             missing = warm_ai_season(WATCH_WARM_BASE_URL, year, window_days=AI_WARM_DAYS)
             if missing:
-                print(f"  {len(missing)} text(s) not available yet (the next sync retries them)")
+                print(f"  {year}: {len(missing)} text(s) not available yet (the next sync retries them)")
 
-    client.close()
     print("\n=== sync complete ===")
     return 0
 
