@@ -533,6 +533,9 @@ class FailureTests(unittest.TestCase):
             ("quota", out_of_quota),
             ("timeout", slow),
         ):
+            # Three independent failures: the quota one opens the breaker, which
+            # would otherwise refuse the next question before it reached the model.
+            capacity.clear()
             with patch.object(main.graph, "astream_answer", boom):
                 messages[key] = post().payload_of("error")["message"]
 
