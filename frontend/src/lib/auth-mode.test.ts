@@ -5,6 +5,8 @@ import {
   nextTabIndex,
   originRejectionMessage,
   parseAuthMode,
+  parseSignupReason,
+  SIGNUP_REASON_COPY,
 } from "./auth-mode";
 
 describe("parseAuthMode", () => {
@@ -60,5 +62,34 @@ describe("origin rejection", () => {
     expect(originRejectionMessage("https://apex.example.run.app")).toContain("apex.example.run.app");
     expect(originRejectionMessage(undefined)).toMatch(/main address/);
     expect(originRejectionMessage("nope")).toMatch(/main address/);
+  });
+});
+
+describe("parseSignupReason", () => {
+  it("accepts the two reasons the site links with", () => {
+    expect(parseSignupReason("reminders")).toBe("reminders");
+    expect(parseSignupReason("spoilers")).toBe("spoilers");
+  });
+
+  it("takes the first of a repeated parameter", () => {
+    expect(parseSignupReason(["spoilers", "reminders"])).toBe("spoilers");
+  });
+
+  it("is case-insensitive and trims, like the mode", () => {
+    expect(parseSignupReason(" Reminders ")).toBe("reminders");
+  });
+
+  it.each([[undefined], [null], [""], ["other"], ["constructor"], ["__proto__"], ["reminders,spoilers"]])(
+    "ignores anything else (%s)",
+    (value) => {
+      expect(parseSignupReason(value as string | null | undefined)).toBeNull();
+    }
+  );
+});
+
+describe("SIGNUP_REASON_COPY", () => {
+  it("says what the account is for, in the visitor's terms", () => {
+    expect(SIGNUP_REASON_COPY.reminders).toBe("Create a free account to get an email before every race.");
+    expect(SIGNUP_REASON_COPY.spoilers).toBe("Create a free account to keep spoiler-free mode on all your devices.");
   });
 });

@@ -14,6 +14,25 @@ export function parseAuthMode(value: string | string[] | null | undefined): Auth
 }
 
 /**
+ * Why the visitor was sent to the sign-up tab, from `?reason=`. A link from a
+ * place that wants an account (the race reminder prompt, the spoiler-free
+ * panel) says so, and the form repeats it in one line, so the page answers
+ * "why am I being asked?" before showing a form.
+ */
+export type SignupReason = "reminders" | "spoilers";
+
+export const SIGNUP_REASON_COPY: Record<SignupReason, string> = {
+  reminders: "Create a free account to get an email before every race.",
+  spoilers: "Create a free account to keep spoiler-free mode on all your devices.",
+};
+
+/** Anything but a known reason is `null`; this is a URL parameter, so it is untrusted. */
+export function parseSignupReason(value: string | string[] | null | undefined): SignupReason | null {
+  const raw = (Array.isArray(value) ? value[0] : value)?.trim().toLowerCase();
+  return raw === "reminders" || raw === "spoilers" ? raw : null;
+}
+
+/**
  * The `/signin` URL for a mode, keeping the other query parameters (`next`,
  * but not a stale `error`, which belongs to the attempt that produced it).
  */
