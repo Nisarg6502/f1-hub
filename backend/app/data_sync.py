@@ -38,6 +38,7 @@ from .f1_results import (
 from .historical_index import normalize_races
 
 from .local_env import load_local_env
+from .ai_warm import warm_ai_season
 from .watch_cache_warm import DEFAULT_BASE as WATCH_WARM_BASE, warm_season
 
 # See `local_env`: the repo has two `.env` files and the nearer one lacks the
@@ -50,6 +51,21 @@ FORCE_RESYNC = os.getenv("FORCE_RESYNC", "").lower() in ("1", "true", "yes")
 # Backend whose watch caches to warm after syncing. Empty disables it (local
 # runs against a dev database have no deployed API to warm).
 WATCH_WARM_BASE_URL = os.environ.get("WATCH_WARM_BASE_URL", WATCH_WARM_BASE)
+
+
+def _ai_warm_days() -> int:
+    """How many days back the sync pre-generates recaps and commentary for.
+
+    A bad value falls back to 30 rather than failing the import and, with it,
+    the whole sync.
+    """
+    try:
+        return max(0, int(os.environ.get("AI_WARM_DAYS", "30")))
+    except ValueError:
+        return 30
+
+
+AI_WARM_DAYS = _ai_warm_days()
 
 ERGAST_BASE = "https://api.jolpi.ca/ergast/f1"
 OPENF1_BASE = "https://api.openf1.org/v1"
@@ -993,6 +1009,19 @@ def main() -> int:
             warm_season(WATCH_WARM_BASE_URL, year, [int(race["round"]) for race in finished])
 
     client.close()
+
+    # Recaps and strategy commentary, so the newest race has its text before
+    # anyone opens it. Last, and outside the per-year loop, on purpose: it is
+    # the slowest step (a model call per text) and the only one that can run
+    # long, so it must not delay another year's data. It has its own time
+    # budget (see ai_warm.py), and the next hourly sync continues what it left.
+    if WATCH_WARM_BASE_URL:
+        print("\n--- AI text ---")
+        for year in years:
+            missing = warm_ai_season(WATCH_WARM_BASE_URL, year, window_days=AI_WARM_DAYS)
+            if missing:
+                print(f"  {year}: {len(missing)} text(s) not available yet (the next sync retries them)")
+
     print("\n=== sync complete ===")
     return 0
 
