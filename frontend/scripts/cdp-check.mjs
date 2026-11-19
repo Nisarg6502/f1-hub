@@ -2,9 +2,13 @@
 // Headless Chrome check: load a URL at a phone or desktop size, evaluate one
 // JS expression in the page, optionally save a full-page screenshot.
 //
-//   node scripts/cdp-check.mjs --url <url> [--mobile] [--landscape]
+//   node scripts/cdp-check.mjs --url <url> [--mobile | --landscape | --width <px> [--height <px>]]
 //                              [--wait <ms>] [--eval "<js expression>"]
 //                              [--shot <path.jpg>]
+//
+// `--width` is a phone of that width (default height 844), for the sizes
+// between the two presets: 320 and 360 are where text and fixed-height cards
+// break first.
 //
 // Prints one JSON line -- {"ok":true,"value":...} or {"ok":false,"error":"..."}
 // -- and always exits 0, so a caller reads the line rather than the exit code.
@@ -33,6 +37,8 @@ function parseArgs(argv) {
     const flag = argv[i];
     if (flag === "--mobile") args.mobile = true;
     else if (flag === "--landscape") args.landscape = true;
+    else if (flag === "--width") args.width = Number(argv[++i]);
+    else if (flag === "--height") args.height = Number(argv[++i]);
     else if (flag === "--url") args.url = argv[++i];
     else if (flag === "--wait") args.wait = Number(argv[++i]);
     else if (flag === "--eval") args.eval = argv[++i];
@@ -128,16 +134,18 @@ async function run(args, profileDir) {
 
     let width = 1440;
     let height = 900;
-    if (args.mobile || args.landscape) {
-      [width, height] = args.landscape ? [844, 390] : [390, 844];
+    const phone = args.mobile || args.landscape || args.width;
+    if (phone) {
+      if (args.width) [width, height] = [args.width, args.height || 844];
+      else [width, height] = args.landscape ? [844, 390] : [390, 844];
       await send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
       await send("Emulation.setUserAgentOverride", { userAgent: IPHONE_UA });
     }
     await send("Emulation.setDeviceMetricsOverride", {
       width,
       height,
-      deviceScaleFactor: args.mobile || args.landscape ? 2 : 1,
-      mobile: Boolean(args.mobile || args.landscape),
+      deviceScaleFactor: phone ? 2 : 1,
+      mobile: Boolean(phone),
     });
 
     const loaded = waitForEvent("Page.loadEventFired", 45000);

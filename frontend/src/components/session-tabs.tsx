@@ -114,14 +114,17 @@ export default function SessionTabs({
   return (
     <div>
       {/* Session Tabs */}
-      <div className="flex flex-wrap gap-2 mb-5">
+      {/* One scrolling row on a phone: five tabs wrapped onto a second line,
+          leaving FP1 alone under the rest. The negative margin lets the row
+          run to the screen edge, and `sm:` puts it back to a wrapping row. */}
+      <div className="flex gap-2 mb-5 overflow-x-auto sm:flex-wrap -mx-6 px-6 py-1 -my-1 sm:mx-0 sm:px-0">
         {availableSessions.map((key) => {
           const active = activeSession === key;
           return (
             <button
               key={key}
               onClick={() => setActiveSession(key)}
-              className={`text-xs px-[18px] py-2.5 rounded-control transition-[background-color,color,transform] duration-150 active:scale-[0.97] ${
+              className={`flex-none whitespace-nowrap text-xs px-[18px] py-2.5 rounded-control transition-[background-color,color,transform] duration-150 active:scale-[0.97] ${
                 active
                   ? "font-bold bg-primary-container/18 text-primary"
                   : "font-semibold text-warm-300 hover:text-on-background"
@@ -132,22 +135,6 @@ export default function SessionTabs({
           );
         })}
       </div>
-
-      {/* Conditions for the SELECTED session.
-          `sessions` is absent on rounds cached before weather schema 2. Falling
-          back to the top-level (race) figures for every tab is exactly the bug
-          this replaced, so the fallback covers the Race tab only and other tabs
-          simply show no tile until the hourly sync back-fills the round. */}
-      <ConditionsTile
-        weather={
-          weather?.sessions
-            ? weather.sessions[activeSession] ?? null
-            : activeSession === "Race"
-              ? weather ?? null
-              : null
-        }
-        sessionLabel={SESSION_LABELS[activeSession]}
-      />
 
       {/* Race Session Content */}
       {activeSession === "Race" && (
@@ -231,6 +218,25 @@ export default function SessionTabs({
           />
         </>
       )}
+
+      {/* Conditions for the SELECTED session, after the result rather than
+          before it: weather is context for a result, and putting it first made
+          the winner a scroll away on a phone (measured: the winner card sat
+          at y=1068 of an 844px screen).
+          `sessions` is absent on rounds cached before weather schema 2. Falling
+          back to the top-level (race) figures for every tab is exactly the bug
+          this replaced, so the fallback covers the Race tab only and other tabs
+          simply show no tile until the hourly sync back-fills the round. */}
+      <ConditionsTile
+        weather={
+          weather?.sessions
+            ? weather.sessions[activeSession] ?? null
+            : activeSession === "Race"
+              ? weather ?? null
+              : null
+        }
+        sessionLabel={SESSION_LABELS[activeSession]}
+      />
     </div>
   );
 }

@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import PairQr from "./pair-qr";
@@ -82,6 +83,31 @@ import {
   towerLayout,
 } from "@/lib/watch-preferences";
 import { track } from "@/lib/analytics";
+
+/**
+ * The word under a control's icon, on a phone only.
+ *
+ * Seven icon-only buttons in a row are a guessing game on the device this mode
+ * is built for (a phone propped against a television). From `md` up the icons
+ * stand alone as they always did, and below 360px they do too: the labelled
+ * buttons are wider and push the bar onto an extra row, measured at +56px on a
+ * 320x568 screen that already gives the bar 46% of its height. On a short
+ * landscape phone the text is hidden
+ * but the buttons keep their phone size, because a 44px target is worth more
+ * than the few pixels of tower. Each label is contained in its button's
+ * `aria-label`, so what is seen is what a screen reader or voice control hears.
+ * `data-control-label` is how the browser check finds them.
+ */
+function ControlLabel({ children }: { children: ReactNode }) {
+  return (
+    <span
+      data-control-label
+      className="md:hidden max-[360px]:hidden [@media(max-height:520px)]:hidden text-[10px] font-semibold leading-none mt-1"
+    >
+      {children}
+    </span>
+  );
+}
 
 /** Shared with `race-replay.tsx` and `tire-stints-chart.tsx` — the same tyre
  * reads the same colour everywhere in the app. */
@@ -1841,19 +1867,21 @@ export default function WatchView({
           type="button"
           onClick={toggle}
           aria-label={playing ? "Pause" : "Play at race pace"}
-          className="flex items-center justify-center w-11 h-11 [@media(max-height:520px)]:w-9 [@media(max-height:520px)]:h-9 rounded-xl text-[#1a1210] transition-transform duration-150 ease-out active:scale-[0.97] flex-none"
+          className="flex items-center justify-center w-11 h-11 [@media(max-height:520px)]:w-9 [@media(max-height:520px)]:h-9 rounded-xl text-[#1a1210] transition-transform duration-150 ease-out active:scale-[0.97] flex-none max-md:flex-col max-md:h-auto max-md:min-h-11 max-md:w-auto max-md:min-w-11 max-md:px-2.5 max-md:py-1.5"
           style={{ background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
         >
           {playing ? <Pause size={19} /> : <Play size={19} />}
+          <ControlLabel>{playing ? "Pause" : "Play"}</ControlLabel>
         </button>
 
         <button
           type="button"
           onClick={restart}
           aria-label="Back to lap 1"
-          className="flex items-center justify-center w-11 h-11 [@media(max-height:520px)]:w-9 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft text-warm-300 hover:text-primary transition-[color,transform] duration-150 active:scale-[0.97] flex-none"
+          className="flex items-center justify-center w-11 h-11 [@media(max-height:520px)]:w-9 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft text-warm-300 hover:text-primary transition-[color,transform] duration-150 active:scale-[0.97] flex-none max-md:flex-col max-md:h-auto max-md:min-h-11 max-md:w-auto max-md:min-w-11 max-md:px-2.5 max-md:py-1.5"
         >
           <RotateCcw size={17} />
+          <ControlLabel>Lap 1</ControlLabel>
         </button>
 
         {/* Catch-up. Typed rather than scrubbed, because the number the viewer
@@ -1970,11 +1998,14 @@ export default function WatchView({
                 ? `Pinned drivers (${pinned.size}). Change`
                 : "Pin drivers to the top of the tower"
             }
-            className="flex items-center gap-1.5 h-11 [@media(max-height:520px)]:h-9 px-3 rounded-xl apex-glass-soft font-bold text-xs transition-[color,border-color,transform] duration-150 active:scale-[0.97]"
+            className="flex items-center gap-1.5 h-11 [@media(max-height:520px)]:h-9 px-3 rounded-xl apex-glass-soft font-bold text-xs transition-[color,border-color,transform] duration-150 active:scale-[0.97] max-md:flex-col max-md:h-auto max-md:min-h-11 max-md:min-w-11 max-md:py-1.5 max-md:gap-0"
             style={{ color: pinned.size > 0 ? "var(--color-primary)" : undefined }}
           >
-            <Pin size={15} />
-            {pinned.size > 0 && <span className="tabular-nums">{pinned.size}</span>}
+            <span className="flex items-center gap-1.5">
+              <Pin size={15} />
+              {pinned.size > 0 && <span className="tabular-nums">{pinned.size}</span>}
+            </span>
+            <ControlLabel>Pin</ControlLabel>
           </button>
 
           {pinnerOpen && createPortal(
@@ -2154,13 +2185,14 @@ export default function WatchView({
                   ? "Whole field as large as it will go: no names, race control on one line, two columns when there is width for them"
                   : "Names, and race control in full"
               }
-              className="flex items-center justify-center w-9 h-9 rounded-control transition-colors duration-150"
+              className="flex items-center justify-center w-9 h-9 rounded-control transition-colors duration-150 max-md:flex-col max-md:h-auto max-md:min-h-11 max-md:w-auto max-md:min-w-11 max-md:px-2 max-md:py-1"
               style={{
                 background: density === value ? "rgb(var(--rgb-primary-container) / 0.20)" : "transparent",
                 color: density === value ? "var(--color-primary)" : "var(--color-warm-400)",
               }}
             >
               <Icon size={16} />
+              <ControlLabel>{label}</ControlLabel>
             </button>
           ))}
         </div>
@@ -2194,16 +2226,19 @@ export default function WatchView({
                   ? `${party.devices} screens are following this replay together`
                   : "Waiting for another screen to scan the code"
             }
-            className="flex items-center gap-1.5 h-11 [@media(max-height:520px)]:h-9 px-3 rounded-xl apex-glass-soft font-bold text-xs transition-[color,border-color,transform] duration-150 active:scale-[0.97]"
+            className="flex items-center gap-1.5 h-11 [@media(max-height:520px)]:h-9 px-3 rounded-xl apex-glass-soft font-bold text-xs transition-[color,border-color,transform] duration-150 active:scale-[0.97] max-md:flex-col max-md:h-auto max-md:min-h-11 max-md:min-w-11 max-md:py-1.5 max-md:gap-0"
             style={{ color: party.paired ? "var(--color-primary)" : undefined }}
           >
-            <Smartphone size={15} />
-            {/* The count, only once it counts something. A lone "1" beside a
-                phone icon reads as "one phone is paired" when in fact nobody
-                has joined yet; the orange tint already says a session is live. */}
-            {party.devices > 1 && (
-              <span className="tabular-nums">{party.devices}</span>
-            )}
+            <span className="flex items-center gap-1.5">
+              <Smartphone size={15} />
+              {/* The count, only once it counts something. A lone "1" beside a
+                  phone icon reads as "one phone is paired" when in fact nobody
+                  has joined yet; the orange tint already says a session is live. */}
+              {party.devices > 1 && (
+                <span className="tabular-nums">{party.devices}</span>
+              )}
+            </span>
+            <ControlLabel>Pair</ControlLabel>
           </button>
 
           {partyOpen &&
@@ -2494,15 +2529,17 @@ export default function WatchView({
             type="button"
             onClick={() => setRadioCaptionsPreference(!radioCaptions)}
             aria-pressed={radioCaptions}
+            aria-label="Team radio captions"
             title={
               radioCaptions
                 ? `Team radio captions on — ${radioClips.length} in this race`
                 : "Team radio captions off"
             }
-            className="flex items-center justify-center w-11 h-11 [@media(max-height:520px)]:w-9 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft transition-[color,transform] duration-150 active:scale-[0.97] flex-none"
+            className="flex items-center justify-center w-11 h-11 [@media(max-height:520px)]:w-9 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft transition-[color,transform] duration-150 active:scale-[0.97] flex-none max-md:flex-col max-md:h-auto max-md:min-h-11 max-md:w-auto max-md:min-w-11 max-md:px-2.5 max-md:py-1.5"
             style={{ color: radioCaptions ? "var(--color-primary)" : "var(--color-warm-400)" }}
           >
             {radioCaptions ? <Radio size={17} /> : <RadioOff size={17} />}
+            <ControlLabel>Radio</ControlLabel>
           </button>
         )}
 
@@ -2510,6 +2547,7 @@ export default function WatchView({
           type="button"
           onClick={() => setKeepAwake((value) => !value)}
           aria-pressed={keepAwake}
+          aria-label="Keep screen awake"
           title={
             keepAwake
               ? wakeLockHeld
@@ -2517,19 +2555,21 @@ export default function WatchView({
                 : "Keeping the screen awake isn't supported here"
               : "Let the screen sleep normally"
           }
-          className="flex items-center justify-center w-11 h-11 [@media(max-height:520px)]:w-9 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft transition-[color,transform] duration-150 active:scale-[0.97] flex-none"
+          className="flex items-center justify-center w-11 h-11 [@media(max-height:520px)]:w-9 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft transition-[color,transform] duration-150 active:scale-[0.97] flex-none max-md:flex-col max-md:h-auto max-md:min-h-11 max-md:w-auto max-md:min-w-11 max-md:px-2.5 max-md:py-1.5"
           style={{ color: keepAwake && wakeLockHeld ? "var(--color-primary)" : "var(--color-warm-400)" }}
         >
           {keepAwake && wakeLockHeld ? <Lightbulb size={17} /> : <LightbulbOff size={17} />}
+          <ControlLabel>Awake</ControlLabel>
         </button>
 
         <button
           type="button"
           onClick={() => void toggleFullscreen()}
-          aria-label={fullscreen ? "Leave fullscreen" : "Go fullscreen"}
-          className="flex items-center justify-center w-11 h-11 [@media(max-height:520px)]:w-9 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft text-warm-300 hover:text-primary transition-[color,transform] duration-150 active:scale-[0.97] flex-none"
+          aria-label={fullscreen ? "Exit full screen" : "Full screen"}
+          className="flex items-center justify-center w-11 h-11 [@media(max-height:520px)]:w-9 [@media(max-height:520px)]:h-9 rounded-xl apex-glass-soft text-warm-300 hover:text-primary transition-[color,transform] duration-150 active:scale-[0.97] flex-none max-md:flex-col max-md:h-auto max-md:min-h-11 max-md:w-auto max-md:min-w-11 max-md:px-2.5 max-md:py-1.5"
         >
           {fullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+          <ControlLabel>{fullscreen ? "Exit full screen" : "Full screen"}</ControlLabel>
         </button>
       </footer>
     </div>

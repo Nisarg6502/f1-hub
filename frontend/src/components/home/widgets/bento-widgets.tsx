@@ -202,17 +202,23 @@ export function NextCircuitWidget({ data, size }: WidgetProps) {
         <TrackMap
           src={c.image}
           alt={c.circuitName ?? "Circuit"}
-          containerClassName="relative my-4 flex-1 min-h-[64px] max-h-[100px] rounded-tile"
+          containerClassName="relative my-4 flex-1 min-h-[40px] max-h-[100px] rounded-tile"
           imgClassName="object-contain p-3 opacity-80"
         />
+        {/* Side by side, as it always was, but a name may take two lines before
+            it is ever cut: in a half-width phone cell "Las Vegas" was cut to
+            "Las V…". Stacking the two fixed that for one-line names and then
+            overflowed the cell's fixed height on two-line ones, so instead the
+            map gives up height first (its minimum is 40px) and the row stays
+            one row. */}
         <div className="relative flex justify-between gap-3">
           <div className="min-w-0">
             <div className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-500">Circuit</div>
-            <div className="font-[family-name:var(--font-headline)] font-bold text-base mt-1 truncate">{shortCircuit}</div>
+            <div className="font-[family-name:var(--font-headline)] font-bold text-base mt-1 line-clamp-2 break-words">{shortCircuit}</div>
           </div>
           <div className="text-right min-w-0">
             <div className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-500">Country</div>
-            <div className="font-[family-name:var(--font-headline)] font-bold text-base mt-1 truncate">
+            <div className="font-[family-name:var(--font-headline)] font-bold text-base mt-1 line-clamp-2 break-words">
               {c.country || "TBC"}
             </div>
           </div>

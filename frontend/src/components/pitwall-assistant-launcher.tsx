@@ -176,7 +176,7 @@ export default function PitwallAssistantLauncher() {
               transition={
                 reduce ? { duration: 0.15 } : { type: "spring", stiffness: 380, damping: 30 }
               }
-              className={`${NUDGE_TOOLTIP_CLASS} right-0 top-[calc(100%+10px)]`}
+              className={`${NUDGE_TOOLTIP_CLASS} hidden lg:block right-0 top-[calc(100%+10px)]`}
             >
               <button
                 type="button"

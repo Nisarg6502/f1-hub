@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Canvas } from "@react-three/fiber";
 import { PerformanceMonitor } from "@react-three/drei";
 import { Bloom, EffectComposer, Vignette } from "@react-three/postprocessing";
@@ -33,6 +33,14 @@ import {
   type TrackScrubStore,
 } from "./use-track-geometry";
 import { track } from "@/lib/analytics";
+import { orbitHint } from "@/lib/track-viewer-hints";
+
+/** Module scope so React keeps one subscription instead of re-making it per render. */
+function subscribeCoarsePointer(notify: () => void) {
+  const query = window.matchMedia("(pointer: coarse)");
+  query.addEventListener("change", notify);
+  return () => query.removeEventListener("change", notify);
+}
 import { IMAGERY_ATTRIBUTION } from "@/lib/track-scenery";
 
 const PRESETS: { id: CameraPresetId; label: string; hint: string }[] = [
@@ -113,6 +121,13 @@ export default function TrackViewer({
   const [activeHighlight, setActiveHighlight] = useState<string | null>(null);
   const [activeCorner, setActiveCorner] = useState<string | null>(null);
   const [activated, setActivated] = useState(false);
+  // Which hint to show. Server snapshot is `false` so the first client render
+  // matches the server's HTML; a phone then switches to the touch wording.
+  const coarsePointer = useSyncExternalStore(
+    subscribeCoarsePointer,
+    () => window.matchMedia("(pointer: coarse)").matches,
+    () => false
+  );
   const [showTerrain, setShowTerrain] = useState(true);
   const [showRaceline, setShowRaceline] = useState(true);
   const [showCorners, setShowCorners] = useState(true);
@@ -409,7 +424,7 @@ export default function TrackViewer({
 
           {!activated && (
             <span className="apex-glass-soft rounded-lg px-3 py-1.5 font-medium text-[11px] text-warm-400">
-              Click to orbit · scroll to zoom once active
+              {orbitHint(coarsePointer)}
             </span>
           )}
         </div>
