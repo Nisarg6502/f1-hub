@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   AUTO_REVEAL_CHOICES,
   serializeSpoilerPrefs,
   type HiddenRound,
 } from "@/lib/spoilers";
+import { useAccountState } from "@/lib/auth-client";
 import { useSpoilerCrossTabSync, useSpoilers } from "@/lib/spoilers-client";
 
 /**
@@ -91,6 +94,8 @@ export function SpoilerSettingsPanel({ active = true }: { active?: boolean }) {
   const { prefs, ready, pending, setOn, setAutoRevealDays, reveal } = useSpoilers();
   const titleId = useId();
   const autoId = useId();
+  const account = useAccountState();
+  const pathname = usePathname();
 
   const hiddenState = useHiddenRounds(active && ready && prefs.on, serializeSpoilerPrefs(prefs));
 
@@ -205,6 +210,23 @@ export function SpoilerSettingsPanel({ active = true }: { active?: boolean }) {
         Saved in a cookie on this device. It keeps results off the screen; the
         data can still reach your browser.
       </p>
+      {/* The setting only helps if it follows the reader to their other
+          devices, and an account is what carries it. Said once, here, where
+          the need is felt, and only to someone who has none. */}
+      {account.status === "signed-out" && (
+        <p className="font-medium text-[11px] text-warm-400 mt-2 leading-relaxed">
+          Keep this on all your devices —{" "}
+          <Link
+            href={`/signin?mode=signup&reason=spoilers${
+              pathname && pathname !== "/signin" ? `&next=${encodeURIComponent(pathname)}` : ""
+            }`}
+            className="font-semibold text-primary hover:underline"
+          >
+            create a free account
+          </Link>
+          .
+        </p>
+      )}
     </div>
   );
 }

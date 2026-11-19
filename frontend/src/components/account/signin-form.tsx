@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { authClient } from "@/lib/auth-client";
+import AccountBenefits from "./account-benefits";
 import type { AuthErrorCopy } from "@/lib/auth-errors";
 import {
   AUTH_MODES,
@@ -12,6 +13,8 @@ import {
   nextTabIndex,
   originRejectionMessage,
   parseAuthMode,
+  parseSignupReason,
+  SIGNUP_REASON_COPY,
   type AuthMode,
 } from "@/lib/auth-mode";
 
@@ -67,8 +70,7 @@ const COPY: Record<
   signup: {
     tab: "Create account",
     heading: "Create your account",
-    intro:
-      "Optional and free. Everything in APEX works without one — an account adds chat history, favourites and preferences that follow you across devices. No passwords.",
+    intro: "An account remembers things for you across your devices.",
     google: "Sign up with Google",
     submit: "Create account with an email link",
     footnote:
@@ -101,6 +103,9 @@ export default function SignInForm({
   // router, which updates `useSearchParams`.
   const searchParams = useSearchParams();
   const mode: AuthMode = searchParams ? parseAuthMode(searchParams.get("mode")) : initialMode;
+  // Why the visitor was sent here (`?reason=`), from a place that wanted an
+  // account. Only meaningful, and only shown, on the Create account tab.
+  const reason = searchParams ? parseSignupReason(searchParams.get("reason")) : null;
   const [phase, setPhase] = useState<Phase>({ name: "form" });
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -266,10 +271,14 @@ export default function SignInForm({
 
   return (
     <>
+      {mode === "signup" && reason && (
+        <p className="font-semibold text-sm text-primary mt-3">{SIGNUP_REASON_COPY[reason]}</p>
+      )}
       <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[44px] tracking-[-1.2px] mt-2">
         {copy.heading}
       </h1>
       <p className="text-sm text-warm-300 leading-relaxed mt-3 mb-6">{copy.intro}</p>
+      {mode === "signup" && <AccountBenefits />}
 
       <div
         role="tablist"
