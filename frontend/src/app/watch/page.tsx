@@ -1,10 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getActiveSeasonYear, getSeasonRaces, resolveSeasonYear } from "@/lib/api";
-import { completedRacesNewestFirst, toRaceId } from "@/lib/watch-races";
-import { getSpoilerContext } from "@/lib/spoilers-server";
-import { redactWinners } from "@/lib/spoilers";
-import { SpoilerStub } from "@/components/spoiler-shield";
+import { completedRacesNewestFirst, raceDayLabel, toRaceId, withoutWinners } from "@/lib/watch-races";
 
 export const metadata: Metadata = {
   title: "APEX | Watch party",
@@ -32,12 +29,12 @@ export default async function WatchIndexPage({ searchParams }: PageProps) {
     races = [];
   }
 
-  // Spoiler-free mode: the card for a hidden round stays (replaying the race
-  // you have not seen is the whole point of this page) but says nothing about
-  // who won it. This route has no app chrome, so there is no eye control
-  // here; the line on the card is the explanation.
-  const spoilers = await getSpoilerContext(season, { races: races ?? [] });
-  const completed = completedRacesNewestFirst(redactWinners(races ?? [], spoilers.hidden));
+  // Replaying a race you have not seen is the whole point of this page, so it
+  // says nothing about how any of them ended: no winner, for every visitor, not
+  // only those with spoiler-free mode on. (This route has no app chrome, so
+  // there is no eye control here to turn that on.) The winner is stripped from
+  // the data, not just the markup, so it is not in the page source either.
+  const completed = completedRacesNewestFirst(withoutWinners(races ?? []));
 
   // Deliberately *not* probed for sync status. Checking would mean pulling a
   // megabyte-scale replay payload per round just to grey out a card, and the
@@ -91,7 +88,7 @@ export default async function WatchIndexPage({ searchParams }: PageProps) {
       </p>
 
       <h2 className="font-bold text-[11px] tracking-[0.14em] uppercase text-warm-500 mt-10 mb-3">
-        {season} · completed rounds
+        {season} · completed rounds · no results shown
       </h2>
 
       {completed.length === 0 ? (
@@ -120,13 +117,10 @@ export default async function WatchIndexPage({ searchParams }: PageProps) {
               <p className="font-medium text-xs text-warm-400 mt-1.5 truncate">
                 {race.Circuit?.circuitName ?? ""}
               </p>
-              {race.winner && (
+              {raceDayLabel(race.date) && (
                 <p className="font-semibold text-[11px] text-warm-300 mt-2">
-                  Won by {race.winner.givenName} {race.winner.familyName}
+                  {raceDayLabel(race.date)}
                 </p>
-              )}
-              {spoilers.round(race.round) && (
-                <SpoilerStub label="Winner hidden · spoiler-free mode" className="mt-2" />
               )}
             </Link>
           ))}

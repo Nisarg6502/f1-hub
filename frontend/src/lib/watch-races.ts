@@ -56,6 +56,49 @@ export function completedRacesNewestFirst(races: Race[], now = new Date()): Race
     .sort((a, b) => Number(b.round) - Number(a.round));
 }
 
+/**
+ * The calendar with every `winner` removed.
+ *
+ * The watch index exists to replay a race the reader has not seen, so it must
+ * say nothing about how it ended. `/api/races` attaches each round's winner and
+ * the list is passed whole to the page, so a winner left on the object would be
+ * serialised into the page data even where nothing draws it. Unlike
+ * `redactWinners`, this is not conditional on the spoiler preference: nobody
+ * opening this page wants the result.
+ */
+export function withoutWinners<T extends Race>(races: T[]): T[] {
+  return races.map((race) => {
+    const copy = { ...race };
+    delete copy.winner;
+    return copy;
+  });
+}
+
+/**
+ * "Sun 8 Nov" for a race's UTC date, or null when it is missing or unreadable.
+ *
+ * Assembled from parts so no locale's punctuation or abbreviation quirks creep
+ * in, and read in UTC so a reader west of Greenwich is not shown the day before.
+ */
+export function raceDayLabel(date: string | undefined): string | null {
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const parsed = new Date(`${date}T00:00:00Z`);
+  // `new Date("2026-02-31")` rolls over to March; a date that does not survive
+  // the round trip was never a real one.
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) return null;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  }).formatToParts(parsed);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value;
+  const weekday = part("weekday");
+  const day = part("day");
+  const month = part("month");
+  return weekday && day && month ? `${weekday} ${day} ${month}` : null;
+}
+
 /** How far back to look for something watchable. Each probe pulls a full
  * replay payload (~1MB), so this is deliberately bounded: in practice the
  * immediately preceding round answers on the first try, and a season where six
