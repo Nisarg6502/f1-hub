@@ -13,14 +13,20 @@ describe("AccountBenefits", () => {
     expect(text).toContain("An email before qualifying and the race, in your time zone.");
     expect(text).toContain("Spoiler-free on every device");
     expect(text).toContain("Hide results until you've watched, on your phone and laptop alike.");
-    expect(text).toContain("Your home, your favourites");
-    expect(text).toContain("Your layout, driver and team follow you everywhere.");
+    expect(text).toContain("Your home, on every device");
+    expect(text).toContain("The layout you arrange follows you to your phone and laptop.");
     expect(text).toContain("Saved conversations");
     expect(text).toContain("Come back to your Pitwall Assistant chats later.");
   });
 
   it("says it is free, passwordless, and optional", () => {
-    expect(text).toContain("Free, no password, and everything else works without an account.");
+    expect(text).toContain(
+      "Free, no password. Everything on APEX works without one; an account carries it across your devices."
+    );
+  });
+
+  it("does not promise favourites, which nothing uses yet", () => {
+    expect(text.toLowerCase()).not.toContain("favourite");
   });
 
   it("is a list of exactly four", () => {

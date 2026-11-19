@@ -8,8 +8,10 @@ import { Bell, EyeOff, LayoutGrid, MessagesSquare, type LucideIcon } from "lucid
  * names a category and none of the things in it. This lists the four that are
  * real today, each in the words of what the visitor gets. Every row is shipped
  * and works: race reminders (`reminders-section.tsx`), spoiler-free mode and
- * the home layout syncing to the account, favourites, and saved chats. If a row
- * here stops being true, remove it rather than leave it promised.
+ * the home layout syncing to the account, and saved chats. Favourites are NOT
+ * claimed: they are stored, but nothing reads them yet, so "follows you
+ * everywhere" would promise personalisation that does not exist. If a row here
+ * stops being true, remove it rather than leave it promised.
  *
  * Lucide icons, not Material Symbols: that font is a subset
  * (`lib/material-symbols.ts`) and a name outside it renders as text.
@@ -27,8 +29,8 @@ const BENEFITS: ReadonlyArray<{ icon: LucideIcon; title: string; line: string }>
   },
   {
     icon: LayoutGrid,
-    title: "Your home, your favourites",
-    line: "Your layout, driver and team follow you everywhere.",
+    title: "Your home, on every device",
+    line: "The layout you arrange follows you to your phone and laptop.",
   },
   {
     icon: MessagesSquare,
@@ -54,7 +56,7 @@ export default function AccountBenefits() {
         ))}
       </ul>
       <p className="text-xs text-warm-400 mt-3">
-        Free, no password, and everything else works without an account.
+        Free, no password. Everything on APEX works without one; an account carries it across your devices.
       </p>
     </div>
   );

@@ -6,6 +6,7 @@ import {
   originRejectionMessage,
   parseAuthMode,
   parseSignupReason,
+  safeNextPath,
   SIGNUP_REASON_COPY,
 } from "./auth-mode";
 
@@ -85,6 +86,47 @@ describe("parseSignupReason", () => {
       expect(parseSignupReason(value as string | null | undefined)).toBeNull();
     }
   );
+});
+
+describe("safeNextPath", () => {
+  it.each([
+    ["/"],
+    ["/account#reminders"],
+    ["/standings?season=2024"],
+    ["/watch/2026-20"],
+    ["/schedule/2026/5"],
+  ])("keeps a same-site path (%s)", (path) => {
+    expect(safeNextPath(path)).toBe(path);
+  });
+
+  it.each([
+    ["a protocol-relative URL", "//evil.example"],
+    ["a backslash host, which browsers read as //host", "/\\evil.example"],
+    ["an encoded backslash", "/%5Cevil.example"],
+    ["an encoded backslash in lower case", "/%5cevil.example"],
+    ["a slash then backslash", "/\\/evil.example"],
+    ["a tab, which browsers strip to //host", "/\t/evil.example"],
+    ["a newline", "/ok\nSet-Cookie: x=1"],
+    ["a carriage return", "/ok\r"],
+    ["an absolute URL", "https://evil.example"],
+    ["a javascript URL", "javascript:alert(1)"],
+    ["a bare word", "evil"],
+    ["an empty string", ""],
+    ["the sign-in page itself", "/signin"],
+    ["a sign-in URL with a query", "/signin?mode=signup"],
+  ])("falls back to the home page for %s", (_label, value) => {
+    expect(safeNextPath(value)).toBe("/");
+  });
+
+  it("falls back for a missing value", () => {
+    expect(safeNextPath(undefined)).toBe("/");
+    expect(safeNextPath(null)).toBe("/");
+  });
+
+  it("takes the first of a repeated parameter", () => {
+    expect(safeNextPath(["/standings", "//evil.example"])).toBe("/standings");
+    expect(safeNextPath(["//evil.example", "/standings"])).toBe("/");
+  });
 });
 
 describe("SIGNUP_REASON_COPY", () => {

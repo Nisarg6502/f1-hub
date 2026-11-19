@@ -90,7 +90,16 @@ function Switch({
   );
 }
 
-export function SpoilerSettingsPanel({ active = true }: { active?: boolean }) {
+export function SpoilerSettingsPanel({
+  active = true,
+  onNavigate,
+}: {
+  active?: boolean;
+  /** Called when a link inside the panel is followed, so the popover or sheet
+   * showing it can close: the header is mounted across client navigation, and
+   * a surface left open would sit over the page the link leads to. */
+  onNavigate?: () => void;
+}) {
   const { prefs, ready, pending, setOn, setAutoRevealDays, reveal } = useSpoilers();
   const titleId = useId();
   const autoId = useId();
@@ -220,6 +229,7 @@ export function SpoilerSettingsPanel({ active = true }: { active?: boolean }) {
             href={`/signin?mode=signup&reason=spoilers${
               pathname && pathname !== "/signin" ? `&next=${encodeURIComponent(pathname)}` : ""
             }`}
+            onClick={onNavigate}
             className="font-semibold text-primary hover:underline"
           >
             create a free account
@@ -306,7 +316,7 @@ export default function SpoilerToggle() {
             style={{ transformOrigin: "top right" }}
             className="absolute right-0 top-[calc(100%+12px)] z-[70] w-[340px] rounded-2xl bg-surface-container-low/97 backdrop-blur-2xl border border-white/[0.1] shadow-[0_24px_60px_rgba(0,0,0,0.55)] p-4"
           >
-            <SpoilerSettingsPanel active={open} />
+            <SpoilerSettingsPanel active={open} onNavigate={() => setOpen(false)} />
           </motion.div>
         )}
       </AnimatePresence>

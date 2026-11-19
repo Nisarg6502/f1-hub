@@ -137,7 +137,7 @@ export default function MobileMoreSheet({
                 sits above the links because a visitor opening the menu to find
                 out why a podium is missing should not have to scroll for it. */}
             <div className="mb-4 rounded-xl bg-veil/5 border border-white/[0.06] p-3.5">
-              <SpoilerSettingsPanel active={open} />
+              <SpoilerSettingsPanel active={open} onNavigate={onClose} />
             </div>
 
             <nav aria-label="More sections" className="flex flex-col gap-1.5">

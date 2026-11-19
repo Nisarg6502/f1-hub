@@ -271,14 +271,18 @@ export default function SignInForm({
 
   return (
     <>
-      {mode === "signup" && reason && (
-        <p className="font-semibold text-sm text-primary mt-3">{SIGNUP_REASON_COPY[reason]}</p>
-      )}
       <h1 className="font-[family-name:var(--font-headline)] font-extrabold text-4xl md:text-[44px] tracking-[-1.2px] mt-2">
         {copy.heading}
       </h1>
-      <p className="text-sm text-warm-300 leading-relaxed mt-3 mb-6">{copy.intro}</p>
-      {mode === "signup" && <AccountBenefits />}
+      {/* Under the heading, replacing the generic line, so a screen-reader
+          user who jumps by heading reads why they were sent here. */}
+      {mode === "signup" && reason ? (
+        <p className="font-semibold text-sm text-primary leading-relaxed mt-3 mb-6">
+          {SIGNUP_REASON_COPY[reason]}
+        </p>
+      ) : (
+        <p className="text-sm text-warm-300 leading-relaxed mt-3 mb-6">{copy.intro}</p>
+      )}
 
       <div
         role="tablist"
@@ -327,6 +331,9 @@ export default function SignInForm({
         aria-labelledby={tabId(mode)}
         className="apex-glass rounded-2xl p-5 sm:p-6"
       >
+        {/* Inside the panel, below the tabs: above them, switching tabs removed
+            the list and the tab row jumped about 300px from under the cursor. */}
+        {mode === "signup" && phase.name === "form" && <AccountBenefits />}
         {error && showError && phase.name === "form" && (
           <div
             role="alert"
