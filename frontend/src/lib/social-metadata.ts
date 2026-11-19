@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { parseWatchParams } from "./share";
 
 /**
  * The link-preview metadata every public page shares.
@@ -94,5 +95,43 @@ export function socialMetadata(opts: {
       description: opts.description,
       images: [image.url],
     },
+  };
+}
+
+/**
+ * The metadata for a replay page (`/watch/2026-20`).
+ *
+ * Lives here, not in the page, so the property that matters is testable: a
+ * replay link is sent to people who have not seen the race, so it previews with
+ * the spoiler-free card and says so, and nothing in it can come from a result.
+ *
+ * The card route only draws rounds it can name (seasons 2018 to the active one,
+ * rounds 1 to 30), and a round that has not run has nothing to preview, so
+ * anything else gets the site card rather than an image URL that would 400.
+ * The route's own validator decides, so the two cannot drift apart.
+ */
+export function replayMetadata(opts: {
+  season: number;
+  round: number;
+  raceName: string;
+  /** Whether the round has been run (`hasStarted`). */
+  started: boolean;
+  activeSeason: number;
+}) {
+  const { season, round, raceName } = opts;
+  const title = `${raceName} replay · APEX`;
+  const description = `Replay the ${season} ${raceName} lap by lap at the pace it was run. No results shown.`;
+  const cardDrawable =
+    opts.started &&
+    parseWatchParams({ season: String(season), round: String(round) }, new URLSearchParams(), opts.activeSeason).ok;
+  return {
+    title,
+    description,
+    ...socialMetadata({
+      title,
+      description,
+      path: `/watch/${season}-${round}`,
+      image: cardDrawable ? watchImage(season, round, raceName) : undefined,
+    }),
   };
 }

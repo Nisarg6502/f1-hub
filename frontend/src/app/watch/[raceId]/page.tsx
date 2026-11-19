@@ -1,9 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getRaceRadio, getRaceReplay, getRaceTiming, getSeasonRaces } from "@/lib/api";
-import { findWatchableFallback, parseRaceId, toRaceId } from "@/lib/watch-races";
-import { socialMetadata, watchImage } from "@/lib/social-metadata";
+import {
+  getActiveSeasonYear,
+  getRaceRadio,
+  getRaceReplay,
+  getRaceTiming,
+  getSeasonRaces,
+  type Race,
+} from "@/lib/api";
+import { findWatchableFallback, hasStarted, parseRaceId, toRaceId } from "@/lib/watch-races";
+import { replayMetadata, socialMetadata } from "@/lib/social-metadata";
 import WatchView from "@/components/watch-view";
 
 interface PageProps {
@@ -26,15 +33,15 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   // has not seen it: the preview says which race, and (by design) nothing about
   // how it ended. The `try` is not optional: `generateMetadata` throwing takes
   // the route down, and the backend is allowed to be offline.
-  let raceName: string | null = null;
+  let race: Race | undefined;
   try {
     const { races } = await getSeasonRaces(parsed.season);
-    raceName = (races ?? []).find((r) => Number(r.round) === parsed.round)?.raceName ?? null;
+    race = (races ?? []).find((r) => Number(r.round) === parsed.round);
   } catch {
     // Fall through to the generic title below.
   }
 
-  if (!raceName) {
+  if (!race) {
     const title = `APEX | Watch ${parsed.season} round ${parsed.round}`;
     const description =
       "A completed Formula 1 race replayed at the pace it was actually run, for watching alongside a broadcast.";
@@ -42,18 +49,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   }
 
   // "Replay", never "live": the title bar is user-facing copy like any other.
-  const title = `${raceName} replay · APEX`;
-  const description = `Replay the ${parsed.season} ${raceName} lap by lap at the pace it was run. No results shown.`;
-  return {
-    title,
-    description,
-    ...socialMetadata({
-      title,
-      description,
-      path,
-      image: watchImage(parsed.season, parsed.round, raceName),
-    }),
-  };
+  return replayMetadata({
+    season: parsed.season,
+    round: parsed.round,
+    raceName: race.raceName,
+    started: hasStarted(race),
+    activeSeason: getActiveSeasonYear(),
+  });
 }
 
 export default async function WatchRacePage({ params }: PageProps) {
