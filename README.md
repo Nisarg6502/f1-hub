@@ -160,6 +160,14 @@ MONGODB_URI=your_mongodb_connection_string
 # render — no error.
 OLLAMA_API_KEY=your_ollama_cloud_api_key
 OLLAMA_MODEL=gpt-oss:120b
+
+# Optional. A second, OpenAI-compatible provider for the recap, commentary and
+# head-to-head text. It is asked only when Ollama Cloud refuses (HTTP 402/429)
+# or fails before writing anything, never to continue a stream that broke
+# part-way. All three must be set, or it stays off.
+LLM_FALLBACK_BASE_URL=https://api.groq.com/openai/v1
+LLM_FALLBACK_API_KEY=your_fallback_key
+LLM_FALLBACK_MODEL=openai/gpt-oss-120b
 ```
 
 Interactive API docs are at `http://localhost:8000/docs`, and `/health` is a

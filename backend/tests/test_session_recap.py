@@ -75,6 +75,28 @@ async def _drain(stream):
     return "".join([chunk async for chunk in stream])
 
 
+def completes(fake):
+    """Wrap a fake generator so it signals a clean finish, as `llm` does."""
+
+    async def wrapper(facts, system_prompt=None, on_done=None):
+        async for chunk in fake(facts, system_prompt):
+            yield chunk
+        if on_done:
+            on_done()
+
+    return wrapper
+
+
+def cut_off(fake):
+    """Wrap a fake generator so its stream ends without the provider saying done."""
+
+    async def wrapper(facts, system_prompt=None, on_done=None):
+        async for chunk in fake(facts, system_prompt):
+            yield chunk
+
+    return wrapper
+
+
 class ClassificationFactsTests(unittest.TestCase):
     def test_extracts_position_driver_team_status_gap_points(self):
         results = [result_row("1", "Max", "Verstappen", time="1:32:07.986", points="25")]
@@ -246,6 +268,8 @@ class GenerateRecapTests(unittest.TestCase):
     def test_yields_nothing_when_the_api_key_is_unset(self):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("OLLAMA_API_KEY", None)
+            for name in ("LLM_FALLBACK_BASE_URL", "LLM_FALLBACK_API_KEY", "LLM_FALLBACK_MODEL"):
+                os.environ.pop(name, None)
             text = asyncio.run(_drain(session_recap._generate_recap({"race_name": "Test GP"})))
 
         self.assertEqual(text, "")
@@ -309,7 +333,7 @@ class SessionRecapEndpointTests(unittest.TestCase):
 
         with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
             session_recap, "fetch_race_control", return_value=[]
-        ), patch.object(session_recap, "_generate_recap", side_effect=fake_generate):
+        ), patch.object(session_recap, "_generate_recap", side_effect=completes(fake_generate)):
             response = asyncio.run(
                 session_recap.get_session_recap(year=2026, round=9, session="qualifying")
             )
@@ -333,7 +357,7 @@ class SessionRecapEndpointTests(unittest.TestCase):
 
         with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
             session_recap, "fetch_race_control", return_value=[]
-        ), patch.object(session_recap, "_generate_recap", side_effect=fake_generate):
+        ), patch.object(session_recap, "_generate_recap", side_effect=completes(fake_generate)):
             response = asyncio.run(
                 session_recap.get_session_recap(year=2026, round=9, session="qualifying")
             )
@@ -380,7 +404,7 @@ class SessionRecapEndpointTests(unittest.TestCase):
 
         with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
             session_recap, "fetch_race_control", return_value=[]
-        ), patch.object(session_recap, "_generate_recap", side_effect=fake_generate):
+        ), patch.object(session_recap, "_generate_recap", side_effect=completes(fake_generate)):
             response = asyncio.run(session_recap.get_session_recap(year=2026, round=6, session="race"))
             body = asyncio.run(self._drain_response(response))
 
@@ -407,7 +431,7 @@ class SessionRecapEndpointTests(unittest.TestCase):
 
         with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
             session_recap, "fetch_race_control", return_value=[]
-        ), patch.object(session_recap, "_generate_recap", side_effect=fake_generate), patch.object(
+        ), patch.object(session_recap, "_generate_recap", side_effect=completes(fake_generate)), patch.object(
             session_recap,
             "_classification_facts",
             side_effect=lambda rows: [{**f, "gap_to_leader": "restated"} for f in real(rows)],
@@ -430,7 +454,7 @@ class SessionRecapEndpointTests(unittest.TestCase):
 
         with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
             session_recap, "fetch_race_control", return_value=[]
-        ), patch.object(session_recap, "_generate_recap", side_effect=fake_generate):
+        ), patch.object(session_recap, "_generate_recap", side_effect=completes(fake_generate)):
             response = asyncio.run(session_recap.get_session_recap(year=2026, round=11, session="race"))
             asyncio.run(self._drain_response(response))
 
@@ -462,12 +486,73 @@ class SessionRecapEndpointTests(unittest.TestCase):
 
         with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
             session_recap, "fetch_race_control", return_value=[]
-        ), patch.object(session_recap, "_generate_recap", side_effect=fake_generate):
+        ), patch.object(session_recap, "_generate_recap", side_effect=completes(fake_generate)):
             response = asyncio.run(session_recap.get_session_recap(year=2026, round=11, session="race"))
             body = asyncio.run(self._drain_response(response))
 
         self.assertEqual(body, "Norris won.")
         self.assertEqual(cache.update_one_calls[0][1]["$set"]["text"], "Norris won.")
+
+    def test_cut_off_race_recap_is_not_cached(self):
+        """A stream the provider never closed is shown but not stored, or the
+        stub would be served to every later reader."""
+        race_results = FakeCollection(
+            find_one_result={"race": {}, "results": [result_row("1", "Lando", "Norris")]}
+        )
+        cache = FakeCollection(find_one_result=None)
+        fake_db = FakeDb(race_results=race_results, session_recap=cache)
+
+        async def fake_generate(facts, system_prompt=None):
+            yield "Norris won"
+
+        with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
+            session_recap, "fetch_race_control", return_value=[]
+        ), patch.object(session_recap, "_generate_recap", side_effect=cut_off(fake_generate)):
+            response = asyncio.run(session_recap.get_session_recap(year=2026, round=20, session="race"))
+            body = asyncio.run(self._drain_response(response))
+
+        self.assertEqual(body, "Norris won")
+        self.assertEqual(cache.update_one_calls, [])
+
+    def test_complete_race_recap_is_cached(self):
+        race_results = FakeCollection(
+            find_one_result={"race": {}, "results": [result_row("1", "Lando", "Norris")]}
+        )
+        cache = FakeCollection(find_one_result=None)
+        fake_db = FakeDb(race_results=race_results, session_recap=cache)
+
+        async def fake_generate(facts, system_prompt=None):
+            yield "Norris won"
+
+        with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
+            session_recap, "fetch_race_control", return_value=[]
+        ), patch.object(session_recap, "_generate_recap", side_effect=completes(fake_generate)):
+            response = asyncio.run(session_recap.get_session_recap(year=2026, round=20, session="race"))
+            asyncio.run(self._drain_response(response))
+
+        self.assertEqual(len(cache.update_one_calls), 1)
+        self.assertEqual(cache.update_one_calls[0][1]["$set"]["text"], "Norris won")
+
+    def test_cut_off_qualifying_recap_is_not_cached(self):
+        """The validator path buffers the text, so it has its own completeness check."""
+        quali = FakeCollection(
+            find_one_result={"race": {"raceName": "British GP"}, "results": [result_row(1, "Kimi", "Antonelli")]}
+        )
+        cache = FakeCollection(find_one_result=None)
+        fake_db = FakeDb(session_recap=cache)
+        fake_db.qualifying_results = quali
+
+        async def fake_generate(facts, system_prompt=None):
+            yield "Antonelli took pole"
+
+        with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
+            session_recap, "fetch_race_control", return_value=[]
+        ), patch.object(session_recap, "_generate_recap", side_effect=cut_off(fake_generate)):
+            response = asyncio.run(session_recap.get_session_recap(year=2026, round=9, session="qualifying"))
+            body = asyncio.run(self._drain_response(response))
+
+        self.assertEqual(body, "Antonelli took pole")
+        self.assertEqual(cache.update_one_calls, [])
 
     def test_a_failed_generation_caches_nothing(self):
         race_results = FakeCollection(
@@ -482,7 +567,7 @@ class SessionRecapEndpointTests(unittest.TestCase):
 
         with patch.object(session_recap, "get_db", return_value=fake_db), patch.object(
             session_recap, "fetch_race_control", return_value=[]
-        ), patch.object(session_recap, "_generate_recap", side_effect=fake_generate):
+        ), patch.object(session_recap, "_generate_recap", side_effect=completes(fake_generate)):
             response = asyncio.run(session_recap.get_session_recap(year=2026, round=11, session="race"))
             body = asyncio.run(self._drain_response(response))
 

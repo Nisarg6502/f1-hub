@@ -71,6 +71,28 @@ async def _drain(stream):
     return "".join([chunk async for chunk in stream])
 
 
+def completes(fake):
+    """Wrap a fake generator so it signals a clean finish, as `llm` does."""
+
+    async def wrapper(facts, system_prompt=None, on_done=None):
+        async for chunk in fake(facts, system_prompt):
+            yield chunk
+        if on_done:
+            on_done()
+
+    return wrapper
+
+
+def cut_off(fake):
+    """Wrap a fake generator so its stream ends without the provider saying done."""
+
+    async def wrapper(facts, system_prompt=None, on_done=None):
+        async for chunk in fake(facts, system_prompt):
+            yield chunk
+
+    return wrapper
+
+
 class LapSecondsTests(unittest.TestCase):
     def test_parses_minutes_and_seconds(self):
         self.assertEqual(dcr._lap_seconds("1:17.207"), 77.207)
@@ -251,6 +273,8 @@ class GenerateRecapTests(unittest.TestCase):
     def test_yields_nothing_when_the_api_key_is_unset(self):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("OLLAMA_API_KEY", None)
+            for name in ("LLM_FALLBACK_BASE_URL", "LLM_FALLBACK_API_KEY", "LLM_FALLBACK_MODEL"):
+                os.environ.pop(name, None)
             text = asyncio.run(_drain(dcr._generate_recap({"season": 2026})))
 
         self.assertEqual(text, "")
@@ -352,7 +376,7 @@ class DriverComparisonRecapEndpointTests(unittest.TestCase):
             yield "leads."
 
         with patch.object(dcr, "get_db", return_value=fake_db), patch.object(
-            dcr, "_generate_recap", side_effect=fake_generate
+            dcr, "_generate_recap", side_effect=completes(fake_generate)
         ):
             response = asyncio.run(
                 dcr.get_driver_comparison_recap(year=2026, driver1="verstappen", driver2="norris")
@@ -385,7 +409,7 @@ class DriverComparisonRecapEndpointTests(unittest.TestCase):
             yield "fresh"
 
         with patch.object(dcr, "get_db", return_value=fake_db), patch.object(
-            dcr, "_generate_recap", side_effect=fake_generate
+            dcr, "_generate_recap", side_effect=completes(fake_generate)
         ):
             response = asyncio.run(
                 dcr.get_driver_comparison_recap(year=2026, driver1="verstappen", driver2="norris")
@@ -393,6 +417,50 @@ class DriverComparisonRecapEndpointTests(unittest.TestCase):
             body = asyncio.run(self._drain_response(response))
 
         self.assertEqual(body, "fresh")
+
+    def _two_driver_db(self, cache):
+        return FakeDb(
+            race_results=FakeCollection(find_result=[
+                {"round": "1", "race": {"raceName": "Race 1"}, "results": [
+                    result_row("1", "verstappen", "Max", "Verstappen"),
+                    result_row("2", "norris", "Lando", "Norris"),
+                ]},
+            ]),
+            driver_comparison_recap=cache,
+        )
+
+    def test_cut_off_comparison_is_not_cached(self):
+        cache = FakeCollection(find_one_result=None)
+
+        async def fake_generate(facts, system_prompt=None):
+            yield "Verstappen leads"
+
+        with patch.object(dcr, "get_db", return_value=self._two_driver_db(cache)), patch.object(
+            dcr, "_generate_recap", side_effect=cut_off(fake_generate)
+        ):
+            response = asyncio.run(
+                dcr.get_driver_comparison_recap(year=2026, driver1="verstappen", driver2="norris")
+            )
+            body = asyncio.run(self._drain_response(response))
+
+        self.assertEqual(body, "Verstappen leads")
+        self.assertEqual(cache.update_one_calls, [])
+
+    def test_complete_comparison_is_cached(self):
+        cache = FakeCollection(find_one_result=None)
+
+        async def fake_generate(facts, system_prompt=None):
+            yield "Verstappen leads"
+
+        with patch.object(dcr, "get_db", return_value=self._two_driver_db(cache)), patch.object(
+            dcr, "_generate_recap", side_effect=completes(fake_generate)
+        ):
+            response = asyncio.run(
+                dcr.get_driver_comparison_recap(year=2026, driver1="verstappen", driver2="norris")
+            )
+            asyncio.run(self._drain_response(response))
+
+        self.assertEqual(len(cache.update_one_calls), 1)
 
     def test_a_failed_generation_caches_nothing(self):
         cache = FakeCollection(find_one_result=None)
@@ -411,7 +479,7 @@ class DriverComparisonRecapEndpointTests(unittest.TestCase):
             yield  # pragma: no cover
 
         with patch.object(dcr, "get_db", return_value=fake_db), patch.object(
-            dcr, "_generate_recap", side_effect=fake_generate
+            dcr, "_generate_recap", side_effect=completes(fake_generate)
         ):
             response = asyncio.run(
                 dcr.get_driver_comparison_recap(year=2026, driver1="verstappen", driver2="norris")

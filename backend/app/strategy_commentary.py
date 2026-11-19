@@ -44,10 +44,10 @@ import json
 import os
 from collections import Counter
 
-import httpx
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
+from . import llm
 from .db import get_db
 from .derived_cache import input_fingerprint
 # From `driver_directory` rather than from `race_replay`, which is where these
@@ -58,8 +58,6 @@ from .derived_cache import input_fingerprint
 from .driver_directory import _driver_directory, _number_by_driver_id
 
 router = APIRouter(prefix="/api")
-
-OLLAMA_BASE = "https://ollama.com"
 
 # Same choice session_recap.py made and for the same reason: this is a
 # factual-narration task run once per race and served from cache after that,
@@ -347,55 +345,27 @@ def build_facts(
     }
 
 
-async def _generate_commentary(facts: dict):
-    """Stream strategy commentary text from Ollama Cloud, yielding content deltas.
+async def _generate_commentary(facts: dict, on_done=None):
+    """Stream strategy commentary text, yielding content deltas.
 
-    Copied near-verbatim from `session_recap._generate_recap` — every
-    recap-style endpoint in this codebase owns its own copy of this call
-    rather than sharing one, per this app's established pattern. Yields
-    nothing if `OLLAMA_API_KEY` is unset or the call fails; the endpoint
-    treats an empty result as "no commentary available", not an error.
+    Goes through `llm.stream_text`, which tries Ollama Cloud and, if
+    configured, a fallback provider. Yields nothing when neither works; the
+    endpoint treats an empty result as "no commentary available", not an error.
+
+    `on_done`, if given, is called once, and only when a provider closed its
+    stream cleanly. The endpoint caches only then: a stream cut off part-way
+    looks exactly like a short answer.
     """
-    api_key = os.getenv("OLLAMA_API_KEY")
-    if not api_key:
-        return
-
-    payload = {
-        "model": os.getenv("OLLAMA_MODEL") or DEFAULT_MODEL,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": json.dumps(facts)},
-        ],
-        "stream": True,
-        # Near-greedy: this is a factual summarization task, and sampling
-        # variance is exactly what produces confabulated relational claims.
-        "options": {"temperature": 0.2},
-    }
-    headers = {"Authorization": f"Bearer {api_key}"}
-
-    try:
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            async with client.stream(
-                "POST", f"{OLLAMA_BASE}/api/chat", json=payload, headers=headers
-            ) as response:
-                if response.status_code != 200:
-                    print(f"Ollama strategy commentary call failed: HTTP {response.status_code}")
-                    return
-                async for line in response.aiter_lines():
-                    if not line.strip():
-                        continue
-                    try:
-                        chunk = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    content = ((chunk.get("message") or {}).get("content")) or ""
-                    if content:
-                        yield content
-                    if chunk.get("done"):
-                        break
-    except httpx.HTTPError as error:
-        print(f"Ollama strategy commentary call failed: {error}")
-        return
+    result = llm.StreamResult()
+    async for chunk in llm.stream_text(
+        SYSTEM_PROMPT,
+        json.dumps(facts),
+        model=os.getenv("OLLAMA_MODEL") or DEFAULT_MODEL,
+        result=result,
+    ):
+        yield chunk
+    if result.complete and on_done:
+        on_done()
 
 
 @router.get("/strategy_commentary")
@@ -466,12 +436,15 @@ async def get_strategy_commentary(
 
     async def generate_and_cache():
         parts: list[str] = []
-        async for chunk in _generate_commentary(facts):
+        finished: list[bool] = []
+        async for chunk in _generate_commentary(facts, on_done=lambda: finished.append(True)):
             parts.append(chunk)
             yield chunk
         full_text = "".join(parts).strip()
 
-        if not full_text:
+        # A stream that ended without the provider saying it was done is shown
+        # but never cached, so the next reader regenerates it.
+        if not full_text or not finished:
             return
 
         try:
