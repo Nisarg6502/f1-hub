@@ -35,12 +35,21 @@ describe("recordVisitDay", () => {
     expect(count).toBe(1);
   });
 
-  it("counts distinct days, oldest first", () => {
+  it("counts distinct days on consecutive visits", () => {
     const storage = memoryStorage();
 
     recordVisitDay(storage, day("2026-11-17"));
-    recordVisitDay(storage, day("2026-11-19"));
-    const count = recordVisitDay(storage, day("2026-11-18"));
+    recordVisitDay(storage, day("2026-11-18"));
+    const count = recordVisitDay(storage, day("2026-11-19"));
+
+    expect(count).toBe(3);
+    expect(JSON.parse(storage.read() as string)).toEqual(["2026-11-17", "2026-11-18", "2026-11-19"]);
+  });
+
+  it("keeps stored days sorted oldest first, whatever order they were written in", () => {
+    const storage = memoryStorage(JSON.stringify(["2026-11-19", "2026-11-17", "2026-11-18"]));
+
+    const count = recordVisitDay(storage, day("2026-11-19"));
 
     expect(count).toBe(3);
     expect(JSON.parse(storage.read() as string)).toEqual(["2026-11-17", "2026-11-18", "2026-11-19"]);
@@ -86,6 +95,17 @@ describe("recordVisitDay", () => {
     const count = recordVisitDay(storage, day("2026-11-19"));
 
     expect(count).toBe(2);
+  });
+
+  it("ignores days later than today, from a clock that was once ahead", () => {
+    // A future-dated entry would otherwise count as a visit day until the
+    // calendar caught up with it, so a second real visit could count as the third.
+    const storage = memoryStorage(JSON.stringify(["2026-11-17", "2026-11-25"]));
+
+    const count = recordVisitDay(storage, day("2026-11-19"));
+
+    expect(count).toBe(2);
+    expect(JSON.parse(storage.read() as string)).toEqual(["2026-11-17", "2026-11-19"]);
   });
 
   it("is 1 when there is no storage", () => {

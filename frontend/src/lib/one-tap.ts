@@ -24,7 +24,8 @@
  * to `localStorage` and to the event.
  */
 
-export const VISIT_DAYS_KEY = "apex_visit_days";
+// Dotted like the other browser-storage keys (`apex.home.v1`, `apex.consent.analytics`).
+export const VISIT_DAYS_KEY = "apex.oneTap.visitDays";
 /** Dispatched on `window` when the visitor does something an account would keep. */
 export const ACCOUNT_MOMENT_EVENT = "apex:account-moment";
 export const MIN_VISIT_DAYS = 3;
@@ -58,7 +59,9 @@ export function recordVisitDay(
   if (storage) {
     try {
       const parsed: unknown = JSON.parse(storage.getItem(VISIT_DAYS_KEY) ?? "[]");
-      if (Array.isArray(parsed)) days = parsed.filter(isCalendarDay);
+      // Days after today can only come from a clock that was once ahead; they
+      // would count as visits until the calendar caught up.
+      if (Array.isArray(parsed)) days = parsed.filter(isCalendarDay).filter((d) => d <= today);
     } catch {
       days = [];
     }

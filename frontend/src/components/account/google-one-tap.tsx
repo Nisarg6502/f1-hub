@@ -67,7 +67,23 @@ export default function GoogleOneTap() {
   const pathname = usePathname() ?? "";
   const router = useRouter();
   const hadMoment = useRef(false);
+  const wasSignedIn = useRef(false);
   const signedOutWithGoogle = account.status === "signed-out" && Boolean(googleClientIdInBrowser);
+
+  // Signing out is deliberate, and client-side (the page does not reload), so
+  // this component and its state survive it. Without this, a moment from the
+  // signed-in session would make "Continue as <you>" appear straight after the
+  // visitor chose to sign out, which is the wrong thing to show on a shared
+  // machine. Once a visitor has been signed in during this page load, they are
+  // not prompted again until the next one.
+  useEffect(() => {
+    if (account.status === "signed-in") {
+      wasSignedIn.current = true;
+      hadMoment.current = false;
+    } else if (account.status === "signed-out" && wasSignedIn.current) {
+      askedThisPageLoad = true;
+    }
+  }, [account.status]);
 
   const maybeAsk = useCallback(() => {
     if (!signedOutWithGoogle || askedThisPageLoad) return;
@@ -94,18 +110,27 @@ export default function GoogleOneTap() {
   }, [signedOutWithGoogle, pathname, router]);
 
   useEffect(() => {
-    if (!signedOutWithGoogle || isQuietPath(pathname)) {
+    if (account.status === "signed-in" || isQuietPath(pathname)) {
       // A prompt still open from an earlier page (navigating to /signin or a
       // replay, or signing in another way) should not sit on top of what
       // comes next.
       if (askedThisPageLoad) cancelPrompt();
       return;
     }
+    // NOT a reason to cancel: the session reporting "loading" again. better-auth
+    // refetches it when the tab regains focus or the network returns, and
+    // reports `isPending` for every refetch of a signed-out visitor, so
+    // cancelling here would withdraw the earned prompt whenever someone
+    // switched tabs and came back, with no second chance this page load.
+    if (!signedOutWithGoogle) return;
     maybeAsk();
-  }, [signedOutWithGoogle, pathname, maybeAsk]);
+  }, [account.status, signedOutWithGoogle, pathname, maybeAsk]);
 
   useEffect(() => {
     const onMoment = () => {
+      // Only a visitor who could be offered an account has a moment worth
+      // remembering. Anyone already signed in has nothing to be asked.
+      if (wasSignedIn.current) return;
       hadMoment.current = true;
       maybeAsk();
     };
