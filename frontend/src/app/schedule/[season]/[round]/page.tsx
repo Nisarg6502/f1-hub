@@ -319,6 +319,16 @@ export default async function RaceDetailPage({ params }: PageProps) {
           `nav-links.tsx` for the same band biting the top nav). */}
       <div className="flex flex-col md:flex-row md:flex-wrap justify-between items-start md:items-end mb-7 gap-6">
         <div>
+          {/* On a phone the full-width "Back to schedule" button below would
+              spend a whole row of the first screen on navigation, so it
+              becomes this one line above the title. From `sm` the button is
+              back in the controls, unchanged. */}
+          <Link
+            href="/schedule"
+            className="sm:hidden inline-block mb-3 font-bold text-xs tracking-[0.14em] uppercase text-warm-400 hover:text-on-background"
+          >
+            ← Schedule
+          </Link>
           <div className="flex items-center gap-3 mb-3">
             <span
               className="font-bold text-[10px] tracking-[0.1em] uppercase px-3 py-1.5 rounded-lg"
@@ -342,44 +352,52 @@ export default async function RaceDetailPage({ params }: PageProps) {
           </p>
         </div>
         <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3">
-          <SeasonSelector
-            currentYear={seasonYear}
-            maxYear={getActiveSeasonYear()}
-            hrefTemplate="/schedule/{year}/1"
-          />
-          <RaceSelector
-            races={redactWinners(races, spoilers.hidden)}
-            currentRound={String(roundNumber)}
-            seasonYear={seasonYear}
-          />
-          {/* Watch-party mode, offered from the round it replays. Only for a
-              round that has actually run — there is nothing to replay
-              otherwise, and the watch page's empty state is for an unsynced
-              round, not an unraced one. */}
-          {isPast && (
-            <Link
-              href={`/watch/${seasonYear}-${roundNumber}`}
-              className="font-bold text-xs px-5 h-[46px] rounded-control flex items-center justify-center text-[#1a1210] transition-transform duration-150 active:scale-95"
-              style={{ background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
-            >
-              Watch at race pace
-            </Link>
-          )}
-          {/* Only sessions with a real classification are offered — see
-              `hasClassification` for the rounds that have rows and no order. */}
-          <RaceShareButton
-            hidden={hiddenRound !== null}
-            season={seasonYear}
-            round={roundNumber}
-            raceName={race.raceName}
-            sessions={[
-              ...(hasClassification(results) ? (["race"] as const) : []),
-              ...(hasClassification(sprintResults) ? (["sprint"] as const) : []),
-            ]}
-          />
+          {/* Two rows on a phone (the selectors side by side, then Watch and
+              share side by side) instead of five stacked full-width controls.
+              `sm:contents` dissolves both wrappers from `sm` up, so the
+              layout there is exactly what it was. */}
+          <div className="grid grid-cols-2 gap-3 sm:contents">
+            <SeasonSelector
+              currentYear={seasonYear}
+              maxYear={getActiveSeasonYear()}
+              hrefTemplate="/schedule/{year}/1"
+            />
+            <RaceSelector
+              races={redactWinners(races, spoilers.hidden)}
+              currentRound={String(roundNumber)}
+              seasonYear={seasonYear}
+            />
+          </div>
+          <div className="flex gap-3 sm:contents">
+            {/* Watch-party mode, offered from the round it replays. Only for a
+                round that has actually run — there is nothing to replay
+                otherwise, and the watch page's empty state is for an unsynced
+                round, not an unraced one. */}
+            {isPast && (
+              <Link
+                href={`/watch/${seasonYear}-${roundNumber}`}
+                className="flex-1 sm:flex-none font-bold text-xs px-5 h-[46px] rounded-control flex items-center justify-center text-[#1a1210] transition-transform duration-150 active:scale-95"
+                style={{ background: "linear-gradient(90deg,var(--color-primary),var(--color-primary-container))" }}
+              >
+                Watch at race pace
+              </Link>
+            )}
+            {/* Only sessions with a real classification are offered — see
+                `hasClassification` for the rounds that have rows and no order. */}
+            <RaceShareButton
+              hidden={hiddenRound !== null}
+              season={seasonYear}
+              round={roundNumber}
+              raceName={race.raceName}
+              sessions={[
+                ...(hasClassification(results) ? (["race"] as const) : []),
+                ...(hasClassification(sprintResults) ? (["sprint"] as const) : []),
+              ]}
+            />
+          </div>
           <Link
             href="/schedule"
-            className="font-bold text-xs px-5 h-[46px] rounded-control apex-glass-soft flex items-center justify-center hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-95"
+            className="hidden sm:flex font-bold text-xs px-5 h-[46px] rounded-control apex-glass-soft items-center justify-center hover:border-flame-bright/50 transition-[border-color,transform] duration-150 active:scale-95"
           >
             ← Back to schedule
           </Link>

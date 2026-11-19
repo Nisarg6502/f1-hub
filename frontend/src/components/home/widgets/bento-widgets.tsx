@@ -205,14 +205,18 @@ export function NextCircuitWidget({ data, size }: WidgetProps) {
           containerClassName="relative my-4 flex-1 min-h-[64px] max-h-[100px] rounded-tile"
           imgClassName="object-contain p-3 opacity-80"
         />
-        <div className="relative flex justify-between gap-3">
+        {/* Stacked, not side by side: in a half-width phone cell two columns
+            left each about 90px, and "Las Vegas" was cut to "Las V…". A name is
+            the one thing this card exists to say, so it may take two lines
+            before it is ever cut. */}
+        <div className="relative flex flex-col gap-2">
           <div className="min-w-0">
             <div className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-500">Circuit</div>
-            <div className="font-[family-name:var(--font-headline)] font-bold text-base mt-1 truncate">{shortCircuit}</div>
+            <div className="font-[family-name:var(--font-headline)] font-bold text-base mt-1 line-clamp-2 break-words">{shortCircuit}</div>
           </div>
-          <div className="text-right min-w-0">
+          <div className="min-w-0">
             <div className="font-semibold text-[10px] tracking-[0.12em] uppercase text-warm-500">Country</div>
-            <div className="font-[family-name:var(--font-headline)] font-bold text-base mt-1 truncate">
+            <div className="font-[family-name:var(--font-headline)] font-bold text-base mt-1 line-clamp-2 break-words">
               {c.country || "TBC"}
             </div>
           </div>
