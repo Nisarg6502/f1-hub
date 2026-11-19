@@ -71,6 +71,7 @@ import { ActivityAccordion, type ActivityEntry } from "./activity-accordion";
 import DictationButton from "./dictation-button";
 import { useDictation } from "@/lib/use-dictation";
 import { track } from "@/lib/analytics";
+import { signalAccountMoment } from "@/lib/one-tap";
 import { getAgentToken } from "@/lib/agent-auth";
 import type { Conversation } from "@/lib/chat-history";
 import ChatHistoryView from "./chat-history/chat-history-view";
@@ -725,6 +726,8 @@ export default function PitwallAssistantPanel({
             // aborts the fetch, which resolves the stream via the
             // `AbortError` catch below instead, never this callback.
             turnCompletedRef.current = true;
+            // An answer worth keeping: a signed-in reader's chat is saved.
+            signalAccountMoment();
           },
           onSuggestions: (suggestions) => patch((m) => ({ ...m, suggestions })),
           onError: (code, message) =>

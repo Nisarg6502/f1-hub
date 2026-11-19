@@ -55,6 +55,7 @@ import { SIZE_LABEL, WIDGET_REGISTRY } from "./registry";
 import { SIZE_CLASS, WidgetBody, WidgetCell } from "./widget-cell";
 import WidgetGallery from "./widget-gallery";
 import type { HomeData } from "./home-data";
+import { signalAccountMoment } from "@/lib/one-tap";
 import styles from "./home-grid.module.css";
 
 /**
@@ -162,6 +163,9 @@ export default function HomeGrid({
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const pendingFocus = useRef<string | null>(null);
+  // Whether anything was changed since editing began, so finishing a session
+  // the reader only opened and closed does not count as arranging their home.
+  const editedRef = useRef(false);
   const editButtonRef = useRef<HTMLButtonElement>(null);
 
   const announce = useCallback((text: string) => {
@@ -174,6 +178,7 @@ export default function HomeGrid({
    * edit on, and any edit other than a reset retires the reset's undo. */
   const apply = useCallback((next: HomeLayout, opts: { keepUndo?: boolean } = {}) => {
     setTakenOver(true);
+    editedRef.current = true;
     if (!opts.keepUndo) setUndoLayout(null);
     commitHomeLayout(next);
   }, []);
@@ -214,6 +219,11 @@ export default function HomeGrid({
     setUndoLayout(null);
     announce("Finished editing home.");
     pendingFocus.current = "__edit-button__";
+    // A home arranged by hand is something an account would keep.
+    if (editedRef.current) {
+      editedRef.current = false;
+      signalAccountMoment();
+    }
   }, [announce]);
 
   // Escape finishes editing when focus is on the home itself (the grid, the
