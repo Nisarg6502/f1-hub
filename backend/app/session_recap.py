@@ -37,6 +37,7 @@ import httpx
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
+from . import llm
 from .db import get_db
 from .classification import mark_lapped_finishers
 from .derived_cache import input_fingerprint
@@ -44,7 +45,6 @@ from .race_control_facts import summarize_race_control
 
 router = APIRouter(prefix="/api")
 
-OLLAMA_BASE = "https://ollama.com"
 OPENF1_BASE = "https://api.openf1.org/v1"
 
 # gpt-oss:120b over the 20b this shipped with: the smaller model produced a
@@ -648,62 +648,34 @@ SESSION_VALIDATORS = {"qualifying": _qualifying_violations}
 
 
 async def _generate_recap(facts: dict, system_prompt: str = SYSTEM_PROMPT, on_done=None):
-    """Stream recap text from Ollama Cloud, yielding content deltas.
+    """Stream recap text, yielding content deltas.
 
-    Yields nothing if `OLLAMA_API_KEY` is unset or the call fails — the
-    endpoint treats an empty result as "no recap available" rather than an
-    error, matching every other module here.
+    Goes through `llm.stream_text`, which tries Ollama Cloud and, if
+    configured, a fallback provider (see `llm.py`). Yields nothing when neither
+    works or no key is set — the endpoint treats an empty result as "no recap
+    available" rather than an error.
 
-    Only `message.content` is forwarded. Reasoning models on Ollama Cloud also
-    stream a `message.thinking` field carrying raw chain-of-thought; forwarding
-    it would leak reasoning traces into user-facing prose.
+    Only `message.content` is forwarded; the reasoning models' chain-of-thought
+    never reaches a reader (enforced in `llm.py`).
 
-    `on_done`, if given, is called once the stream reports `done`. A caller
-    that caches the whole text (`catch_up`) uses it to refuse a stream that
-    was cut off part-way, which otherwise looks like a short answer.
+    `on_done`, if given, is called once, and only when a provider closed its
+    stream cleanly. Every caller that caches the text (`get_session_recap`,
+    `catch_up`) uses it to refuse a stream that was cut off part-way, which
+    otherwise looks like a short answer.
     """
-    api_key = os.getenv("OLLAMA_API_KEY")
-    if not api_key:
-        return
-
-    payload = {
-        "model": os.getenv("OLLAMA_MODEL") or DEFAULT_MODEL,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": json.dumps(facts)},
-        ],
-        "stream": True,
-        # Near-greedy: this is a factual summarization task, and sampling
-        # variance is exactly what produced the v1 hallucination.
-        "options": {"temperature": 0.2},
-    }
-    headers = {"Authorization": f"Bearer {api_key}"}
-
-    try:
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            async with client.stream(
-                "POST", f"{OLLAMA_BASE}/api/chat", json=payload, headers=headers
-            ) as response:
-                if response.status_code != 200:
-                    print(f"Ollama recap call failed: HTTP {response.status_code}")
-                    return
-                async for line in response.aiter_lines():
-                    if not line.strip():
-                        continue
-                    try:
-                        chunk = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    content = ((chunk.get("message") or {}).get("content")) or ""
-                    if content:
-                        yield content
-                    if chunk.get("done"):
-                        if on_done:
-                            on_done()
-                        break
-    except httpx.HTTPError as error:
-        print(f"Ollama recap call failed: {error}")
-        return
+    result = llm.StreamResult()
+    async for chunk in llm.stream_text(
+        system_prompt,
+        json.dumps(facts),
+        model=os.getenv("OLLAMA_MODEL") or DEFAULT_MODEL,
+        # Near-greedy: a factual summarization task, and sampling variance is
+        # exactly what produced the v1 hallucination.
+        temperature=0.2,
+        result=result,
+    ):
+        yield chunk
+    if result.complete and on_done:
+        on_done()
 
 
 @router.get("/session_recap")
@@ -772,8 +744,13 @@ async def get_session_recap(
 
     validator = SESSION_VALIDATORS.get(session_key)
 
-    async def collect(prompt: str) -> str:
-        return "".join([chunk async for chunk in _generate_recap(facts, prompt)]).strip()
+    async def collect(prompt: str) -> tuple[str, bool]:
+        """The whole text, and whether the provider closed the stream cleanly."""
+        done: list[bool] = []
+        text = "".join(
+            [chunk async for chunk in _generate_recap(facts, prompt, on_done=lambda: done.append(True))]
+        ).strip()
+        return text, bool(done)
 
     async def generate_and_cache():
         if validator:
@@ -782,7 +759,7 @@ async def get_session_recap(
             # already reached the reader. Only the first viewer of a given
             # session pays this — every one after replays from cache — which is
             # the same trade the 120b model was chosen under.
-            full_text = await collect(system_prompt)
+            full_text, complete = await collect(system_prompt)
             violations = validator(full_text)
             if violations and full_text:
                 print(
@@ -795,20 +772,33 @@ async def get_session_recap(
                     f"They are banned because this is qualifying, not a race. "
                     f"Rewrite without them and without any synonym for winning."
                 )
-                retried = await collect(retry_prompt)
+                retried, retried_complete = await collect(retry_prompt)
                 # Kept even if it still fails: a second violation is rare, and
-                # a wrong word beats no recap at all.
-                full_text = retried or full_text
+                # a wrong word beats no recap at all. `complete` follows
+                # whichever text is kept.
+                if retried and (retried_complete or not complete):
+                    full_text, complete = retried, retried_complete
+                elif retried:
+                    # The retry was cut off but the draft was not. Show the
+                    # finished draft rather than a stub, but do not cache text
+                    # that is known to break the rules: the next reader gets a
+                    # fresh attempt.
+                    complete = False
             if full_text:
                 yield full_text
         else:
             parts: list[str] = []
-            async for chunk in _generate_recap(facts, system_prompt):
+            done: list[bool] = []
+            async for chunk in _generate_recap(facts, system_prompt, on_done=lambda: done.append(True)):
                 parts.append(chunk)
                 yield chunk
             full_text = "".join(parts).strip()
+            complete = bool(done)
 
-        if not full_text:
+        # Shown, but never cached, when the provider did not say it was done:
+        # a cut-off stream looks exactly like a short recap, and caching it
+        # would serve the stub to every later reader.
+        if not full_text or not complete:
             return
 
         try:

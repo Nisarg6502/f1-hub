@@ -1,7 +1,10 @@
+import asyncio
+import os
 import sys
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -269,6 +272,140 @@ class BuildFactsTests(unittest.TestCase):
         self.assertEqual(facts["undercut_overcut_events"], [])
         self.assertEqual(facts["field_size"], 0)
         self.assertIsNone(facts["field_common_stops"])
+
+
+
+STINTS = [
+    {"driver_number": 12, "stint_number": 1, "lap_start": 1, "lap_end": 21, "compound": "MEDIUM"},
+    {"driver_number": 12, "stint_number": 2, "lap_start": 22, "lap_end": 52, "compound": "HARD"},
+    {"driver_number": 23, "stint_number": 1, "lap_start": 1, "lap_end": 19, "compound": "MEDIUM"},
+    {"driver_number": 23, "stint_number": 2, "lap_start": 20, "lap_end": 52, "compound": "HARD"},
+]
+STOPS = [
+    {"driver_id": "antonelli", "lap": 22, "stop": 1},
+    {"driver_id": "albon", "lap": 20, "stop": 1},
+]
+LAPS = [
+    {"driver_number": 23, "lap_number": 19, "position": 2},
+    {"driver_number": 12, "lap_number": 19, "position": 1},
+]
+
+
+class FakeCollection:
+    def __init__(self, document=None):
+        self._document = document
+        self.update_one_calls = []
+
+    async def find_one(self, query=None, *args, **kwargs):
+        return self._document
+
+    async def update_one(self, query, update, upsert=False):
+        self.update_one_calls.append((query, update, upsert))
+
+
+def cut_off(chunks):
+    """A generator that streams `chunks` and ends without signalling a clean finish."""
+
+    async def fake(facts, on_done=None):
+        for chunk in chunks:
+            yield chunk
+
+    return fake
+
+
+def completes(chunks):
+    """The same, but the provider closes the stream cleanly."""
+
+    async def fake(facts, on_done=None):
+        for chunk in chunks:
+            yield chunk
+        if on_done:
+            on_done()
+
+    return fake
+
+
+class GenerateCommentaryTests(unittest.TestCase):
+    def test_yields_nothing_when_no_provider_is_configured(self):
+        async def drain():
+            return "".join([c async for c in strategy_commentary._generate_commentary({"race_name": "X"})])
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("OLLAMA_API_KEY", None)
+            for name in ("LLM_FALLBACK_BASE_URL", "LLM_FALLBACK_API_KEY", "LLM_FALLBACK_MODEL"):
+                os.environ.pop(name, None)
+            self.assertEqual(asyncio.run(drain()), "")
+
+
+def fake_stream(complete, chunks=("A",)):
+    """A stand-in for `llm.stream_text` that finishes cleanly or is cut off."""
+
+    async def fake(system_prompt, user_content, *, model=None, temperature=0.2, result=None, timeout_s=180.0):
+        for chunk in chunks:
+            yield chunk
+        result.complete = complete
+
+    return fake
+
+
+class GenerateCommentaryOnDoneTests(unittest.TestCase):
+    """The glue between `llm.StreamResult` and `on_done`, which the endpoint
+    tests bypass by patching `_generate_commentary` itself."""
+
+    def _run(self, complete):
+        done = []
+
+        async def drain():
+            return "".join(
+                [c async for c in strategy_commentary._generate_commentary({}, on_done=lambda: done.append(True))]
+            )
+
+        with patch.object(strategy_commentary.llm, "stream_text", fake_stream(complete)):
+            return asyncio.run(drain()), done
+
+    def test_on_done_fires_when_the_provider_finished(self):
+        self.assertEqual(self._run(True), ("A", [True]))
+
+    def test_on_done_is_silent_when_the_stream_was_cut_off(self):
+        self.assertEqual(self._run(False), ("A", []))
+
+
+class CommentaryEndpointCachingTests(unittest.TestCase):
+    def _db(self, cache):
+        return types.SimpleNamespace(
+            race_results=FakeCollection({"race": RACE, "results": RESULTS}),
+            race_stints=FakeCollection({"stints": STINTS}),
+            race_laps=FakeCollection({"laps": LAPS}),
+            pit_stops=FakeCollection({"stops": STOPS}),
+            strategy_commentary=cache,
+        )
+
+    def _run(self, generator, cache):
+        async def go():
+            response = await strategy_commentary.get_strategy_commentary(year=2026, round=9)
+            return "".join([chunk async for chunk in response.body_iterator])
+
+        with patch.object(strategy_commentary, "get_db", return_value=self._db(cache)), patch.object(
+            strategy_commentary, "_generate_commentary", side_effect=generator
+        ):
+            return asyncio.run(go())
+
+    def test_cut_off_commentary_is_not_cached(self):
+        cache = FakeCollection(None)
+
+        body = self._run(cut_off(["Albon ", "undercut"]), cache)
+
+        self.assertEqual(body, "Albon undercut")
+        self.assertEqual(cache.update_one_calls, [])
+
+    def test_complete_commentary_is_cached(self):
+        cache = FakeCollection(None)
+
+        body = self._run(completes(["Albon ", "undercut"]), cache)
+
+        self.assertEqual(body, "Albon undercut")
+        self.assertEqual(len(cache.update_one_calls), 1)
+        self.assertEqual(cache.update_one_calls[0][1]["$set"]["text"], "Albon undercut")
 
 
 if __name__ == "__main__":

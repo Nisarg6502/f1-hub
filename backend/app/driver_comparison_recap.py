@@ -31,16 +31,14 @@ no longer moves, a regenerated recap replaces the stale one in place.
 import json
 import os
 
-import httpx
 from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 
+from . import llm
 from .db import get_db
 from .derived_cache import input_fingerprint
 
 router = APIRouter(prefix="/api")
-
-OLLAMA_BASE = "https://ollama.com"
 
 # Same choice session_recap.py made, for the same reason: this is a factual
 # comparison task where confabulation is the main failure mode, and every
@@ -279,56 +277,27 @@ def build_facts(
     }
 
 
-async def _generate_recap(facts: dict, system_prompt: str = SYSTEM_PROMPT):
-    """Stream narrative text from Ollama Cloud, yielding content deltas.
+async def _generate_recap(facts: dict, system_prompt: str = SYSTEM_PROMPT, on_done=None):
+    """Stream narrative text, yielding content deltas.
 
-    Yields nothing if `OLLAMA_API_KEY` is unset or the call fails — the
+    Goes through `llm.stream_text`, which tries Ollama Cloud and, if
+    configured, a fallback provider. Yields nothing when neither works; the
     endpoint treats an empty result as "no narrative available" rather than
-    an error, matching `session_recap.py`'s convention. Deliberately its own
-    copy rather than a shared helper: this codebase does not factor the
-    Ollama-streaming call out (see `session_recap.py`'s module docstring),
-    so every recap-style endpoint owns one.
+    an error.
+
+    `on_done`, if given, is called once, and only when a provider closed its
+    stream cleanly. The endpoint caches only then.
     """
-    api_key = os.getenv("OLLAMA_API_KEY")
-    if not api_key:
-        return
-
-    payload = {
-        "model": os.getenv("OLLAMA_MODEL") or DEFAULT_MODEL,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": json.dumps(facts)},
-        ],
-        "stream": True,
-        # Near-greedy: this is a factual comparison task, and sampling
-        # variance is exactly what produces confabulated tallies.
-        "options": {"temperature": 0.2},
-    }
-    headers = {"Authorization": f"Bearer {api_key}"}
-
-    try:
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            async with client.stream(
-                "POST", f"{OLLAMA_BASE}/api/chat", json=payload, headers=headers
-            ) as response:
-                if response.status_code != 200:
-                    print(f"Ollama driver comparison call failed: HTTP {response.status_code}")
-                    return
-                async for line in response.aiter_lines():
-                    if not line.strip():
-                        continue
-                    try:
-                        chunk = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    content = ((chunk.get("message") or {}).get("content")) or ""
-                    if content:
-                        yield content
-                    if chunk.get("done"):
-                        break
-    except httpx.HTTPError as error:
-        print(f"Ollama driver comparison call failed: {error}")
-        return
+    result = llm.StreamResult()
+    async for chunk in llm.stream_text(
+        system_prompt,
+        json.dumps(facts),
+        model=os.getenv("OLLAMA_MODEL") or DEFAULT_MODEL,
+        result=result,
+    ):
+        yield chunk
+    if result.complete and on_done:
+        on_done()
 
 
 def _round_sort_key(round_str) -> int:
@@ -433,12 +402,14 @@ async def get_driver_comparison_recap(
 
     async def generate_and_cache():
         parts: list[str] = []
-        async for chunk in _generate_recap(facts):
+        finished: list[bool] = []
+        async for chunk in _generate_recap(facts, on_done=lambda: finished.append(True)):
             parts.append(chunk)
             yield chunk
         full_text = "".join(parts).strip()
 
-        if not full_text:
+        # Shown but never cached when the provider did not say it was done.
+        if not full_text or not finished:
             return
 
         try:
